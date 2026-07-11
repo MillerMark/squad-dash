@@ -18,7 +18,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        RepairFusedProseBoundaries(StripInboxMessageBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))).TrimEnd();
+        RepairFusedProseBoundaries(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -246,6 +246,21 @@ internal static class TranscriptTextUtilities
 
         // Strip partial block (still streaming), but only when the sentinel is on its
         // own top-level line. Inline references and code-fenced examples must remain visible.
+        var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
+        if (sentinelIdx >= 0)
+            return text[..sentinelIdx].TrimEnd();
+
+        return text;
+    }
+
+    private static string StripInboxMessageFileBlock(string text)
+    {
+        const string sentinel = AgentArtifactStore.InboxMessageFileMarker;
+
+        if (InboxMessageFileReferenceParser.TryExtract(text, out var extraction) &&
+            extraction is not null)
+            return extraction.VisibleText;
+
         var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
         if (sentinelIdx >= 0)
             return text[..sentinelIdx].TrimEnd();

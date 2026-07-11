@@ -8,6 +8,7 @@ namespace SquadDash;
 internal sealed record PromptInstructionSet(
     string TurnSummary,
     string CommitReporting,
+    string ArtifactFiles,
     string InboxMessage,
     string QuickReply,
     string CoordinatorDelegationAccountability,

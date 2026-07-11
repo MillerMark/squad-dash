@@ -61,6 +61,8 @@ export const InboxMessageInstruction =
     "  \"attachments\": []\n" +
     "}\n" +
     "\n" +
+    "For complex inbox messages whose body/actions/attachments contain long JSON, code fences, logs, or other parser-sensitive content, write the complete inbox JSON object to `.squad/tmp/agent-artifacts/<file>.json` and append `INBOX_MESSAGE_JSON_FILE:` with `{ \"path\": \".squad/tmp/agent-artifacts/<file>.json\", \"sha256\": \"optional sha256\" }` instead. Keep normal INBOX_MESSAGE_JSON as the default for short/simple messages.\n" +
+    "\n" +
     "For attachments, each item has a `type` field. Supported types:\n" +
     "- `\"url\"` — `{ \"type\": \"url\", \"label\": \"...\", \"href\": \"https://...\" }`\n" +
     "- `\"task-ref\"` — `{ \"type\": \"task-ref\", \"label\": \"...\", \"taskId\": \"...\" }`\n" +
@@ -81,5 +83,5 @@ export const InboxMessageInstruction =
  */
 export const MaintenanceInboxReminder =
     "<maintenance_inbox_reminder>\n" +
-    "If this task has safety: report-only, send your findings as an inbox message using INBOX_MESSAGE_JSON with `\"from\": \"argus-weld\"`. The subject should be the task title. The body should be your full report in Markdown.\n" +
+    "If this task has safety: report-only, send your findings as an inbox message using INBOX_MESSAGE_JSON with `\"from\": \"argus-weld\"`. The subject should be the task title. The body should be your full report in Markdown. If the report is large or parser-sensitive, write the complete inbox JSON to `.squad/tmp/agent-artifacts/` and send INBOX_MESSAGE_JSON_FILE instead.\n" +
     "</maintenance_inbox_reminder>";

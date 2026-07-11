@@ -722,6 +722,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
+        AgentArtifactStore.CleanupExpiredArchives(
+            _workspacePaths.ApplicationRoot,
+            DateTimeOffset.Now,
+            AgentArtifactStore.ArchiveRetention);
         var initialSettings = _settingsStore.Load();
         _bridge = new SquadSdkProcess(_workspacePaths);
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
@@ -24257,7 +24261,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // a word character with no intervening space or newline.
         TraceFusionPatternsInRawText(rawText, entry.Sequence);
 
-        var sanitizedText = SanitizeResponseText(rawText);
+        var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
+            SanitizeResponseText(rawText),
+            _workspacePaths.ApplicationRoot);
 
         var newBlocks = BuildResponseBlocks(entry, sanitizedText, entry.AllowQuickReplies).ToList();
         if (newBlocks.Count == 0)
@@ -36018,6 +36024,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             responseForParsing = withoutHostCommands;
         }
 
+        if (InboxMessageFileReferenceParser.TryExtract(responseForParsing, out var fileExtraction) &&
+            fileExtraction is not null)
+            return TrySaveInboxMessageFromFileReference(fileExtraction, responseForParsing);
+
         if (!InboxMessageParser.TryExtract(responseForParsing, out var extraction) ||
             extraction is null ||
             extraction.Message is not { } dto)
@@ -36034,13 +36044,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // A plain prose mention of "INBOX_MESSAGE_JSON" (e.g. in backtick code spans or
             // AI narration) lacks the colon+brace sequence and must NOT trigger the error panel.
             const string sentinel = "INBOX_MESSAGE_JSON:";
+            const string fileSentinel = AgentArtifactStore.InboxMessageFileMarker;
             int sentinelIdx = responseForParsing.LastIndexOf(sentinel, StringComparison.Ordinal);
+            int fileSentinelIdx = responseForParsing.LastIndexOf(fileSentinel, StringComparison.Ordinal);
             bool hasActualBlock = sentinelIdx >= 0 &&
                 responseForParsing.IndexOf('{', sentinelIdx + sentinel.Length) >= 0;
-            if (hasActualBlock)
+            bool hasActualFileBlock = fileSentinelIdx >= 0 &&
+                responseForParsing.IndexOf('{', fileSentinelIdx + fileSentinel.Length) >= 0;
+            if (hasActualBlock || hasActualFileBlock)
             {
                 // Extract a short snippet of the JSON text following the marker for diagnostics.
-                int jsonSnippetStart = responseForParsing.IndexOf('{', sentinelIdx + sentinel.Length);
+                var activeSentinelIdx = hasActualFileBlock && fileSentinelIdx > sentinelIdx
+                    ? fileSentinelIdx
+                    : sentinelIdx;
+                var activeSentinel = activeSentinelIdx == fileSentinelIdx
+                    ? fileSentinel
+                    : sentinel;
+                int jsonSnippetStart = responseForParsing.IndexOf('{', activeSentinelIdx + activeSentinel.Length);
                 var jsonSnippet = jsonSnippetStart >= 0 && responseForParsing.Length - jsonSnippetStart > 0
                     ? responseForParsing.Substring(jsonSnippetStart, Math.Min(200, responseForParsing.Length - jsonSnippetStart))
                     : "(no opening brace found)";
@@ -36049,7 +36069,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     ? "...(truncated)...\n" + responseForParsing[^3000..]
                     : responseForParsing;
                 var parseExMessage =
-                    $"INBOX_MESSAGE_JSON was present in the response but could not be parsed as valid JSON.\n\n" +
+                    $"{activeSentinel.TrimEnd(':')} was present in the response but could not be parsed as valid JSON.\n\n" +
                     $"Response length: {responseForParsing.Length} chars\n\n" +
                     $"--- JSON head (first 200 chars after marker) ---\n{jsonSnippet}";
 
@@ -36172,6 +36192,128 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         AppendInboxReceivedEntry(message.Subject, message.Id);
 
         return message.Id;
+    }
+
+    private string? TrySaveInboxMessageFromFileReference(
+        InboxMessageFileReferenceExtraction extraction,
+        string responseForParsing)
+    {
+        if (_inboxStore is null)
+            return null;
+
+        if (!AgentArtifactStore.TryMaterialize(
+                _workspacePaths.ApplicationRoot,
+                extraction.Reference,
+                AgentArtifactStore.DefaultMaxInboxBytes,
+                archive: true,
+                out var artifact,
+                out var artifactError) ||
+            artifact is null)
+        {
+            return SaveDegradedInboxFileMessage(
+                $"INBOX_MESSAGE_JSON_FILE could not be loaded.\n\nPath: {extraction.Reference.Path}\nError: {artifactError}",
+                responseForParsing);
+        }
+
+        if (!InboxMessageParser.TryParseJsonObject(artifact.Content, out var dto) || dto is null)
+        {
+            return SaveDegradedInboxFileMessage(
+                $"INBOX_MESSAGE_JSON_FILE was loaded but did not contain a parseable inbox JSON object.\n\n" +
+                $"Source: {artifact.SourceRelativePath}\n" +
+                $"Archive: {artifact.ArchivedRelativePath ?? "(not archived)"}\n" +
+                $"SHA-256: {artifact.Sha256}",
+                responseForParsing);
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Subject))
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"INBOX_SAVE: skipped file inbox — subject is empty (from={dto.From})");
+            return null;
+        }
+
+        var attachments = dto.Attachments.ToList();
+        attachments.Add(new InboxAttachment
+        {
+            Type = "text",
+            Label = "Inbox source artifact",
+            Content =
+                $"Source: {artifact.SourceRelativePath}\n" +
+                $"Archive: {artifact.ArchivedRelativePath ?? "(not archived)"}\n" +
+                $"SHA-256: {artifact.Sha256}\n" +
+                $"Bytes: {artifact.ByteLength}"
+        });
+
+        var message = new InboxMessage
+        {
+            Id          = Guid.NewGuid().ToString("N"),
+            Subject     = dto.Subject,
+            From        = dto.From,
+            Body        = dto.Body,
+            Priority    = dto.Priority,
+            Timestamp   = DateTimeOffset.Now,
+            GitSha      = null,
+            Attachments = attachments,
+            Actions     = dto.Actions,
+        };
+
+        if (_inboxStore.FindRecentSimilarMessage(message, TimeSpan.FromMinutes(5)) is { } existing)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"INBOX_SAVE: skipped duplicate file inbox id={existing.Id} subject=\"{existing.Subject}\"");
+            return existing.Id;
+        }
+
+        _inboxStore.Save(message);
+
+        var capturedStore = _inboxStore;
+        var capturedRoot  = _workspacePaths.ApplicationRoot;
+        var capturedMsg   = message;
+        _ = TryGetGitShaAsync(capturedRoot).ContinueWith(t =>
+        {
+            if (t.IsCompletedSuccessfully && t.Result is string sha)
+                capturedStore.Save(capturedMsg with { GitSha = sha });
+        }, TaskScheduler.Default);
+
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"INBOX_SAVE: saved file inbox id={message.Id} subject=\"{message.Subject}\" archive=\"{artifact.ArchivedRelativePath ?? "(none)"}\"");
+
+        if (_inboxPanel is not null)
+            _inboxPanel.Refresh(_inboxStore.LoadAll());
+
+        AppendInboxReceivedEntry(message.Subject, message.Id);
+        return message.Id;
+    }
+
+    private string SaveDegradedInboxFileMessage(string details, string rawResponse)
+    {
+        var rawSample = rawResponse.Length > 3000
+            ? "...(truncated)...\n" + rawResponse[^3000..]
+            : rawResponse;
+
+        var degradedMessage = new InboxMessage
+        {
+            Id          = Guid.NewGuid().ToString("N"),
+            Subject     = "Inbox message file (parse error)",
+            From        = "system",
+            Body        = "This inbox message file could not be fully parsed. The details are attached below.",
+            Timestamp   = DateTimeOffset.Now,
+            Attachments = [
+                new InboxAttachment { Type = "text", Label = "Parse error details", Content = details },
+                new InboxAttachment { Type = "text", Label = "Raw response", Content = rawSample },
+            ],
+            Actions = [],
+        };
+
+        _inboxStore!.Save(degradedMessage);
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"INBOX_SAVE: saved degraded file inbox id={degradedMessage.Id} subject=\"{degradedMessage.Subject}\"");
+
+        if (_inboxPanel is not null)
+            _inboxPanel.Refresh(_inboxStore.LoadAll());
+
+        AppendInboxReceivedEntry(degradedMessage.Subject, degradedMessage.Id);
+        return degradedMessage.Id;
     }
 
     /// <summary>

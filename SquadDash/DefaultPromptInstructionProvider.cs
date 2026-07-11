@@ -20,6 +20,8 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "APPROVAL_GROUP_JSON:\n" +
             "{\"sha\":\"<7-char-hash>\",\"group\":\"<feature-group>\"}\n" +
             "Choose a descriptive group name that reflects what the commit does (e.g. \"Guided Tour\", \"Developer Experience\", \"Bug Fixes\").",
+        ArtifactFiles:
+            AgentArtifactStore.BuildPromptInstruction(),
         InboxMessage:
             "<inbox_instructions>\n" +
             "You may send the user a message to their Inbox panel by appending an INBOX_MESSAGE_JSON block at the very end of your response, after all other content. Use this when:\n" +
@@ -37,6 +39,8 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "  \"body\": \"Full response body in Markdown\",\n" +
             "  \"attachments\": []\n" +
             "}\n" +
+            "\n" +
+            "For complex inbox messages whose body/actions/attachments contain long JSON, code fences, logs, or other parser-sensitive content, use the artifact-file escape hatch instead: write the complete inbox JSON object to `.squad/tmp/agent-artifacts/<file>.json`, then append an INBOX_MESSAGE_JSON_FILE manifest with the path. Keep normal INBOX_MESSAGE_JSON as the default for short/simple messages.\n" +
             "\n" +
             "For attachments, each item has a `type` field. Supported types:\n" +
             "- `\"url\"` — `{ \"type\": \"url\", \"label\": \"...\", \"href\": \"https://...\" }`\n" +

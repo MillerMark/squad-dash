@@ -169,6 +169,29 @@ internal static class InboxMessageParser
         }
     }
 
+    internal static bool TryParseJsonObject(string jsonText, out InboxMessageDto? dto)
+    {
+        dto = null;
+        if (string.IsNullOrWhiteSpace(jsonText))
+            return false;
+
+        try
+        {
+            var sanitized = SanitizeMalformedStringContent(jsonText.Replace("\r\n", "\n").Replace('\r', '\n'));
+            dto = JsonSerializer.Deserialize<InboxMessageDto>(sanitized, ParseOptions);
+            if (dto is null)
+                return false;
+
+            dto = StripNoOpDoneActions(dto);
+            return true;
+        }
+        catch (JsonException)
+        {
+            dto = null;
+            return false;
+        }
+    }
+
     private static string CombineVisibleText(string before, string after)
     {
         if (string.IsNullOrWhiteSpace(before))

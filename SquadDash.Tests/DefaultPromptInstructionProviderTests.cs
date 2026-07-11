@@ -17,6 +17,20 @@ internal sealed class DefaultPromptInstructionProviderTests
     }
 
     [Test]
+    public void ArtifactInstruction_ProvidesOptionalFileEscapeHatch()
+    {
+        var instructions = new DefaultPromptInstructionProvider().Get();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instructions.ArtifactFiles, Does.Contain("SQUADDASH_ARTIFACT_JSON"));
+            Assert.That(instructions.ArtifactFiles, Does.Contain(".squad/tmp/agent-artifacts/"));
+            Assert.That(instructions.ArtifactFiles, Does.Contain("INBOX_MESSAGE_JSON_FILE"));
+            Assert.That(instructions.InboxMessage, Does.Contain("Keep normal INBOX_MESSAGE_JSON as the default"));
+        });
+    }
+
+    [Test]
     public void CommitReportingInstruction_RequiresBareShortHash()
     {
         var instruction = new DefaultPromptInstructionProvider().Get().CommitReporting;

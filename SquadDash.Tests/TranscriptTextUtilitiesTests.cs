@@ -102,6 +102,20 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_InboxMessageJsonFileBlock_StripsDeliveredPayload() {
+        const string text = """
+            Report ready.
+
+            INBOX_MESSAGE_JSON_FILE:
+            { "path": ".squad/tmp/agent-artifacts/inbox.json" }
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("Report ready."));
+    }
+
+    [Test]
     public void SanitizeResponseText_TopLevelApprovalGroupBlock_StripsFromDisplay() {
         const string text = """
             Committed: abc1234
