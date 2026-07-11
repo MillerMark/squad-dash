@@ -748,6 +748,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             QueueAutoSave();
         };
 
+        // Push an undo snapshot the moment focus leaves either text box so the
+        // snapshot reflects in-flight edits rather than waiting for the auto-save timer.
+        _markdownBox.LostFocus += (_, _) => { if (!_isLoadingStep) { SaveCurrentFieldsToStep(); PushUndoSnapshot(); } };
+        _titleBox.LostFocus    += (_, _) => { if (!_isLoadingStep) { SaveCurrentFieldsToStep(); PushUndoSnapshot(); } };
+
         SnapshotCurrentValues();
 
         PreviewKeyDown += (_, e) =>
@@ -784,11 +789,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 }
             }
 
-            // Ctrl+Z: undo last change
+            // Ctrl+Z: undo last change — but yield to the focused TextBox so WPF's
+            // native per-control undo runs first.  Only intercept when no TextBox
+            // has keyboard focus.
             if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) != 0
                 && (Keyboard.Modifiers & ModifierKeys.Shift) == 0
                 && (Keyboard.Modifiers & ModifierKeys.Alt) == 0)
             {
+                if (FocusManager.GetFocusedElement(this) is TextBox)
+                    return; // let WPF route to TextBox natively
                 UndoLastChange();
                 e.Handled = true;
                 return;

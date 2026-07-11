@@ -394,3 +394,5 @@ Squad.SDK/*.js
 Squad.SDK/*.js.map
 Squad.SDK/tsconfig.tsbuildinfo
 /.squad/ralph-circuit-breaker.json
+/.squad/archive/agent-artifacts/2026-07-11
+/.squad/tmp/agent-artifacts
