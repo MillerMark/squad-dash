@@ -320,6 +320,9 @@
     <Compile Include="..\SquadDash\Hints\HintSettings.cs" Link="Source\Hints\HintSettings.cs" />
     <Compile Include="..\SquadDash\Hints\HintEngine.cs" Link="Source\Hints\HintEngine.cs" />
 
+    <!-- Guided Tour state store -->
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourStateStore.cs" Link="Source\GuidedTours\GuidedTourStateStore.cs" />
+
     <!-- Guided Tour advance triggers -->
     <Compile Include="..\SquadDash\GuidedTours\IGuidedTourAdvanceTrigger.cs" Link="Source\GuidedTours\IGuidedTourAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\QuickReplySelectedAdvanceTrigger.cs" Link="Source\GuidedTours\QuickReplySelectedAdvanceTrigger.cs" />
