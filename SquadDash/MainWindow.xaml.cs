@@ -14006,6 +14006,53 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     }
                 }
 
+                // Lazy-resolve TourDemoAgentSpinner_{name}
+                if (name.StartsWith("TourDemoAgentSpinner_", StringComparison.Ordinal))
+                {
+                    var agentName = name.Substring("TourDemoAgentSpinner_".Length);
+                    var liveCard = _activeAgentCards
+                        .Concat(_inactiveAgentCards)
+                        .FirstOrDefault(c => string.Equals(c.Name, agentName, StringComparison.OrdinalIgnoreCase));
+                    if (liveCard is not null)
+                    {
+                        var liveBorder = FindAgentCardBorderForCard(liveCard);
+                        if (liveBorder is not null)
+                        {
+                            var spinner = VisualTreeSearch.FindChild<ActivitySpinner>(liveBorder);
+                            if (spinner is not null) { _tourNamedElements[name] = spinner; return spinner; }
+                        }
+                    }
+                }
+
+                // Lazy-resolve TourDemoAgentTitle_{name}
+                if (name.StartsWith("TourDemoAgentTitle_", StringComparison.Ordinal))
+                {
+                    var agentName = name.Substring("TourDemoAgentTitle_".Length);
+                    var liveCard = _activeAgentCards
+                        .Concat(_inactiveAgentCards)
+                        .FirstOrDefault(c => string.Equals(c.Name, agentName, StringComparison.OrdinalIgnoreCase));
+                    if (liveCard is not null)
+                    {
+                        var liveBorder = FindAgentCardBorderForCard(liveCard);
+                        if (liveBorder is not null)
+                        {
+                            var nameText = VisualTreeSearch.FindChildByName<TextBlock>(liveBorder, "AgentNameText");
+                            if (nameText is not null) { _tourNamedElements[name] = nameText; return nameText; }
+                        }
+                    }
+                }
+
+                // Lazy-resolve TourDemoAgentTranscriptTitle_{name}
+                if (name.StartsWith("TourDemoAgentTranscriptTitle_", StringComparison.Ordinal))
+                {
+                    var agentName = name.Substring("TourDemoAgentTranscriptTitle_".Length);
+                    if (_tourNamedDemoAgents.TryGetValue(agentName, out var demoEntry))
+                    {
+                        var se = _secondaryTranscripts.FirstOrDefault(e => e.Agent == demoEntry.Card);
+                        if (se is not null) { _tourNamedElements[name] = se.TitleBlock; return se.TitleBlock; }
+                    }
+                }
+
                 var inMain = VisualTreeSearch.FindByName(this, name);
                 if (inMain is not null) return inMain;
                 if (_preferencesWindow is { IsVisible: true })
@@ -14165,6 +14212,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             _tourNamedElements.Remove($"TourDemoAgent_{name}");
             _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
 
             threadsToRemove.Add(thread);
         }
@@ -14976,7 +15026,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
+            {
                 _tourNamedElements[$"TourDemoAgentTranscript_{name}"] = secondaryEntry.PanelBorder;
+                _tourNamedElements[$"TourDemoAgentTranscriptTitle_{name}"] = secondaryEntry.TitleBlock;
+            }
+
+            // Register the spinner and name label inside the card's visual container.
+            var cardContainer = FindAgentCardBorderForCard(card);
+            if (cardContainer is not null)
+            {
+                var spinner = VisualTreeSearch.FindChild<ActivitySpinner>(cardContainer);
+                if (spinner is not null)
+                    _tourNamedElements[$"TourDemoAgentSpinner_{name}"] = spinner;
+
+                var nameText = VisualTreeSearch.FindChildByName<TextBlock>(cardContainer, "AgentNameText");
+                if (nameText is not null)
+                    _tourNamedElements[$"TourDemoAgentTitle_{name}"] = nameText;
+            }
 
             // Start an animated spinner so the demo card looks like it's actively working.
             if (!_tourDemoAgentSpinnerTimers.ContainsKey(name))
@@ -15116,6 +15182,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 CloseSecondaryPanel(secondaryEntry);
 
             _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
         });
 
         _tourCommandRegistry.Register("RemoveAllDemoAgents", () =>
@@ -15143,6 +15212,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             _tourNamedElements.Remove($"TourDemoAgent_{name}");
             _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
             _tourNamedDemoAgents.Remove(name);
 
             RemovePrimaryAgentTranscriptHosts([thread]);
