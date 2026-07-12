@@ -966,9 +966,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         else if (minTargetDistance == leftTargetDistance)
             data.TargetDangleSide = CalloutSide.Left;
 
+        static string Fmt(double d) => d >= double.MaxValue ? "∞" : $"{d:F1}";
         SquadDashTrace.Write(TraceCategory.Callouts,
-            $"SetCalloutSides: callout distances top={topCalloutDistance:F1} right={rightCalloutDistance:F1} bottom={bottomCalloutDistance:F1} left={leftCalloutDistance:F1} → CalloutDangleSide={data.CalloutDangleSide} | " +
-            $"target distances top={topTargetDistance:F1} right={rightTargetDistance:F1} bottom={bottomTargetDistance:F1} left={leftTargetDistance:F1} → TargetDangleSide={data.TargetDangleSide}");
+            $"SetCalloutSides: callout distances top={Fmt(topCalloutDistance)} right={Fmt(rightCalloutDistance)} bottom={Fmt(bottomCalloutDistance)} left={Fmt(leftCalloutDistance)} → CalloutDangleSide={data.CalloutDangleSide} | " +
+            $"target distances top={Fmt(topTargetDistance)} right={Fmt(rightTargetDistance)} bottom={Fmt(bottomTargetDistance)} left={Fmt(leftTargetDistance)} → TargetDangleSide={data.TargetDangleSide}");
     }
 
     private static double Min(params double[] args) => args.Min();
@@ -2457,6 +2458,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void StartAnimatingTowardTarget() {
         CalculateWindowPosition(out MyLine testLine, out GuidelineIntersectionData guidelineIntersectionData);
+        AdjustAngleForOnScreenPlacement(ref testLine, ref guidelineIntersectionData);
         AnimateFrom(Left, Top);
     }
 
