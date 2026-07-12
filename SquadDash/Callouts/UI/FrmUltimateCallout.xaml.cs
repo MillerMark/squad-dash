@@ -1244,12 +1244,20 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// until a valid placement is found. Falls back to clamping when no angle keeps the callout on-screen
     /// (e.g. the target fills most of the screen).
     /// </summary>
-    private void AdjustAngleForOnScreenPlacement(ref MyLine testLine, ref GuidelineIntersectionData guidelineIntersectionData) {
+    private void AdjustAngleForOnScreenPlacement(ref MyLine testLine, ref GuidelineIntersectionData guidelineIntersectionData, bool allowEdgeHugging = true) {
         double windowWidth  = Width;
         double windowHeight = Height;
         Rect workArea = GetWorkAreaForTargetLogical();
 
-        if (IsCalloutOnScreen(windowLeft, windowTop, windowWidth, windowHeight, workArea))
+        const double edgeMargin = 20.0;
+        bool isOnScreen = IsCalloutOnScreen(windowLeft, windowTop, windowWidth, windowHeight, workArea);
+        bool isEdgeHugging = !allowEdgeHugging && (
+            windowLeft < workArea.Left + edgeMargin ||
+            windowTop < workArea.Top + edgeMargin ||
+            windowLeft + windowWidth > workArea.Right - edgeMargin ||
+            windowTop + windowHeight > workArea.Bottom - edgeMargin);
+
+        if (isOnScreen && !isEdgeHugging)
             return;
 
         double requestedAngle = lastCalloutAngle;
@@ -1264,11 +1272,18 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             CalculateWindowPosition(out MyLine candidateLine, out GuidelineIntersectionData candidateData);
 
             if (IsCalloutOnScreen(windowLeft, windowTop, windowWidth, windowHeight, workArea)) {
-                testLine = candidateLine;
-                guidelineIntersectionData = candidateData;
-                SquadDashTrace.Write(TraceCategory.Callouts,
-                    $"AdjustAngleForOnScreenPlacement: found on-screen angle {lastCalloutAngle:F1}° (requested {requestedAngle:F1}°) windowPos=({windowLeft:F1},{windowTop:F1})");
-                return;
+                bool candidateEdgeHugging = !allowEdgeHugging && (
+                    windowLeft < workArea.Left + edgeMargin ||
+                    windowTop < workArea.Top + edgeMargin ||
+                    windowLeft + windowWidth > workArea.Right - edgeMargin ||
+                    windowTop + windowHeight > workArea.Bottom - edgeMargin);
+                if (!candidateEdgeHugging) {
+                    testLine = candidateLine;
+                    guidelineIntersectionData = candidateData;
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"AdjustAngleForOnScreenPlacement: found on-screen angle {lastCalloutAngle:F1}° (requested {requestedAngle:F1}°) windowPos=({windowLeft:F1},{windowTop:F1})");
+                    return;
+                }
             }
         }
 
@@ -2295,9 +2310,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
                 double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
                 if (Math.Abs(tp3x - tp2x) < minDangleBase) {
-                    double midX = Math.Clamp((tp2x + tp3x) / 2, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
-                    tp2x = midX - minDangleBase / 2;
-                    tp3x = midX + minDangleBase / 2;
+                    // Center the base around the tip's X projection, clamped to callout bounds
+                    double tipX = Math.Clamp(trianglePoint1.X, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
+                    tp2x = tipX - minDangleBase / 2;
+                    tp3x = tipX + minDangleBase / 2;
                 }
                 trianglePoint2 = new Point(tp2x, trianglePoint2.Y);
                 trianglePoint3 = new Point(tp3x, trianglePoint3.Y);
@@ -2308,14 +2324,36 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
                 double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
                 if (Math.Abs(tp3y - tp2y) < minDangleBase) {
-                    double midY = Math.Clamp((tp2y + tp3y) / 2, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
-                    tp2y = midY - minDangleBase / 2;
-                    tp3y = midY + minDangleBase / 2;
+                    // Center the base around the tip's Y projection, clamped to callout bounds
+                    double tipY = Math.Clamp(trianglePoint1.Y, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
+                    tp2y = tipY - minDangleBase / 2;
+                    tp3y = tipY + minDangleBase / 2;
                 }
                 trianglePoint2 = new Point(trianglePoint2.X, tp2y);
                 trianglePoint3 = new Point(trianglePoint3.X, tp3y);
                 break;
             }
+        }
+
+        // Enforce minimum triangle height (perpendicular distance from base to tip).
+        const double minDangleHeight = 8.0;
+        switch (data.CalloutDangleSide) {
+            case CalloutSide.Bottom:
+                if (trianglePoint1.Y - trianglePoint2.Y < minDangleHeight)
+                    trianglePoint1 = new Point(trianglePoint1.X, trianglePoint2.Y + minDangleHeight);
+                break;
+            case CalloutSide.Top:
+                if (trianglePoint2.Y - trianglePoint1.Y < minDangleHeight)
+                    trianglePoint1 = new Point(trianglePoint1.X, trianglePoint2.Y - minDangleHeight);
+                break;
+            case CalloutSide.Left:
+                if (trianglePoint2.X - trianglePoint1.X < minDangleHeight)
+                    trianglePoint1 = new Point(trianglePoint2.X - minDangleHeight, trianglePoint1.Y);
+                break;
+            case CalloutSide.Right:
+                if (trianglePoint1.X - trianglePoint2.X < minDangleHeight)
+                    trianglePoint1 = new Point(trianglePoint2.X + minDangleHeight, trianglePoint1.Y);
+                break;
         }
 
         _isDangleActive = true;
@@ -2475,7 +2513,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     void StartAnimatingTowardTarget() {
         CalculateWindowPosition(out MyLine testLine, out GuidelineIntersectionData guidelineIntersectionData);
-        AdjustAngleForOnScreenPlacement(ref testLine, ref guidelineIntersectionData);
+        AdjustAngleForOnScreenPlacement(ref testLine, ref guidelineIntersectionData, allowEdgeHugging: false);
         AnimateFrom(Left, Top);
     }
 
