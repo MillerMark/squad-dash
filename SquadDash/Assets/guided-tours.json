@@ -115,7 +115,7 @@
       },
       {
         "title": "Prompts navigation",
-        "markdownText": "Jump to past prompts.",
+        "markdownText": "Access past prompts.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -123,6 +123,30 @@
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Agents in Parallel",
+        "markdownText": "Agents spawned by the coordinator appear here.",
+        "targetControlId": "TourDemoAgent_MaxSmart",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CreateDemoAgent|MaxSmart",
+          "ActivateDemoAgent|MaxSmart",
+          "InjectDemoAgentTools|MaxSmart|powershell:Scanning source files:Found 347 .cs files\\npowershell:Reading architecture docs:README.md, DECISIONS.md",
+          "InjectDemoAgentTurn|MaxSmart||Here\u0027s what I found in the codebase..."
+        ],
+        "commandsAfter": [
+          "CleanUpAllNamedDemoAgents",
+          "CloseFirstInactiveAgentPanel",
+          "RemoveTourSimulatedAgent",
+          "SelectCoordinatorTranscript"
+        ],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
@@ -491,13 +515,13 @@
           "UnhighlightElements",
           "SelectPreferencesPage: Provider"
         ],
-        "advanceTrigger": "PreferencePageSelected: Voice",
+        "advanceTrigger": "PreferencePageSelected: Provider",
         "targetOffsetX": 0,
         "targetOffsetY": 0.5509615384615381
       },
       {
         "title": "Speech Provider",
-        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended.\r\nSpecify your **API key** and any other needed settings down below.",
+        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended.\r\nSpecify your **API key** and any other needed settings below.",
         "targetControlId": "SpeechProvider_Azure",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -514,7 +538,7 @@
       {
         "title": "PTT Options",
         "markdownText": "This page allows you to set your push to talk (PTT) options.",
-        "targetControlId": "PrefPageHost",
+        "targetControlId": "PrefNav_PushToTalk",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
@@ -524,23 +548,94 @@
           "HighlightElement: PrefNav_PushToTalk"
         ],
         "commandsAfter": [
-          "UnhighlightElements"
+          "UnhighlightElements",
+          "SelectPreferencesPage: Push to Talk"
         ],
         "advanceTrigger": "PreferencePageSelected: Push to Talk",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
+        "targetOffsetX": 0.22596153846153835,
+        "targetOffsetY": 0.4451923076923073
       },
       {
-        "title": "PTT Options.",
-        "markdownText": "These buttons that impact how the",
-        "targetControlId": "",
+        "title": "Send immediately or confirm before send.",
+        "markdownText": "These options impact how Push to Talk (PTT) behaves when you **release** the **Ctrl** key.",
+        "targetControlId": "Ptt_BehaviorGroup",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.14663461538461525,
+        "targetOffsetY": 0.7817307692307688
+      },
+      {
+        "title": "Send immediately.",
+        "markdownText": "This first option is the **fastest**. \r\nYour spoken words are sent immediately when you release the **Ctrl** key.\r\nIf you want to **edit** the prompt you must tap **Shift** before you release the **Ctrl** key (to prevent the immediate send).",
+        "targetControlId": "Ptt_AutoSend",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "SelectPreferencesPage: Push to Talk"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.08894230769230756,
+        "targetOffsetY": 0.4740384615384611
+      },
+      {
+        "title": "Do Nothing",
+        "markdownText": "This second option is the **safest**.\r\nHowever, you must press **Enter** after dictating to send your prompt.",
+        "targetControlId": "Ptt_DoNothing",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "SelectPreferencesPage: Push to Talk"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.08894230769230756,
+        "targetOffsetY": 0.4740384615384611
+      },
+      {
+        "title": "Replacements",
+        "markdownText": "This page allows you to set up automatic replacements for your spoken words.",
+        "targetControlId": "PrefNav_Replacements",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "HighlightElement: PrefNav_Replacements"
+        ],
+        "commandsAfter": [
+          "UnhighlightElements",
+          "Add Dummy Queue Items"
+        ],
+        "advanceTrigger": "PreferencePageSelected: Push to Talk",
+        "targetOffsetX": 0.22596153846153835,
+        "targetOffsetY": 0.4451923076923073
+      },
+      {
+        "title": "Click Close.",
+        "markdownText": "Click **CLose** when you\u0027re done.",
+        "targetControlId": "Preferences_SaveButton",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
-        "advanceTrigger": "",
+        "advanceTrigger": "PreferencesClosed",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
