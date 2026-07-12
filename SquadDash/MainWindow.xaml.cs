@@ -244,6 +244,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private AgentStatusCard? _tourFirstInactiveAgentCard;  // the idle card selected for the tour
     private AgentStatusCard? _tourSimulatedAgentCard;       // non-null only if we created a synthetic card
     private readonly Dictionary<string, (AgentStatusCard Card, TranscriptThreadState Thread)> _tourNamedDemoAgents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DispatcherTimer> _tourDemoAgentSpinnerTimers = new(StringComparer.OrdinalIgnoreCase);
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -14148,6 +14149,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_tourNamedDemoAgents.Count == 0) return;
 
+        foreach (var (name, timer) in _tourDemoAgentSpinnerTimers)
+            timer.Stop();
+        _tourDemoAgentSpinnerTimers.Clear();
+
         var threadsToRemove = new List<TranscriptThreadState>();
 
         foreach (var (name, (card, thread)) in _tourNamedDemoAgents)
@@ -14972,6 +14977,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
                 _tourNamedElements[$"TourDemoAgentTranscript_{name}"] = secondaryEntry.PanelBorder;
+
+            // Start an animated spinner so the demo card looks like it's actively working.
+            if (!_tourDemoAgentSpinnerTimers.ContainsKey(name))
+            {
+                var rng   = new Random();
+                var timer = new DispatcherTimer(DispatcherPriority.Background);
+                timer.Interval = TimeSpan.FromMilliseconds(rng.Next(200, 400));
+                timer.Tick += (_, _) =>
+                {
+                    // Weighted random: 50% Thinking, 35% Reading, 15% Writing
+                    var roll = rng.NextDouble();
+                    var kind = roll < 0.50
+                        ? SpinnerActivityKind.Thinking
+                        : roll < 0.85
+                            ? SpinnerActivityKind.Reading
+                            : SpinnerActivityKind.Writing;
+
+                    if (_tourNamedDemoAgents.TryGetValue(name, out var current))
+                        current.Card.FireActivityPulse(kind);
+
+                    // Randomize next interval for an organic feel
+                    timer.Interval = TimeSpan.FromMilliseconds(rng.Next(200, 400));
+                };
+                timer.Start();
+                _tourDemoAgentSpinnerTimers[name] = timer;
+            }
         });
 
         _tourCommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTurn", async arg =>
@@ -15090,6 +15121,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.Register("RemoveAllDemoAgents", () =>
         {
             CleanUpAllNamedDemoAgents();
+        });
+
+        _tourCommandRegistry.RegisterParameterized("RemoveDemoAgent", arg =>
+        {
+            var name = arg.Trim();
+            if (!_tourNamedDemoAgents.TryGetValue(name, out var entry)) return;
+            var (card, thread) = entry;
+
+            if (_tourDemoAgentSpinnerTimers.TryGetValue(name, out var timer))
+            {
+                timer.Stop();
+                _tourDemoAgentSpinnerTimers.Remove(name);
+            }
+
+            var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
+            if (secondaryEntry is not null) CloseSecondaryPanel(secondaryEntry);
+
+            _inactiveAgentCards.Remove(card);
+            _agents.Remove(card);
+
+            _tourNamedElements.Remove($"TourDemoAgent_{name}");
+            _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _tourNamedDemoAgents.Remove(name);
+
+            RemovePrimaryAgentTranscriptHosts([thread]);
+            _agentThreadRegistry.RemoveThreads([thread]);
+            SyncAgentCardsWithThreads();
         });
     }
 
