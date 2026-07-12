@@ -2288,17 +2288,34 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         double cbRight  = Math.Max(cbLeft, OutsideMargin + calloutWidth);
         double cbTop    = OutsideMargin;
         double cbBottom = Math.Max(cbTop,  OutsideMargin + calloutHeight);
+        const double minDangleBase = 8.0;
         switch (data.CalloutDangleSide) {
             case CalloutSide.Top:
-            case CalloutSide.Bottom:
-                trianglePoint2 = new Point(Math.Clamp(trianglePoint2.X, cbLeft, cbRight), trianglePoint2.Y);
-                trianglePoint3 = new Point(Math.Clamp(trianglePoint3.X, cbLeft, cbRight), trianglePoint3.Y);
+            case CalloutSide.Bottom: {
+                double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
+                double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
+                if (Math.Abs(tp3x - tp2x) < minDangleBase) {
+                    double midX = Math.Clamp((tp2x + tp3x) / 2, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
+                    tp2x = midX - minDangleBase / 2;
+                    tp3x = midX + minDangleBase / 2;
+                }
+                trianglePoint2 = new Point(tp2x, trianglePoint2.Y);
+                trianglePoint3 = new Point(tp3x, trianglePoint3.Y);
                 break;
+            }
             case CalloutSide.Left:
-            case CalloutSide.Right:
-                trianglePoint2 = new Point(trianglePoint2.X, Math.Clamp(trianglePoint2.Y, cbTop, cbBottom));
-                trianglePoint3 = new Point(trianglePoint3.X, Math.Clamp(trianglePoint3.Y, cbTop, cbBottom));
+            case CalloutSide.Right: {
+                double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
+                double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
+                if (Math.Abs(tp3y - tp2y) < minDangleBase) {
+                    double midY = Math.Clamp((tp2y + tp3y) / 2, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
+                    tp2y = midY - minDangleBase / 2;
+                    tp3y = midY + minDangleBase / 2;
+                }
+                trianglePoint2 = new Point(trianglePoint2.X, tp2y);
+                trianglePoint3 = new Point(trianglePoint3.X, tp3y);
                 break;
+            }
         }
 
         _isDangleActive = true;
