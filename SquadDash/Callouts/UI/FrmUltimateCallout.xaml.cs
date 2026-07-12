@@ -2305,32 +2305,52 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         double cbBottom = Math.Max(cbTop,  OutsideMargin + calloutHeight);
         const double minDangleBase = 8.0;
         switch (data.CalloutDangleSide) {
-            case CalloutSide.Top:
             case CalloutSide.Bottom: {
                 double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
                 double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
                 if (Math.Abs(tp3x - tp2x) < minDangleBase) {
-                    // Center the base around the tip's X projection, clamped to callout bounds
                     double tipX = Math.Clamp(trianglePoint1.X, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
                     tp2x = tipX - minDangleBase / 2;
                     tp3x = tipX + minDangleBase / 2;
                 }
-                trianglePoint2 = new Point(tp2x, trianglePoint2.Y);
-                trianglePoint3 = new Point(tp3x, trianglePoint3.Y);
+                trianglePoint2 = new Point(tp2x, cbBottom);   // pin to bottom edge
+                trianglePoint3 = new Point(tp3x, cbBottom);   // pin to bottom edge
                 break;
             }
-            case CalloutSide.Left:
+            case CalloutSide.Top: {
+                double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
+                double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
+                if (Math.Abs(tp3x - tp2x) < minDangleBase) {
+                    double tipX = Math.Clamp(trianglePoint1.X, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
+                    tp2x = tipX - minDangleBase / 2;
+                    tp3x = tipX + minDangleBase / 2;
+                }
+                trianglePoint2 = new Point(tp2x, cbTop);      // pin to top edge
+                trianglePoint3 = new Point(tp3x, cbTop);      // pin to top edge
+                break;
+            }
             case CalloutSide.Right: {
                 double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
                 double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
                 if (Math.Abs(tp3y - tp2y) < minDangleBase) {
-                    // Center the base around the tip's Y projection, clamped to callout bounds
                     double tipY = Math.Clamp(trianglePoint1.Y, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
                     tp2y = tipY - minDangleBase / 2;
                     tp3y = tipY + minDangleBase / 2;
                 }
-                trianglePoint2 = new Point(trianglePoint2.X, tp2y);
-                trianglePoint3 = new Point(trianglePoint3.X, tp3y);
+                trianglePoint2 = new Point(cbRight, tp2y);    // pin to right edge
+                trianglePoint3 = new Point(cbRight, tp3y);    // pin to right edge
+                break;
+            }
+            case CalloutSide.Left: {
+                double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
+                double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
+                if (Math.Abs(tp3y - tp2y) < minDangleBase) {
+                    double tipY = Math.Clamp(trianglePoint1.Y, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
+                    tp2y = tipY - minDangleBase / 2;
+                    tp3y = tipY + minDangleBase / 2;
+                }
+                trianglePoint2 = new Point(cbLeft, tp2y);     // pin to left edge
+                trianglePoint3 = new Point(cbLeft, tp3y);     // pin to left edge
                 break;
             }
         }
