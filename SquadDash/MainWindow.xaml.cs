@@ -13985,6 +13985,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             elementLocator:          name =>
             {
                 if (_tourNamedElements.TryGetValue(name, out var namedEl)) return namedEl;
+
+                // Lazy-resolve TourDemoAgent_{name} at lookup time in case the border wasn't
+                // registered yet (e.g. visual tree not rendered when CreateDemoAgent ran).
+                if (name.StartsWith("TourDemoAgent_", StringComparison.Ordinal))
+                {
+                    var agentName = name.Substring("TourDemoAgent_".Length);
+                    var liveCard = _activeAgentCards
+                        .Concat(_inactiveAgentCards)
+                        .FirstOrDefault(c => string.Equals(c.Name, agentName, StringComparison.OrdinalIgnoreCase));
+                    if (liveCard is not null)
+                    {
+                        var liveBorder = FindAgentCardBorderForCard(liveCard);
+                        if (liveBorder is not null)
+                        {
+                            _tourNamedElements[name] = liveBorder;
+                            return liveBorder;
+                        }
+                    }
+                }
+
                 var inMain = VisualTreeSearch.FindByName(this, name);
                 if (inMain is not null) return inMain;
                 if (_preferencesWindow is { IsVisible: true })
@@ -14927,12 +14947,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncAgentCardsWithThreads();
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
 
-            var card = _inactiveAgentCards.FirstOrDefault(c =>
-                string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+            var card = _activeAgentCards
+                .Concat(_inactiveAgentCards)
+                .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
             if (card is null) return;
 
             _tourNamedDemoAgents[name] = (card, thread);
 
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var border = FindAgentCardBorderForCard(card);
             if (border is not null)
                 _tourNamedElements[$"TourDemoAgent_{name}"] = border;
