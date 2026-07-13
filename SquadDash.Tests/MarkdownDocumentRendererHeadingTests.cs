@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using SquadDash;
 
@@ -36,12 +37,24 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
     }
 
     private static List<Block> BuildHeadingBlocks(string markdownLine, string? gitHubUrl = "https://github.com/owner/repo") {
+        EnsureApplicationResources();
         var renderer = MakeRenderer(gitHubUrl);
         var thread   = new TranscriptThreadState("t1", TranscriptThreadKind.Coordinator, "Test", DateTimeOffset.Now);
         var section  = new Section();
         var turn     = new TranscriptTurnView(thread, "prompt", DateTimeOffset.Now, section, []);
         var entry    = new TranscriptResponseEntry(turn, 1, section, allowQuickReplies: false);
         return renderer.BuildResponseBlocks(entry, markdownLine, allowQuickReplies: false).ToList();
+    }
+
+    private static void EnsureApplicationResources() {
+        var app = Application.Current ?? new Application();
+        app.Resources["FontSizeNormal"] = 14.0;
+    }
+
+    private static TextBox FindCodeTextBox(Block block) {
+        var container = (BlockUIContainer)block;
+        var stack = (StackPanel)container.Child;
+        return stack.Children.OfType<TextBox>().Single();
     }
 
     // ── Commit hash in heading ────────────────────────────────────────────
@@ -107,5 +120,35 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
         var h3 = BuildHeadingBlocks("### Small title").OfType<Paragraph>().Single();
 
         Assert.That(h1.FontSize, Is.GreaterThan(h3.FontSize));
+    }
+
+    [Test]
+    public void CodeFence_LongOuterFence_IgnoresShorterInnerFence() {
+        var blocks = BuildHeadingBlocks("""
+            Intro
+
+            ````markdown
+            # Artifact prompt
+
+            ```json
+            { "ok": true }
+            ```
+
+            Still inside the artifact.
+            ````
+
+            Outro
+            """);
+
+        var codeBlocks = blocks.OfType<BlockUIContainer>().ToList();
+        var codeText = FindCodeTextBox(codeBlocks.Single()).Text;
+
+        Assert.Multiple(() => {
+            Assert.That(codeText, Does.Contain("```json"));
+            Assert.That(codeText, Does.Contain("{ \"ok\": true }"));
+            Assert.That(codeText, Does.Contain("Still inside the artifact."));
+            Assert.That(blocks.OfType<Paragraph>().Select(p => p.Tag), Does.Contain("Intro"));
+            Assert.That(blocks.OfType<Paragraph>().Select(p => p.Tag), Does.Contain("Outro"));
+        });
     }
 }

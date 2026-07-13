@@ -183,14 +183,14 @@ internal sealed class MarkdownDocumentRenderer {
             var trimmed = line.TrimStart();
 
             // Code fence
-            if (trimmed.StartsWith("```", StringComparison.Ordinal)) {
+            if (TryReadFenceStart(trimmed, out var fenceLength)) {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
                 paragraphLines.Clear();
 
                 index++;
                 var codeLines = new List<string>();
-                while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal)) {
+                while (index < lines.Length && !IsFenceClose(lines[index].TrimStart(), fenceLength)) {
                     codeLines.Add(lines[index]);
                     index++;
                 }
@@ -312,7 +312,7 @@ internal sealed class MarkdownDocumentRenderer {
                     t.StartsWith("> ", StringComparison.Ordinal) ||
                     t.StartsWith("- ", StringComparison.Ordinal) ||
                     t.StartsWith("* ", StringComparison.Ordinal) ||
-                    t.StartsWith("```", StringComparison.Ordinal))
+                    TryReadFenceStart(t, out _))
                     break;
                 paragraphLines.Add(lines[i]);
                 i++;
@@ -374,6 +374,26 @@ internal sealed class MarkdownDocumentRenderer {
     }
 
     // ── Code block ─────────────────────────────────────────────────────────
+
+    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength) {
+        fenceLength = CountLeadingBackticks(trimmedLine);
+        return fenceLength >= 3;
+    }
+
+    internal static bool IsFenceClose(string trimmedLine, int openingFenceLength) {
+        var fenceLength = CountLeadingBackticks(trimmedLine);
+        if (fenceLength < openingFenceLength)
+            return false;
+
+        return string.IsNullOrWhiteSpace(trimmedLine[fenceLength..]);
+    }
+
+    private static int CountLeadingBackticks(string text) {
+        var count = 0;
+        while (count < text.Length && text[count] == '`')
+            count++;
+        return count;
+    }
 
     private Block BuildCodeBlock(string code) {
         var textBox = new TextBox {

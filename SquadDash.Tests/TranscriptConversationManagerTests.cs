@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -639,6 +640,48 @@ internal sealed class TranscriptConversationManagerTests {
         var isStale = InvokePrivate<bool>(manager, "HasNewerConversationSaveRequest", staleVersion);
         Assert.That(isStale, Is.True,
             "Any save queued before ClearAndPersist should be considered stale after the call.");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildTranscriptTurnRecord_ExpandsDisplayArtifactSegmentsBeforePersisting() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(
+            Path.Combine(".squad", "tmp", "agent-artifacts", "guided-tour-data-loss-prompt.md"),
+            "# Guided tour data loss\n\nPersisted artifact content.");
+
+        var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
+        var turn = new TranscriptTurnView(
+            thread,
+            "prompt",
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            new Section(),
+            Array.Empty<Block>());
+        var response = new TranscriptResponseEntry(turn, 1, new Section());
+        response.RawTextBuilder.Append("""
+            Here is the investigation prompt.
+
+            SQUADDASH_ARTIFACT_JSON:
+            { "path": ".squad/tmp/agent-artifacts/guided-tour-data-loss-prompt.md", "language": "markdown", "display": "code_block", "label": "Investigation prompt" }
+            """);
+        turn.ResponseEntries.Add(response);
+
+        var manager = MakeManager(workspace: sessionWorkspace, coordinatorThread: thread);
+
+        var record = manager.BuildTranscriptTurnRecord(turn, DateTimeOffset.UtcNow);
+        var segment = record.GetResponseSegments().Single();
+
+        Assert.Multiple(() => {
+            Assert.That(segment.Text, Does.Contain("Here is the investigation prompt."));
+            Assert.That(segment.Text, Does.Contain("**Investigation prompt**"));
+            Assert.That(segment.Text, Does.Contain("```markdown"));
+            Assert.That(segment.Text, Does.Contain("Persisted artifact content."));
+            Assert.That(segment.Text, Does.Not.Contain("SQUADDASH_ARTIFACT_JSON:"));
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

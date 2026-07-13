@@ -1133,8 +1133,9 @@ internal sealed class TranscriptConversationManager {
         var thoughts = turn.ThoughtEntries
             .Select(BuildTranscriptThoughtRecord)
             .ToArray();
+        var applicationRoot = _getWorkspace()?.FolderPath;
         var responseSegments = turn.ResponseEntries
-            .Select(BuildTranscriptResponseSegmentRecord)
+            .Select(entry => BuildTranscriptResponseSegmentRecord(entry, applicationRoot))
             .ToArray();
 
         return new TranscriptTurnRecord(
@@ -1190,8 +1191,14 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
-    private static TranscriptResponseSegmentRecord BuildTranscriptResponseSegmentRecord(TranscriptResponseEntry entry) {
-        return new TranscriptResponseSegmentRecord(MainWindow.SanitizeResponseText(entry.RawTextBuilder.ToString())) {
+    private static TranscriptResponseSegmentRecord BuildTranscriptResponseSegmentRecord(
+        TranscriptResponseEntry entry,
+        string? applicationRoot) {
+        var text = MainWindow.SanitizeResponseText(entry.RawTextBuilder.ToString());
+        if (!string.IsNullOrWhiteSpace(applicationRoot))
+            text = AgentArtifactBlockExpander.ExpandDisplayArtifacts(text, applicationRoot);
+
+        return new TranscriptResponseSegmentRecord(text) {
             Sequence = entry.Sequence
         };
     }

@@ -24612,7 +24612,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var trimmed = line.TrimStart();
 
             // Code fence
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength))
             {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
@@ -24620,7 +24620,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 index++;
                 var codeLines = new List<string>();
-                while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
+                while (index < lines.Length && !MarkdownDocumentRenderer.IsFenceClose(lines[index].TrimStart(), fenceLength))
                 {
                     codeLines.Add(lines[index]);
                     index++;
@@ -24752,7 +24752,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     t.StartsWith("> ", StringComparison.Ordinal) ||
                     t.StartsWith("- ", StringComparison.Ordinal) ||
                     t.StartsWith("* ", StringComparison.Ordinal) ||
-                    t.StartsWith("```", StringComparison.Ordinal))
+                    MarkdownDocumentRenderer.TryReadFenceStart(t, out _))
                     break;
                 paragraphLines.Add(lines[i]);
                 i++;
