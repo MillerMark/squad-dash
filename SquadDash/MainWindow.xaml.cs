@@ -28341,8 +28341,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Help menu: tour items require Squad to be installed
         bool squadInstalled = _currentInstallationState?.IsSquadInstalledForActiveDirectory == true;
         SetIsEnabledIfChanged(WelcomeMenuItem,         squadInstalled);
-        SetIsEnabledIfChanged(StartGuidedTourMenuItem, squadInstalled);
         SetIsEnabledIfChanged(MoreGuidedToursMenuItem, squadInstalled);
+
+        // "Start Guided Tour" is only available when Squad is installed AND
+        // the first tour has not been completed yet.
+        bool firstTourAvailable = false;
+        if (squadInstalled)
+        {
+            var tours = GuidedTourLoader.Load(_currentWorkspace?.FolderPath);
+            firstTourAvailable = tours.Count > 0 &&
+                !GuidedTourStateStore.Shared.IsCompleted(tours[0].Id);
+        }
+        SetIsEnabledIfChanged(StartGuidedTourMenuItem, firstTourAvailable);
     }
 
     private static void SetIsEnabledIfChanged(UIElement element, bool isEnabled)
