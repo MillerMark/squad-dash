@@ -265,7 +265,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
             Content = content,
             Height  = 26,
             Margin  = new Thickness(3, 0, 3, 0),
-            Padding = new Thickness(8, 2, 8, 2),
+            Padding = new Thickness(16, 2, 16, 2),
         };
         btn.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         return btn;
