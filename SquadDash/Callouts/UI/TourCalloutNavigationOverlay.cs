@@ -98,7 +98,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         double fontSize = Application.Current.TryFindResource("FontSizeLarge") is double fs ? fs : 15.0;
         _buttonHeight    = Math.Round(fontSize * 2.4);
         _prevButtonWidth = Math.Round(fontSize * 2.1);
-        _nextButtonWidth = Math.Round(fontSize * 3.9);
+        _nextButtonWidth = Math.Round(fontSize * 5.0);
 
         var panel = new StackPanel {
             Orientation = Orientation.Horizontal,
@@ -157,7 +157,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
-            Margin = isPrev ? new Thickness(0) : new Thickness(3, 0, 3, 0),
+            Margin = isPrev ? new Thickness(0) : new Thickness(8, 0, 8, 0),
         };
 
         inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev, fontSize));
