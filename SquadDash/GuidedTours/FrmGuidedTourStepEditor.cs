@@ -65,6 +65,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private Canvas    _dragInsertCanvas = null!;
     private Rectangle _dragInsertLine   = null!;
 
+    // Drag-to-reorder state (tour list)
+    private Point  _tourDragStart;
+    private bool   _tourDragInProgress;
+    private int    _tourDragSourceIndex = -1;
+
+    // Drag insertion-line overlay (tour list)
+    private Grid      _tourListBoxHost      = null!;
+    private Canvas    _tourDragInsertCanvas = null!;
+    private Rectangle _tourDragInsertLine   = null!;
+
     // Clipboard copy/cut/paste
     private static readonly System.Text.Json.JsonSerializerOptions s_clipboardJsonOptions = new() { WriteIndented = false };
     private const string ClipboardFormatMarker = "SquadDashTourSteps/v1:";
@@ -497,6 +507,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _listDragStart       = new Point(double.NaN, double.NaN);
             _listDragInProgress  = false;
             _listDragSourceIndex = -1;
+            _tourDragStart       = new Point(double.NaN, double.NaN);
+            _tourDragInProgress  = false;
+            _tourDragSourceIndex = -1;
         };
 
         _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
@@ -667,6 +680,93 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         tourContextMenu.Items.Add(tourRenameMenuItem);
         _tourListBox.ContextMenu = tourContextMenu;
 
+        // ── Tour drag insertion-line overlay ─────────────────────────────────
+
+        _tourDragInsertLine = new Rectangle
+        {
+            Height           = 2,
+            IsHitTestVisible = false,
+        };
+        _tourDragInsertLine.SetResourceReference(Rectangle.FillProperty, "QueueTabActiveBorder");
+
+        _tourDragInsertCanvas = new Canvas
+        {
+            IsHitTestVisible = false,
+            Visibility       = Visibility.Collapsed,
+        };
+        _tourDragInsertCanvas.Children.Add(_tourDragInsertLine);
+
+        _tourListBoxHost = new Grid();
+        _tourListBoxHost.Children.Add(_tourListBox);
+        _tourListBoxHost.Children.Add(_tourDragInsertCanvas);
+
+        // ── Tour drag-to-reorder ─────────────────────────────────────────────
+
+        _tourListBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            var hit = e.OriginalSource as DependencyObject;
+            var lbi = hit != null ? GetListBoxItemAncestor(_tourListBox, hit) : null;
+            int hitIndex = lbi != null
+                ? _tourListBox.ItemContainerGenerator.IndexFromContainer(lbi)
+                : -1;
+            _tourDragStart       = hitIndex >= 0 ? e.GetPosition(_tourListBox) : new Point(double.NaN, double.NaN);
+            _tourDragInProgress  = false;
+            _tourDragSourceIndex = hitIndex;
+        };
+
+        _tourListBox.PreviewMouseMove += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || _tourDragInProgress) return;
+            if (_tourDragSourceIndex < 0) return;
+            var pos  = e.GetPosition(_tourListBox);
+            var diff = _tourDragStart - pos;
+            if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+            {
+                if (Mouse.LeftButton != MouseButtonState.Pressed) {
+                    _tourDragSourceIndex = -1;
+                    return;
+                }
+                _tourDragInProgress = true;
+                var item = _tourListBox.Items[_tourDragSourceIndex];
+                DragDrop.DoDragDrop(_tourListBox, item, DragDropEffects.Move);
+                _tourDragInProgress = false;
+            }
+        };
+
+        _tourListBox.AllowDrop = true;
+        _tourListBox.DragOver += (_, e) =>
+        {
+            if (_tourDragSourceIndex < 0) { HideTourDragInsertLine(); return; }
+            var pos = e.GetPosition(_tourListBox);
+            int insertIndex = GetDropInsertIndex(_tourListBox, pos);
+            ShowTourDragInsertLine(insertIndex);
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+        };
+        _tourListBox.DragLeave += (_, _) => HideTourDragInsertLine();
+        _tourListBox.Drop += (_, e) =>
+        {
+            HideTourDragInsertLine();
+            if (_tourDragSourceIndex < 0) return;
+            var pos = e.GetPosition(_tourListBox);
+            int destIndex = GetDropInsertIndex(_tourListBox, pos);
+            destIndex = Math.Clamp(destIndex, 0, _allTours.Count - 1);
+            if (destIndex == _tourDragSourceIndex) return;
+
+            var tour = _allTours[_tourDragSourceIndex];
+            _allTours.RemoveAt(_tourDragSourceIndex);
+            _allTours.Insert(destIndex, tour);
+
+            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            {
+                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                catch { /* ignore */ }
+            }
+
+            RefreshTourList(destIndex);
+        };
+
         var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30, glyphVerticalOffset: -3);
         var deleteTourBtn = MakeIconButton("✕", new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)));
         addTourBtn.Margin    = new Thickness(0, 0, 2, 0);
@@ -681,7 +781,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var tourSidebarPanel = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(tourSidebarButtons, Dock.Top);
         tourSidebarPanel.Children.Add(tourSidebarButtons);
-        tourSidebarPanel.Children.Add(_tourListBox);
+        tourSidebarPanel.Children.Add(_tourListBoxHost);
 
         var descLabel = new TextBlock
         {
@@ -1250,6 +1350,38 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private void HideDragInsertLine()
     {
         _dragInsertCanvas.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowTourDragInsertLine(int insertIndex)
+    {
+        double y;
+        if (insertIndex < _tourListBox.Items.Count &&
+            _tourListBox.ItemContainerGenerator.ContainerFromIndex(insertIndex) is ListBoxItem itemAt)
+        {
+            var pos = itemAt.TranslatePoint(new Point(0, 0), _tourListBox);
+            y = pos.Y;
+        }
+        else if (insertIndex > 0 &&
+                 _tourListBox.ItemContainerGenerator.ContainerFromIndex(insertIndex - 1) is ListBoxItem itemBefore)
+        {
+            var pos = itemBefore.TranslatePoint(new Point(0, 0), _tourListBox);
+            y = pos.Y + itemBefore.ActualHeight;
+        }
+        else
+        {
+            y = 0;
+        }
+
+        Canvas.SetTop(_tourDragInsertLine, y - 1);
+        Canvas.SetLeft(_tourDragInsertLine, 0);
+        _tourDragInsertLine.Width = _tourListBox.ActualWidth;
+
+        _tourDragInsertCanvas.Visibility = Visibility.Visible;
+    }
+
+    private void HideTourDragInsertLine()
+    {
+        _tourDragInsertCanvas.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
