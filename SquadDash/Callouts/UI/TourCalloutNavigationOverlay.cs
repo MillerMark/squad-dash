@@ -16,6 +16,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? PrevClicked;
     public event EventHandler? NextClicked;
     public event EventHandler? NextTourClicked;
+    public event EventHandler? MoreToursClicked;
     public event EventHandler? EditClicked;
     public event EventHandler? NewStepAfterClicked;
     public event EventHandler? NewStepBeforeClicked;
@@ -35,6 +36,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private Border? _doneButton;
     private Border? _nextTourButton;
     private FrameworkElement? _nextTourGap;
+    private Border? _moreTourButton;
+    private FrameworkElement? _moreTourGap;
     private bool _glowActive;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
@@ -65,6 +68,10 @@ internal sealed class TourCalloutNavigationOverlay : Window {
                 _nextButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             if (_doneButton is not null)
                 _doneButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (_moreTourButton is not null)
+                _moreTourButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (_moreTourGap is not null)
+                _moreTourGap.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -145,6 +152,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         _doneButton     = BuildDoneButton(fontSize);
         _nextTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
         _nextTourButton = BuildNextTourButton(fontSize);
+        _moreTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
+        _moreTourButton = BuildMoreToursButton(fontSize);
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
@@ -152,6 +161,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         panel.Children.Add(_doneButton);
         panel.Children.Add(_nextTourGap);
         panel.Children.Add(_nextTourButton);
+        panel.Children.Add(_moreTourGap);
+        panel.Children.Add(_moreTourButton);
 
         var container = new Border {
             CornerRadius        = new CornerRadius(8),
@@ -290,6 +301,37 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
         inner.Children.Add(label);
         border.Child = inner;
+        return border;
+    }
+
+    private Border BuildMoreToursButton(double fontSize) {
+        var border = new Border {
+            Width            = Math.Round(fontSize * 6.5),
+            Height           = _buttonHeight,
+            CornerRadius     = new CornerRadius(4),
+            BorderThickness  = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor           = Cursors.Hand,
+            ToolTip          = "Click to choose from all available guided tours.",
+            Visibility       = Visibility.Collapsed,
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.MouseLeftButtonUp += (_, e) => {
+            e.Handled = true;
+            MoreToursClicked?.Invoke(this, EventArgs.Empty);
+        };
+        var label = new TextBlock {
+            Text                = "More Tours",
+            VerticalAlignment   = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            IsHitTestVisible    = false,
+        };
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+        label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
+        border.Child = label;
         return border;
     }
 

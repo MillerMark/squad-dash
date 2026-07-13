@@ -292,6 +292,24 @@ internal sealed class GuidedTourController
     }
 
     /// <summary>
+    /// Opens the guided tour selector as a modeless window. When the user picks a tour,
+    /// the current tour is stopped first and then the chosen tour is started.
+    /// </summary>
+    private void ShowTourSelector()
+    {
+        var allToursSnapshot = _allTours;
+        FrmGuidedTourSelector.ShowModeless(
+            _ownerWindow,
+            allToursSnapshot,
+            id => GuidedTourStateStore.Shared.IsCompleted(id),
+            selected => {
+                StopTour();
+                if (selected is not null)
+                    StartTour(selected, allToursSnapshot);
+            });
+    }
+
+    /// <summary>
     /// Stops the tour, shows the "restart from Help" callout, and restores the pre-tour layout.
     /// </summary>
     public void StopTour()
@@ -449,6 +467,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
+            _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }
@@ -483,6 +502,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
+            _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }

@@ -437,6 +437,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// <summary>Fired when the user clicks the Next Tour button on the last step of a tour.</summary>
     public event EventHandler? TourNextTourRequested;
 
+    /// <summary>Fired when the user clicks the More Tours button on the last step of a tour.</summary>
+    public event EventHandler? TourMoreToursRequested;
+
     /// <summary>Fired when the tour overlay Prev button is clicked.</summary>
     public event EventHandler? TourPrevRequested;
 
@@ -564,6 +567,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
         _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NextTourClicked       += (_, _) => TourNextTourRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.MoreToursClicked      += (_, _) => TourMoreToursRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.PrevClicked           += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.EditClicked           += (_, _) => TourEditRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NewStepAfterClicked   += (_, _) => TourNewStepAfterRequested?.Invoke(this, EventArgs.Empty);
