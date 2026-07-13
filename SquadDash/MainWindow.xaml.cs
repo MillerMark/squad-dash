@@ -15075,7 +15075,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 var rng   = new Random();
                 var timer = new DispatcherTimer(DispatcherPriority.Background);
-                timer.Interval = TimeSpan.FromMilliseconds(rng.Next(200, 400));
+                timer.Interval = TimeSpan.FromMilliseconds(rng.Next(600, 1200));
                 timer.Tick += (_, _) =>
                 {
                     // Weighted random: 50% Thinking, 35% Reading, 15% Writing
@@ -15090,7 +15090,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         current.Card.FireActivityPulse(kind);
 
                     // Randomize next interval for an organic feel
-                    timer.Interval = TimeSpan.FromMilliseconds(rng.Next(200, 400));
+                    timer.Interval = TimeSpan.FromMilliseconds(rng.Next(600, 1200));
                 };
                 timer.Start();
                 _tourDemoAgentSpinnerTimers[name] = timer;
