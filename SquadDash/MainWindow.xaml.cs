@@ -14329,6 +14329,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 addHandler:    h => _tourPreferencePageSelected += h,
                 removeHandler: h => _tourPreferencePageSelected -= h),
             hasParameter: true);
+
+        _tourAdvanceTriggerRegistry.Register(
+            "PromptQueued",
+            new PromptQueuedAdvanceTrigger(_promptQueue));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

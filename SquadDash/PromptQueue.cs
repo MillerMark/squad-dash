@@ -33,14 +33,28 @@ internal sealed class PromptQueue {
     /// <summary>Fired when an item is removed for any reason (user delete, dispatch, clear).</summary>
     public event Action<PromptQueueItem>? ItemRemoved;
 
-    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false, bool isSystemInjected = false, string? sourceTag = null) =>
+    /// <summary>Fired whenever a new item is added to the queue by any enqueue path.</summary>
+    public event EventHandler? ItemEnqueued;
+
+    public void Enqueue(string text, int seqNum, bool isDictated = false, bool isFromRemote = false, bool isSystemInjected = false, string? sourceTag = null)
+    {
         _items.Add(new PromptQueueItem { Text = text, SequenceNumber = seqNum, IsDictated = isDictated, IsFromRemote = isFromRemote, IsSystemInjected = isSystemInjected, SourceTag = sourceTag });
+        ItemEnqueued?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>Adds a fully-constructed item (e.g. a sim item) to the back of the queue.</summary>
-    public void EnqueueItem(PromptQueueItem item) => _items.Add(item);
+    public void EnqueueItem(PromptQueueItem item)
+    {
+        _items.Add(item);
+        ItemEnqueued?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>Adds a fully-constructed item to the front of the queue.</summary>
-    public void EnqueueItemAtFront(PromptQueueItem item) => _items.Insert(0, item);
+    public void EnqueueItemAtFront(PromptQueueItem item)
+    {
+        _items.Insert(0, item);
+        ItemEnqueued?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>Removes and returns the first non-editing item, or null if none exists.</summary>
     public PromptQueueItem? DequeueFirstReady() {
@@ -66,6 +80,7 @@ internal sealed class PromptQueue {
     public PromptQueueItem EnqueueAtFront(string text, int seqNum, string? sourceTag = null) {
         var item = new PromptQueueItem { Text = text, SequenceNumber = seqNum, SourceTag = sourceTag };
         _items.Insert(0, item);
+        ItemEnqueued?.Invoke(this, EventArgs.Empty);
         return item;
     }
 
