@@ -82,6 +82,13 @@ public sealed class ActivitySpinner : FrameworkElement
 
     // Physics constants
     private const double MaxAngularVelocity = 20.0;
+
+    /// <summary>
+    /// Per-instance override for the max angular velocity cap (rad/s).
+    /// Defaults to <see cref="MaxAngularVelocity"/>. Set to a lower value
+    /// (e.g. 7.0) for guided-tour demo spinners that should spin more gently.
+    /// </summary>
+    public double MaxAngularVelocityCap { get; set; } = MaxAngularVelocity;
     private const double FrictionK = 0.11;           // exp(-k*t) → ~6% at 25s
     private const double ThinkingImpulse = 3.5;
     private const double WritingImpulse = 6.0;
@@ -211,7 +218,7 @@ public sealed class ActivitySpinner : FrameworkElement
 
         var impulse = kind == SpinnerActivityKind.Writing ? WritingImpulse : ThinkingImpulse;
         var rawTarget = _angularVelocity + impulse;
-        _velocityTarget = Math.Min(Math.Max(_velocityTarget, rawTarget), MaxAngularVelocity);
+        _velocityTarget = Math.Min(Math.Max(_velocityTarget, rawTarget), MaxAngularVelocityCap);
         _velocityAccelPhase = VelocityRampSeconds;   // always restart ramp on any pulse
 
         // Snap target opacity immediately; _spinnerOpacity lerps toward it each frame

@@ -15063,7 +15063,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 var spinner = VisualTreeSearch.FindChild<ActivitySpinner>(cardContainer);
                 if (spinner is not null)
+                {
+                    // Slow the tour demo spinner to ~1 rotation/sec (7 rad/s ≈ 3× slower than the 20 rad/s default)
+                    spinner.MaxAngularVelocityCap = 7.0;
                     _tourNamedElements[$"TourDemoAgentSpinner_{name}"] = spinner;
+                }
 
                 var nameText = VisualTreeSearch.FindChildByName<TextBlock>(cardContainer, "AgentNameText");
                 if (nameText is not null)
