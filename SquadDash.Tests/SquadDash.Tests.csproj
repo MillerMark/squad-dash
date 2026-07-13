@@ -322,6 +322,7 @@
 
     <!-- Guided Tour state store -->
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourStateStore.cs" Link="Source\GuidedTours\GuidedTourStateStore.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourSaver.cs" Link="Source\GuidedTours\GuidedTourSaver.cs" />
 
     <!-- Guided Tour advance triggers -->
     <Compile Include="..\SquadDash\GuidedTours\IGuidedTourAdvanceTrigger.cs" Link="Source\GuidedTours\IGuidedTourAdvanceTrigger.cs" />

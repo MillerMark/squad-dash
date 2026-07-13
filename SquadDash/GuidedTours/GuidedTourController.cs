@@ -132,8 +132,12 @@ internal sealed class GuidedTourController
     {
         if (IsActive) StopTourInternal(showHint: false);
 
+        var oldCounts = TourStepCounts(_allTours);
+        var replacement = allTours ?? new List<GuidedTour> { tour };
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GuidedTourController.StartTour: replacing _allTours, oldSteps=[{oldCounts}], newSteps=[{TourStepCounts(replacement)}], tour=\"{tour.Name}\", workspacePath=\"{WorkspaceFolderPath ?? "(none)"}\"");
         _activeTour        = tour;
-        _allTours          = allTours ?? new List<GuidedTour> { tour };
+        _allTours          = replacement;
         _currentStepIndex  = 0;
 
         _savePreTourLayout?.Invoke();
@@ -150,6 +154,8 @@ internal sealed class GuidedTourController
     {
         if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
 
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GuidedTourController.OpenEditorStandalone: replacing _allTours with freshly-loaded list, oldSteps=[{TourStepCounts(_allTours)}], newSteps=[{TourStepCounts(allTours)}], workspacePath=\"{WorkspaceFolderPath ?? "(none)"}\"");
         _allTours = allTours;
         var tour  = _allTours.FirstOrDefault();
         if (tour is null)
@@ -355,6 +361,9 @@ internal sealed class GuidedTourController
 
     private GuidedTourStep CurrentStep =>
         _activeTour!.Steps[_currentStepIndex];
+
+    private static string TourStepCounts(IEnumerable<GuidedTour> tours) =>
+        string.Join(",", tours.Select(t => t.Steps.Count));
 
     private async void ShowCurrentStep(IReadOnlyList<string>? prevCommandsAfter = null)
     {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -964,7 +965,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             SaveCurrentFieldsToStep();
 
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"PerformSave: stepIndex={_stepIndex}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, workspacePath={(string.IsNullOrWhiteSpace(_workspaceFolderPath) ? "(none)" : _workspaceFolderPath)}");
+                $"PerformSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, stepHash={StepHash()}, workspacePath={(string.IsNullOrWhiteSpace(_workspaceFolderPath) ? "(none)" : _workspaceFolderPath)}");
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
             {
@@ -1009,6 +1010,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             SaveCurrentFieldsToStep();
             PushUndoSnapshot();
 
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"PerformAutoSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, stepHash={StepHash()}, workspacePath=\"{_workspaceFolderPath}\"");
+
             GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
             WasSaved = true;
             ShowStatus("✓ Saved");
@@ -1026,6 +1030,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _isLoadingStep = false;
         }
     }
+
+    private string StepHash() => GuidedTourSaver.ComputeHash(JsonSerializer.Serialize(_step));
 
     private void QueueAutoSave()
     {

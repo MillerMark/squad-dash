@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Linq;
 using System.Text.Json;
 
 namespace SquadDash.GuidedTours;
@@ -39,10 +40,21 @@ internal static class GuidedTourLoader
                     var json = File.ReadAllText(workspacePath);
                     var tours = JsonSerializer.Deserialize<List<GuidedTour>>(json, JsonOptions);
                     if (tours is { Count: > 0 })
+                    {
+                        LogResult("workspace", workspacePath, tours, GuidedTourSaver.ComputeHash(json));
                         return tours;
+                    }
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"GuidedTourLoader.Load: workspace parse produced no tours, path=\"{workspacePath}\"; falling back to embedded");
                 }
-                catch { /* fall through to embedded */ }
+                catch (System.Exception ex)
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"GuidedTourLoader.Load: workspace load failed, path=\"{workspacePath}\", error={ex.Message}; falling back to embedded");
+                }
             }
+            else SquadDashTrace.Write(TraceCategory.Callouts,
+                $"GuidedTourLoader.Load: workspace file absent, path=\"{workspacePath}\"; loading embedded");
         }
 
         return LoadEmbedded();
@@ -58,12 +70,20 @@ internal static class GuidedTourLoader
 
             using var reader = new StreamReader(stream);
             var json = reader.ReadToEnd();
-            return JsonSerializer.Deserialize<List<GuidedTour>>(json, JsonOptions)
-                   ?? new List<GuidedTour>();
+            var tours = JsonSerializer.Deserialize<List<GuidedTour>>(json, JsonOptions)
+                        ?? new List<GuidedTour>();
+            LogResult("embedded", EmbeddedResourceName, tours, GuidedTourSaver.ComputeHash(json));
+            return tours;
         }
-        catch
+        catch (System.Exception ex)
         {
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"GuidedTourLoader.Load: embedded load failed, resource=\"{EmbeddedResourceName}\", error={ex.Message}");
             return new List<GuidedTour>();
         }
     }
+
+    private static void LogResult(string source, string path, List<GuidedTour> tours, string hash) =>
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GuidedTourLoader.Load: source={source}, path=\"{path}\", parse=success, tours={tours.Count}, steps=[{string.Join(",", tours.Select(t => t.Steps.Count))}], hash={hash}");
 }

@@ -402,3 +402,6 @@ Squad.SDK/tsconfig.tsbuildinfo
 # live override written by the in-app tour editor.  Committing it would cause
 # agent commits to silently clobber the developer's in-flight tour edits.
 /.squad/guided-tours.json
+/.squad/guided-tours.json.bak.*
+/.squad/guided-tours.json.tmp
+/.squad/archive/agent-artifacts/2026-07-13
