@@ -28353,6 +28353,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 !GuidedTourStateStore.Shared.IsCompleted(tours[0].Id);
         }
         SetIsEnabledIfChanged(StartGuidedTourMenuItem, firstTourAvailable);
+        StartGuidedTourMenuItem.Visibility = firstTourAvailable ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static void SetIsEnabledIfChanged(UIElement element, bool isEnabled)
