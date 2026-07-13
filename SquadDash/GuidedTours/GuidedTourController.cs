@@ -297,6 +297,7 @@ internal sealed class GuidedTourController
     /// </summary>
     private void ShowTourSelector()
     {
+        CloseActiveCallout();
         var allToursSnapshot = _allTours;
         FrmGuidedTourSelector.ShowModeless(
             _ownerWindow,
