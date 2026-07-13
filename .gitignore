@@ -396,3 +396,9 @@ Squad.SDK/tsconfig.tsbuildinfo
 /.squad/ralph-circuit-breaker.json
 /.squad/archive/agent-artifacts/2026-07-11
 /.squad/tmp/agent-artifacts
+
+# SquadDash: guided tours workspace override — local edits only, never committed.
+# Assets/guided-tours.json is the committed embedded base; this file is the
+# live override written by the in-app tour editor.  Committing it would cause
+# agent commits to silently clobber the developer's in-flight tour edits.
+/.squad/guided-tours.json
