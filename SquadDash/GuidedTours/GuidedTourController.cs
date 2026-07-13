@@ -248,10 +248,12 @@ internal sealed class GuidedTourController
 
             if (hasOtherTours)
             {
+                var completedTourName = allToursSnapshot.FirstOrDefault(t => t.Id == currentTourId)?.Name;
                 var selected = FrmGuidedTourSelector.ShowForResult(
                     _ownerWindow,
                     allToursSnapshot,
-                    id => GuidedTourStateStore.Shared.IsCompleted(id));
+                    id => GuidedTourStateStore.Shared.IsCompleted(id),
+                    completedTourName: completedTourName);
                 if (selected is not null)
                     StartTour(selected, allToursSnapshot);
             }

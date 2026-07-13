@@ -31,7 +31,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     /// </summary>
     public GuidedTour? SelectedTour { get; private set; }
 
-    public FrmGuidedTourSelector(List<GuidedTour> tours, Func<string, bool>? isCompleted = null)
+    public FrmGuidedTourSelector(List<GuidedTour> tours, Func<string, bool>? isCompleted = null, string? completedTourName = null)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _allTours    = tours;
@@ -39,7 +39,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
 
         Title                 = "Select a Guided Tour";
         Width                 = 700;
-        Height                = 480;
+        Height                = string.IsNullOrWhiteSpace(completedTourName) ? 480 : 700;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -218,7 +218,11 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         Grid.SetColumn(layout, 1);
         outerGrid.Children.Add(leftPanel);
         outerGrid.Children.Add(layout);
-        contentArea.Child = outerGrid;
+        var congratsPanel = BuildCongratsPanel(completedTourName);
+        var rootStack = new StackPanel { Orientation = Orientation.Vertical };
+        rootStack.Children.Add(congratsPanel);
+        rootStack.Children.Add(outerGrid);
+        contentArea.Child = rootStack;
 
         ApplyFilter();
         if (_tourList.Items.Count == 1)
@@ -236,9 +240,9 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     /// <summary>
     /// Shows the selector as a modal dialog. Returns the chosen tour, or null if cancelled.
     /// </summary>
-    internal static GuidedTour? ShowForResult(Window owner, List<GuidedTour> tours, Func<string, bool>? isCompleted = null)
+    internal static GuidedTour? ShowForResult(Window owner, List<GuidedTour> tours, Func<string, bool>? isCompleted = null, string? completedTourName = null)
     {
-        var dlg = new FrmGuidedTourSelector(tours, isCompleted) { Owner = owner };
+        var dlg = new FrmGuidedTourSelector(tours, isCompleted, completedTourName) { Owner = owner };
         dlg.ShowDialog();
         return dlg.SelectedTour;
     }
@@ -249,14 +253,81 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     /// </summary>
     internal static void ShowModeless(Window owner, List<GuidedTour> tours,
         Func<string, bool>? isCompleted,
-        Action<GuidedTour> onTourSelected)
+        Action<GuidedTour> onTourSelected,
+        string? completedTourName = null)
     {
-        var dlg = new FrmGuidedTourSelector(tours, isCompleted) { Owner = owner };
+        var dlg = new FrmGuidedTourSelector(tours, isCompleted, completedTourName) { Owner = owner };
         dlg._onTourSelected = onTourSelected;
         dlg.Show();
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    private static Border BuildCongratsPanel(string? completedTourName)
+    {
+        var visible = !string.IsNullOrWhiteSpace(completedTourName);
+
+        var ribbonImage = new System.Windows.Controls.Image
+        {
+            Height              = 160,
+            Stretch             = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin              = new Thickness(0, 12, 0, 0),
+        };
+        string ribbonPath = System.IO.Path.Combine(
+            AppDomain.CurrentDomain.BaseDirectory,
+            "Assets", "GuidedTours", "RealisticRibbon.png");
+        if (System.IO.File.Exists(ribbonPath))
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource   = new Uri(ribbonPath, UriKind.Absolute);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            ribbonImage.Source = bmp;
+        }
+
+        var headerText = new TextBlock
+        {
+            Text                = "Congratulations! You just completed this guided tour:",
+            FontWeight          = FontWeights.Bold,
+            TextAlignment       = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextWrapping        = TextWrapping.Wrap,
+            Margin              = new Thickness(16, 12, 16, 0),
+        };
+        headerText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        headerText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeLarge");
+
+        var tourNameText = new TextBlock
+        {
+            Text                = completedTourName ?? string.Empty,
+            FontWeight          = FontWeights.Bold,
+            FontStyle           = FontStyles.Italic,
+            TextAlignment       = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextWrapping        = TextWrapping.Wrap,
+            Margin              = new Thickness(16, 6, 16, 0),
+        };
+        tourNameText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        tourNameText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
+
+        var inner = new StackPanel
+        {
+            Orientation         = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        inner.Children.Add(headerText);
+        inner.Children.Add(tourNameText);
+        inner.Children.Add(ribbonImage);
+
+        return new Border
+        {
+            Child      = inner,
+            Margin     = new Thickness(0, 0, 0, 8),
+            Visibility = visible ? Visibility.Visible : Visibility.Collapsed,
+        };
+    }
 
     private void ApplyFilter()
     {
