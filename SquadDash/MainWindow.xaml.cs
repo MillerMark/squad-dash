@@ -14610,6 +14610,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_activeTabId == existing.Id)
             {
                 // Tab already active — just re-apply the selection (handles navigate-back case).
+                this.Activate();
                 PromptTextBox.Select(selStart, selLength);
                 PromptTextBox.Focus();
                 return;
@@ -14643,6 +14644,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SetPromptTextBoxLogicalBuffer(fullText, selStart + selLength, selStart, selLength, "tour-select-tab");
             FastSyncQueueTabActiveState(previousId, existing.Id);
             SetQueuePaused(_queueManuallyPaused);
+            this.Activate();
             PromptTextBox.Focus();
             UpdateFollowUpStrip();
         });
