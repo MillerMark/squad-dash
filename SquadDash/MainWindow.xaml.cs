@@ -15023,6 +15023,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
 
+            // Move the card into the active column.  EnsureDynamicAgentCards (called by
+            // SyncAgentCardsWithThreads) rebuilds dynamic cards on every sync, so the
+            // card object stored in _tourNamedDemoAgents may be stale by the time
+            // ActivateDemoAgent runs.  Refreshing LastObservedActivityAt and calling
+            // SyncAgentCardsWithThreads guarantees (a) a fresh card object exists,
+            // (b) the thread qualifies as active, and (c) the card lands in the active
+            // column before we look up its visual elements.
+            thread.LastObservedActivityAt = DateTimeOffset.UtcNow;
+            SyncAgentCardsWithThreads();
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
+
+            // Refresh the card reference in case EnsureDynamicAgentCards replaced it.
+            var latestCard = _activeAgentCards
+                .Concat(_inactiveAgentCards)
+                .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (latestCard is not null && !ReferenceEquals(latestCard, card))
+            {
+                card = latestCard;
+                _tourNamedDemoAgents[name] = (card, thread);
+
+                // Re-register the card-border element so tour highlights target the new card.
+                var freshBorder = FindAgentCardBorderForCard(card);
+                if (freshBorder is not null)
+                    _tourNamedElements[$"TourDemoAgent_{name}"] = freshBorder;
+            }
+
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
