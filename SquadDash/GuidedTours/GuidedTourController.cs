@@ -272,6 +272,26 @@ internal sealed class GuidedTourController
     }
 
     /// <summary>
+    /// Marks the current tour completed and immediately starts the first uncompleted tour that
+    /// isn't the current one.  Called when the user clicks "Next Tour" on the last step.
+    /// </summary>
+    private void NextTour()
+    {
+        if (!IsActive) return;
+        var commandsAfter    = CurrentStep.EffectiveCommandsAfter;
+        var allToursSnapshot = _allTours;
+        var currentTourId    = _activeTour!.Id;
+        StopTourInternal(showHint: false, commandsAfter: commandsAfter);
+        GuidedTourStateStore.Shared.MarkCompleted(currentTourId);
+
+        var nextTour = allToursSnapshot.FirstOrDefault(t =>
+            t.Id != currentTourId &&
+            !GuidedTourStateStore.Shared.IsCompleted(t.Id));
+        if (nextTour is not null)
+            StartTour(nextTour, allToursSnapshot);
+    }
+
+    /// <summary>
     /// Stops the tour, shows the "restart from Help" callout, and restores the pre-tour layout.
     /// </summary>
     public void StopTour()
@@ -416,6 +436,11 @@ internal sealed class GuidedTourController
             _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;
             _activeCallout.IsTourMode = true;
             _activeCallout.IsTourFirstStep = (_currentStepIndex == 0);
+            bool isLastStep = (_currentStepIndex == _activeTour!.Steps.Count - 1);
+            _activeCallout.IsTourLastStep = isLastStep;
+            _activeCallout.IsTourHasNextTour = isLastStep && _allTours.Any(t =>
+                t.Id != _activeTour.Id &&
+                !GuidedTourStateStore.Shared.IsCompleted(t.Id));
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();
@@ -423,6 +448,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourNewStepAfterRequested  += (_, _) => HandleNewStepAfter();
             _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
+            _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }
@@ -444,6 +470,11 @@ internal sealed class GuidedTourController
             _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;
             _activeCallout.IsTourMode = true;
             _activeCallout.IsTourFirstStep = (_currentStepIndex == 0);
+            bool isLastStep = (_currentStepIndex == _activeTour!.Steps.Count - 1);
+            _activeCallout.IsTourLastStep = isLastStep;
+            _activeCallout.IsTourHasNextTour = isLastStep && _allTours.Any(t =>
+                t.Id != _activeTour.Id &&
+                !GuidedTourStateStore.Shared.IsCompleted(t.Id));
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();
@@ -451,6 +482,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourNewStepAfterRequested  += (_, _) => HandleNewStepAfter();
             _activeCallout.TourNewStepBeforeRequested += (_, _) => HandleNewStepBefore();
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
+            _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }

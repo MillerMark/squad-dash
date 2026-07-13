@@ -15,6 +15,7 @@ namespace SquadDash;
 internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? PrevClicked;
     public event EventHandler? NextClicked;
+    public event EventHandler? NextTourClicked;
     public event EventHandler? EditClicked;
     public event EventHandler? NewStepAfterClicked;
     public event EventHandler? NewStepBeforeClicked;
@@ -31,6 +32,9 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Border? _prevButton;
     private Border? _nextButton;
+    private Border? _doneButton;
+    private Border? _nextTourButton;
+    private FrameworkElement? _nextTourGap;
     private bool _glowActive;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
@@ -46,6 +50,37 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             if (_prevButton is not null)
                 _prevButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             UpdateNextLabelVisibility();
+        }
+    }
+
+    private bool _isLastStep;
+
+    public bool IsLastStep
+    {
+        get => _isLastStep;
+        set
+        {
+            _isLastStep = value;
+            if (_nextButton is not null)
+                _nextButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            if (_doneButton is not null)
+                _doneButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private bool _hasNextTour;
+
+    public bool HasNextTour
+    {
+        get => _hasNextTour;
+        set
+        {
+            _hasNextTour = value;
+            var vis = value ? Visibility.Visible : Visibility.Collapsed;
+            if (_nextTourButton is not null)
+                _nextTourButton.Visibility = vis;
+            if (_nextTourGap is not null)
+                _nextTourGap.Visibility = vis;
         }
     }
 
@@ -105,12 +140,18 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             Margin = new Thickness(6),
         };
 
-        _prevButton = BuildButton(isPrev: true, fontSize);
-        _nextButton = BuildButton(isPrev: false, fontSize);
+        _prevButton     = BuildButton(isPrev: true, fontSize);
+        _nextButton     = BuildButton(isPrev: false, fontSize);
+        _doneButton     = BuildDoneButton(fontSize);
+        _nextTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
+        _nextTourButton = BuildNextTourButton(fontSize);
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
+        panel.Children.Add(_doneButton);
+        panel.Children.Add(_nextTourGap);
+        panel.Children.Add(_nextTourButton);
 
         var container = new Border {
             CornerRadius        = new CornerRadius(8),
@@ -176,6 +217,78 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             inner.Children.Add(label);
         }
 
+        border.Child = inner;
+        return border;
+    }
+
+    private Border BuildDoneButton(double fontSize) {
+        var border = new Border {
+            Width            = _nextButtonWidth,
+            Height           = _buttonHeight,
+            CornerRadius     = new CornerRadius(4),
+            BorderThickness  = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor           = Cursors.Hand,
+            ToolTip          = "Click to finish the tour.",
+            Visibility       = Visibility.Collapsed,
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.MouseLeftButtonUp += (_, e) => {
+            e.Handled = true;
+            NextClicked?.Invoke(this, EventArgs.Empty);
+        };
+        var label = new TextBlock {
+            Text                = "Done",
+            Margin              = new Thickness(8, 0, 8, 0),
+            VerticalAlignment   = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            IsHitTestVisible    = false,
+        };
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+        label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
+        border.Child = label;
+        return border;
+    }
+
+    private Border BuildNextTourButton(double fontSize) {
+        var border = new Border {
+            Width            = Math.Round(fontSize * 5.5),
+            Height           = _buttonHeight,
+            CornerRadius     = new CornerRadius(4),
+            BorderThickness  = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor           = Cursors.Hand,
+            ToolTip          = "Click to start the next uncompleted tour.",
+            Visibility       = Visibility.Collapsed,
+        };
+        border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
+        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
+        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
+        border.MouseLeftButtonUp += (_, e) => {
+            e.Handled = true;
+            NextTourClicked?.Invoke(this, EventArgs.Empty);
+        };
+        var inner = new StackPanel {
+            Orientation         = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            IsHitTestVisible    = false,
+            Margin              = new Thickness(8, 0, 8, 0),
+        };
+        inner.Children.Add(BuildArrowIcon(flipHorizontal: false, fontSize));
+        var label = new TextBlock {
+            Text             = "Next Tour",
+            Margin           = new Thickness(4, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+        };
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+        label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
+        inner.Children.Add(label);
         border.Child = inner;
         return border;
     }

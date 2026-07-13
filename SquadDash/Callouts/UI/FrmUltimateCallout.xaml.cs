@@ -434,6 +434,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// <summary>Fired when the user presses Enter while the callout is focused in tour mode.</summary>
     public event EventHandler? TourNextRequested;
 
+    /// <summary>Fired when the user clicks the Next Tour button on the last step of a tour.</summary>
+    public event EventHandler? TourNextTourRequested;
+
     /// <summary>Fired when the tour overlay Prev button is clicked.</summary>
     public event EventHandler? TourPrevRequested;
 
@@ -498,6 +501,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private bool _isTourFirstStep;
+    private bool _isTourLastStep;
+    private bool _isTourHasNextTour;
 
     public bool IsTourFirstStep
     {
@@ -507,6 +512,28 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             _isTourFirstStep = value;
             if (_tourOverlay is not null)
                 _tourOverlay.IsFirstStep = value;
+        }
+    }
+
+    public bool IsTourLastStep
+    {
+        get => _isTourLastStep;
+        set
+        {
+            _isTourLastStep = value;
+            if (_tourOverlay is not null)
+                _tourOverlay.IsLastStep = value;
+        }
+    }
+
+    public bool IsTourHasNextTour
+    {
+        get => _isTourHasNextTour;
+        set
+        {
+            _isTourHasNextTour = value;
+            if (_tourOverlay is not null)
+                _tourOverlay.HasNextTour = value;
         }
     }
 
@@ -531,9 +558,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         _tourOverlay = new TourCalloutNavigationOverlay();
         ConfigureTourOverlayNextLabelState();
-        _tourOverlay.IsFirstStep = _isTourFirstStep;
+        _tourOverlay.IsFirstStep     = _isTourFirstStep;
+        _tourOverlay.IsLastStep      = _isTourLastStep;
+        _tourOverlay.HasNextTour     = _isTourHasNextTour;
         _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
         _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
+        _tourOverlay.NextTourClicked       += (_, _) => TourNextTourRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.PrevClicked           += (_, _) => TourPrevRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.EditClicked           += (_, _) => TourEditRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NewStepAfterClicked   += (_, _) => TourNewStepAfterRequested?.Invoke(this, EventArgs.Empty);
