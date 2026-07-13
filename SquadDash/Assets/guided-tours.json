@@ -12,8 +12,8 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
+        "commandsBefore": [],
+        "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
@@ -64,7 +64,7 @@
       },
       {
         "title": "Transcript.",
-        "markdownText": "The **transcript** shows your prompts and agent responses.",
+        "markdownText": "The Coordinator\u0027s **transcript** shows your prompts and the agent\u0027s responses.",
         "targetControlId": "MainTranscriptBorder",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -81,7 +81,7 @@
       },
       {
         "title": "Quick reply buttons",
-        "markdownText": "AI responses may include **Quick Reply Buttons**.\r\nClick (or press \u0022**[**\u0022 in an empty prompt) to send this reply back to AI.",
+        "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\nTip: **keyboard users** press \u0022**[**\u0022 in an empty prompt for quick reply intellisense.",
         "targetControlId": "TourQuickReplyPanel",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -115,7 +115,7 @@
       },
       {
         "title": "Prompts navigation",
-        "markdownText": "Access past prompts.",
+        "markdownText": "You can access earlier conversations here.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -129,9 +129,9 @@
       },
       {
         "title": "Agents in Parallel",
-        "markdownText": "Agents spawned by the coordinator appear here.",
+        "markdownText": "Newly spawned agents appear here while active.",
         "targetControlId": "TourDemoAgent_MaxSmart",
-        "calloutPlacement": "North",
+        "calloutPlacement": "South",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -139,8 +139,39 @@
           "CreateDemoAgent|MaxSmart",
           "ActivateDemoAgent|MaxSmart",
           "InjectDemoAgentTools|MaxSmart|powershell:Scanning source files:Found 347 .cs files\\npowershell:Reading architecture docs:README.md, DECISIONS.md",
-          "InjectDemoAgentTurn|MaxSmart||Here\u0027s what I found in the codebase..."
+          "InjectDemoAgentTurn|MaxSmart||Scanning the codebase..."
         ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Transcripts in parallel.",
+        "markdownText": "**Active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript.",
+        "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectDemoAgentTools|MaxSmart|report_intent:Exploring codebase:Intent logged;grep:Search for more guided tours:MainWindow.xaml.cs",
+          "InjectDemoAgentTools|MaxSmart|powershell:Reading :README.md, DECISIONS.md"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Spinner 1",
+        "markdownText": "The **spinner** gives you a sense of how hard each agent works. \r\nThe faster it spins, the more active the agent.",
+        "targetControlId": "TourDemoAgentSpinner_MaxSmart",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
         "commandsAfter": [
           "CleanUpAllNamedDemoAgents",
           "CloseFirstInactiveAgentPanel",
@@ -153,58 +184,9 @@
       },
       {
         "title": "The Help Menu",
-        "markdownText": "You can start guided tours from inside the **Help** menu.",
+        "markdownText": "This ends the first guided tour. You can find more in the **Help** menu.",
         "targetControlId": "HelpMenuItem",
         "calloutPlacement": "South",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "working-with-loop",
-    "name": "Loops, Tasks, and the Queue",
-    "description": "",
-    "steps": [
-      {
-        "title": "The Loop Panel",
-        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in \u0060loop.md\u0060 \u2014 the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
-        "targetControlId": "LoopPanelBorder",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Pausing the Queue",
-        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent\u0027s work before allowing the next queued item to run.",
-        "targetControlId": "QueuePlayPauseButton",
-        "calloutPlacement": "South",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "The Code Health Panel",
-        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse \u0060code-health.md\u0060 to define which checks to run. Green = passing, red = action needed.",
-        "targetControlId": "CodeHealthPanelBorder",
-        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -386,103 +368,13 @@
     ]
   },
   {
-    "id": "c63b910d",
-    "name": "Remote Control",
-    "description": "",
-    "steps": [
-      {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "bfaa6492",
-    "name": "Selection Embedding",
-    "description": "Quickly modify text selections with useful shortcuts.",
-    "steps": [
-      {
-        "title": "Ctrl\u002BB for Bold",
-        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.11093247588424437,
-        "targetOffsetY": 0.6432803382160294
-      },
-      {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Quotes",
-        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      },
-      {
-        "title": "Backticks",
-        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      }
-    ]
-  },
-  {
     "id": "5514ddcd",
     "name": "Setting Up Voice PTT",
     "description": "Set up voice dictation and push to talk (PTT).",
     "steps": [
       {
         "title": "File options.",
-        "markdownText": "To set up voice, you\u0027ll need to go into the Options dialog.",
+        "markdownText": "To set up voice, you\u0027ll need to bring up the **Options** dialog.",
         "targetControlId": "FileMenuItem_Popup",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -627,7 +519,7 @@
       },
       {
         "title": "Click Close.",
-        "markdownText": "Click **CLose** when you\u0027re done.",
+        "markdownText": "Click **Close** when you\u0027re done.",
         "targetControlId": "Preferences_SaveButton",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -638,6 +530,175 @@
         "advanceTrigger": "PreferencesClosed",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      },
+      {
+        "title": "Using PTT.",
+        "markdownText": "Voice works anywhere text is accepted in SquadDash.\r\nJust double-tap and hold the **Ctrl** key while speaking.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.09056806002143623,
+        "targetOffsetY": 0.49846485351911296
+      },
+      {
+        "title": "Editing with voice.",
+        "markdownText": "In the selection below you can edit with voice and say \u0022rarely needed\u0022.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText|You can even use a voice for editing an existing prompt. Intelligent insertion replaces text selections based on the surrounding context. So you almost never have to change the case or punctuation after editing with voice.|almost never have"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "working-with-loop",
+    "name": "Loops, Tasks, and the Queue",
+    "description": "",
+    "steps": [
+      {
+        "title": "The Loop Panel",
+        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in \u0060loop.md\u0060 \u2014 the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
+        "targetControlId": "LoopPanelBorder",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Pausing the Queue",
+        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent\u0027s work before allowing the next queued item to run.",
+        "targetControlId": "QueuePlayPauseButton",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Code Health Panel",
+        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse \u0060code-health.md\u0060 to define which checks to run. Green = passing, red = action needed.",
+        "targetControlId": "CodeHealthPanelBorder",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "c63b910d",
+    "name": "Remote Control",
+    "description": "",
+    "steps": [
+      {
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "bfaa6492",
+    "name": "Selection Embedding",
+    "description": "Quickly modify text selections with useful shortcuts.",
+    "steps": [
+      {
+        "title": "Ctrl\u002BB for Bold",
+        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.11093247588424437,
+        "targetOffsetY": 0.6432803382160294
+      },
+      {
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Quotes",
+        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Backticks",
+        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
       }
     ]
   },
