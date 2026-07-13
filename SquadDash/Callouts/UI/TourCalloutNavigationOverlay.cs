@@ -91,6 +91,20 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         }
     }
 
+    private string? _nextTourName;
+    public string? NextTourName
+    {
+        get => _nextTourName;
+        set
+        {
+            _nextTourName = value;
+            if (_nextTourButton is not null)
+                _nextTourButton.ToolTip = string.IsNullOrWhiteSpace(value)
+                    ? "Click to start the next uncompleted tour."
+                    : $"Starts the guided tour: {value}";
+        }
+    }
+
     private bool _isDevModeVisible;
     public bool IsDevModeVisible {
         get => _isDevModeVisible;

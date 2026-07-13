@@ -456,9 +456,13 @@ internal sealed class GuidedTourController
             _activeCallout.IsTourFirstStep = (_currentStepIndex == 0);
             bool isLastStep = (_currentStepIndex == _activeTour!.Steps.Count - 1);
             _activeCallout.IsTourLastStep = isLastStep;
-            _activeCallout.IsTourHasNextTour = isLastStep && _allTours.Any(t =>
-                t.Id != _activeTour.Id &&
-                !GuidedTourStateStore.Shared.IsCompleted(t.Id));
+            var nextTour = isLastStep
+                ? _allTours.FirstOrDefault(t =>
+                    t.Id != _activeTour.Id &&
+                    !GuidedTourStateStore.Shared.IsCompleted(t.Id))
+                : null;
+            _activeCallout.IsTourHasNextTour  = nextTour is not null;
+            _activeCallout.IsTourNextTourName = nextTour?.Name;
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();
@@ -491,9 +495,13 @@ internal sealed class GuidedTourController
             _activeCallout.IsTourFirstStep = (_currentStepIndex == 0);
             bool isLastStep = (_currentStepIndex == _activeTour!.Steps.Count - 1);
             _activeCallout.IsTourLastStep = isLastStep;
-            _activeCallout.IsTourHasNextTour = isLastStep && _allTours.Any(t =>
-                t.Id != _activeTour.Id &&
-                !GuidedTourStateStore.Shared.IsCompleted(t.Id));
+            var nextTour = isLastStep
+                ? _allTours.FirstOrDefault(t =>
+                    t.Id != _activeTour.Id &&
+                    !GuidedTourStateStore.Shared.IsCompleted(t.Id))
+                : null;
+            _activeCallout.IsTourHasNextTour  = nextTour is not null;
+            _activeCallout.IsTourNextTourName = nextTour?.Name;
             _activeCallout.IsTourEditModeVisible = SquadDashEnvironment.IsDeveloperMode;
             _activeCallout.TourNextRequested         += (_, _) => Next();
             _activeCallout.TourPrevRequested         += (_, _) => Prev();

@@ -503,9 +503,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
-    private bool _isTourFirstStep;
-    private bool _isTourLastStep;
-    private bool _isTourHasNextTour;
+    private bool    _isTourFirstStep;
+    private bool    _isTourLastStep;
+    private bool    _isTourHasNextTour;
+    private string? _isTourNextTourName;
 
     public bool IsTourFirstStep
     {
@@ -540,6 +541,17 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
     }
 
+    public string? IsTourNextTourName
+    {
+        get => _isTourNextTourName;
+        set
+        {
+            _isTourNextTourName = value;
+            if (_tourOverlay is not null)
+                _tourOverlay.NextTourName = value;
+        }
+    }
+
     private bool _isTourEditModeVisible;
 
     public bool IsTourEditModeVisible
@@ -564,6 +576,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.IsFirstStep     = _isTourFirstStep;
         _tourOverlay.IsLastStep      = _isTourLastStep;
         _tourOverlay.HasNextTour     = _isTourHasNextTour;
+        _tourOverlay.NextTourName    = _isTourNextTourName;
         _tourOverlay.IsDevModeVisible = _isTourEditModeVisible;
         _tourOverlay.NextClicked           += (_, _) => TourNextRequested?.Invoke(this, EventArgs.Empty);
         _tourOverlay.NextTourClicked       += (_, _) => TourNextTourRequested?.Invoke(this, EventArgs.Empty);
