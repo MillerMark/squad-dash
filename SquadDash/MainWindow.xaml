@@ -3290,6 +3290,7 @@
                              SpellCheck.IsEnabled="False"
                              UndoLimit="256"
                              TextOptions.TextFormattingMode="Display"
+                             IsInactiveSelectionHighlightEnabled="True"
                              Foreground="{DynamicResource LabelText}"
                              Background="{DynamicResource TextBoxBackground}"
                              BorderBrush="{DynamicResource InputBorder}"
