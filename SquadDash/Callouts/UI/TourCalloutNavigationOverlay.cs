@@ -101,7 +101,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             if (_nextTourButton is not null)
                 _nextTourButton.ToolTip = string.IsNullOrWhiteSpace(value)
                     ? "Click to start the next uncompleted tour."
-                    : $"Starts the guided tour: {value}";
+                    : $"Next up: {value}";
         }
     }
 
