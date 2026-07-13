@@ -13962,10 +13962,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        var selected = FrmGuidedTourSelector.ShowForResult(this, tours, GuidedTourStateStore.Shared.IsCompleted);
-        if (selected is null) return;
-
-        LaunchTour(selected, tours);
+        FrmGuidedTourSelector.ShowModeless(this, tours, GuidedTourStateStore.Shared.IsCompleted,
+            selected => LaunchTour(selected, tours));
     }
 
     private void LaunchTour(GuidedTour tour, List<GuidedTour>? allTours = null)

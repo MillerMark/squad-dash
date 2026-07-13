@@ -24,6 +24,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     private readonly Button             _startButton;
     private System.Windows.Controls.Image _mascotImage = null!;
     private CheckBox _showCompletedCheckBox = null!;
+    private Action<GuidedTour>? _onTourSelected;
 
     /// <summary>
     /// The tour selected by the user, or <c>null</c> if the dialog was cancelled.
@@ -41,7 +42,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         Height                = 480;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Topmost               = true;
+
 
         var contentArea = ApplyOuterBorder("AppSurface", "Select a Guided Tour");
 
@@ -230,7 +231,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         };
     }
 
-    // ── Public factory ───────────────────────────────────────────────────────
+    // ── Public factories ─────────────────────────────────────────────────────
 
     /// <summary>
     /// Shows the selector as a modal dialog. Returns the chosen tour, or null if cancelled.
@@ -240,6 +241,19 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         var dlg = new FrmGuidedTourSelector(tours, isCompleted) { Owner = owner };
         dlg.ShowDialog();
         return dlg.SelectedTour;
+    }
+
+    /// <summary>
+    /// Shows the selector as a modeless window. Calls <paramref name="onTourSelected"/> when the
+    /// user confirms a selection; does nothing if the window is closed without selecting.
+    /// </summary>
+    internal static void ShowModeless(Window owner, List<GuidedTour> tours,
+        Func<string, bool>? isCompleted,
+        Action<GuidedTour> onTourSelected)
+    {
+        var dlg = new FrmGuidedTourSelector(tours, isCompleted) { Owner = owner };
+        dlg._onTourSelected = onTourSelected;
+        dlg.Show();
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -445,6 +459,9 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     {
         SelectedTour = GetSelectedTour();
         if (SelectedTour is not null)
+        {
             Close();
+            _onTourSelected?.Invoke(SelectedTour);
+        }
     }
 }
