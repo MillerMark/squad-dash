@@ -277,12 +277,12 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment   = VerticalAlignment.Center,
             IsHitTestVisible    = false,
-            Margin              = new Thickness(8, 0, 8, 0),
+            Margin              = new Thickness(5, 0, 8, 0),
         };
         inner.Children.Add(BuildArrowIcon(flipHorizontal: false, fontSize));
         var label = new TextBlock {
             Text             = "Next Tour",
-            Margin           = new Thickness(4, 0, 0, 0),
+            Margin           = new Thickness(6, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
         };
