@@ -84,6 +84,10 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public bool WasObservedAsBackgroundTask { get; set; }
     public bool SuppressCoordinatorPromotion { get; set; }
     public bool IsCurrentBackgroundRun { get; set; }
+    /// <summary>True for simulated tour demo agent threads created by the guided-tour system.</summary>
+    public bool IsTourDemoThread { get; set; }
+    /// <summary>Timestamp of the most recent turn start; used to suppress redundant headers in tour demo threads.</summary>
+    public DateTimeOffset? LastTurnStartedAt { get; set; }
     public bool LaunchedFromInbox { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }

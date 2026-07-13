@@ -14997,6 +14997,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 startedAt:        null);
             thread.IsCurrentBackgroundRun    = true;
             thread.WasObservedAsBackgroundTask = true;
+            thread.IsTourDemoThread          = true;
             thread.LastObservedActivityAt    = DateTimeOffset.UtcNow;
             _guidedTourController?.TrackInjectedThread(thread.ThreadId);
 
@@ -23644,7 +23645,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptTurnView BeginTranscriptTurn(TranscriptThreadState thread, string? prompt)
     {
         prompt ??= string.Empty;
-        thread.CurrentTurn = CreateTranscriptTurnView(thread, prompt, DateTimeOffset.Now, thinkingExpanded: true);
+        var now = DateTimeOffset.Now;
+        // For tour demo threads, suppress the separator and "Starting…" header on successive
+        // calls that arrive within 2 minutes of the previous turn — they are visual clutter.
+        bool suppressTurnHeader = thread.IsTourDemoThread
+            && thread.LastTurnStartedAt.HasValue
+            && (now - thread.LastTurnStartedAt.Value) < TimeSpan.FromMinutes(2);
+        thread.LastTurnStartedAt = now;
+        thread.CurrentTurn = CreateTranscriptTurnView(thread, prompt, now, thinkingExpanded: true, suppressTurnHeader: suppressTurnHeader);
         if (ReferenceEquals(thread, CoordinatorThread))
             SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn created promptChars={prompt.Length} started={thread.CurrentTurn.StartedAt:O}");
         thread.ResponseStreamed = false;
@@ -23673,17 +23681,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string prompt,
         DateTimeOffset startedAt,
         bool thinkingExpanded,
-        bool isSystemInjected = false)
+        bool isSystemInjected = false,
+        bool suppressTurnHeader = false)
     {
         var topLevelBlocks = new List<Block>();
-        var separatorParagraph = CreateTranscriptParagraph(bottomMargin: 2);
-        var separatorRun = new Run(ToolTranscriptFormatter.BuildPromptSeparator());
-        separatorRun.SetResourceReference(TextElement.ForegroundProperty, "TurnDividerText");
-        separatorParagraph.Inlines.Add(separatorRun);
-        thread.Document.Blocks.Add(separatorParagraph);
-        topLevelBlocks.Add(separatorParagraph);
 
-        if (thread.Kind == TranscriptThreadKind.Agent)
+        if (!suppressTurnHeader)
+        {
+            var separatorParagraph = CreateTranscriptParagraph(bottomMargin: 2);
+            var separatorRun = new Run(ToolTranscriptFormatter.BuildPromptSeparator());
+            separatorRun.SetResourceReference(TextElement.ForegroundProperty, "TurnDividerText");
+            separatorParagraph.Inlines.Add(separatorRun);
+            thread.Document.Blocks.Add(separatorParagraph);
+            topLevelBlocks.Add(separatorParagraph);
+        }
+
+        if (!suppressTurnHeader && thread.Kind == TranscriptThreadKind.Agent)
         {
             var agentTurnMarkerPrompt = IsArgusWeldThread(thread)
                 ? CodeHealthRunner.StripPreambleForDisplay(prompt)
