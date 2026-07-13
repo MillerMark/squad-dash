@@ -255,7 +255,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Border BuildNextTourButton(double fontSize) {
         var border = new Border {
-            Width            = Math.Round(fontSize * 5.5),
+            Width            = Math.Round(fontSize * 8.0),
             Height           = _buttonHeight,
             CornerRadius     = new CornerRadius(4),
             BorderThickness  = new Thickness(1),
