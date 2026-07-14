@@ -1476,15 +1476,17 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             // Each commit gets a rounded rect whose width spans turn-start → commit-time;
             // falls back to a fixed-width rect centered on the day when timestamps are absent.
             // Height is scaled logarithmically by lines changed (2px min → 48px max at ≥1000 lines).
-            var fillColor = Color.FromArgb(180, color.R, color.G, color.B);
-            var fillBrush = new SolidColorBrush(fillColor);
-            var strokePen = new Pen(new SolidColorBrush(color), 1.0);
+            // Opacity is scaled linearly by files changed: 1 file → 20%, ≥6 files → 100%.
             foreach (var (date, commits) in row.CommitsByDay)
             {
                 if (date < _startDate || date > _endDate) continue;
                 var dayCx = LabelColumnWidth + DayToX(date);
                 foreach (var commit in commits)
                 {
+                    var fileAlpha = (byte)(int)Math.Round(
+                        51 + Math.Clamp((commit.FilesChanged - 1) / 5.0, 0.0, 1.0) * 204);
+                    var fillBrush = new SolidColorBrush(Color.FromArgb(fileAlpha, color.R, color.G, color.B));
+                    var strokePen = new Pen(new SolidColorBrush(Color.FromArgb(fileAlpha, color.R, color.G, color.B)), 1.0);
                     double left, right;
                     if (commit.TurnStartedAt.HasValue && commit.CommitTime.HasValue)
                     {
