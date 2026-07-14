@@ -183,6 +183,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly DispatcherTimer _teamRefreshDebounceTimer;
     private FileSystemWatcher? _docsWatcher;
     private FileSystemWatcher? _codeHealthMdWatcher;
+    private FileSystemWatcher? _featureCategoryWatcher;
+    private DispatcherTimer? _featureCategoryRefreshDebounce;
     private CancellationTokenSource? _docsRefreshCts;
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
@@ -7481,6 +7483,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     AnnotateCommitInTranscript(sha, group);
             });
         }));
+        _hostCommandExecutor.Register(new Commands.MergeFeatureCategoriesCommandHandler(ApplyFeatureCategoryMerges));
 
         _agentThreadRegistry.OnAgentApprovalGroup = (sha, group) =>
         {
@@ -17586,6 +17589,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 workspaceFolderPath: _workspacePaths.ApplicationRoot,
                 workspacePaths:      _workspacePaths,
                 getFeatureGroups:    () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList()).AsReadOnly(),
+                workspaceStateDirectory: _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath),
                 onCategoriesAssigned: assignments => Dispatcher.Invoke(() => ApplyCommitCategories(assignments)));
             if (CanShowOwnedWindow())
                 _commitActivityGraphWindow.Owner = this;
@@ -20331,6 +20335,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _approvalPanel?.ReplaceAllItems(_approvalItems);
 
         _featureGroupStore = new FeatureGroupStore(workspaceStateDir);
+        ConfigureFeatureCategoryWatcher(workspaceStateDir);
 
         _notesStore = new NotesStore(workspaceStateDir);
         _noteItems  = _notesStore.LoadAll();
@@ -25250,6 +25255,62 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return true;
     }
 
+    private void ApplyFeatureCategoryMerges(IReadOnlyList<(string Source, string Target)> merges)
+    {
+        if (_approvalStore is null || _featureGroupStore is null || _currentWorkspace is null)
+            throw new InvalidOperationException("No active workspace category store is available.");
+
+        var mergeMap = merges
+            .GroupBy(merge => merge.Source, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last().Target, StringComparer.OrdinalIgnoreCase);
+
+        string ResolveTarget(string category)
+        {
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var current = category;
+            while (mergeMap.TryGetValue(current, out var next) && visited.Add(current))
+                current = next;
+            if (mergeMap.ContainsKey(current) && !visited.Add(current))
+                throw new InvalidOperationException($"Category merge cycle detected at '{current}'.");
+            return current;
+        }
+
+        for (var index = 0; index < _approvalItems.Count; index++)
+        {
+            var category = _approvalItems[index].FeatureGroup;
+            if (category is null || !mergeMap.ContainsKey(category)) continue;
+            _approvalItems[index] = _approvalItems[index] with { FeatureGroup = ResolveTarget(category) };
+        }
+        _approvalStore.Save(_approvalItems);
+
+        var sourceNames = mergeMap.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var groups = _featureGroupStore.Load()
+            .Where(group => !sourceNames.Contains(group))
+            .ToList();
+        foreach (var target in mergeMap.Values.Select(ResolveTarget).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!groups.Contains(target, StringComparer.OrdinalIgnoreCase))
+                groups.Add(target);
+        }
+        _featureGroupStore.Save(groups);
+
+        var stateDirectory = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        var cache = new CommitCategoryCache(stateDirectory);
+        var resolvedMerges = mergeMap.Select(merge => (merge.Key, ResolveTarget(merge.Key))).ToList();
+        cache.MergeGroups(resolvedMerges);
+        cache.Save();
+
+        RefreshFeatureCategoryViewsFromStore();
+    }
+
+    private void RefreshFeatureCategoryViewsFromStore()
+    {
+        if (_approvalStore is null) return;
+        _approvalItems = _approvalStore.Load();
+        _approvalPanel?.ReplaceAllItems(_approvalItems);
+        _commitActivityGraphWindow?.ReplaceItems(_approvalItems);
+    }
+
     private bool HasVisibleOrPersistedAgentReport(TranscriptThreadState thread)
     {
         if (_currentWorkspace is null)
@@ -29008,6 +29069,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DisposeRestartRequestWatcher();
             DisposeDocsWatcher();
             DisposeCodeHealthMdWatcher();
+            DisposeFeatureCategoryWatcher();
             DisposeGitHeadWatcher();
             _search.Dispose();
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closed: complete {closedSw.ElapsedMilliseconds}ms total.");
@@ -30509,6 +30571,62 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _codeHealthMdWatcher.Created -= OnMaintenanceMdChanged;
         _codeHealthMdWatcher.Dispose();
         _codeHealthMdWatcher = null;
+    }
+
+    private void ConfigureFeatureCategoryWatcher(string workspaceStateDirectory)
+    {
+        DisposeFeatureCategoryWatcher();
+        Directory.CreateDirectory(workspaceStateDirectory);
+        _featureCategoryRefreshDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        _featureCategoryRefreshDebounce.Tick += FeatureCategoryRefreshDebounce_Tick;
+        _featureCategoryWatcher = new FileSystemWatcher(workspaceStateDirectory)
+        {
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+            IncludeSubdirectories = false,
+            EnableRaisingEvents = true,
+        };
+        _featureCategoryWatcher.Changed += FeatureCategoryStore_Changed;
+        _featureCategoryWatcher.Created += FeatureCategoryStore_Changed;
+        _featureCategoryWatcher.Renamed += FeatureCategoryStore_Renamed;
+    }
+
+    private void FeatureCategoryStore_Changed(object sender, FileSystemEventArgs e)
+    {
+        if (!IsFeatureCategoryStoreFile(e.Name)) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _featureCategoryRefreshDebounce?.Stop();
+            _featureCategoryRefreshDebounce?.Start();
+        });
+    }
+
+    private void FeatureCategoryStore_Renamed(object sender, RenamedEventArgs e) =>
+        FeatureCategoryStore_Changed(sender, e);
+
+    private static bool IsFeatureCategoryStoreFile(string? name) =>
+        string.Equals(name, "commit-approvals.json", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "feature-groups.json", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "commit-category-cache.json", StringComparison.OrdinalIgnoreCase);
+
+    private void FeatureCategoryRefreshDebounce_Tick(object? sender, EventArgs e)
+    {
+        _featureCategoryRefreshDebounce?.Stop();
+        RefreshFeatureCategoryViewsFromStore();
+    }
+
+    private void DisposeFeatureCategoryWatcher()
+    {
+        _featureCategoryRefreshDebounce?.Stop();
+        if (_featureCategoryRefreshDebounce is not null)
+            _featureCategoryRefreshDebounce.Tick -= FeatureCategoryRefreshDebounce_Tick;
+        _featureCategoryRefreshDebounce = null;
+        if (_featureCategoryWatcher is null) return;
+        _featureCategoryWatcher.EnableRaisingEvents = false;
+        _featureCategoryWatcher.Changed -= FeatureCategoryStore_Changed;
+        _featureCategoryWatcher.Created -= FeatureCategoryStore_Changed;
+        _featureCategoryWatcher.Renamed -= FeatureCategoryStore_Renamed;
+        _featureCategoryWatcher.Dispose();
+        _featureCategoryWatcher = null;
     }
 
     private static ByokProviderSettings? BuildByokSettings(ApplicationSettingsSnapshot snapshot)

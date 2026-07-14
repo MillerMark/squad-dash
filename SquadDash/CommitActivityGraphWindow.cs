@@ -48,7 +48,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     // ── State ─────────────────────────────────────────────────────────────────
     private readonly ICommitStatService          _statService;
-    private readonly List<CommitApprovalItem>    _allItems;
+    private List<CommitApprovalItem>             _allItems;
     private readonly string?                     _workspaceFolderPath;
     private bool                                 _isDark;
     private DateOnly                             _startDate;
@@ -90,6 +90,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         bool                            isDark,
         string?                         workspaceFolderPath = null,
         IWorkspacePaths?                workspacePaths      = null,
+        string?                         workspaceStateDirectory = null,
         Func<IReadOnlyList<string>>?    getFeatureGroups    = null,
         Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
@@ -103,7 +104,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (workspacePaths is not null)
         {
             _categorizationService = new SquadSdkCategorizationService(workspacePaths);
-            _categoryCache         = new CommitCategoryCache(workspacePaths.ApplicationRoot);
+            _categoryCache         = new CommitCategoryCache(workspaceStateDirectory ?? workspacePaths.ApplicationRoot);
             ApplyCacheTo(_allItems);
         }
 
@@ -439,6 +440,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         _ = LoadDataAsync(_cts.Token);
+    }
+
+    internal void ReplaceItems(IEnumerable<CommitApprovalItem> items)
+    {
+        _allItems = items.ToList();
+        ApplyCacheTo(_allItems);
+        StartLoadingData();
     }
 
     private async Task LoadDataAsync(CancellationToken ct)

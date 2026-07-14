@@ -45,6 +45,19 @@ internal sealed class CommitCategoryCache
         _data[sha] = group;
     }
 
+    public int MergeGroups(IReadOnlyList<(string Source, string Target)> merges)
+    {
+        var mergeMap = merges.ToDictionary(m => m.Source, m => m.Target, StringComparer.OrdinalIgnoreCase);
+        var changed = 0;
+        foreach (var sha in _data.Keys.ToList())
+        {
+            if (!mergeMap.TryGetValue(_data[sha], out var target)) continue;
+            _data[sha] = target;
+            changed++;
+        }
+        return changed;
+    }
+
     public void Save()
     {
         JsonFileStorage.SafeWrite(_filePath, _data, "CommitCategoryCache", "Save");

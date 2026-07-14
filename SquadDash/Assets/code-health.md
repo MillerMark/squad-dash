@@ -805,6 +805,15 @@ tasks:
       warranted, say so. Send the report to the user's Inbox using an
       INBOX_MESSAGE_JSON block (from: "argus-weld").
 
+      If the user later confirms a proposed consolidation through a quick reply,
+      invoke the `merge_feature_categories` host command with the confirmed
+      source-to-target mappings. Never edit feature-groups.json,
+      commit-approvals.json, or commit-category-cache.json directly. The host
+      command updates all stores together and refreshes open UI surfaces.
+      Every Inbox action that offers to apply merges must include the exact
+      source-to-target mappings in its prompt and explicitly require the follow-up
+      agent to use `merge_feature_categories` rather than filesystem tools.
+
   - id: clean-inbox
     enabled: true
     frequency: daily

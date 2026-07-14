@@ -46,6 +46,11 @@ internal sealed class HostCommandRegistry {
             Description:    "Assigns feature groups to pending approval items. Use assignments parameter as a JSON array, not as an escaped string: {\"assignments\":[{\"sha\":\"abc1234\",\"group\":\"Feature Name\"},...]}. You may use existing groups or invent specific feature names.",
             Parameters:     [new HostCommandParameterDescriptor("assignments", "string", Required: true)],
             ResultBehavior: HostCommandResultBehavior.Silent),
+        new HostCommandDescriptor(
+            Name:           "merge_feature_categories",
+            Description:    "Merges existing feature categories through one coordinated host operation across approvals, the canonical category list, and the Commit History cache. Use merges as a JSON array: [{\"source\":\"Commit Viewer\",\"target\":\"Commit History Visualizer\"}]. Never edit the category data files directly.",
+            Parameters:     [new HostCommandParameterDescriptor("merges", "string", Required: true)],
+            ResultBehavior: HostCommandResultBehavior.Silent),
     ];
 
     internal IReadOnlyList<HostCommandDescriptor> GetCommands(string? workspaceFolder) {
@@ -96,6 +101,7 @@ internal sealed class HostCommandRegistry {
         sb.AppendLine();
         sb.AppendLine("When a parameter is structured data, pass it as real JSON, not as an escaped JSON string.");
         sb.AppendLine("Example: { \"command\": \"organize_approvals\", \"parameters\": { \"assignments\": [{ \"sha\": \"abc1234\", \"group\": \"Feature Name\" }] } }");
+        sb.AppendLine("Example: { \"command\": \"merge_feature_categories\", \"parameters\": { \"merges\": [{ \"source\": \"Commit Viewer\", \"target\": \"Commit History Visualizer\" }] } }");
         sb.AppendLine();
         sb.AppendLine("Commands are executed sequentially. Commands that return output inject that output as your next user turn.");
         sb.AppendLine();
