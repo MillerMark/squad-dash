@@ -119,7 +119,7 @@ internal sealed class CommitStatService : ICommitStatService
         CancellationToken       cancellationToken)
     {
         var shaList = string.Join(" ", batch.Select(r => r.Sha));
-        var args    = $"log --no-walk --format=\"STAT:%H %aI\" --numstat {shaList}";
+        var args    = $"log --no-walk --format=\"STAT:%H %aI %s\" --numstat {shaList}";
 
         string stdout;
         try
@@ -171,6 +171,7 @@ internal sealed class CommitStatService : ICommitStatService
         int                insertions        = 0;
         int                deletions         = 0;
         DateTimeOffset?    currentCommitTime = null;
+        string?            currentMessage    = null;
 
         void Flush()
         {
@@ -179,12 +180,14 @@ internal sealed class CommitStatService : ICommitStatService
                 current.Sha, current.FeatureGroupId, current.TurnDate,
                 files, insertions, deletions, IsFound: true,
                 TurnStartedAt: current.TurnStartedAt,
-                CommitTime:    currentCommitTime));
+                CommitTime:    currentCommitTime,
+                Message:       currentMessage));
             current           = null;
             files             = 0;
             insertions        = 0;
             deletions         = 0;
             currentCommitTime = null;
+            currentMessage    = null;
         }
 
         foreach (var line in output.AsSpan().EnumerateLines())
@@ -193,15 +196,29 @@ internal sealed class CommitStatService : ICommitStatService
             if (s.StartsWith("STAT:", StringComparison.Ordinal))
             {
                 Flush();
-                var rest     = s[5..];
-                var spaceIdx = rest.IndexOf(' ');
+                var rest       = s[5..];
+                var firstSpace = rest.IndexOf(' ');
                 string gitSha;
-                if (spaceIdx > 0)
+                if (firstSpace > 0)
                 {
-                    gitSha = rest[..spaceIdx];
-                    var tsStr = rest[(spaceIdx + 1)..].Trim();
-                    if (DateTimeOffset.TryParse(tsStr, out var ts))
-                        currentCommitTime = ts;
+                    gitSha = rest[..firstSpace];
+                    var remaining   = rest[(firstSpace + 1)..];
+                    var secondSpace = remaining.IndexOf(' ');
+                    if (secondSpace > 0)
+                    {
+                        var tsStr   = remaining[..secondSpace];
+                        var subject = remaining[(secondSpace + 1)..].Trim();
+                        if (DateTimeOffset.TryParse(tsStr, out var ts))
+                            currentCommitTime = ts;
+                        if (!string.IsNullOrEmpty(subject))
+                            currentMessage = subject;
+                    }
+                    else
+                    {
+                        var tsStr = remaining.Trim();
+                        if (DateTimeOffset.TryParse(tsStr, out var ts))
+                            currentCommitTime = ts;
+                    }
                 }
                 else
                 {

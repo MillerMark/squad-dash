@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -1234,7 +1235,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         }
         else
         {
-            _hoverContent!.Text = BuildTooltipText(hit);
+            PopulateTooltipInlines(_hoverContent!, hit);
             _hoverPopup!.IsOpen = true;
         }
     }
@@ -1672,31 +1673,49 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         return _rows[rowIndex];
     }
 
-    private static string BuildTooltipText(object hit)
-        => hit switch
-        {
-            CommitDotHit { IsPending: true  } d =>
-                $"Feature: {d.Row.DisplayName}\nDate: {d.Date:MMM d, yyyy}\nStatus: Loading commit data\u2026",
-            CommitDotHit { IsPending: false } d when d.Commit is { } c =>
-                BuildCommitTooltip(d.Row.DisplayName, c),
-            CommitLineHit l =>
-                $"Feature: {l.Row.DisplayName}\nActive: {l.FirstDate:MMM d, yyyy} \u2192 {l.LastDate:MMM d, yyyy}",
-            _ => ""
-        };
-
-    private static string BuildCommitTooltip(string featureName, CommitStatResult c)
+    private static void PopulateTooltipInlines(TextBlock tb, object hit)
     {
-        var sha   = c.Sha.Length >= 7 ? c.Sha[..7] : c.Sha;
-        var lines = new System.Text.StringBuilder();
-        lines.Append($"Feature: {featureName}");
-        lines.Append($"\nCommit:  {sha}");
+        tb.Inlines.Clear();
+        switch (hit)
+        {
+            case CommitDotHit { IsPending: true } d:
+                tb.Inlines.Add(new Run(
+                    $"Feature: {d.Row.DisplayName}\nDate: {d.Date:MMM d, yyyy}\nStatus: Loading commit data\u2026"));
+                break;
+            case CommitDotHit { IsPending: false } d when d.Commit is { } c:
+                PopulateCommitInlines(tb, d.Row.DisplayName, c);
+                break;
+            case CommitLineHit l:
+                tb.Inlines.Add(new Run(
+                    $"Feature: {l.Row.DisplayName}\nActive: {l.FirstDate:MMM d, yyyy} \u2192 {l.LastDate:MMM d, yyyy}"));
+                break;
+        }
+    }
+
+    private static void PopulateCommitInlines(TextBlock tb, string featureName, CommitStatResult c)
+    {
+        // Subject line: bold, capped at ~22 chars (≈150px at body font)
+        const int MaxSubjectChars = 22;
+        if (!string.IsNullOrEmpty(c.Message))
+        {
+            var subject = c.Message.Length > MaxSubjectChars
+                ? c.Message[..MaxSubjectChars] + "\u2026"
+                : c.Message;
+            tb.Inlines.Add(new Run(subject) { FontWeight = FontWeights.Bold });
+            tb.Inlines.Add(new LineBreak());
+        }
+
+        var sha  = c.Sha.Length >= 7 ? c.Sha[..7] : c.Sha;
+        var body = new System.Text.StringBuilder();
+        body.Append($"Feature: {featureName}");
+        body.Append($"\nCommit:  {sha}");
         if (c.CommitTime.HasValue)
-            lines.Append($"\nTime:    {c.CommitTime.Value.LocalDateTime:MMM d, yyyy  h:mm tt}");
+            body.Append($"\nTime:    {c.CommitTime.Value.LocalDateTime:MMM d, yyyy  h:mm tt}");
         else
-            lines.Append($"\nDate:    {c.TurnDate:MMM d, yyyy}");
-        lines.Append($"\nFiles:   {c.FilesChanged}");
-        lines.Append($"\nLines:   +{c.Insertions} / -{c.Deletions}");
-        return lines.ToString();
+            body.Append($"\nDate:    {c.TurnDate:MMM d, yyyy}");
+        body.Append($"\nFiles:   {c.FilesChanged}");
+        body.Append($"\nLines:   +{c.Insertions} / -{c.Deletions}");
+        tb.Inlines.Add(new Run(body.ToString()));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

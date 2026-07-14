@@ -28,5 +28,6 @@ internal record CommitStatResult(
     int             Deletions,
     bool            IsFound,          // false = SHA not found in repo or git call failed
     DateTimeOffset? TurnStartedAt = null,
-    DateTimeOffset? CommitTime    = null
+    DateTimeOffset? CommitTime    = null,
+    string?         Message       = null  // first line of commit message (subject)
 );
