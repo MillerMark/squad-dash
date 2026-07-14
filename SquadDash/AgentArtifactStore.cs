@@ -150,7 +150,7 @@ internal static class AgentArtifactStore
     internal static string BuildPromptInstruction() =>
         """
         <artifact_file_instructions>
-        Ask yourself — is this entire response a deliverable the user will copy as a whole unit (a prompt, document, template, report, config block, or generated output)? If yes, write it to a file under `.squad/tmp/agent-artifacts/` and reference it with a small manifest instead of pasting the full payload inline.
+        If the response is a deliverable the user will use as a standalone artifact — a prompt, escalation prompt, document, template, report, or config block — do NOT write its full content into the response body. Write it to a file under `.squad/tmp/agent-artifacts/` and reference it with a small manifest instead.
 
         For transcript display, append:
         SQUADDASH_ARTIFACT_JSON:
