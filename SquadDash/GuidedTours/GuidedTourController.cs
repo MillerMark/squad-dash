@@ -310,7 +310,11 @@ internal sealed class GuidedTourController
             allToursSnapshot,
             id => GuidedTourStateStore.Shared.IsCompleted(id),
             selected => {
-                StopTour();
+                // Carry through any CommandsAfter on the step being abandoned.
+                var commandsAfter = IsActive ? CurrentStep.EffectiveCommandsAfter : null;
+                // If a new tour was selected, skip the "restart from Help" hint —
+                // the new tour's own callout is about to appear.
+                StopTourInternal(showHint: selected is null, commandsAfter: commandsAfter);
                 if (selected is not null)
                     StartTour(selected, allToursSnapshot);
             });
