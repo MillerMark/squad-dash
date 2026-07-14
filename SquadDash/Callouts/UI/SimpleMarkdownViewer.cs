@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -193,20 +194,29 @@ public class SimpleMarkdownViewer : Control {
 
         SetHeadingStyle(paragraph, ref cleanParagraphText);
 
-        const string boldDelimiter = "**";
-        bool bold = false;
-        string[] textRuns = cleanParagraphText.Split(new string[] { boldDelimiter }, StringSplitOptions.None);
-
-        foreach (string text in textRuns) {
-            Inline textRun = new Run() { Text = text };
-            if (bold)
-                textRun = new Bold(textRun);
-            paragraph.Inlines.Add(textRun);
-            bold = !bold;
-        }
+        foreach (Inline inline in ParseInlines(cleanParagraphText))
+            paragraph.Inlines.Add(inline);
 
         flowDocument.Blocks.Add(paragraph);
         return paragraph;
+    }
+
+    // Splits on **bold** and *italic* spans (bold checked first so ** isn't consumed as two *)
+    private static readonly Regex InlineMarkupRegex = new(
+        @"(\*\*[^*]+?\*\*|\*[^*]+?\*)",
+        RegexOptions.Compiled);
+
+    private static IEnumerable<Inline> ParseInlines(string text)
+    {
+        foreach (string part in InlineMarkupRegex.Split(text))
+        {
+            if (part.StartsWith("**") && part.EndsWith("**") && part.Length > 4)
+                yield return new Bold(new Run(part[2..^2]));
+            else if (part.StartsWith('*') && part.EndsWith('*') && part.Length > 2)
+                yield return new Italic(new Run(part[1..^1]));
+            else
+                yield return new Run(part);
+        }
     }
 
     private void ScaleListMargin() {
