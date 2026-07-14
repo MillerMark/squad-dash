@@ -1338,6 +1338,25 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             Math.Max(0, ActualWidth - LabelColumnWidth),
             _rows.Count * RowHeight)));
 
+        // ── Vertical grid lines (day/week/month) ──────────────────────────────
+        // Grid color is the contrast color for the current theme.
+        var gridBase = _isDark ? Colors.White : Colors.Black;
+        var gridHeight = _rows.Count * RowHeight;
+        for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
+        {
+            byte alpha;
+            double thickness;
+            if (d.Day == 1)                        { alpha = 192; thickness = 3.0; } // month boundary
+            else if (d.DayOfWeek == DayOfWeek.Monday) { alpha =  128; thickness = 2.0; } // week boundary
+            else                                   { alpha =   64; thickness = 1.0; } // day
+
+            var gridColor = Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B);
+            var gx = LabelColumnWidth + DayToX(d);
+            dc.DrawLine(new Pen(new SolidColorBrush(gridColor), thickness),
+                new Point(gx, 0),
+                new Point(gx, gridHeight));
+        }
+
         for (int i = 0; i < _rows.Count; i++)
         {
             var row   = _rows[i];
