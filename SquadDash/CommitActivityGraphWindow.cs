@@ -1381,8 +1381,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var x1        = DayToX(firstDate);
             var x2        = DayToX(lastDate);
 
-            // ── Day-span lines (4px, 100% opacity) — drawn when 2+ commits in a day ──────
-            var spanPen = new Pen(new SolidColorBrush(color), 4.0);
+            // ── Day-span lines (2px, 100% opacity) — drawn when 2+ commits in a day ──────
+            var spanPen = new Pen(new SolidColorBrush(color), 2.0);
             foreach (var (date, commits) in row.CommitsByDay)
             {
                 if (date < _startDate || date > _endDate) continue;
