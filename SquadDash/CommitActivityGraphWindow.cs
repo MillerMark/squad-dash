@@ -528,10 +528,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         return gitCommits
             .Where(c => !existingShas.Contains(c.sha))
-            .Select(c => new CommitStatRequest(
-                c.sha, null,
-                DateOnly.FromDateTime(c.time.LocalDateTime),
-                CommitTime: c.time))
+            .Select(c =>
+            {
+                string? cachedGroup = null;
+                _categoryCache?.TryGetGroup(c.sha, out cachedGroup);
+                return new CommitStatRequest(
+                    c.sha, cachedGroup,
+                    DateOnly.FromDateTime(c.time.LocalDateTime),
+                    CommitTime: c.time);
+            })
             .ToList();
     }
 
@@ -731,12 +736,29 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         try
         {
-            var uncategorized = _allItems
+            // Uncategorized items from the approvals list
+            var approvalUncategorized = _allItems
                 .Where(i => i.FeatureGroup is null)
                 .OrderByDescending(i => i.TurnStartedAt)
                 .Take(100)
                 .Select(i => (i.CommitSha, i.Description))
                 .ToList();
+
+            // Uncategorized commits from git history (loaded but not in _allItems)
+            var allItemsShas = new HashSet<string>(_allItems.Select(i => i.CommitSha), StringComparer.OrdinalIgnoreCase);
+            var gitUncategorized = (_cachedRequests ?? [])
+                .Where(r => r.FeatureGroupId is null && !allItemsShas.Contains(r.Sha))
+                .Select(r =>
+                {
+                    var result = _statService.TryGetCached(r.Sha);
+                    var desc = result?.Message ?? r.Sha;
+                    return (r.Sha, desc);
+                })
+                .Where(t => t.desc is not null)
+                .Take(100 - approvalUncategorized.Count)
+                .ToList();
+
+            var uncategorized = approvalUncategorized.Concat(gitUncategorized).ToList();
 
             if (uncategorized.Count == 0)
             {
