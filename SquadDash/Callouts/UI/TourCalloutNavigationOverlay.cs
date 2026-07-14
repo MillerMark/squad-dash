@@ -445,6 +445,9 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     /// </summary>
     public void PositionForLastStep(Rect calloutScreenRect) {
         const double gap = 10;
+        // Force re-layout so newly-visible buttons (Next Tour, More Tours) have real ActualWidth.
+        InvalidateMeasure();
+        UpdateLayout();
         Rect visibleBounds = GetVisibleButtonBounds();
         var screenBounds = GetMonitorBoundsForLogicalPoint(calloutScreenRect.TopLeft);
 
@@ -544,6 +547,8 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         Rect? bounds = null;
         AddButtonBounds(_prevButton, ref bounds);
         AddButtonBounds(_nextButton, ref bounds);
+        AddButtonBounds(_nextTourButton, ref bounds);
+        AddButtonBounds(_moreTourButton, ref bounds);
 
         return bounds ?? new Rect(
             PanelMargin,
