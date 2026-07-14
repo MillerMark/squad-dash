@@ -6,22 +6,29 @@ parent: Features
 
 # Maintenance Mode
 
-Maintenance Mode lets SquadDash run autonomous housekeeping tasks — tests, refactors, reports, and more — during idle windows while you're away from the keyboard. Tasks are defined in `.squad/code-health.md`, controlled by a global safety floor, and each run produces a timestamped report.
+Maintenance Mode lets SquadDash run autonomous housekeeping tasks — tests, refactors, reports, and more — during idle windows while you're away from the keyboard. SquadDash supplies a built-in task catalog, while workspace settings and customizations live under `.squad/`. Each run produces a timestamped report.
 
 ---
 
 ## How it works
 
 1. SquadDash monitors keyboard/mouse activity via `IdleDetectionService`.
-2. After `idle_timeout` minutes of inactivity, it loads `.squad/code-health.md`, evaluates which tasks are eligible (based on frequency and run history), and executes them in order via the normal agent prompt pipeline.
+2. After `idle_timeout` minutes of inactivity, it combines the built-in catalog with workspace custom tasks and overrides, evaluates which tasks are eligible, and executes them in order via the normal agent prompt pipeline.
 3. Each completed session writes a report to `.squad/code-health-reports/`.
 4. Activity (a keypress, mouse movement) interrupts the session cleanly between tasks.
 
 ---
 
-## `code-health.md` — structure
+## Configuration sources
 
-The file lives at `.squad/code-health.md` and has two parts: a YAML frontmatter block followed by task blocks.
+Code Health uses four explicit layers:
+
+- SquadDash's embedded `Assets/code-health.md` is the single source of truth for shipped tasks.
+- `.squad/code-health.md` contains workspace-wide settings only.
+- `.squad/code-health-overrides.md` contains user changes to shipped tasks.
+- `.squad/code-health-custom.md` contains workspace-specific tasks.
+
+Overrides take precedence over custom tasks, which take precedence over built-ins when task IDs collide.
 
 ### Frontmatter
 
@@ -41,22 +48,23 @@ safety: branch            # Global safety floor (see Safety Model below)
 
 ### Task blocks
 
-Each task follows a `## task-slug` heading inside the body of the file:
+Task definitions in `code-health-custom.md` and `code-health-overrides.md` use YAML entries in the `tasks:` list:
 
 ```markdown
-## run-tests
-
-enabled: false
-frequency: daily
-safety: branch
-title: Run Tests
-instructions: |
-  Run all tests in the repository using the appropriate test runner
-  (e.g. `dotnet test`, `npm test`, `go test ./...`).
-  Report any failures.
+---
+configured: true
+tasks:
+  - id: run-tests
+    enabled: false
+    frequency: daily
+    safety: branch
+    title: Run Tests
+    instructions: |
+      Run all tests in the repository using the appropriate test runner.
+---
 ```
 
-All tasks in the default `.squad/code-health.md` ship with `enabled: false` — you opt in to exactly the tasks you want.
+Use the Code Health panel editor to customize a built-in task; SquadDash writes that customization to `code-health-overrides.md` automatically.
 
 | Field          | Required | Default  | Description                                            |
 |----------------|----------|----------|--------------------------------------------------------|
@@ -120,27 +128,28 @@ For the full syntax, all gotchas, and loop-file examples see [Loop File Template
 
 ### In the file
 
-Set `enabled: true` or `enabled: false` on the relevant task block in `.squad/code-health.md`:
+Set `enabled: true` or `enabled: false` in the relevant task entry in
+`.squad/code-health-overrides.md` (for shipped tasks) or
+`.squad/code-health-custom.md` (for workspace tasks):
 
 ```diff
-## run-tests
-
--enabled: false
-+enabled: true
- frequency: daily
- safety: branch
+  - id: run-tests
+-   enabled: false
++   enabled: true
+    frequency: daily
+    safety: branch
 ```
 
 ### In the Code Health panel
 
 The **Code Health panel** in SquadDash displays each task as a row with a checkbox. Checking or unchecking the box:
 
-1. Reads `.squad/code-health.md` from disk.
-2. Flips `enabled: false ↔ true` for the target task ID in place, preserving all other content.
-3. Writes the file back atomically.
+1. Reads the effective built-in/custom/override catalog.
+2. Flips `enabled: false ↔ true` for the target task.
+3. Writes a built-in customization to `code-health-overrides.md`, or updates a custom task in place.
 4. Reloads the panel to reflect the new state.
 
-Both methods are equivalent — the file is the single source of truth.
+The embedded catalog remains unchanged and authoritative for shipped defaults.
 
 ---
 

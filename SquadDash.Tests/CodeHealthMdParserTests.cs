@@ -1275,6 +1275,12 @@ internal sealed class CodeHealthMdParserTests {
                 safety: report-only
                 title: Legacy Workspace Task
                 instructions: Existing workspace task.
+              - id: consolidate-feature-categories
+                enabled: false
+                frequency: monthly
+                safety: report-only
+                title: Stale Built-in Copy
+                instructions: Old shipped instructions.
             ---
             """);
 
@@ -1299,6 +1305,14 @@ internal sealed class CodeHealthMdParserTests {
                 Assert.That(config, Is.Not.Null);
                 Assert.That(config!.Tasks!.Any(task => task.Id == "legacy-workspace-task"), Is.True);
                 Assert.That(config.Tasks!.Any(task => task.Id == "consolidate-feature-categories"), Is.True);
+                Assert.That(config.Tasks!.Single(task => task.Id == "consolidate-feature-categories").Title,
+                    Is.EqualTo("Consolidate Feature Categories"));
+                Assert.That(CodeHealthMdParser.Parse(Path.Combine(tempDir, ".squad", "code-health.md"))!.Tasks,
+                    Is.Empty, "workspace code-health.md should contain settings only after migration");
+                Assert.That(CodeHealthMdParser.Parse(Path.Combine(tempDir, ".squad", "code-health-custom.md"))!.Tasks!
+                    .Any(task => task.Id == "legacy-workspace-task"), Is.True);
+                Assert.That(File.Exists(Path.Combine(tempDir, ".squad", "backups",
+                    "code-health-pre-catalog-migration.md")), Is.True);
             });
         }
         finally {

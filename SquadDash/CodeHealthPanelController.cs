@@ -102,12 +102,7 @@ internal sealed class CodeHealthPanelController {
                     "CodeHealthPanelController: workspace path is null; cannot create task");
                 return;
             }
-            var mdPath = ResolveSquadFilePath(workspacePath, "code-health.md");
-            if (!File.Exists(mdPath)) {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"CodeHealthPanelController: CodeHealth file not found at {mdPath}");
-                return;
-            }
+            var customPath = ResolveSquadFilePath(workspacePath, "code-health-custom.md");
             var newId   = Guid.NewGuid().ToString("N")[..8];
             var newTask = new CodeHealthTask(
                 Id:            newId,
@@ -116,9 +111,9 @@ internal sealed class CodeHealthPanelController {
                 Safety:        "branch",
                 Title:         "New Task",
                 Instructions:  "Describe what the agent should do here.\n\nAdd as many details as needed.",
-                SourceFilePath: mdPath);
+                SourceFilePath: customPath);
             try {
-                CodeHealthMdParser.AppendTask(mdPath, newTask);
+                CodeHealthMdParser.SaveCustomTask(newTask, workspacePath);
             }
             catch (Exception ex) {
                 SquadDashTrace.Write(TraceCategory.General,
@@ -246,30 +241,31 @@ internal sealed class CodeHealthPanelController {
     }
 
     /// <summary>
-    /// Reads <c>.squad/code-health.md</c>, locates the <paramref name="taskId"/> entry,
-    /// flips its <c>enabled:</c> value, writes the file back preserving all other content,
-    /// then invokes the host's reload callback so the panel refreshes.
+    /// Persists an enabled-state customization in the task's custom file or the
+    /// workspace override layer, then refreshes the panel.
     /// </summary>
     internal void ToggleTaskEnabled(string taskId) {
         var workspacePath = _getWorkspacePath();
         if (workspacePath is null) return;
 
-        var mdPath = ResolveSquadFilePath(workspacePath, "code-health.md");
-        if (!File.Exists(mdPath)) return;
-
         try {
-            var newEnabled = CodeHealthMdParser.ToggleTaskEnabled(mdPath, taskId);
-
-            if (newEnabled is null) {
+            var task = _viewModel.Config?.Tasks?.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, taskId, StringComparison.Ordinal))
+                ?? CodeHealthMdParser.ParseAllSources(workspacePath).FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, taskId, StringComparison.Ordinal));
+            if (task is null) {
                 SquadDashTrace.Write(TraceCategory.General,
-                    $"CodeHealthPanelController: task '{taskId}' not found in {mdPath}");
+                    $"CodeHealthPanelController: task '{taskId}' not found in effective catalog");
                 return;
             }
 
-            SquadDashTrace.Write(TraceCategory.General,
-                $"CodeHealthPanelController: task '{taskId}' toggled → enabled={newEnabled.Value}");
+            var newEnabled = !task.Enabled;
+            PersistTaskCustomization(task with { Enabled = newEnabled }, workspacePath);
 
-            _toggleTaskEnabled(taskId, newEnabled.Value);
+            SquadDashTrace.Write(TraceCategory.General,
+                $"CodeHealthPanelController: task '{taskId}' toggled → enabled={newEnabled}");
+
+            _toggleTaskEnabled(taskId, newEnabled);
         }
         catch (Exception ex) {
             SquadDashTrace.Write(TraceCategory.General,
@@ -282,11 +278,35 @@ internal sealed class CodeHealthPanelController {
     /// and reloads the panel so the change is reflected immediately.
     /// </summary>
     private void ChangeTaskFrequency(string taskId, string newFrequency) {
-        var mdPath = GetMaintenanceMdPath();
-        if (mdPath is null) return;
-        
-        CodeHealthMdParser.UpdateFrequency(mdPath, taskId, newFrequency);
+        var workspacePath = _getWorkspacePath();
+        var task = _viewModel.Config?.Tasks?.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, taskId, StringComparison.Ordinal));
+        if (workspacePath is null || task is null) return;
+
+        PersistTaskCustomization(task with { Frequency = newFrequency }, workspacePath);
         _reloadPanel();
+    }
+
+    private static void PersistTaskCustomization(CodeHealthTask task, string workspacePath) {
+        var sourceName = Path.GetFileName(task.SourceFilePath);
+        if (string.Equals(sourceName, "code-health-custom.md", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(sourceName, "code-health-overrides.md", StringComparison.OrdinalIgnoreCase)) {
+            CodeHealthMdParser.UpdateTask(task.SourceFilePath, task.Id, task);
+        }
+        else {
+            CodeHealthMdParser.SaveTaskOverride(task, workspacePath);
+        }
+    }
+
+    private void PersistOptionCustomization(CodeHealthTask task, string optionKey, string value) {
+        var workspacePath = _getWorkspacePath();
+        if (workspacePath is null || task.Options is null) return;
+        var options = task.Options
+            .Select(option => string.Equals(option.Key, optionKey, StringComparison.Ordinal)
+                ? option with { RawValue = value }
+                : option)
+            .ToList();
+        PersistTaskCustomization(task with { Options = options }, workspacePath);
     }
 
     // ── List construction ─────────────────────────────────────────────────────
@@ -712,13 +732,10 @@ internal sealed class CodeHealthPanelController {
                             rb.SetResourceReference(RadioButton.ForegroundProperty, "ImportantText");
                             if (!string.IsNullOrEmpty(choice.Tooltip))
                                 rb.ToolTip = MakeThemedToolTip(choice.Tooltip);
-                            var capturedPath   = GetMaintenanceMdPath();
-                            var capturedTaskId = task.Id;
                             var capturedOptKey = opt.Key;
                             var capturedValue  = choice.Value;
                             rb.Checked += (_, _) => {
-                                if (capturedPath is not null)
-                                    CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, capturedValue);
+                                PersistOptionCustomization(task, capturedOptKey, capturedValue);
                             };
                             popupOptionsPanel.Children.Add(rb);
                         }
@@ -734,16 +751,12 @@ internal sealed class CodeHealthPanelController {
                         cb.SetResourceReference(CheckBox.ForegroundProperty, "ImportantText");
                         if (!string.IsNullOrEmpty(opt.Tooltip))
                             cb.ToolTip = MakeThemedToolTip(opt.Tooltip);
-                        var capturedPath   = GetMaintenanceMdPath();
-                        var capturedTaskId = task.Id;
                         var capturedOptKey = opt.Key;
                         cb.Checked += (_, _) => {
-                            if (capturedPath is not null)
-                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "true");
+                            PersistOptionCustomization(task, capturedOptKey, "true");
                         };
                         cb.Unchecked += (_, _) => {
-                            if (capturedPath is not null)
-                                CodeHealthMdParser.UpdateOptionValue(capturedPath, capturedTaskId, capturedOptKey, "false");
+                            PersistOptionCustomization(task, capturedOptKey, "false");
                         };
                         popupOptionsPanel.Children.Add(cb);
                     }

@@ -51,7 +51,9 @@ internal static class BuiltInPromptInjections {
         InjectionText:
             """
             For code health tasks that run during idle time:
-            - The code health task file for this workspace is at `{workspaceFolder}\.squad\code-health.md`
+            - Shipped Code Health tasks come from SquadDash's built-in catalog
+            - Workspace-wide settings are at `{workspaceFolder}\.squad\code-health.md`
+            - User changes to shipped tasks are stored in `.squad\code-health-overrides.md`; workspace-specific tasks belong in `.squad\code-health-custom.md`
             - `enabled_on_idle: false` means manual-only; `enabled_on_idle: true` lets tasks run automatically after the idle threshold
             - Each task has a `safety:` level: `report-only` (no file changes), `branch` (new branch per task), or `direct` (current branch)
             - Task frequency is controlled by `frequency: daily`, `frequency: per-commit`, or `frequency: always`

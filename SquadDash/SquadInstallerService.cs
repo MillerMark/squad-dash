@@ -216,11 +216,12 @@ internal sealed class SquadInstallerService {
         if (File.Exists(destPath))
             return;
 
-        var content = LoadEmbeddedMarkdown("code-health.md");
-        if (content is null)
-            return;
-
-        File.WriteAllText(destPath, content, Encoding.UTF8);
+        CodeHealthMdParser.WriteWorkspaceSettingsFile(destPath, new CodeHealthMdConfig(
+            Configured: true,
+            EnabledOnIdle: false,
+            IdleTimeout: 15,
+            MaxTasksPerSession: 5,
+            Safety: "branch"));
     }
 
     private static void EnsureLoopFile(string squadDir, string fileName) {

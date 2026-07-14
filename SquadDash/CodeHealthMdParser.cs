@@ -26,15 +26,16 @@ internal static class CodeHealthMdParser {
 
     internal static CodeHealthMdConfig? ParseWithAllSources(string workspacePath, string? embeddedContent) {
         var systemPath = ResolveSquadFilePath(workspacePath, "code-health.md");
+
+        MigrateLegacyWorkspaceCatalog(workspacePath, embeddedContent);
         
-        // Get base config from system file (for global settings)
+        // The workspace file is settings-only. Built-in task definitions come
+        // exclusively from the embedded catalog below.
         var systemConfig = Parse(systemPath);
         if (systemConfig == null)
             return null;
 
-        // Start with the current embedded task catalog so newly shipped tasks are
-        // visible in existing workspaces whose code-health.md predates them.
-        // Workspace system/custom/override files then take precedence by task ID.
+        // Built-ins are the base; custom tasks and overrides layer on top.
         var mergedById = new Dictionary<string, CodeHealthTask>(StringComparer.Ordinal);
         var embeddedConfig = embeddedContent is null
             ? null
@@ -43,8 +44,8 @@ internal static class CodeHealthMdParser {
             foreach (var task in embeddedConfig.Tasks)
                 mergedById[task.Id] = task;
         }
-        foreach (var task in ParseAllSources(workspacePath))
-            mergedById[task.Id] = task;
+        AddTasksFromFile(mergedById, ResolveSquadFilePath(workspacePath, "code-health-custom.md"));
+        AddTasksFromFile(mergedById, ResolveSquadFilePath(workspacePath, "code-health-overrides.md"));
         var mergedTasks = mergedById.Values.OrderBy(task => task.Id, StringComparer.Ordinal).ToList();
 
         // Return config with system settings but merged tasks
@@ -55,6 +56,84 @@ internal static class CodeHealthMdParser {
             systemConfig.MaxTasksPerSession,
             systemConfig.Safety,
             mergedTasks);
+    }
+
+    private static void AddTasksFromFile(Dictionary<string, CodeHealthTask> tasks, string filePath) {
+        var config = File.Exists(filePath) ? Parse(filePath) : null;
+        if (config?.Tasks is not { Count: > 0 }) return;
+        foreach (var task in config.Tasks)
+            tasks[task.Id] = task;
+    }
+
+    /// <summary>
+    /// Converts the legacy combined workspace file into a settings-only file.
+    /// Non-built-in tasks are preserved in code-health-custom.md, and the original
+    /// combined file is backed up before any rewrite.
+    /// </summary>
+    internal static bool MigrateLegacyWorkspaceCatalog(string workspacePath, string? embeddedContent) {
+        if (embeddedContent is null) return false;
+
+        var settingsPath = ResolveSquadFilePath(workspacePath, "code-health.md");
+        var workspaceConfig = Parse(settingsPath);
+        if (workspaceConfig?.Tasks is not { Count: > 0 }) return false;
+
+        var embeddedConfig = ParseContent(embeddedContent, settingsPath);
+        var builtInIds = embeddedConfig?.Tasks?
+            .Select(task => task.Id)
+            .ToHashSet(StringComparer.Ordinal)
+            ?? new HashSet<string>(StringComparer.Ordinal);
+
+        var customPath = ResolveSquadFilePath(workspacePath, "code-health-custom.md");
+        var customTasks = File.Exists(customPath)
+            ? Parse(customPath)?.Tasks?.ToList() ?? []
+            : [];
+        var customIds = customTasks.Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var task in workspaceConfig.Tasks.Where(task => !builtInIds.Contains(task.Id))) {
+            if (customIds.Add(task.Id))
+                customTasks.Add(task with { SourceFilePath = customPath });
+        }
+
+        try {
+            var settingsDirectory = Path.GetDirectoryName(settingsPath);
+            if (settingsDirectory is null) return false;
+
+            var backupDirectory = Path.Combine(settingsDirectory, "backups");
+            Directory.CreateDirectory(backupDirectory);
+            var backupPath = Path.Combine(backupDirectory, "code-health-pre-catalog-migration.md");
+            if (!File.Exists(backupPath))
+                File.Copy(settingsPath, backupPath);
+
+            if (customTasks.Count > 0)
+                WriteCodeHealthFile(customPath, customTasks);
+
+            WriteWorkspaceSettingsFile(settingsPath, workspaceConfig);
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Migrated legacy Code Health catalog to settings-only file; backup: '{backupPath}'.");
+            return true;
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Code Health catalog migration failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    internal static void WriteWorkspaceSettingsFile(string filePath, CodeHealthMdConfig config) {
+        var lines = new List<string> {
+            "---",
+            "# Workspace-wide Code Health settings only.",
+            "# Built-in tasks are supplied by SquadDash; customize them in code-health-overrides.md.",
+            "# Add workspace-specific tasks in code-health-custom.md.",
+            $"idle_timeout: {config.IdleTimeout.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            $"max_tasks_per_session: {config.MaxTasksPerSession}",
+            $"safety: {config.Safety}",
+            $"enabled_on_idle: {config.EnabledOnIdle.ToString().ToLowerInvariant()}",
+            $"configured: {config.Configured.ToString().ToLowerInvariant()}",
+            "---",
+            ""
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
+        File.WriteAllText(filePath, string.Join(Environment.NewLine, lines), Encoding.UTF8);
     }
 
     public static CodeHealthMdConfig? Parse(string codeHealthMdPath) {
@@ -810,7 +889,9 @@ internal static class CodeHealthMdParser {
     // ── Override Pattern: Three-file loading with precedence ──────────────────
 
     /// <summary>
-    /// Loads all code health tasks from system, custom, and overrides files with precedence:
+    /// Legacy helper that loads tasks physically present in workspace files.
+    /// Production catalog loading uses ParseWithAllSources, where embedded built-ins
+    /// are authoritative and custom/override files have precedence.
     /// 1. Overrides file (highest priority - user edits to system tasks)
     /// 2. Custom file (medium priority - user-created tasks)
     /// 3. System file (lowest priority - our provisioned tasks)
@@ -1074,6 +1155,16 @@ internal static class CodeHealthMdParser {
         public string? Label    { get; set; }
         public string? Tooltip  { get; set; }
         public List<CodeHealthOptionChoice> Choices { get; } = new();
+    }
+
+    internal static void SaveCustomTask(CodeHealthTask task, string workspacePath) {
+        var customPath = ResolveSquadFilePath(workspacePath, "code-health-custom.md");
+        var tasks = File.Exists(customPath)
+            ? Parse(customPath)?.Tasks?.ToList() ?? []
+            : [];
+        tasks.RemoveAll(existing => string.Equals(existing.Id, task.Id, StringComparison.Ordinal));
+        tasks.Add(task with { SourceFilePath = customPath });
+        WriteCodeHealthFile(customPath, tasks);
     }
 
     private static string ResolveSquadFilePath(string workspacePath, params string[] relativeSegments) =>

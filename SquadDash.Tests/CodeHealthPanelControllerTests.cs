@@ -476,7 +476,9 @@ internal sealed class CodeHealthPanelControllerTests {
     private static string WriteMaintFile(string workspacePath, string content) {
         var squadDir = Path.Combine(workspacePath, ".squad");
         Directory.CreateDirectory(squadDir);
-        var mdPath = Path.Combine(squadDir, "code-health.md");
+        File.WriteAllText(Path.Combine(squadDir, "code-health.md"),
+            "---\nconfigured: true\nenabled_on_idle: false\n---\n");
+        var mdPath = Path.Combine(squadDir, "code-health-custom.md");
         File.WriteAllText(mdPath, content);
         return mdPath;
     }
