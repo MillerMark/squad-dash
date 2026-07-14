@@ -192,12 +192,18 @@ public class SimpleMarkdownViewer : Control {
 
         Paragraph paragraph = new Paragraph();
 
-        // ── [vspace:N] and [indent] prefix modifiers ──────────────────────────
+        // ── [vspace:N], [indent], [center] prefix modifiers ───────────────────
         double? marginTop  = null;
         double? marginLeft = null;
+        bool isCentered = false;
         bool modified = true;
         while (modified) {
             modified = false;
+            if (cleanParagraphText.StartsWith("[center]", StringComparison.OrdinalIgnoreCase)) {
+                isCentered = true;
+                cleanParagraphText = cleanParagraphText[8..].TrimStart();
+                modified = true;
+            }
             if (cleanParagraphText.StartsWith("[indent]", StringComparison.OrdinalIgnoreCase)) {
                 marginLeft = FontSize * 2.0;
                 cleanParagraphText = cleanParagraphText[8..].TrimStart();
@@ -227,6 +233,8 @@ public class SimpleMarkdownViewer : Control {
             }
             paragraph.Margin = new Thickness(marginLeft ?? 0, top, 0, 0);
         }
+        if (isCentered)
+            paragraph.TextAlignment = TextAlignment.Center;
 
         // ── <br> continuation: append to existing paragraph ───────────────────
         if (continuationParagraph is not null) {
