@@ -1553,7 +1553,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double DayToX(DateOnly date)
     {
         var offset = date.DayNumber - _startDate.DayNumber;
-        return offset * _effectivePixelsPerDay + _effectivePixelsPerDay / 2.0;
+        return offset * _effectivePixelsPerDay; // left edge = midnight
     }
 
     /// <summary>Returns the X offset (relative to the graph area) for a precise timestamp.</summary>
