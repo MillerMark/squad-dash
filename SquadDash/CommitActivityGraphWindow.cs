@@ -82,6 +82,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     internal bool IsCategorizationInFlight => _categorizationInFlight;
     private TextBlock?                     _categorizeStatusText;
     private Button?                        _categorizeButton;
+    private DispatcherTimer?               _spinnerTimer;
+    private int                            _spinnerFrame;
+    private string                         _spinnerBaseText  = string.Empty;
+    private static readonly string[]       SpinnerFrames     = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
     private Action<IReadOnlyList<(string Sha, string Group)>>? _onCategoriesAssigned;
     private readonly Func<IReadOnlyList<string>>? _getFeatureGroups;
 
@@ -724,16 +728,35 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         }
     }
 
+    private void StartSpinner(string baseText)
+    {
+        _spinnerBaseText = baseText;
+        _spinnerFrame    = 0;
+        if (_categorizeStatusText is not null)
+            _categorizeStatusText.Text = $"{SpinnerFrames[0]} {baseText}";
+        if (_spinnerTimer is null)
+        {
+            _spinnerTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _spinnerTimer.Tick += (_, _) =>
+            {
+                _spinnerFrame++;
+                if (_categorizeStatusText is not null)
+                    _categorizeStatusText.Text = $"{SpinnerFrames[_spinnerFrame % SpinnerFrames.Length]} {_spinnerBaseText}";
+            };
+        }
+        _spinnerTimer.Start();
+    }
+
+    private void StopSpinner() => _spinnerTimer?.Stop();
+
     private async void OnCategorizeButtonClick(object? sender, RoutedEventArgs e)
     {
         if (_categorizationService is null || _categorizationInFlight) return;
         _categorizationInFlight = true;
         if (_categorizeButton is not null)   _categorizeButton.IsEnabled = false;
         if (_categorizeStatusText is not null)
-        {
-            _categorizeStatusText.Text       = "Categorizing\u2026";
             _categorizeStatusText.Visibility = Visibility.Visible;
-        }
+        StartSpinner("Categorizing\u2026");
 
         try
         {
@@ -763,6 +786,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
             if (uncategorized.Count == 0)
             {
+                StopSpinner();
                 if (_categorizeStatusText is not null)
                 {
                     _categorizeStatusText.Text = "Nothing to categorize.";
@@ -777,7 +801,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             var groupUsages = FeatureGroupPromptBuilder.BuildUsages(configuredGroups, _allItems);
 
             if (_categorizeStatusText is not null)
-                _categorizeStatusText.Text = $"Categorizing {uncategorized.Count} commits\u2026";
+                _spinnerBaseText = $"Categorizing {uncategorized.Count} commits\u2026";
 
             var results = await Task.Run(() =>
                 _categorizationService.CategorizeAsync(uncategorized, groupUsages))
@@ -785,6 +809,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
             if (results.Count == 0)
             {
+                StopSpinner();
                 if (_categorizeStatusText is not null)
                     _categorizeStatusText.Text = "No categories returned.";
             }
@@ -825,6 +850,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
                 StartLoadingData();
 
+                StopSpinner();
                 if (_categorizeStatusText is not null)
                     _categorizeStatusText.Text = $"Categorized {results.Count} commits.";
             }
@@ -838,6 +864,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         }
         catch (Exception ex)
         {
+            StopSpinner();
             SquadDashTrace.Write("CommitViewer", $"Categorization failed: {ex.Message}");
             if (_categorizeStatusText is not null)
                 _categorizeStatusText.Text = "Categorization failed.";
