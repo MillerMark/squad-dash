@@ -8798,8 +8798,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var current = element;
         while (current is not null)
         {
-            if (current is T match) return match;
-            current = VisualTreeHelper.GetParent(current);
+            if (current is T match)
+                return match;
+            // FrameworkContentElement (Run, Paragraph, Span, etc.) is not a Visual —
+            // walk up the logical tree until we reach a Visual, then switch to visual tree.
+            if (current is not Visual and not System.Windows.Media.Media3D.Visual3D)
+                current = (current as FrameworkContentElement)?.Parent;
+            else
+                current = VisualTreeHelper.GetParent(current);
         }
         return null;
     }
