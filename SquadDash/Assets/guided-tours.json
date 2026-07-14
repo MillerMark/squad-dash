@@ -88,7 +88,9 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...\\nFixing bugs.\\nDone.\\nThe bugs are fixed.\\n",
+          "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...",
+          "InjectTranscriptTools: grep:Scan for null dereference patterns:Found 3 matches \u2014 SchedulerService.cs:47, TaskRunner.cs:112, ConfigLoader.cs:23;view:Inspect SchedulerService.cs (lines 44\u201352):var result = context.Items.FirstOrDefault().Value; // no null check\\nif (task.Callback.Invoke()) { // potential null ref;edit:Fix SchedulerService.cs:- var result = context.Items.FirstOrDefault().Value;\\n\u002B var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;;edit:Fix TaskRunner.cs:- if (task.Callback.Invoke()) {\\n\u002B if (task.Callback?.Invoke() == true) {;powershell:Run unit tests:All 47 tests passed",
+          "InjectTranscriptText: Done.\\nThe simulated bugs are fixed.\\n",
           "InjectTranscriptTextWithReplies|What would you like to do next (simulated)?|Add Test Cases|Commit Changes"
         ],
         "commandsAfter": [],
@@ -100,22 +102,23 @@
         "title": "Tooling",
         "markdownText": "Tool calls show what\u0027s happening while agents work.",
         "targetControlId": "TourInjectedToolingBlock",
-        "calloutPlacement": "Auto",
+        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "InjectTranscriptTurn| Can you take a look at my config file and add a new empty line to it?",
-          "InjectTranscriptTools: view:Read Config.cs:// file contents\\nline 2;powershell:Build project:Build succeeded;edit:Update Config.cs: \u002B new line added (simulated)"
+          "InjectTranscriptTurn|Commit Changes|Committing the bug fixes now (simulated)...",
+          "InjectTranscriptTools: report_intent:Committing bug fixes (simulated):Intent logged;powershell:Stage changed files:M  SchedulerService.cs\\nM  TaskRunner.cs\\n2 files staged;powershell:Create commit (simulated):a3f7c21 Fix null dereference bugs in SchedulerService and TaskRunner",
+          "InjectTranscriptText: Done.\\nCommit **a3f7c21** is ready for review in the **Approvals** panel."
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
+        "targetOffsetX": 0.22480848152387464,
+        "targetOffsetY": 0.06916666666666607
       },
       {
         "title": "Prompts navigation",
-        "markdownText": "You can access earlier conversations here.",
+        "markdownText": "Access earlier conversations here.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -129,7 +132,7 @@
       },
       {
         "title": "Agents in Parallel",
-        "markdownText": "Newly spawned agents appear here while active.",
+        "markdownText": "**Newly spawned agents** appear with the **Coordinator** while active.",
         "targetControlId": "TourDemoAgent_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -148,7 +151,7 @@
       },
       {
         "title": "Transcripts in parallel.",
-        "markdownText": "**Active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript.",
+        "markdownText": "And all **active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript.",
         "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -165,7 +168,7 @@
       },
       {
         "title": "Spinner 1",
-        "markdownText": "The **spinner** gives you a sense of how hard each agent works. \r\nThe faster it spins, the more active the agent.",
+        "markdownText": "The **spinner** gives you a sense of how hard each agent works.\r\nThe faster it spins, the more active the agent.",
         "targetControlId": "TourDemoAgentSpinner_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -173,10 +176,8 @@
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [
-          "CleanUpAllNamedDemoAgents",
-          "CloseFirstInactiveAgentPanel",
-          "RemoveTourSimulatedAgent",
-          "SelectCoordinatorTranscript"
+          "DeactivateDemoAgent|MaxSmart",
+          "RemoveDemoAgent|MaxSmart"
         ],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
@@ -184,8 +185,25 @@
       },
       {
         "title": "The Help Menu",
-        "markdownText": "This ends the first guided tour. You can find more in the **Help** menu.",
-        "targetControlId": "HelpMenuItem",
+        "markdownText": "You can find more guided tours in the **Help** menu.\r\n",
+        "targetControlId": "MoreGuidedToursMenuItem",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: HelpMenuItem",
+          "HighlightMenuItem: MoreGuidedToursMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\nTour Completed:\r\n[vspace:0.75][size:1.25][center]**Introduction to the UI**\r\n[vspace:0]\r\n![120:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
         "commandBefore": "",
@@ -271,7 +289,7 @@
       },
       {
         "title": "New Queue Prompt",
-        "markdownText": "You can create a new queued prompt entry by pressing **Ctrl**\u002B**Q**.",
+        "markdownText": "You can create a **new queued prompt entry** by pressing **Ctrl**\u002B**Q**.\r\nUse this when you need to send a different prompt **before** your current draft.",
         "targetControlId": "QueueTabStrip[9]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -356,6 +374,20 @@
         "markdownText": "Jump to past prompts.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\nTour Completed:\r\n[vspace:0.75][size:1.25][center]**Prompts and the Queue**\r\n[vspace:0]\r\n![110:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
