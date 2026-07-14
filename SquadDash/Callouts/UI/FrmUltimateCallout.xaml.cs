@@ -663,7 +663,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         if (_tourOverlay is null) return;
         _tourOverlay.EnsureLayout();
-        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
+        if (_isTourLastStep)
+            _tourOverlay.PositionForLastStep(GetCalloutScreenBounds());
+        else
+            _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
         _tourOverlay.FadeIn();
         if (_isTourMode)
             StartTourEntryAnimation();
@@ -712,7 +715,10 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void RepositionTourOverlayNow()
     {
         if (_tourOverlay is null) return;
-        _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
+        if (_isTourLastStep)
+            _tourOverlay.PositionForLastStep(GetCalloutScreenBounds());
+        else
+            _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
     }
 
     void OnDragStarted_TourOverlay(object? sender, EventArgs e) => _tourOverlay?.HideImmediate();

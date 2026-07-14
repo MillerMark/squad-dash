@@ -33,7 +33,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
     private Border? _prevButton;
     private Border? _nextButton;
-    private Border? _doneButton;
     private Border? _nextTourButton;
     private FrameworkElement? _nextTourGap;
     private Border? _moreTourButton;
@@ -66,8 +65,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             _isLastStep = value;
             if (_nextButton is not null)
                 _nextButton.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
-            if (_doneButton is not null)
-                _doneButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
             if (_moreTourButton is not null)
                 _moreTourButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
             if (_moreTourGap is not null)
@@ -163,7 +160,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
         _prevButton     = BuildButton(isPrev: true, fontSize);
         _nextButton     = BuildButton(isPrev: false, fontSize);
-        _doneButton     = BuildDoneButton(fontSize);
         _nextTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
         _nextTourButton = BuildNextTourButton(fontSize);
         _moreTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
@@ -172,7 +168,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
-        panel.Children.Add(_doneButton);
         panel.Children.Add(_nextTourGap);
         panel.Children.Add(_nextTourButton);
         panel.Children.Add(_moreTourGap);
@@ -246,38 +241,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         return border;
     }
 
-    private Border BuildDoneButton(double fontSize) {
-        var border = new Border {
-            Width            = _nextButtonWidth,
-            Height           = _buttonHeight,
-            CornerRadius     = new CornerRadius(4),
-            BorderThickness  = new Thickness(1),
-            IsHitTestVisible = true,
-            Cursor           = Cursors.Hand,
-            ToolTip          = "Click to finish the tour.",
-            Visibility       = Visibility.Collapsed,
-        };
-        border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
-        border.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
-        border.MouseEnter += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonHover");
-        border.MouseLeave += (_, _) => border.SetResourceReference(Border.BackgroundProperty, "CalloutButtonBackground");
-        border.MouseLeftButtonUp += (_, e) => {
-            e.Handled = true;
-            NextClicked?.Invoke(this, EventArgs.Empty);
-        };
-        var label = new TextBlock {
-            Text                = "Done",
-            Margin              = new Thickness(8, 0, 8, 0),
-            VerticalAlignment   = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            IsHitTestVisible    = false,
-        };
-        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
-        label.SetResourceReference(TextBlock.ForegroundProperty, "CalloutText");
-        border.Child = label;
-        return border;
-    }
-
     private Border BuildNextTourButton(double fontSize) {
         var border = new Border {
             Width            = Math.Round(fontSize * 8.0),
@@ -338,7 +301,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
             MoreToursClicked?.Invoke(this, EventArgs.Empty);
         };
         var label = new TextBlock {
-            Text                = "More Tours",
+            Text                = "More Tours...",
             VerticalAlignment   = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
             IsHitTestVisible    = false,
@@ -474,6 +437,25 @@ internal sealed class TourCalloutNavigationOverlay : Window {
 
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"[NavOverlay] Positioned: Left={Left:F0} Top={Top:F0}");
+    }
+
+    /// <summary>
+    /// Positions the overlay right-aligned to the callout's right edge, just below its
+    /// bottom. Used exclusively for the last step (center-screen, no pointer).
+    /// </summary>
+    public void PositionForLastStep(Rect calloutScreenRect) {
+        const double gap = 10;
+        Rect visibleBounds = GetVisibleButtonBounds();
+        var screenBounds = GetMonitorBoundsForLogicalPoint(calloutScreenRect.TopLeft);
+
+        double x = calloutScreenRect.Right - visibleBounds.Right;
+        double y = calloutScreenRect.Bottom + gap - visibleBounds.Top;
+
+        Left = ClampOriginToKeepVisibleBoundsOnScreen(x, visibleBounds.Left, visibleBounds.Right, screenBounds.Left, screenBounds.Right);
+        Top  = ClampOriginToKeepVisibleBoundsOnScreen(y, visibleBounds.Top,  visibleBounds.Bottom, screenBounds.Top, screenBounds.Bottom);
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"[NavOverlay] PositionForLastStep: Left={Left:F0} Top={Top:F0}");
     }
 
     /// <summary>
