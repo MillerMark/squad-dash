@@ -14193,7 +14193,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
             if (first)
             {
-                SquadDashTrace.Write(TraceCategory.UI,
+                SquadDashTrace.Write(TraceCategory.Callouts,
                     $"[HighlightRefresh] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
                     $"dpi=({dpi.DpiScaleX:F2},{dpi.DpiScaleY:F2}) " +
                     $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
@@ -14614,7 +14614,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
             if (cw <= 0 || ch <= 0) return;
 
-            SquadDashTrace.Write(TraceCategory.UI,
+            SquadDashTrace.Write(TraceCategory.Callouts,
                 $"[HighlightPlace] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
                 $"dpi=({dpi.DpiScaleX:F2},{dpi.DpiScaleY:F2}) " +
                 $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
@@ -14680,7 +14680,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (_tourHighlightCanvas is null || _tourHighlightOverlay is null)
             {
-                SquadDashTrace.Write(TraceCategory.UI, "[HighlightDiag] overlay not created yet.");
+                SquadDashTrace.Write(TraceCategory.Callouts, "[HighlightDiag] overlay not created yet.");
                 return;
             }
             Point canvasOrigin;
@@ -14690,7 +14690,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 dpi          = VisualTreeHelper.GetDpi(_tourHighlightCanvas);
             }
             catch (Exception ex) {
-                SquadDashTrace.Write(TraceCategory.UI, $"[HighlightDiag] PointToScreen/GetDpi threw: {ex.Message}");
+                SquadDashTrace.Write(TraceCategory.Callouts, $"[HighlightDiag] PointToScreen/GetDpi threw: {ex.Message}");
                 return;
             }
             string msg =
@@ -39304,6 +39304,7 @@ public sealed class DocViewerScriptingBridge
         _window.Dispatcher.BeginInvoke(() => _window.ScrollDocSourceToLine(lineHint));
     }
 }
+
 
 
 
