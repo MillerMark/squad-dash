@@ -23,6 +23,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? DeleteClicked;
 
     private TextBlock? _nextLabel;
+    private StackPanel? _nextButtonInner;
 
     private const double ButtonGap = 6;
 
@@ -224,6 +225,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         inner.Children.Add(BuildArrowIcon(flipHorizontal: isPrev, fontSize));
 
         if (!isPrev) {
+            _nextButtonInner = inner;
             var label = new TextBlock {
                 Text = "Next",
                 Margin = new Thickness(4, 0, 0, 0),
@@ -318,6 +320,12 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         bool showLabel = _isFirstStep || (_getNextAdvanceCount?.Invoke() ?? 0) < 3;
         _nextLabel.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
         _nextButton.Width = showLabel ? _nextButtonWidth : _prevButtonWidth;
+        // When label is hidden the button shrinks to icon-only width; zero the horizontal
+        // margin so the arrow path isn't squeezed into a clipped sliver.
+        if (_nextButtonInner is not null)
+            _nextButtonInner.Margin = showLabel
+                ? new Thickness(8, 0, 8, 0)
+                : new Thickness(0);
     }
 
     /// <summary>Fades a blue glow in on the Next button and holds it until <see cref="StopNextButtonGlow"/> is called or Next is clicked.</summary>
@@ -345,11 +353,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         glowEffect.BeginAnimation(DropShadowEffect.BlurRadiusProperty,
             new DoubleAnimation(0, 18, duration) { EasingFunction = ease });
 
-        // ── Border thickness fade IN, hold ───────────────────────────────────
-        _nextButton.BeginAnimation(Border.BorderThicknessProperty,
-            new ThicknessAnimation(new Thickness(1), new Thickness(3), duration)
-                { EasingFunction = ease, FillBehavior = FillBehavior.HoldEnd });
-
         // ── Border color fade IN to glow color ───────────────────────────────
         Color restColor;
         try   { restColor = ((SolidColorBrush)Application.Current.FindResource("CalloutBorder")).Color; }
@@ -376,8 +379,6 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         _glowActive = false;
 
         _nextButton.Effect = null;
-        _nextButton.BeginAnimation(Border.BorderThicknessProperty, null);
-        _nextButton.BorderThickness = new Thickness(1);
         _nextButton.SetResourceReference(Border.BorderBrushProperty, "CalloutBorder");
     }
 
