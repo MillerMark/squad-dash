@@ -84,7 +84,7 @@ Manually fires the idle hint cycle as if the user had been inactive for the conf
 
 | Item | Description |
 |---|---|
-| Edit Guided Tours | Opens the tour editor to modify existing tours in the current workspace |
+| Edit Guided Tours | Opens the tour editor to modify the tracked guided-tour asset |
 | New Guided Tour… | Creates a new tour and opens it in the editor |
 | Preview Current Tour Step | Re-renders the callout for the currently active tour step (useful while editing) |
 

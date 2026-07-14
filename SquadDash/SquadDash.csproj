@@ -184,21 +184,6 @@
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\RestartCoordinatorStateStore.cs" />
   </ItemGroup>
 
-  <!--
-    Sync the workspace-edited tour file into the embedded asset so the
-    embedded resource always reflects your latest saved tours.
-    Only copies when .squad/guided-tours.json exists (i.e. you have a
-    workspace open containing edits); skips silently otherwise.
-  -->
-  <Target Name="SyncGuidedToursAsset" BeforeTargets="BeforeBuild" Condition="'$(DesignTimeBuild)' != 'true'">
-    <PropertyGroup>
-      <_WorkspaceTourFile>$(MSBuildProjectDirectory)\..\\.squad\guided-tours.json</_WorkspaceTourFile>
-      <_AssetTourFile>$(MSBuildProjectDirectory)\Assets\guided-tours.json</_AssetTourFile>
-    </PropertyGroup>
-    <Copy SourceFiles="$(_WorkspaceTourFile)" DestinationFiles="$(_AssetTourFile)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="true" Condition="Exists('$(_WorkspaceTourFile)')" />
-    <Message Text="Synced guided-tours.json from workspace into Assets." Importance="high" Condition="Exists('$(_WorkspaceTourFile)')" />
-  </Target>
-
   <!-- Flatten Speech SDK native DLL to output root so P/Invoke can find it -->
   <Target Name="CopySpeechNativeDll" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
     <Copy SourceFiles="$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll" DestinationFolder="$(OutputPath)" Condition="Exists('$(OutputPath)runtimes\win-x64\native\Microsoft.CognitiveServices.Speech.core.dll')" OverwriteReadOnlyFiles="true" />

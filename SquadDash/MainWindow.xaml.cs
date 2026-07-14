@@ -13823,16 +13823,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            var toursFile = GetGuidedToursWorkspaceFilePath();
+            var toursFile = GetGuidedToursSourceFilePath();
             if (toursFile is null)
             {
                 MessageBox.Show("No workspace is open.", "Edit Guided Tours", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            // Load (or create) the tours file so the editor has something to work with.
-            // GuidedTourLoader.Load() expects the workspace folder path (not the file path itself).
-            var workspaceFolderPath = Path.GetDirectoryName(Path.GetDirectoryName(toursFile))!;
+            // Load (or create) the tracked source asset so the editor has something to work with.
+            var workspaceFolderPath = _currentWorkspace!.FolderPath;
             List<GuidedTour> allTours;
             if (File.Exists(toursFile))
             {
@@ -13855,7 +13854,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            var toursFile = GetGuidedToursWorkspaceFilePath();
+            var toursFile = GetGuidedToursSourceFilePath();
             if (toursFile is null)
             {
                 MessageBox.Show("No workspace is open.", "New Guided Tour", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -13913,10 +13912,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(PreviewCurrentTourStepMenuItem_Click), ex); }
     }
 
-    private string? GetGuidedToursWorkspaceFilePath()
+    private string? GetGuidedToursSourceFilePath()
     {
         if (_currentWorkspace is null) return null;
-        return Path.Combine(_currentWorkspace.FolderPath, ".squad", "guided-tours.json");
+        return GuidedTourSaver.GetPath(_currentWorkspace.FolderPath);
     }
 
     // ── Help menu ─────────────────────────────────────────────────────────────
@@ -33599,10 +33598,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write("Startup", "Restoring guided tour editor from previous session.");
             try
             {
-                var toursFile = GetGuidedToursWorkspaceFilePath();
+                var toursFile = GetGuidedToursSourceFilePath();
                 if (toursFile is not null && File.Exists(toursFile))
                 {
-                    var workspaceFolderPath = Path.GetDirectoryName(Path.GetDirectoryName(toursFile))!;
+                    var workspaceFolderPath = _currentWorkspace!.FolderPath;
                     var allTours = GuidedTourLoader.Load(workspaceFolderPath) ?? new List<GuidedTour>();
                     EnsureGuidedTourController();
                     _guidedTourController!.OpenEditorStandalone(allTours);

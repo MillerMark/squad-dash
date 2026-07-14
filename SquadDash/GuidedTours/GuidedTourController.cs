@@ -161,7 +161,7 @@ internal sealed class GuidedTourController
         if (tour is null)
         {
             MessageBox.Show(
-                "No tours found in the workspace.\nUse Developer > New Guided Tour... to create one first.",
+                "No tours found in the tracked source asset.\nUse Developer > New Guided Tour... to create one first.",
                 "Guided Tour Editor",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);

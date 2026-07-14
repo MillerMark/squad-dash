@@ -8,9 +8,9 @@ Tours are accessible to users from the **Help** menu → **Start Guided Tour** /
 
 ## Where Tours Are Stored
 
-Tours live in `.squad/guided-tours.json` inside the current workspace folder. This file is workspace-specific — each project can have its own set of tours.
+Tours have one editable source of truth: `SquadDash/Assets/guided-tours.json`. The file is tracked by Git and embedded into the application during the build.
 
-A default set of tours ships with SquadDash in `Assets/guided-tours.json` and is used as a starting point when no workspace-local file exists.
+When running from a source workspace, the developer editor loads and saves this tracked file directly. Installed builds load the embedded copy.
 
 ---
 
@@ -106,7 +106,7 @@ With a tour active, use **Developer** → **Preview Current Tour Step** to re-re
 
 ### 5. Save
 
-Tours are saved automatically to `.squad/guided-tours.json` when you close the editor.
+Tours are saved automatically to `SquadDash/Assets/guided-tours.json` after edits settle. Press `Ctrl+S` to save immediately.
 
 ---
 
