@@ -78,6 +78,9 @@
     <Content Include="Assets\Roles\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\GuidedTours\CompletedBadge.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\Welcome\GuidedTourLanding.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -96,13 +99,10 @@
     <Content Include="Assets\Welcome\SkipForNowButton-MouseOver.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\GuidedTours\CompletedBadge.png">
+    <Content Include="Assets\GuidedTours\CompletedBadgeRealistic.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\GuidedTours\EmptyBadge.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Assets\GuidedTours\RealisticRibbon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\GuidedTours\Mascots\Mascot1.png">
@@ -171,6 +171,7 @@
   <ItemGroup>
     <SquadDashLauncherBuildInput Include="$(SquadDashLauncherProject)" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\..\SquadDashLauncher\**\*.cs" Exclude="$(MSBuildProjectDirectory)\..\SquadDashLauncher\bin\**\*;$(MSBuildProjectDirectory)\..\SquadDashLauncher\obj\**\*" />
+    <None Remove="Assets\GuidedTours\CompletedBadge.png" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\Assets\SquadDash.ico" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\MutexLease.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\JsonFileStorage.cs" />
@@ -194,16 +195,8 @@
       <_WorkspaceTourFile>$(MSBuildProjectDirectory)\..\\.squad\guided-tours.json</_WorkspaceTourFile>
       <_AssetTourFile>$(MSBuildProjectDirectory)\Assets\guided-tours.json</_AssetTourFile>
     </PropertyGroup>
-    <Copy
-      SourceFiles="$(_WorkspaceTourFile)"
-      DestinationFiles="$(_AssetTourFile)"
-      OverwriteReadOnlyFiles="true"
-      SkipUnchangedFiles="true"
-      Condition="Exists('$(_WorkspaceTourFile)')" />
-    <Message
-      Text="Synced guided-tours.json from workspace into Assets."
-      Importance="high"
-      Condition="Exists('$(_WorkspaceTourFile)')" />
+    <Copy SourceFiles="$(_WorkspaceTourFile)" DestinationFiles="$(_AssetTourFile)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="true" Condition="Exists('$(_WorkspaceTourFile)')" />
+    <Message Text="Synced guided-tours.json from workspace into Assets." Importance="high" Condition="Exists('$(_WorkspaceTourFile)')" />
   </Target>
 
   <!-- Flatten Speech SDK native DLL to output root so P/Invoke can find it -->
