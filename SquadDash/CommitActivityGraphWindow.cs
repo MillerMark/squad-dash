@@ -1334,12 +1334,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             dc.Pop();
         }
 
-        // Pass 2: draw graph content clipped to the graph area so markers never
-        // bleed into the label column.
+        // Pass 2: clip horizontally so markers never bleed into the label column.
+        // No vertical clip — tall commit bars on the first/last row are allowed to
+        // overflow above/below the row band.
         dc.PushClip(new RectangleGeometry(new Rect(
-            LabelColumnWidth, 0,
+            LabelColumnWidth, -RowHeight,
             Math.Max(0, ActualWidth - LabelColumnWidth),
-            _rows.Count * RowHeight)));
+            (_rows.Count + 2) * RowHeight)));
 
         // ── Vertical grid lines (day/week/month/quarter/year) ─────────────────
         // All lines are 1px wide. A type is suppressed when spacing < 50px.
