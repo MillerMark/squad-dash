@@ -21,6 +21,10 @@ internal static class CodeHealthMdParser {
     /// Returns the configuration with merged tasks from all sources.
     /// </summary>
     public static CodeHealthMdConfig? ParseWithAllSources(string workspacePath) {
+        return ParseWithAllSources(workspacePath, SquadInstallerService.LoadEmbeddedCodeHealthMdPublic());
+    }
+
+    internal static CodeHealthMdConfig? ParseWithAllSources(string workspacePath, string? embeddedContent) {
         var systemPath = ResolveSquadFilePath(workspacePath, "code-health.md");
         
         // Get base config from system file (for global settings)
@@ -28,8 +32,20 @@ internal static class CodeHealthMdParser {
         if (systemConfig == null)
             return null;
 
-        // Get merged tasks from all sources
-        var mergedTasks = ParseAllSources(workspacePath);
+        // Start with the current embedded task catalog so newly shipped tasks are
+        // visible in existing workspaces whose code-health.md predates them.
+        // Workspace system/custom/override files then take precedence by task ID.
+        var mergedById = new Dictionary<string, CodeHealthTask>(StringComparer.Ordinal);
+        var embeddedConfig = embeddedContent is null
+            ? null
+            : ParseContent(embeddedContent, systemPath);
+        if (embeddedConfig?.Tasks is { Count: > 0 }) {
+            foreach (var task in embeddedConfig.Tasks)
+                mergedById[task.Id] = task;
+        }
+        foreach (var task in ParseAllSources(workspacePath))
+            mergedById[task.Id] = task;
+        var mergedTasks = mergedById.Values.OrderBy(task => task.Id, StringComparer.Ordinal).ToList();
 
         // Return config with system settings but merged tasks
         return new CodeHealthMdConfig(
@@ -61,6 +77,11 @@ internal static class CodeHealthMdParser {
         catch {
             return null;
         }
+
+        return ParseContent(content, codeHealthMdPath);
+    }
+
+    internal static CodeHealthMdConfig? ParseContent(string content, string sourcePath) {
 
         var lines = content.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
         int i = 0;
@@ -249,7 +270,7 @@ internal static class CodeHealthMdParser {
         FinalizeCurrentTask(current, optionKeys, optionBuilders, tasks);
 
         var builtTasks = tasks
-            .Select(t => t.Build(safety, codeHealthMdPath))
+            .Select(t => t.Build(safety, sourcePath))
             .ToList();
 
         return new CodeHealthMdConfig(configured, enabledOnIdle, idleTimeout, maxTasks, safety, builtTasks);

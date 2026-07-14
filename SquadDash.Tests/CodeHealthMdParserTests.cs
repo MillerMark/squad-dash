@@ -1258,6 +1258,55 @@ internal sealed class CodeHealthMdParserTests {
     }
 
     [Test]
+    public void ParseWithAllSources_ExistingWorkspaceReceivesNewEmbeddedTasks() {
+        var tempDir = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            $"workspace_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+        File.WriteAllText(
+            Path.Combine(tempDir, ".squad", "code-health.md"),
+            """
+            ---
+            configured: true
+            tasks:
+              - id: legacy-workspace-task
+                enabled: true
+                frequency: daily
+                safety: report-only
+                title: Legacy Workspace Task
+                instructions: Existing workspace task.
+            ---
+            """);
+
+        try {
+            var embeddedContent =
+                """
+                ---
+                configured: true
+                tasks:
+                  - id: consolidate-feature-categories
+                    enabled: true
+                    frequency: weekly-Sunday
+                    safety: report-only
+                    title: Consolidate Feature Categories
+                    instructions: Review category duplicates.
+                ---
+                """;
+            var config = CodeHealthMdParser.ParseWithAllSources(tempDir, embeddedContent);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(config, Is.Not.Null);
+                Assert.That(config!.Tasks!.Any(task => task.Id == "legacy-workspace-task"), Is.True);
+                Assert.That(config.Tasks!.Any(task => task.Id == "consolidate-feature-categories"), Is.True);
+            });
+        }
+        finally {
+            try { Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
     public void ParseAllSources_UsesRemoteTeamRootFromSquadConfig() {
         var tempDir = Path.Combine(
             TestContext.CurrentContext.WorkDirectory,

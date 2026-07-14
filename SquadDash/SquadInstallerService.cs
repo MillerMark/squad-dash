@@ -238,6 +238,7 @@ internal sealed class SquadInstallerService {
     public static string? LoadEmbeddedSquadDashMdPublic() => LoadEmbeddedSquadDashMd();
     public static string? LoadEmbeddedSquadDashProfilesMdPublic() => LoadEmbeddedSquadDashProfilesMd();
     public static string? LoadEmbeddedCastingReferenceMdPublic() => LoadEmbeddedMarkdown("casting-reference.md");
+    internal static string? LoadEmbeddedCodeHealthMdPublic() => LoadEmbeddedMarkdown("code-health.md");
 
     private static void EnsureUniverseMarkdown(string universesDir, string fileName, string? content) {
         var destinationPath = Path.Combine(universesDir, fileName);
