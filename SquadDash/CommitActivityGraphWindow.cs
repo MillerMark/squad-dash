@@ -1695,7 +1695,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private static void PopulateCommitInlines(TextBlock tb, string featureName, CommitStatResult c)
     {
         // Subject line: bold, capped at ~22 chars (≈150px at body font)
-        const int MaxSubjectChars = 22;
+        const int MaxSubjectChars = 50;
         if (!string.IsNullOrEmpty(c.Message))
         {
             var subject = c.Message.Length > MaxSubjectChars
