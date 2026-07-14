@@ -213,8 +213,20 @@ public class SimpleMarkdownViewer : Control {
                 modified = true;
             }
         }
-        if (marginTop.HasValue || marginLeft.HasValue)
-            paragraph.Margin = new Thickness(marginLeft ?? 0, marginTop ?? 0, 0, 0);
+        if (marginTop.HasValue || marginLeft.HasValue) {
+            double top = marginTop ?? 0;
+            if (top < 0) {
+                // WPF Block.Margin rejects negative values. Pull up by reducing the
+                // previous block's bottom margin instead (clamped to 0).
+                if (lastBlock is Paragraph prevPara) {
+                    var pm = prevPara.Margin;
+                    prevPara.Margin = new Thickness(pm.Left, pm.Top, pm.Right,
+                        Math.Max(0, pm.Bottom + top));
+                }
+                top = 0;
+            }
+            paragraph.Margin = new Thickness(marginLeft ?? 0, top, 0, 0);
+        }
 
         // ── <br> continuation: append to existing paragraph ───────────────────
         if (continuationParagraph is not null) {
