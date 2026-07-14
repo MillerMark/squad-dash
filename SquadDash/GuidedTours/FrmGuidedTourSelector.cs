@@ -32,14 +32,16 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     public GuidedTour? SelectedTour { get; private set; }
 
     public FrmGuidedTourSelector(List<GuidedTour> tours, Func<string, bool>? isCompleted = null, string? completedTourName = null)
-        : base(captionHeight: 36, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
+        : base(captionHeight: 36)
     {
         _allTours    = tours;
         _isCompleted = isCompleted ?? (_ => false);
 
         Title                 = "Select a Guided Tour";
         Width                 = 700;
-        Height                = string.IsNullOrWhiteSpace(completedTourName) ? 480 : 700;
+        MinWidth              = 500;
+        Height                = string.IsNullOrWhiteSpace(completedTourName) ? 560 : 840;
+        MinHeight             = 420;
         ShowInTaskbar         = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -219,10 +221,11 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         outerGrid.Children.Add(leftPanel);
         outerGrid.Children.Add(layout);
         var congratsPanel = BuildCongratsPanel(completedTourName);
-        var rootStack = new StackPanel { Orientation = Orientation.Vertical };
-        rootStack.Children.Add(congratsPanel);
-        rootStack.Children.Add(outerGrid);
-        contentArea.Child = rootStack;
+        var rootDock = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(congratsPanel, Dock.Top);
+        rootDock.Children.Add(congratsPanel);
+        rootDock.Children.Add(outerGrid);
+        contentArea.Child = rootDock;
 
         ApplyFilter();
         if (_tourList.Items.Count == 1)
