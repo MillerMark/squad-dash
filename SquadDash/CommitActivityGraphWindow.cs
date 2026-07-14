@@ -1337,20 +1337,33 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             _rows.Count * RowHeight)));
 
         // ── Vertical grid lines (day/week/month) ──────────────────────────────
-        // Grid color is the contrast color for the current theme.
-        var gridBase = _isDark ? Colors.White : Colors.Black;
+        // Skip any line type whose pixel spacing between consecutive lines is < 50px.
+        const double MinGridSpacing = 50.0;
+        var daySpacing   = _effectivePixelsPerDay;
+        var weekSpacing  = 7.0 * _effectivePixelsPerDay;
+        // Month spacing is approximated using the days in the current month at the loop cursor;
+        // we pre-check using 30 days as a conservative estimate so we can skip the loop entirely.
+        var gridBase   = _isDark ? Colors.White : Colors.Black;
         var gridHeight = _rows.Count * RowHeight;
         for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
         {
             byte alpha;
             double thickness;
-            if (d.Day == 1)                        { alpha = 192; thickness = 2.0; } // month boundary
-            else if (d.DayOfWeek == DayOfWeek.Monday) { alpha =  128; thickness = 2.0; } // week boundary
+            if (d.Day == 1)
+            {
+                var monthSpacing = DateTime.DaysInMonth(d.Year, d.Month) * _effectivePixelsPerDay;
+                if (monthSpacing < MinGridSpacing) continue;
+                alpha = 192; thickness = 2.0; // month boundary
+            }
+            else if (d.DayOfWeek == DayOfWeek.Monday)
+            {
+                if (weekSpacing < MinGridSpacing) continue;
+                alpha = 128; thickness = 2.0; // week boundary
+            }
             else
             {
-                // Skip day lines when a full week spans fewer than 64 pixels
-                if (7.0 * _effectivePixelsPerDay < 64.0) continue;
-                alpha = 64; thickness = 1.0;
+                if (daySpacing < MinGridSpacing) continue;
+                alpha = 64; thickness = 1.0;  // day
             }
 
             var gridColor = Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B);
