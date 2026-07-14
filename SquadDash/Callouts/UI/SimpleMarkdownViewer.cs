@@ -196,6 +196,7 @@ public class SimpleMarkdownViewer : Control {
         double? marginTop  = null;
         double? marginLeft = null;
         bool isCentered = false;
+        double? sizeMultiplier = null;
         bool modified = true;
         while (modified) {
             modified = false;
@@ -218,6 +219,15 @@ public class SimpleMarkdownViewer : Control {
                 cleanParagraphText = cleanParagraphText[vm.Length..].TrimStart();
                 modified = true;
             }
+            var sm = SizeRegex.Match(cleanParagraphText);
+            if (sm.Success && double.TryParse(sm.Groups[1].Value,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var multiplier) && multiplier > 0) {
+                sizeMultiplier = multiplier;
+                cleanParagraphText = cleanParagraphText[sm.Length..].TrimStart();
+                modified = true;
+            }
         }
         if (marginTop.HasValue || marginLeft.HasValue) {
             double top = marginTop ?? 0;
@@ -235,6 +245,8 @@ public class SimpleMarkdownViewer : Control {
         }
         if (isCentered)
             paragraph.TextAlignment = TextAlignment.Center;
+        if (sizeMultiplier.HasValue)
+            paragraph.FontSize = FontSize * sizeMultiplier.Value;
 
         // ── <br> continuation: append to existing paragraph ───────────────────
         if (continuationParagraph is not null) {
@@ -279,6 +291,11 @@ public class SimpleMarkdownViewer : Control {
     // Matches [vspace:N] or [vspace:-N] at the start of a paragraph (N may be decimal)
     private static readonly Regex VSpaceRegex = new(
         @"^\[vspace:(-?\d+(?:\.\d+)?)\]",
+        RegexOptions.Compiled);
+
+    // Matches [size:N] at the start of a paragraph (N is a positive multiplier, e.g. 1.2)
+    private static readonly Regex SizeRegex = new(
+        @"^\[size:(\d+(?:\.\d+)?)\]",
         RegexOptions.Compiled);
 
     FlowDocument CreateFlowDocumentFromMarkdown() {
