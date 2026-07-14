@@ -24,6 +24,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private GuidedTour                 _activeTour;
     private readonly List<GuidedTour>  _allTours;
     private readonly string?           _workspaceFolderPath;
+    private readonly Func<string?>?    _workspaceFolderProvider;
 
     private readonly Stack<string>     _undoStack = new();
     private string                     _lastUndoSnapshot = string.Empty;
@@ -172,7 +173,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action<int, string>? renameTourCallback = null,
         Func<IReadOnlyList<Window>?>? extraPickWindowsProvider = null,
         Func<IReadOnlyList<string>>? elementNamesProvider = null,
-        Action<int>?     onStepChanged        = null)
+        Action<int>?     onStepChanged        = null,
+        Func<string?>?   workspaceFolderProvider = null)
         : base(captionHeight: 34, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
     {
         _onClosed            = onClosed;
@@ -199,6 +201,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _activeTour          = activeTour;
         _allTours            = allTours;
         _workspaceFolderPath = workspaceFolderPath;
+        _workspaceFolderProvider = workspaceFolderProvider;
         _captureLayout       = captureLayout;
 
         Title                 = BuildEditorTitle(activeTour.Name, stepIndex, step.Title);
@@ -405,9 +408,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (_isLoadingStep) return;
             _activeTour.Description = _descriptionBox.Text;
-            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            var workspaceFolderPath = ResolveWorkspaceFolderPath();
+            if (workspaceFolderPath is not null)
             {
-                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
                 catch { /* ignore auto-save errors */ }
             }
         };
@@ -584,9 +588,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _activeTour.Steps.Insert(destIndex, step);
             PushUndoSnapshot();
 
-            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            var workspaceFolderPath = ResolveWorkspaceFolderPath();
+            if (workspaceFolderPath is not null)
             {
-                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
                 catch { /* ignore */ }
             }
 
@@ -757,9 +762,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _allTours.RemoveAt(_tourDragSourceIndex);
             _allTours.Insert(destIndex, tour);
 
-            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            var workspaceFolderPath = ResolveWorkspaceFolderPath();
+            if (workspaceFolderPath is not null)
             {
-                try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+                try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
                 catch { /* ignore */ }
             }
 
@@ -962,27 +968,19 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         try
         {
             SaveCurrentFieldsToStep();
+            var workspaceFolderPath = ResolveWorkspaceFolderPath();
 
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"PerformSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, stepHash={StepHash()}, workspacePath={(string.IsNullOrWhiteSpace(_workspaceFolderPath) ? "(none)" : _workspaceFolderPath)}");
+                $"PerformSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, title=\"{_step.Title}\", target=\"{_step.TargetControlId}\", placement={_step.CalloutPlacement}, markdownLen={_step.MarkdownText.Length}, stepHash={StepHash()}, workspacePath={workspaceFolderPath ?? "(none)"}");
 
-            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+            if (workspaceFolderPath is null)
             {
-                try
-                {
-                    GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
-                    SquadDashTrace.Write(TraceCategory.Callouts, "PerformSave: disk save succeeded");
-                }
-                catch (Exception ex)
-                {
-                    SquadDashTrace.Write(TraceCategory.Callouts, $"PerformSave: disk save FAILED — {ex.Message}");
-                    MessageBox.Show(
-                        $"Step updated in memory but could not be saved to disk:\n{ex.Message}",
-                        "Save Error",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                }
+                ShowStatus("⚠ Cannot save: no workspace is open");
+                return false;
             }
+
+            GuidedTourSaver.Save(_allTours, workspaceFolderPath);
+            SquadDashTrace.Write(TraceCategory.Callouts, "PerformSave: disk save succeeded");
 
             WasSaved = true;
             SquadDashTrace.Write(TraceCategory.Callouts, $"PerformSave: WasSaved=true, tourStepCount={_activeTour.Steps.Count}");
@@ -1002,7 +1000,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private void PerformAutoSave()
     {
-        if (string.IsNullOrWhiteSpace(_workspaceFolderPath)) return;
+        var workspaceFolderPath = ResolveWorkspaceFolderPath();
+        if (workspaceFolderPath is null)
+        {
+            ShowStatus("⚠ Cannot save: no workspace is open");
+            SquadDashTrace.Write(TraceCategory.Callouts, "PerformAutoSave: skipped because no workspace path is available");
+            return;
+        }
         _isLoadingStep = true;
         try
         {
@@ -1010,9 +1014,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             PushUndoSnapshot();
 
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"PerformAutoSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, stepHash={StepHash()}, workspacePath=\"{_workspaceFolderPath}\"");
+                $"PerformAutoSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, stepHash={StepHash()}, workspacePath=\"{workspaceFolderPath}\"");
 
-            GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+            GuidedTourSaver.Save(_allTours, workspaceFolderPath);
             WasSaved = true;
             ShowStatus("✓ Saved");
 
@@ -1031,6 +1035,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     }
 
     private string StepHash() => GuidedTourSaver.ComputeHash(JsonSerializer.Serialize(_step));
+
+    private string? ResolveWorkspaceFolderPath() =>
+        GuidedTourWorkspacePathResolver.Resolve(_workspaceFolderPath, _workspaceFolderProvider);
 
     private void QueueAutoSave()
     {
@@ -1076,8 +1083,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 _activeTour.Steps.Add(s);
             _lastUndoSnapshot = json;
 
-            if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
-                GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
+            var workspaceFolderPath = ResolveWorkspaceFolderPath();
+            if (workspaceFolderPath is not null)
+                GuidedTourSaver.Save(_allTours, workspaceFolderPath);
 
             _stepIndex = Math.Clamp(_stepIndex, 0, Math.Max(0, _activeTour.Steps.Count - 1));
 
@@ -2665,9 +2673,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _activeTour.Steps.RemoveAt(idx);
         PushUndoSnapshot();
 
-        if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+        var workspaceFolderPath = ResolveWorkspaceFolderPath();
+        if (workspaceFolderPath is not null)
         {
-            try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+            try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
             catch { /* ignore */ }
         }
 
@@ -2696,9 +2705,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _activeTour.Steps.Insert(insertAfter + 1 + i, steps[i]);
         PushUndoSnapshot();
 
-        if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
+        var workspaceFolderPath = ResolveWorkspaceFolderPath();
+        if (workspaceFolderPath is not null)
         {
-            try { GuidedTourSaver.Save(_allTours, _workspaceFolderPath); }
+            try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
             catch { /* ignore */ }
         }
 
