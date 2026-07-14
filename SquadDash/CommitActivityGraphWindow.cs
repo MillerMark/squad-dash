@@ -1156,6 +1156,9 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     internal const double MinRectWidth        = 3.0;
     internal const double CornerRadius        = 2.0;
     internal const double MaxBarDurationHours = 2.0; // clamp against stale/corrupt TurnStartedAt data
+    // Extra canvas space reserved above and below the row band so tall commit bars
+    // on the first/last feature row are not clipped at the canvas layout boundary.
+    private const double VerticalPadding      = RowHeight;
 
     // ── State ──────────────────────────────────────────────────────────────────
     private List<CommitActivityRow> _rows      = [];
@@ -1268,7 +1271,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        var h = Math.Max(1, _rows.Count) * RowHeight + XAxisHeight;
+        var h = Math.Max(1, _rows.Count) * RowHeight + XAxisHeight + VerticalPadding;
         // Fill the available width so no horizontal scrollbar is needed.
         var w = double.IsFinite(availableSize.Width) && availableSize.Width > LabelColumnWidth
             ? availableSize.Width
@@ -1309,6 +1312,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             null,
             new Rect(0, 0, ActualWidth, ActualHeight));
 
+        // Shift all row content down by VerticalPadding so tall commit bars on
+        // row 0 have room to draw above without hitting the canvas layout boundary.
+        dc.PushTransform(new TranslateTransform(0, VerticalPadding));
+
         // Vertical separator between label column and graph area
         dc.DrawLine(
             new Pen(borderBrush, 1),
@@ -1334,13 +1341,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             dc.Pop();
         }
 
-        // Pass 2: clip horizontally so markers never bleed into the label column.
-        // No vertical clip — tall commit bars on the first/last row are allowed to
-        // overflow above/below the row band.
+        // Clip horizontally so markers never bleed into the label column.
+        // The vertical range is generous: VerticalPadding above row 0 and one row
+        // below the last row so tall bars are never cropped.
         dc.PushClip(new RectangleGeometry(new Rect(
-            LabelColumnWidth, -RowHeight,
+            LabelColumnWidth, -VerticalPadding,
             Math.Max(0, ActualWidth - LabelColumnWidth),
-            (_rows.Count + 2) * RowHeight)));
+            (_rows.Count + 1) * RowHeight + VerticalPadding)));
 
         // ── Vertical grid lines (day/week/month/quarter/year) ─────────────────
         // All lines are 1px wide. A type is suppressed when spacing < 50px.
@@ -1510,12 +1517,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         }
 
         dc.Pop(); // end graph-area clip
+        dc.Pop(); // end VerticalPadding translate
         RenderXAxis(dc, subtleBrush, borderBrush);
     }
 
     private void RenderXAxis(DrawingContext dc, Brush textBrush, Brush tickBrush)
     {
-        var axisY        = _rows.Count * RowHeight;
+        var axisY        = VerticalPadding + _rows.Count * RowHeight;
         var intervalDays = _dayCount <= 90 ? 7 : 30;
 
         // Axis line
@@ -1583,9 +1591,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     {
         if (_rows.Count == 0 || _dayCount == 0) return null;
         if (pt.X < LabelColumnWidth) return null;
-        if (pt.Y > _rows.Count * RowHeight) return null;
+        var rowY = pt.Y - VerticalPadding;
+        if (rowY < 0 || rowY > _rows.Count * RowHeight) return null;
 
-        var rowIndex = (int)(pt.Y / RowHeight);
+        var rowIndex = (int)(rowY / RowHeight);
         if (rowIndex < 0 || rowIndex >= _rows.Count) return null;
 
         var row    = _rows[rowIndex];
@@ -1648,7 +1657,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var lineX1    = DayToX(firstDate);
             var lineX2    = DayToX(lastDate);
             var cy        = rowIndex * RowHeight + RowHeight / 2.0;
-            if (graphX >= lineX1 && graphX <= lineX2 && Math.Abs(pt.Y - cy) <= 5)
+            if (graphX >= lineX1 && graphX <= lineX2 && Math.Abs(rowY - cy) <= 5)
                 return new CommitLineHit(row, firstDate, lastDate);
         }
 
@@ -1662,8 +1671,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     internal CommitActivityRow? HitTestRow(Point canvasPoint)
     {
         if (_rows.Count == 0) return null;
-        if (canvasPoint.Y > _rows.Count * RowHeight) return null;
-        var rowIndex = (int)(canvasPoint.Y / RowHeight);
+        if (canvasPoint.Y > VerticalPadding + _rows.Count * RowHeight) return null;
+        var rowIndex = (int)((canvasPoint.Y - VerticalPadding) / RowHeight);
         if (rowIndex < 0 || rowIndex >= _rows.Count) return null;
         return _rows[rowIndex];
     }
