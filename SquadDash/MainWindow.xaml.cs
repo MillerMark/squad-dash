@@ -14562,6 +14562,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
             _tourHighlightCanvas!.Children.Add(rect);
             _tourHighlightRects.Add((el, rect));
+
+            // WPF popup menus open as new topmost HWNDs and land above our already-topmost
+            // overlay. Toggle Topmost off→on to move the overlay back to the front of the
+            // topmost z-band without closing/reopening the window.
+            _tourHighlightOverlay!.Topmost = false;
+            _tourHighlightOverlay.Topmost  = true;
+
             // Auto-remove the highlight rect when the element becomes invisible
             // (e.g. when a popup menu is dismissed by the user).
             el.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
