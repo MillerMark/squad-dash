@@ -1769,6 +1769,19 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             body.Append($"\nTime:    {c.CommitTime.Value.LocalDateTime:MMM d, yyyy  h:mm tt}");
         else
             body.Append($"\nDate:    {c.TurnDate:MMM d, yyyy}");
+        if (c.TurnStartedAt.HasValue && c.CommitTime.HasValue)
+        {
+            var elapsed = c.CommitTime.Value - c.TurnStartedAt.Value;
+            if (elapsed.TotalSeconds > 0)
+            {
+                var responseStr = elapsed.TotalHours >= 1
+                    ? $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m"
+                    : elapsed.TotalMinutes >= 1
+                        ? $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s"
+                        : $"{(int)elapsed.TotalSeconds}s";
+                body.Append($"\nResponse: {responseStr}");
+            }
+        }
         body.Append($"\nFiles:   {c.FilesChanged}");
         body.Append($"\nLines:   +{c.Insertions} / -{c.Deletions}");
         tb.Inlines.Add(new Run(body.ToString()));
