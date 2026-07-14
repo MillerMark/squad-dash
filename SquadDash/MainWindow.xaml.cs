@@ -14177,7 +14177,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch { return; }
         if (canvasDpi.DpiScaleX <= 0 || canvasDpi.DpiScaleY <= 0) return;
 
-        bool first = true;
         foreach (var (el, rect) in _tourHighlightRects)
         {
             Point screenTL, screenBR;
@@ -14197,16 +14196,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             double cy = (screenTL.Y - canvasOrigin.Y) / monitorScale;
             double cw = (screenBR.X - screenTL.X)     / monitorScale;
             double ch = (screenBR.Y - screenTL.Y)     / monitorScale;
-            if (first)
-            {
-                SquadDashTrace.Write(TraceCategory.Callouts,
-                    $"[HighlightRefresh] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
-                    $"canvasDpi=({canvasDpi.DpiScaleX:F2},{canvasDpi.DpiScaleY:F2}) monitorScale={monitorScale:F3} " +
-                    $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
-                    $"cx={cx:F1} cy={cy:F1} cw={cw:F1} ch={ch:F1} " +
-                    $"overlayLeft={_tourHighlightOverlay?.Left:F1} overlayTop={_tourHighlightOverlay?.Top:F1}");
-                first = false;
-            }
             Canvas.SetLeft(rect, cx - pad - thickness);
             Canvas.SetTop(rect,  cy - pad - thickness);
             rect.Width  = cw + (pad + thickness) * 2;
@@ -14527,8 +14516,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
                        : VisualTreeSearch.FindByName(searchRoot, name)
                        ?? (searchRoot != this ? VisualTreeSearch.FindByName(this, name) : null);
-                SquadDashTrace.Write(TraceCategory.Callouts,
-                    $"OpenMenu: looking for \"{name}\" in searchRoot={searchRoot.GetType().Name} → found={el is not null}, type={el?.GetType().Name ?? "null"}");
                 if (el is MenuItem mi)
                 {
                     mi.ApplyTemplate();
@@ -14545,17 +14532,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         ?? VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(mi);
 
                     var child = popup?.Child as FrameworkElement;
-                    SquadDashTrace.Write(TraceCategory.Callouts,
-                        $"OpenMenu: \"{name}\" → popup={popup is not null}, child={child is not null}, "
-                        + $"IsOpen={popup?.IsOpen}, childType={child?.GetType().Name ?? "null"}, "
-                        + $"ActualW={child?.ActualWidth:F1}, ActualH={child?.ActualHeight:F1}, "
-                        + $"IsVisible={child?.IsVisible}, "
-                        + $"PresentationSource={(child is not null ? System.Windows.PresentationSource.FromVisual(child) is not null ? "non-null" : "null" : "n/a")}");
                     if (child is not null)
                     {
                         _tourNamedElements[$"{name}_Popup"] = child;
-                        SquadDashTrace.Write(TraceCategory.Callouts,
-                            $"OpenMenu: registered \"{name}_Popup\" in _tourNamedElements");
                         // Search next level's items within this popup's visual tree
                         searchRoot = child;
                     }
@@ -14658,15 +14637,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             double cw = (screenBR.X - screenTL.X)     / monitorScale;
             double ch = (screenBR.Y - screenTL.Y)     / monitorScale;
             if (cw <= 0 || ch <= 0) return;
-
-            SquadDashTrace.Write(TraceCategory.Callouts,
-                $"[HighlightPlace] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
-                $"canvasDpi=({canvasDpi.DpiScaleX:F2},{canvasDpi.DpiScaleY:F2}) monitorScale={monitorScale:F3} " +
-                $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
-                $"cx={cx:F1} cy={cy:F1} cw={cw:F1} ch={ch:F1} " +
-                $"overlayLeft={_tourHighlightOverlay?.Left:F1} overlayTop={_tourHighlightOverlay?.Top:F1} " +
-                $"overlayW={_tourHighlightOverlay?.Width:F1} overlayH={_tourHighlightOverlay?.Height:F1} " +
-                $"vscreenL={SystemParameters.VirtualScreenLeft:F1} vscreenT={SystemParameters.VirtualScreenTop:F1}");
 
             const double pad = 2;
             const double thickness = 2.5;
