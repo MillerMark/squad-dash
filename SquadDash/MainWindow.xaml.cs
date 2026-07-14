@@ -14595,6 +14595,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         _tourHighlightOverlay.Topmost = false;
                         _tourHighlightOverlay.Topmost = true;
+                        // On per-monitor DPI monitors, toggling Topmost can trigger a WPF DPI
+                        // recalculation that shifts the overlay window's logical origin. Defer
+                        // a rect refresh by one render frame so the window has settled before
+                        // we recompute PointFromScreen coordinates.
+                        Dispatcher.BeginInvoke(DispatcherPriority.Render, RefreshTourHighlightRects);
                     }
                 };
                 _tourHighlightZTimer.Start();
