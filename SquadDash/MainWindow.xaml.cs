@@ -14177,6 +14177,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch { return; }
         if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0) return;
 
+        bool first = true;
         foreach (var (el, rect) in _tourHighlightRects)
         {
             Point screenTL, screenBR;
@@ -14186,11 +14187,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             catch { continue; }
             // Convert physical pixel offset from canvas origin → canvas logical units.
-            // This avoids Window.PointFromScreen whose DPI context can drift at runtime.
             double cx = (screenTL.X - canvasOrigin.X) / dpi.DpiScaleX;
             double cy = (screenTL.Y - canvasOrigin.Y) / dpi.DpiScaleY;
             double cw = (screenBR.X - screenTL.X)     / dpi.DpiScaleX;
             double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
+            if (first)
+            {
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[HighlightRefresh] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
+                    $"dpi=({dpi.DpiScaleX:F2},{dpi.DpiScaleY:F2}) " +
+                    $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
+                    $"cx={cx:F1} cy={cy:F1} cw={cw:F1} ch={ch:F1} " +
+                    $"overlayLeft={_tourHighlightOverlay?.Left:F1} overlayTop={_tourHighlightOverlay?.Top:F1}");
+                first = false;
+            }
             Canvas.SetLeft(rect, cx - pad - thickness);
             Canvas.SetTop(rect,  cy - pad - thickness);
             rect.Width  = cw + (pad + thickness) * 2;
@@ -14604,6 +14614,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
             if (cw <= 0 || ch <= 0) return;
 
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[HighlightPlace] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1}) " +
+                $"dpi=({dpi.DpiScaleX:F2},{dpi.DpiScaleY:F2}) " +
+                $"screenTL=({screenTL.X:F1},{screenTL.Y:F1}) screenBR=({screenBR.X:F1},{screenBR.Y:F1}) " +
+                $"cx={cx:F1} cy={cy:F1} cw={cw:F1} ch={ch:F1} " +
+                $"overlayLeft={_tourHighlightOverlay?.Left:F1} overlayTop={_tourHighlightOverlay?.Top:F1} " +
+                $"overlayW={_tourHighlightOverlay?.Width:F1} overlayH={_tourHighlightOverlay?.Height:F1} " +
+                $"vscreenL={SystemParameters.VirtualScreenLeft:F1} vscreenT={SystemParameters.VirtualScreenTop:F1}");
+
             const double pad = 2;
             const double thickness = 2.5;
 
@@ -14653,6 +14672,48 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
         // Alias — "UnhighlightElements" is the preferred name going forward; both work.
         _tourCommandRegistry.Register("UnhighlightElements", UnhighlightAllMenuItems);
+
+        // Diagnostic command: logs current highlight overlay state to trace and shows a callout.
+        // Usage:  DiagHighlight
+        // Writes [HighlightDiag] entries to the trace log; also injects a short text callout.
+        _tourCommandRegistry.Register("DiagHighlight", () =>
+        {
+            if (_tourHighlightCanvas is null || _tourHighlightOverlay is null)
+            {
+                SquadDashTrace.Write(TraceCategory.UI, "[HighlightDiag] overlay not created yet.");
+                return;
+            }
+            Point canvasOrigin;
+            DpiScale dpi;
+            try {
+                canvasOrigin = _tourHighlightCanvas.PointToScreen(new Point(0, 0));
+                dpi          = VisualTreeHelper.GetDpi(_tourHighlightCanvas);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write(TraceCategory.UI, $"[HighlightDiag] PointToScreen/GetDpi threw: {ex.Message}");
+                return;
+            }
+            string msg =
+                $"[HighlightDiag] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1})  " +
+                $"dpi=({dpi.DpiScaleX:F3},{dpi.DpiScaleY:F3})  " +
+                $"overlay L={_tourHighlightOverlay.Left:F1} T={_tourHighlightOverlay.Top:F1} " +
+                $"W={_tourHighlightOverlay.Width:F1} H={_tourHighlightOverlay.Height:F1}  " +
+                $"rects={_tourHighlightRects.Count}";
+            if (_tourHighlightRects.Count > 0)
+            {
+                var (el, rect) = _tourHighlightRects[0];
+                Point elTL, elBR;
+                try {
+                    elTL = el.PointToScreen(new Point(0, 0));
+                    elBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
+                } catch { elTL = elBR = new Point(double.NaN, double.NaN); }
+                double cx = (elTL.X - canvasOrigin.X) / dpi.DpiScaleX;
+                double cy = (elTL.Y - canvasOrigin.Y) / dpi.DpiScaleY;
+                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) computed cx={cx:F1} cy={cy:F1} " +
+                       $"rect.L={Canvas.GetLeft(rect):F1} rect.T={Canvas.GetTop(rect):F1}";
+            }
+            SquadDashTrace.Write(TraceCategory.UI, msg);
+        });
 
         _tourCommandRegistry.Register("ShowPreferences", () =>
             PreferencesMenuItem_Click(this, new RoutedEventArgs()));
