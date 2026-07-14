@@ -15489,6 +15489,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await Task.Delay(rng.Next(120, 300));
         }
 
+        // Register the last tool entry's row so tour steps can target it directly.
+        if (thinkingBlock.ToolEntries.Count > 0)
+            _tourNamedElements["TourInjectedLastToolEntry"] = thinkingBlock.ToolEntries[^1].Expander;
+
         CoordinatorThread.CurrentTurn = null;
         TrackNewCoordinatorBlocks(blocksBefore);
         SelectTranscriptThread(CoordinatorThread);

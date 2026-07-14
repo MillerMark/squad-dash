@@ -80,6 +80,37 @@
         "targetOffsetY": 0.27675198235539844
       },
       {
+        "title": "Tooling",
+        "markdownText": "**Tool calls** show what\u0027s happening while agents work.\r\nYou can hover over edits to see diffs.",
+        "targetControlId": "TourInjectedToolingBlock",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...",
+          "InjectTranscriptTools: grep:Scan for null dereference patterns:Found 3 matches \u2014 SchedulerService.cs:47, TaskRunner.cs:112, ConfigLoader.cs:23;view:Inspect SchedulerService.cs (lines 44\u201352):var result = context.Items.FirstOrDefault().Value; // no null check\\nif (task.Callback.Invoke()) { // potential null ref;edit:Fix SchedulerService.cs:- var result = context.Items.FirstOrDefault().Value;\\n\u002B var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;;edit:Fix TaskRunner.cs:- if (task.Callback.Invoke()) {\\n\u002B if (task.Callback?.Invoke() == true) {;powershell:Run unit tests:All 47 tests passed"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.32800530095242164,
+        "targetOffsetY": 0.583846153846153
+      },
+      {
+        "title": "File edit",
+        "markdownText": "![24:edit](res:ToolIcon_edit) A **file edit** call shows the changed file.\r\nHover over it to see a before/after diff.",
+        "targetControlId": "TourInjectedLastToolEntry",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "Quick reply buttons",
         "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\nTip: **keyboard users** press \u0022**[**\u0022 in an empty prompt for quick reply intellisense.",
         "targetControlId": "TourQuickReplyPanel",
@@ -88,8 +119,6 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...",
-          "InjectTranscriptTools: grep:Scan for null dereference patterns:Found 3 matches \u2014 SchedulerService.cs:47, TaskRunner.cs:112, ConfigLoader.cs:23;view:Inspect SchedulerService.cs (lines 44\u201352):var result = context.Items.FirstOrDefault().Value; // no null check\\nif (task.Callback.Invoke()) { // potential null ref;edit:Fix SchedulerService.cs:- var result = context.Items.FirstOrDefault().Value;\\n\u002B var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;;edit:Fix TaskRunner.cs:- if (task.Callback.Invoke()) {\\n\u002B if (task.Callback?.Invoke() == true) {;powershell:Run unit tests:All 47 tests passed",
           "InjectTranscriptText: Done.\\nThe simulated bugs are fixed.\\n",
           "InjectTranscriptTextWithReplies|What would you like to do next (simulated)?|Add Test Cases|Commit Changes"
         ],
@@ -97,24 +126,6 @@
         "advanceTrigger": "QuickReplySelected",
         "targetOffsetX": 0.7846003898635477,
         "targetOffsetY": 0.4717917649167319
-      },
-      {
-        "title": "Tooling",
-        "markdownText": "Tool calls show what\u0027s happening while agents work.",
-        "targetControlId": "TourInjectedToolingBlock",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "InjectTranscriptTurn|Commit Changes|Committing the bug fixes now (simulated)...",
-          "InjectTranscriptTools: report_intent:Committing bug fixes (simulated):Intent logged;powershell:Stage changed files:M  SchedulerService.cs\\nM  TaskRunner.cs\\n2 files staged;powershell:Create commit (simulated):a3f7c21 Fix null dereference bugs in SchedulerService and TaskRunner",
-          "InjectTranscriptText: Done.\\nCommit **a3f7c21** is ready for review in the **Approvals** panel."
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.22480848152387464,
-        "targetOffsetY": 0.06916666666666607
       },
       {
         "title": "Prompts navigation",

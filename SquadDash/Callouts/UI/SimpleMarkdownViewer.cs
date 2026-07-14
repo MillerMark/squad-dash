@@ -16,10 +16,12 @@ public class SimpleMarkdownViewer : Control {
         RegexOptions.Singleline | RegexOptions.Compiled);
 
     /// <summary>
-    /// Optional callback that resolves an image path (as written in markdown) to a
-    /// <see cref="BitmapImage"/>.  When null, image tags are rendered as plain text.
+    /// Optional callback that resolves an image path (as written in markdown) to an
+    /// <see cref="ImageSource"/>.  Supports both file-backed <see cref="BitmapImage"/> and
+    /// vector <see cref="DrawingImage"/> resources.  When null, image tags are rendered as
+    /// plain text.
     /// </summary>
-    public Func<string, BitmapImage?>? ImageResolver { get; set; }
+    public Func<string, ImageSource?>? ImageResolver { get; set; }
     private static readonly DependencyPropertyKey DocumentPropertyKey = DependencyProperty.RegisterReadOnly(nameof(Document), typeof(FlowDocument), typeof(SimpleMarkdownViewer), new FrameworkPropertyMetadata());
 
     public static readonly DependencyProperty DocumentProperty = DocumentPropertyKey.DependencyProperty;
@@ -118,11 +120,11 @@ public class SimpleMarkdownViewer : Control {
                 var path         = m.Groups[3].Value.Trim();
                 var trailingText = m.Groups[4].Value.Trim();
                 var imageWidth   = (int.TryParse(m.Groups[1].Value, out var w) ? w : 48) * FontScaleFactor;
-                var bmp          = ImageResolver(path);
+                var imgSource    = ImageResolver(path);
 
-                if (bmp is not null) {
+                if (imgSource is not null) {
                     var img = new System.Windows.Controls.Image {
-                        Source            = bmp,
+                        Source            = imgSource,
                         Width             = imageWidth,
                         Stretch           = Stretch.Uniform,
                         VerticalAlignment = VerticalAlignment.Top,

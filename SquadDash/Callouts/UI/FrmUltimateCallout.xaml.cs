@@ -2682,10 +2682,17 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateMarkdownViewer: this.FontSize={FontSize:F1}, markdownViewer.FontSize={markdownViewer.FontSize:F1}");
     }
 
-    private static BitmapImage? ResolveCalloutImage(string path)
+    private ImageSource? ResolveCalloutImage(string path)
     {
-        // Assets are deployed as Content (CopyToOutputDirectory), not embedded resources,
-        // so pack URIs won't work. Resolve relative to the exe's Assets/GuidedTours/ folder.
+        // "res:KEY" → resolve a WPF application resource (supports DrawingImage, BitmapImage, etc.)
+        // e.g. ![24:edit](res:ToolIcon_edit) in tour markdown renders the pencil icon.
+        if (path.StartsWith("res:", StringComparison.OrdinalIgnoreCase))
+        {
+            var resourceKey = path.Substring(4);
+            return Application.Current?.TryFindResource(resourceKey) as ImageSource;
+        }
+
+        // File-based resolution: look under Assets/GuidedTours/ beside the exe, then absolute.
         var exeDir = System.IO.Path.GetDirectoryName(
             System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty;
 
@@ -2702,8 +2709,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             if (!System.IO.File.Exists(candidate)) continue;
             try
             {
-                var bmp = new BitmapImage(new Uri(candidate, UriKind.Absolute));
-                return bmp;
+                return new BitmapImage(new Uri(candidate, UriKind.Absolute));
             }
             catch { }
         }
