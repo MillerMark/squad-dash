@@ -407,10 +407,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 Padding = new Thickness(8, 3, 8, 3),
                 Margin  = new Thickness(4, 0, 0, 0),
             };
-            btn.SetResourceReference(Button.BackgroundProperty,  "InputSurface");
-            btn.SetResourceReference(Button.ForegroundProperty,  "LabelText");
-            btn.SetResourceReference(Button.BorderBrushProperty, "PanelBorder");
-            btn.SetResourceReference(Button.FontSizeProperty,    "FontSizeBody");
+            btn.SetResourceReference(Button.StyleProperty,     "ThemedButtonStyle");
+            btn.SetResourceReference(Button.FontSizeProperty,  "FontSizeBody");
             WindowChrome.SetIsHitTestVisibleInChrome(btn, true);
             var d = days;
             btn.Click += (_, _) =>
