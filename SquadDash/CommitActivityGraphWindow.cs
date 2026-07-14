@@ -184,8 +184,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 Margin            = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            _categorizeButton.SetResourceReference(Button.ForegroundProperty, "LabelText");
-            _categorizeButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
+            _categorizeButton.SetResourceReference(Button.StyleProperty,      "ThemedButtonStyle");
+            _categorizeButton.SetResourceReference(Button.FontSizeProperty,   "FontSizeBody");
             _categorizeButton.Click += OnCategorizeButtonClick;
             WindowChrome.SetIsHitTestVisibleInChrome(_categorizeButton, true);
             controlsBar.Children.Add(_categorizeButton);
