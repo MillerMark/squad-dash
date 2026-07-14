@@ -1439,6 +1439,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             // ── Resolved (solid) rounded rectangles ───────────────────────────
             // Each commit gets a rounded rect whose width spans turn-start → commit-time;
             // falls back to a fixed-width rect centered on the day when timestamps are absent.
+            // Height is scaled logarithmically by lines changed (2px min → 48px max at ≥1000 lines).
             var fillColor = Color.FromArgb(180, color.R, color.G, color.B);
             var fillBrush = new SolidColorBrush(fillColor);
             var strokePen = new Pen(new SolidColorBrush(color), 1.0);
@@ -1468,11 +1469,12 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                         left  = mid - MinRectWidth / 2.0;
                         right = mid + MinRectWidth / 2.0;
                     }
-                    var rectTop   = cy - RectHeight / 2.0;
+                    var rectH     = CommitRectHeight(commit);
+                    var rectTop   = cy - rectH / 2.0;
                     var rectWidth = right - left;
                     dc.DrawRoundedRectangle(
                         fillBrush, strokePen,
-                        new Rect(left, rectTop, rectWidth, RectHeight),
+                        new Rect(left, rectTop, rectWidth, rectH),
                         CornerRadius, CornerRadius);
                 }
             }
@@ -1527,6 +1529,22 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         var startDt = new DateTimeOffset(_startDate.ToDateTime(TimeOnly.MinValue), dt.Offset);
         var days    = (dt - startDt).TotalDays;
         return days * _effectivePixelsPerDay;
+    }
+
+    /// <summary>
+    /// Returns the rect height for a commit, scaled logarithmically by lines changed.
+    /// 0 lines → 2px; ≥1000 lines → RowHeight × 1.5 (48px).
+    /// Rects may extend 50% beyond the row boundary, which is intentional.
+    /// </summary>
+    private static double CommitRectHeight(CommitStatResult commit)
+    {
+        const double MinHeight = 2.0;
+        const double MaxHeight = RowHeight * 1.5;
+        var totalLines = commit.Insertions + commit.Deletions;
+        if (totalLines <= 0)    return MinHeight;
+        if (totalLines >= 1000) return MaxHeight;
+        var t = Math.Log(totalLines + 1.0) / Math.Log(1001.0);
+        return MinHeight + (MaxHeight - MinHeight) * t;
     }
 
     // ── Tooltip / hit testing ──────────────────────────────────────────────────
