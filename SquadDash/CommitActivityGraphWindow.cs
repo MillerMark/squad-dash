@@ -1111,10 +1111,10 @@ internal sealed class CommitActivityRow
 // ─────────────────────────────────────────────────────────────────────────────
 
 internal sealed record CommitDotHit(
-    CommitActivityRow           Row,
-    DateOnly                    Date,
-    bool                        IsPending,
-    List<CommitStatResult>?     Commits);
+    CommitActivityRow       Row,
+    DateOnly                Date,
+    bool                    IsPending,
+    CommitStatResult?       Commit);   // null when IsPending
 
 internal sealed record CommitLineHit(
     CommitActivityRow Row,
@@ -1618,7 +1618,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                     right = dayCx + BaseRadius + 4;
                 }
                 if (graphX >= left - 2 && graphX <= right + 2)
-                    return new CommitDotHit(row, date, false, commits);
+                    return new CommitDotHit(row, date, false, commit);
             }
         }
 
@@ -1667,16 +1667,27 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         {
             CommitDotHit { IsPending: true  } d =>
                 $"Feature: {d.Row.DisplayName}\nDate: {d.Date:MMM d, yyyy}\nStatus: Loading commit data\u2026",
-            CommitDotHit { IsPending: false } d =>
-                $"Feature: {d.Row.DisplayName}\nDate: {d.Date:MMM d, yyyy}\n" +
-                $"Commits: {d.Commits!.Count}  " +
-                $"(files: {d.Commits.Sum(c => c.FilesChanged)}, " +
-                $"+{d.Commits.Sum(c => c.Insertions)} / " +
-                $"-{d.Commits.Sum(c => c.Deletions)})",
+            CommitDotHit { IsPending: false } d when d.Commit is { } c =>
+                BuildCommitTooltip(d.Row.DisplayName, c),
             CommitLineHit l =>
                 $"Feature: {l.Row.DisplayName}\nActive: {l.FirstDate:MMM d, yyyy} \u2192 {l.LastDate:MMM d, yyyy}",
             _ => ""
         };
+
+    private static string BuildCommitTooltip(string featureName, CommitStatResult c)
+    {
+        var sha   = c.Sha.Length >= 7 ? c.Sha[..7] : c.Sha;
+        var lines = new System.Text.StringBuilder();
+        lines.Append($"Feature: {featureName}");
+        lines.Append($"\nCommit:  {sha}");
+        if (c.CommitTime.HasValue)
+            lines.Append($"\nTime:    {c.CommitTime.Value.LocalDateTime:MMM d, yyyy  h:mm tt}");
+        else
+            lines.Append($"\nDate:    {c.TurnDate:MMM d, yyyy}");
+        lines.Append($"\nFiles:   {c.FilesChanged}");
+        lines.Append($"\nLines:   +{c.Insertions} / -{c.Deletions}");
+        return lines.ToString();
+    }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
