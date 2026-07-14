@@ -150,13 +150,13 @@ internal static class AgentArtifactStore
     internal static string BuildPromptInstruction() =>
         """
         <artifact_file_instructions>
-        When you need to show a large, deeply nested, or parser-sensitive payload such as long JSON, logs, generated reports, or code containing SquadDash markers, write it to a file under `.squad/tmp/agent-artifacts/` and reference it with a small manifest instead of pasting the full payload inline.
+        Ask yourself — is this entire response a deliverable the user will copy as a whole unit (a prompt, document, template, report, config block, or generated output)? If yes, write it to a file under `.squad/tmp/agent-artifacts/` and reference it with a small manifest instead of pasting the full payload inline.
 
         For transcript display, append:
         SQUADDASH_ARTIFACT_JSON:
         {"path":".squad/tmp/agent-artifacts/<file>","language":"json","display":"code_block","label":"optional label","sha256":"optional sha256"}
 
-        Use normal inline fenced code for short simple snippets. Use artifact files when the content is large, contains nested JSON/Markdown/code fences, or includes markers such as `INBOX_MESSAGE_JSON:`, `HOST_COMMAND_JSON:`, `QUICK_REPLIES_JSON:`, or `<system_notification>`.
+        Inline fenced code is fine when the code snippet is a supporting detail inside a conversational answer — not when the response itself is the deliverable. Also use artifact files when the content includes nested JSON/Markdown/code fences or markers such as `INBOX_MESSAGE_JSON:`, `HOST_COMMAND_JSON:`, `QUICK_REPLIES_JSON:`, or `<system_notification>`.
 
         For complex inbox messages, write the complete inbox JSON object to `.squad/tmp/agent-artifacts/<file>.json` and append:
         INBOX_MESSAGE_JSON_FILE:
