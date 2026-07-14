@@ -1336,39 +1336,49 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             Math.Max(0, ActualWidth - LabelColumnWidth),
             _rows.Count * RowHeight)));
 
-        // ── Vertical grid lines (day/week/month) ──────────────────────────────
-        // Skip any line type whose pixel spacing between consecutive lines is < 50px.
+        // ── Vertical grid lines (day/week/month/quarter/year) ─────────────────
+        // All lines are 1px wide. A type is suppressed when spacing < 50px.
+        // Opacity steps up from finest visible unit: 20% / 40% / 60% / 80%+.
+        // Each date is drawn at its coarsest matching boundary level.
         const double MinGridSpacing = 50.0;
-        var daySpacing   = _effectivePixelsPerDay;
-        var weekSpacing  = 7.0 * _effectivePixelsPerDay;
-        // Month spacing is approximated using the days in the current month at the loop cursor;
-        // we pre-check using 30 days as a conservative estimate so we can skip the loop entirely.
+        // Approximate spacings for visibility pre-check (fine for threshold math).
+        bool dayVisible     = _effectivePixelsPerDay          >= MinGridSpacing;
+        bool weekVisible    = 7.0   * _effectivePixelsPerDay  >= MinGridSpacing;
+        bool monthVisible   = 30.4  * _effectivePixelsPerDay  >= MinGridSpacing;
+        bool quarterVisible = 91.3  * _effectivePixelsPerDay  >= MinGridSpacing;
+        bool yearVisible    = 365.25 * _effectivePixelsPerDay >= MinGridSpacing;
+
+        // Assign opacity per level: level 0=day … 4=year, finest visible → rank 0 → 20%.
+        bool[] levelVisible = { dayVisible, weekVisible, monthVisible, quarterVisible, yearVisible };
+        // 20/40/60/80% expressed as byte (0-255)
+        byte[] rankAlpha = { 51, 102, 153, 204 };
+        var levelAlpha = new byte[5];
+        int opRank = 0;
+        for (int li = 0; li < 5; li++)
+        {
+            if (!levelVisible[li]) continue;
+            levelAlpha[li] = rankAlpha[Math.Min(opRank, rankAlpha.Length - 1)];
+            opRank++;
+        }
+
         var gridBase   = _isDark ? Colors.White : Colors.Black;
         var gridHeight = _rows.Count * RowHeight;
         for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
         {
-            byte alpha;
-            double thickness;
-            if (d.Day == 1)
-            {
-                var monthSpacing = DateTime.DaysInMonth(d.Year, d.Month) * _effectivePixelsPerDay;
-                if (monthSpacing < MinGridSpacing) continue;
-                alpha = 192; thickness = 2.0; // month boundary
-            }
-            else if (d.DayOfWeek == DayOfWeek.Monday)
-            {
-                if (weekSpacing < MinGridSpacing) continue;
-                alpha = 128; thickness = 2.0; // week boundary
-            }
-            else
-            {
-                if (daySpacing < MinGridSpacing) continue;
-                alpha = 64; thickness = 1.0;  // day
-            }
+            // Classify at coarsest matching boundary.
+            int level;
+            if      (d.Day == 1 && d.Month == 1)                                        level = 4; // year
+            else if (d.Day == 1 && (d.Month == 4 || d.Month == 7 || d.Month == 10))     level = 3; // quarter
+            else if (d.Day == 1)                                                         level = 2; // month
+            else if (d.DayOfWeek == DayOfWeek.Monday)                                   level = 1; // week
+            else                                                                         level = 0; // day
+
+            var alpha = levelAlpha[level];
+            if (alpha == 0) continue;
 
             var gridColor = Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B);
             var gx = LabelColumnWidth + DayToX(d);
-            dc.DrawLine(new Pen(new SolidColorBrush(gridColor), thickness),
+            dc.DrawLine(new Pen(new SolidColorBrush(gridColor), 1.0),
                 new Point(gx, 0),
                 new Point(gx, gridHeight));
         }
