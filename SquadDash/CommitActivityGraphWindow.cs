@@ -1185,7 +1185,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     internal const double RectHeight          = 10.0;
     internal const double MinRectWidth        = 3.0;
     internal const double CornerRadius        = 2.0;
-    internal const double MaxBarDurationHours = 2.0; // clamp against stale/corrupt TurnStartedAt data
+    internal const double MaxBarDurationHours = 8.0 / 60.0; // clamp against stale/corrupt TurnStartedAt data (~8 min)
     // Extra canvas space reserved above and below the row band so tall commit bars
     // on the first/last feature row are not clipped at the canvas layout boundary.
     private const double VerticalPadding      = RowHeight;
