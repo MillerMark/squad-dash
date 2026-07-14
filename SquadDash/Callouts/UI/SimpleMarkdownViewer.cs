@@ -117,7 +117,7 @@ public class SimpleMarkdownViewer : Control {
             if (m.Success) {
                 var path         = m.Groups[3].Value.Trim();
                 var trailingText = m.Groups[4].Value.Trim();
-                var imageWidth   = int.TryParse(m.Groups[1].Value, out var w) ? w : 48;
+                var imageWidth   = (int.TryParse(m.Groups[1].Value, out var w) ? w : 48) * FontScaleFactor;
                 var bmp          = ImageResolver(path);
 
                 if (bmp is not null) {
