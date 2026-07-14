@@ -422,7 +422,7 @@ internal sealed class MarkdownDocumentRenderer {
 
         var copyBtn = new Button {
             Content             = "📋",
-            ToolTip             = copiedTip,
+            ToolTip             = "Copy",
             FontSize = (double)Application.Current.Resources["FontSizeNormal"],
             Width               = 26,
             Height              = 22,
@@ -438,8 +438,13 @@ internal sealed class MarkdownDocumentRenderer {
         copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
 
         copyBtn.Click += (_, _) => {
-            try { Clipboard.SetText(code); }
-            catch { /* clipboard contention — ignore */ }
+            bool copied = false;
+            for (int attempt = 0; attempt < 3 && !copied; attempt++)
+            {
+                try { Clipboard.SetText(code); copied = true; }
+                catch { System.Threading.Thread.Sleep(50); }
+            }
+            if (!copied) return;
 
             copiedTip.PlacementTarget = copyBtn;
             copiedTip.IsOpen          = true;
@@ -448,6 +453,10 @@ internal sealed class MarkdownDocumentRenderer {
             timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
             timer.Start();
         };
+
+        // Prevent right-click from moving the caret (which would clear the selection
+        // and disable the Copy item in the context menu before it opens).
+        textBox.PreviewMouseRightButtonDown += (_, e) => e.Handled = true;
 
         // ── Header row: copy button pinned right ─────────────────────────
         var header = new DockPanel { LastChildFill = false };
