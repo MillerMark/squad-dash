@@ -1495,6 +1495,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                             right = mid + MinRectWidth / 2.0;
                         }
                     }
+                    else if (commit.CommitTime.HasValue)
+                    {
+                        right = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
+                        left  = right - _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
+                    }
                     else
                     {
                         left  = dayCx - BaseRadius;
@@ -1538,6 +1543,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                     var fillBrush = new SolidColorBrush(Color.FromArgb(fileAlpha, color.R, color.G, color.B));
                     var strokePen = new Pen(new SolidColorBrush(Color.FromArgb(fileAlpha, color.R, color.G, color.B)), 1.0);
                     double left, right;
+                    double minWidth;
                     if (commit.TurnStartedAt.HasValue && commit.CommitTime.HasValue)
                     {
                         left  = LabelColumnWidth + DateTimeToX(commit.TurnStartedAt.Value);
@@ -1545,17 +1551,26 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                         if (right < left) (left, right) = (right, left);
                         var maxBarPx = _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
                         if (right - left > maxBarPx) left = right - maxBarPx;
+                        minWidth = MinRectWidth;
+                    }
+                    else if (commit.CommitTime.HasValue)
+                    {
+                        // No turn-start: infer 8-minute duration ending at commit time
+                        right    = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
+                        left     = right - _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
+                        minWidth = 1.0;
                     }
                     else
                     {
-                        left  = dayCx - BaseRadius;
-                        right = dayCx + BaseRadius;
+                        left     = dayCx - BaseRadius;
+                        right    = dayCx + BaseRadius;
+                        minWidth = MinRectWidth;
                     }
-                    if (right - left < MinRectWidth)
+                    if (right - left < minWidth)
                     {
                         var mid = (left + right) / 2.0;
-                        left  = mid - MinRectWidth / 2.0;
-                        right = mid + MinRectWidth / 2.0;
+                        left  = mid - minWidth / 2.0;
+                        right = mid + minWidth / 2.0;
                     }
                     var rectH     = CommitRectHeight(commit);
                     var rectTop   = cy - rectH / 2.0;
@@ -1678,6 +1693,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                         left  = mid - MinRectWidth / 2.0;
                         right = mid + MinRectWidth / 2.0;
                     }
+                }
+                else if (commit.CommitTime.HasValue)
+                {
+                    right = DateTimeToX(commit.CommitTime.Value);
+                    left  = right - _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
                 }
                 else
                 {
