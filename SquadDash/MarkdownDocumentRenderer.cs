@@ -413,16 +413,13 @@ internal sealed class MarkdownDocumentRenderer {
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
         // ── Copy button with "Copied!" feedback ──────────────────────────
-        var copiedTip = new ToolTip {
-            Content   = "Copied!",
-            Placement = PlacementMode.Bottom,
-        };
-        copiedTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-        copiedTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        var copyTip = new ToolTip { Content = "Copy", Placement = PlacementMode.Bottom };
+        copyTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        copyTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
 
         var copyBtn = new Button {
             Content             = "📋",
-            ToolTip             = "Copy",
+            ToolTip             = copyTip,
             FontSize = (double)Application.Current.Resources["FontSizeNormal"],
             Width               = 26,
             Height              = 22,
@@ -446,11 +443,9 @@ internal sealed class MarkdownDocumentRenderer {
             }
             if (!copied) return;
 
-            copiedTip.PlacementTarget = copyBtn;
-            copiedTip.IsOpen          = true;
-
+            copyTip.Content = "Copied!";
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
+            timer.Tick += (_, _) => { copyTip.Content = "Copy"; timer.Stop(); };
             timer.Start();
         };
 
