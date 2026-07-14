@@ -14186,6 +14186,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    // ── Win32 z-order helper ─────────────────────────────────────────────────
+    // Using SetWindowPos with HWND_TOPMOST + SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE
+    // re-asserts z-order WITHOUT triggering WPF's per-monitor DPI recalculation,
+    // which is the side-effect that caused the overlay to shift when toggling
+    // the managed Topmost property.
+    [DllImport("user32.dll", SetLastError = false)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    private static readonly IntPtr HWND_TOPMOST_VALUE  = new(-1);
+    private const uint SWP_NOSIZE     = 0x0001;
+    private const uint SWP_NOMOVE     = 0x0002;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    private void BringHighlightOverlayToFront()
+    {
+        if (_tourHighlightOverlay is null) return;
+        var hwnd = new WindowInteropHelper(_tourHighlightOverlay).Handle;
+        if (hwnd != IntPtr.Zero)
+            SetWindowPos(hwnd, HWND_TOPMOST_VALUE, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+
     private void CleanUpTourInjectedThreads()
     {
         if (_guidedTourController is null) return;
@@ -14591,16 +14614,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                 _tourHighlightZTimer.Tick += (_, _) =>
                 {
-                    if (_tourHighlightOverlay is { IsVisible: true })
-                    {
-                        _tourHighlightOverlay.Topmost = false;
-                        _tourHighlightOverlay.Topmost = true;
-                        // On per-monitor DPI monitors, toggling Topmost can trigger a WPF DPI
-                        // recalculation that shifts the overlay window's logical origin. Defer
-                        // a rect refresh by one render frame so the window has settled before
-                        // we recompute PointFromScreen coordinates.
-                        Dispatcher.BeginInvoke(DispatcherPriority.Render, RefreshTourHighlightRects);
-                    }
+                    // Use Win32 SetWindowPos to re-assert z-order. Unlike toggling the managed
+                    // Topmost property, this does NOT trigger WPF's per-monitor DPI
+                    // recalculation and does not shift the overlay window's position.
+                    BringHighlightOverlayToFront();
                 };
                 _tourHighlightZTimer.Start();
             }
