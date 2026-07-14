@@ -454,9 +454,29 @@ internal sealed class MarkdownDocumentRenderer {
             timer.Start();
         };
 
-        // Prevent right-click from moving the caret (which would clear the selection
-        // and disable the Copy item in the context menu before it opens).
-        textBox.PreviewMouseRightButtonDown += (_, e) => e.Handled = true;
+        // Explicit context menu so right-click Copy works regardless of keyboard focus.
+        // WPF's auto-generated ContextMenu evaluates ApplicationCommands.Copy.CanExecute
+        // against the focused element at open time — if the TextBox loses focus to the
+        // popup, Copy appears disabled even though selection is non-empty.
+        var copyMenuItem = new MenuItem { Header = "Copy" };
+        copyMenuItem.Click += (_, _) => {
+            var text = textBox.SelectionLength > 0 ? textBox.SelectedText : code;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                try { Clipboard.SetText(text); break; }
+                catch { System.Threading.Thread.Sleep(50); }
+            }
+        };
+        var selectAllMenuItem = new MenuItem { Header = "Select All" };
+        selectAllMenuItem.Click += (_, _) => textBox.SelectAll();
+        var ctxMenu = new ContextMenu();
+        ctxMenu.Items.Add(copyMenuItem);
+        ctxMenu.Items.Add(new Separator());
+        ctxMenu.Items.Add(selectAllMenuItem);
+        // Update Copy header to reflect what will be copied before the menu opens.
+        ctxMenu.Opened += (_, _) =>
+            copyMenuItem.Header = textBox.SelectionLength > 0 ? "Copy Selection" : "Copy All";
+        textBox.ContextMenu = ctxMenu;
 
         // ── Header row: copy button pinned right ─────────────────────────
         var header = new DockPanel { LastChildFill = false };
