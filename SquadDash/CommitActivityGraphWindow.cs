@@ -1152,6 +1152,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     internal const double RectHeight          = 10.0;
     internal const double MinRectWidth        = 3.0;
     internal const double CornerRadius        = 2.0;
+    internal const double MaxBarDurationHours = 2.0; // clamp against stale/corrupt TurnStartedAt data
 
     // ── State ──────────────────────────────────────────────────────────────────
     private List<CommitActivityRow> _rows      = [];
@@ -1377,6 +1378,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                         left  = LabelColumnWidth + DateTimeToX(commit.TurnStartedAt.Value);
                         right = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
                         if (right < left) (left, right) = (right, left);
+                        var maxBarPx = _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
+                        if (right - left > maxBarPx) left = right - maxBarPx;
                         if (right - left < MinRectWidth)
                         {
                             var mid = (left + right) / 2.0;
@@ -1429,6 +1432,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                         left  = LabelColumnWidth + DateTimeToX(commit.TurnStartedAt.Value);
                         right = LabelColumnWidth + DateTimeToX(commit.CommitTime.Value);
                         if (right < left) (left, right) = (right, left);
+                        var maxBarPx = _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
+                        if (right - left > maxBarPx) left = right - maxBarPx;
                     }
                     else
                     {
@@ -1534,6 +1539,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                     left  = DateTimeToX(commit.TurnStartedAt.Value);
                     right = DateTimeToX(commit.CommitTime.Value);
                     if (right < left) (left, right) = (right, left);
+                    var maxBarPx = _effectivePixelsPerDay * MaxBarDurationHours / 24.0;
+                    if (right - left > maxBarPx) left = right - maxBarPx;
                     if (right - left < MinRectWidth)
                     {
                         var mid = (left + right) / 2.0;
