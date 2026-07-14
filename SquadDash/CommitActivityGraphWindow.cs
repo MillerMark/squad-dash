@@ -1424,6 +1424,25 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             dc.DrawLine(new Pen(new SolidColorBrush(gridColor), 1.0),
                 new Point(gx, 0),
                 new Point(gx, gridHeight));
+
+            // Draw a date label just to the right of the line at the top of the graph.
+            // Month: always (e.g. "Aug 1"). Week: when spacing ≥ 80px (e.g. "Jun 16").
+            // Day: when spacing ≥ 60px (e.g. "Mon Jun 16").
+            string? labelText = level switch
+            {
+                4 => null,  // year lines: the month label on Jan 1 is enough
+                3 => null,  // quarter lines: month label covers it
+                2 => $"{d:MMM d}",                                                // "Aug 1"
+                1 when 7.0 * _effectivePixelsPerDay >= 80.0  => $"{d:MMM d}",    // "Jun 16"
+                0 when _effectivePixelsPerDay         >= 60.0 => $"{d:ddd MMM d}", // "Mon Jun 16"
+                _ => null
+            };
+            if (labelText is not null)
+            {
+                var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
+                var ft = MakeText(labelText, labelBrush, 9.5);
+                dc.DrawText(ft, new Point(gx + 2, 2));
+            }
         }
 
         for (int i = 0; i < _rows.Count; i++)
