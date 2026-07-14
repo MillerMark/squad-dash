@@ -106,7 +106,7 @@ public class SimpleMarkdownViewer : Control {
         }
     }
 
-    Block? AddParagraph(FlowDocument flowDocument, string paragraphText, Block? lastBlock) {
+    Block? AddParagraph(FlowDocument flowDocument, string paragraphText, Block? lastBlock, Paragraph? continuationParagraph = null) {
         string cleanParagraphText = paragraphText.Trim();
         if (string.IsNullOrWhiteSpace(cleanParagraphText))
             return lastBlock;
@@ -192,6 +192,38 @@ public class SimpleMarkdownViewer : Control {
 
         Paragraph paragraph = new Paragraph();
 
+        // ── [vspace:N] and [indent] prefix modifiers ──────────────────────────
+        double? marginTop  = null;
+        double? marginLeft = null;
+        bool modified = true;
+        while (modified) {
+            modified = false;
+            if (cleanParagraphText.StartsWith("[indent]", StringComparison.OrdinalIgnoreCase)) {
+                marginLeft = FontSize * 2.0;
+                cleanParagraphText = cleanParagraphText[8..].TrimStart();
+                modified = true;
+            }
+            var vm = VSpaceRegex.Match(cleanParagraphText);
+            if (vm.Success && double.TryParse(vm.Groups[1].Value,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var factor)) {
+                marginTop = FontSize * factor;
+                cleanParagraphText = cleanParagraphText[vm.Length..].TrimStart();
+                modified = true;
+            }
+        }
+        if (marginTop.HasValue || marginLeft.HasValue)
+            paragraph.Margin = new Thickness(marginLeft ?? 0, marginTop ?? 0, 0, 0);
+
+        // ── <br> continuation: append to existing paragraph ───────────────────
+        if (continuationParagraph is not null) {
+            continuationParagraph.Inlines.Add(new LineBreak());
+            foreach (var inline in ParseInlines(cleanParagraphText))
+                continuationParagraph.Inlines.Add(inline);
+            return continuationParagraph;
+        }
+
         SetHeadingStyle(paragraph, ref cleanParagraphText);
 
         foreach (Inline inline in ParseInlines(cleanParagraphText))
@@ -224,6 +256,11 @@ public class SimpleMarkdownViewer : Control {
             Resources[Styles.ListMarginKey] = new Thickness(listMargin.Left * FontScaleFactor, 0, 0, 0);
     }
 
+    // Matches [vspace:N] or [vspace:-N] at the start of a paragraph (N may be decimal)
+    private static readonly Regex VSpaceRegex = new(
+        @"^\[vspace:(-?\d+(?:\.\d+)?)\]",
+        RegexOptions.Compiled);
+
     FlowDocument CreateFlowDocumentFromMarkdown() {
         FlowDocument flowDocument = new FlowDocument();
         SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: this.FontSize={FontSize:F1} (before assign)");
@@ -232,10 +269,19 @@ public class SimpleMarkdownViewer : Control {
         SetStyle(flowDocument, Styles.DocumentStyleKey);
         SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateFlowDocumentFromMarkdown: flowDocument.FontSize={flowDocument.FontSize:F1} (after SetStyle)");
 
-        string[] paragraphs = ConvertEscapedCharacters().Split('\n');
+        string[] lines = ConvertEscapedCharacters().Split('\n');
         Block? lastBlock = null;
-        foreach (string paragraph in paragraphs)
-            lastBlock = AddParagraph(flowDocument, paragraph, lastBlock);
+        Paragraph? brParagraph = null; // non-null when previous line ended with <br>
+
+        foreach (string line in lines) {
+            string processLine = line;
+            bool hasBr = processLine.TrimEnd().EndsWith("<br>", StringComparison.OrdinalIgnoreCase);
+            if (hasBr)
+                processLine = processLine.TrimEnd()[..^4];
+
+            lastBlock = AddParagraph(flowDocument, processLine, lastBlock, brParagraph);
+            brParagraph = hasBr && lastBlock is Paragraph p ? p : null;
+        }
 
         return flowDocument;
     }
