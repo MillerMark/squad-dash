@@ -1,11 +1,24 @@
 ﻿using System;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
-using System.Reflection.Metadata;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace SquadDash;
 public class SimpleMarkdownViewer : Control {
+    // Matches: ![optional-width:alt](path) optional-trailing-text
+    // Group 1 = width hint (digits), Group 2 = alt, Group 3 = path, Group 4 = trailing text
+    private static readonly Regex ImageLineRegex = new(
+        @"^!\[(?:(\d+):)?([^\]]*)\]\(([^)]+)\)\s*(.*)",
+        RegexOptions.Singleline | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Optional callback that resolves an image path (as written in markdown) to a
+    /// <see cref="BitmapImage"/>.  When null, image tags are rendered as plain text.
+    /// </summary>
+    public Func<string, BitmapImage?>? ImageResolver { get; set; }
     private static readonly DependencyPropertyKey DocumentPropertyKey = DependencyProperty.RegisterReadOnly(nameof(Document), typeof(FlowDocument), typeof(SimpleMarkdownViewer), new FrameworkPropertyMetadata());
 
     public static readonly DependencyProperty DocumentProperty = DocumentPropertyKey.DependencyProperty;
@@ -96,6 +109,62 @@ public class SimpleMarkdownViewer : Control {
         string cleanParagraphText = paragraphText.Trim();
         if (string.IsNullOrWhiteSpace(cleanParagraphText))
             return lastBlock;
+
+        // ── Inline image: ![width:alt](path) trailing text ────────────────────
+        if (ImageResolver is not null) {
+            var m = ImageLineRegex.Match(cleanParagraphText);
+            if (m.Success) {
+                var path         = m.Groups[3].Value.Trim();
+                var trailingText = m.Groups[4].Value.Trim();
+                var imageWidth   = int.TryParse(m.Groups[1].Value, out var w) ? w : 48;
+                var bmp          = ImageResolver(path);
+
+                if (bmp is not null) {
+                    var img = new System.Windows.Controls.Image {
+                        Source            = bmp,
+                        Width             = imageWidth,
+                        Stretch           = Stretch.Uniform,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    };
+
+                    if (string.IsNullOrWhiteSpace(trailingText)) {
+                        // Standalone image — center it horizontally.
+                        var centered = new StackPanel {
+                            Orientation         = Orientation.Vertical,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                        };
+                        centered.Children.Add(img);
+                        var centeredBlock = new BlockUIContainer(centered) {
+                            Margin = new Thickness(0, 4, 0, 8)
+                        };
+                        flowDocument.Blocks.Add(centeredBlock);
+                        return centeredBlock;
+                    }
+
+                    // Image left, text right.
+                    img.Margin = new Thickness(0, 0, 8, 0);
+                    var textBlock = new TextBlock {
+                        Text              = trailingText,
+                        TextWrapping      = TextWrapping.Wrap,
+                        VerticalAlignment = VerticalAlignment.Top,
+                    };
+                    var dock = new DockPanel { LastChildFill = true };
+                    DockPanel.SetDock(img, Dock.Left);
+                    dock.Children.Add(img);
+                    dock.Children.Add(textBlock);
+                    var dockBlock = new BlockUIContainer(dock) {
+                        Margin = new Thickness(0, 2, 0, 8)
+                    };
+                    flowDocument.Blocks.Add(dockBlock);
+                    return dockBlock;
+                }
+
+                // Image failed to load — fall through with just the trailing text.
+                if (string.IsNullOrWhiteSpace(trailingText))
+                    return lastBlock;
+                cleanParagraphText = trailingText;
+            }
+        }
 
         const string listItemStart = "* ";
         if (paragraphText.StartsWith(listItemStart)) {

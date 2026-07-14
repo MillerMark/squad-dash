@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 
 
 namespace SquadDash;
@@ -2667,7 +2668,31 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     private void CreateMarkdownViewer() {
         markdownViewer = new SimpleMarkdownViewer();
         markdownViewer.FontSize = FontSize;
+        if (markdownViewer is SimpleMarkdownViewer smv)
+            smv.ImageResolver = ResolveCalloutImage;
         SquadDashTrace.Write(TraceCategory.UI, $"[Callout] CreateMarkdownViewer: this.FontSize={FontSize:F1}, markdownViewer.FontSize={markdownViewer.FontSize:F1}");
+    }
+
+    private static BitmapImage? ResolveCalloutImage(string path)
+    {
+        // Try as a pack URI under Assets/GuidedTours/ first.
+        var packUri = new Uri(
+            $"pack://application:,,,/SquadDash;component/Assets/GuidedTours/{path}",
+            UriKind.Absolute);
+        try {
+            var bmp = new BitmapImage(packUri);
+            return bmp;
+        } catch { }
+
+        // Fall back to absolute file path.
+        if (System.IO.File.Exists(path)) {
+            try {
+                var bmp = new BitmapImage(new Uri(path, UriKind.Absolute));
+                return bmp;
+            } catch { }
+        }
+
+        return null;
     }
 
     private void Window_MouseMove(object sender, MouseEventArgs e)
