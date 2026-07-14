@@ -223,15 +223,25 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         PreviewMouseWheel += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
+
+            // Capture mouse viewport position and content coordinate BEFORE zoom/resize.
             var mouseInViewport = e.GetPosition(_scrollViewer);
-            double oldZoom = _zoomLevel;
-            double factor  = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
-            ApplyZoom(_zoomLevel * factor);
+            double oldZoom      = _zoomLevel;
+            double contentX     = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
+
+            double factor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+            ApplyZoom(_zoomLevel * factor);  // resizes window and calls UpdateLayout
 
             if (_zoomLevel > 1.0 && _scrollViewer.ScrollableWidth > 0)
             {
-                double contentX = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
-                _scrollViewer.ScrollToHorizontalOffset(contentX * _zoomLevel - mouseInViewport.X);
+                // The window may have resized; use the updated viewport center.
+                double newViewportCenterX = _scrollViewer.ActualWidth / 2.0;
+
+                // Each zoom step drifts the focused point 20% toward the window center.
+                // targetX is where the hovered content should appear in the new viewport.
+                double targetX = mouseInViewport.X * 0.8 + newViewportCenterX * 0.2;
+
+                _scrollViewer.ScrollToHorizontalOffset(contentX * _zoomLevel - targetX);
             }
             e.Handled = true;
         };
