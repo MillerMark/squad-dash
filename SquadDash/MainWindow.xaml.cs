@@ -159,6 +159,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private Canvas?  _tourHighlightCanvas;
     private readonly List<(FrameworkElement El, System.Windows.Shapes.Rectangle Rect)> _tourHighlightRects = new();
     private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
+    private DispatcherTimer? _tourHighlightZTimer;
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -14112,6 +14113,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void UnhighlightAllMenuItems()
     {
+        _tourHighlightZTimer?.Stop();
+        _tourHighlightZTimer = null;
         if (_tourHighlightOverlay is not null)
         {
             _tourHighlightOverlay.Close();
@@ -14146,6 +14149,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // transparent topmost window consuming hit-test events.
         if (_tourHighlightRects.Count == 0)
         {
+            _tourHighlightZTimer?.Stop();
+            _tourHighlightZTimer = null;
             if (_tourHighlightOverlay is not null)
             {
                 _tourHighlightOverlay.Close();
@@ -14161,14 +14166,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void RefreshTourHighlightRects()
     {
         if (_tourHighlightCanvas is null) return;
+        const double pad = 2;
+        const double thickness = 2.5;
         foreach (var (el, rect) in _tourHighlightRects)
         {
-            Point screenTL;
-            try { screenTL = el.PointToScreen(new Point(0, 0)); }
+            Point screenTL, screenBR;
+            try {
+                screenTL = el.PointToScreen(new Point(0, 0));
+                screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
+            }
             catch { continue; }
             var overlayTL = _tourHighlightOverlay!.PointFromScreen(screenTL);
-            Canvas.SetLeft(rect, overlayTL.X - 2 - 2.5);
-            Canvas.SetTop(rect,  overlayTL.Y - 2 - 2.5);
+            var overlayBR = _tourHighlightOverlay!.PointFromScreen(screenBR);
+            Canvas.SetLeft(rect, overlayTL.X - pad - thickness);
+            Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
+            // Update size too — element may have moved to a different DPI monitor.
+            rect.Width  = (overlayBR.X - overlayTL.X) + (pad + thickness) * 2;
+            rect.Height = (overlayBR.Y - overlayTL.Y) + (pad + thickness) * 2;
         }
     }
 
@@ -14535,13 +14549,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
             }
 
-            // Compute element position in overlay coordinates.
-            Point screenTL;
-            try { screenTL = el.PointToScreen(new Point(0, 0)); }
+            // Compute element bounds in overlay canvas coordinates via physical screen pixels.
+            // Using PointToScreen on BOTH corners gives DPI-correct size even when the element
+            // and overlay are on monitors with different scaling (e.g. element at 150%, overlay at 100%).
+            Point screenTL, screenBR;
+            try {
+                screenTL = el.PointToScreen(new Point(0, 0));
+                screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
+            }
             catch { return; } // element not in visual tree / not rendered yet
-            var overlayTL = _tourHighlightOverlay.PointFromScreen(screenTL);
-            double w = el.ActualWidth;
-            double h = el.ActualHeight;
+            var overlayTL = _tourHighlightOverlay!.PointFromScreen(screenTL);
+            var overlayBR = _tourHighlightOverlay!.PointFromScreen(screenBR);
+            double w = overlayBR.X - overlayTL.X;
+            double h = overlayBR.Y - overlayTL.Y;
             if (w <= 0 || h <= 0) return;
 
             const double pad = 2;
@@ -14563,11 +14583,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourHighlightCanvas!.Children.Add(rect);
             _tourHighlightRects.Add((el, rect));
 
-            // WPF popup menus open as new topmost HWNDs and land above our already-topmost
-            // overlay. Toggle Topmost off→on to move the overlay back to the front of the
-            // topmost z-band without closing/reopening the window.
-            _tourHighlightOverlay!.Topmost = false;
-            _tourHighlightOverlay.Topmost  = true;
+            // WPF popup menus (and callout repositioning) can bump the overlay below themselves
+            // in the topmost z-band. A periodic Topmost re-assertion keeps the overlay on top
+            // for as long as any rects are shown, without relying on a one-shot toggle.
+            if (_tourHighlightZTimer is null)
+            {
+                _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                _tourHighlightZTimer.Tick += (_, _) =>
+                {
+                    if (_tourHighlightOverlay is { IsVisible: true })
+                    {
+                        _tourHighlightOverlay.Topmost = false;
+                        _tourHighlightOverlay.Topmost = true;
+                    }
+                };
+                _tourHighlightZTimer.Start();
+            }
 
             // Auto-remove the highlight rect when the element becomes invisible
             // (e.g. when a popup menu is dismissed by the user).
