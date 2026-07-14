@@ -1344,9 +1344,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         {
             byte alpha;
             double thickness;
-            if (d.Day == 1)                        { alpha = 192; thickness = 3.0; } // month boundary
+            if (d.Day == 1)                        { alpha = 192; thickness = 2.0; } // month boundary
             else if (d.DayOfWeek == DayOfWeek.Monday) { alpha =  128; thickness = 2.0; } // week boundary
-            else                                   { alpha =   64; thickness = 1.0; } // day
+            else
+            {
+                // Skip day lines when a full week spans fewer than 64 pixels
+                if (7.0 * _effectivePixelsPerDay < 64.0) continue;
+                alpha = 64; thickness = 1.0;
+            }
 
             var gridColor = Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B);
             var gx = LabelColumnWidth + DayToX(d);
