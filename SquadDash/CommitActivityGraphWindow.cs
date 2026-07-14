@@ -69,13 +69,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private readonly CheckBox             _showUncategorizedCheckBox;
 
     // ── Zoom / pan ────────────────────────────────────────────────────────────
-    private double _zoomLevel = 1.0;
-    private readonly ScaleTransform _canvasScaleTransform = new(1.0, 1.0);
     private bool   _isPanMode;
     private bool   _isPanning;
     private Point  _panStartMouse;
-    private double _panStartH;
-    private double _panStartV;
+    private DateOnly _panStartDate;
     private ScrollViewer _scrollViewer = null!;
 
     // ── AI categorization ─────────────────────────────────────────────────────
@@ -127,8 +124,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var canvasWrapper = new Border
         {
-            Child           = _canvas,
-            LayoutTransform = _canvasScaleTransform,
+            Child = _canvas,
         };
         _scrollViewer = new ScrollViewer
         {
@@ -220,30 +216,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         Loaded += (_, _) => StartLoadingData();
         Closed += (_, _) => { _cts?.Cancel(); _debounceTimer.Stop(); };
 
-        // ── Ctrl+scroll zoom ──────────────────────────────────────────────────
+        // ── Ctrl+scroll zoom (date-range narrowing) ───────────────────────────
+        // Zooming in = fewer days visible; the canvas auto-adjusts pixels-per-day.
+        // The date under the mouse drifts 20% toward the viewport center per step.
         PreviewMouseWheel += (_, e) =>
         {
             if ((Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
-
-            // Capture mouse viewport position and content coordinate BEFORE zoom/resize.
-            var mouseInViewport = e.GetPosition(_scrollViewer);
-            double oldZoom      = _zoomLevel;
-            double contentX     = (_scrollViewer.HorizontalOffset + mouseInViewport.X) / oldZoom;
-
-            double factor = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
-            ApplyZoom(_zoomLevel * factor);  // resizes window and calls UpdateLayout
-
-            if (_zoomLevel > 1.0 && _scrollViewer.ScrollableWidth > 0)
-            {
-                // The window may have resized; use the updated viewport center.
-                double newViewportCenterX = _scrollViewer.ActualWidth / 2.0;
-
-                // Each zoom step drifts the focused point 20% toward the window center.
-                // targetX is where the hovered content should appear in the new viewport.
-                double targetX = mouseInViewport.X * 0.8 + newViewportCenterX * 0.2;
-
-                _scrollViewer.ScrollToHorizontalOffset(contentX * _zoomLevel - targetX);
-            }
+            var mouseInCanvas = e.GetPosition(_canvas);
+            double factor     = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
+            ApplyDateRangeZoom(mouseInCanvas.X, factor);
             e.Handled = true;
         };
 
@@ -273,14 +254,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             }
         };
 
-        // ── Pan drag ──────────────────────────────────────────────────────────
+        // ── Pan drag (shifts the visible date range) ──────────────────────────
         _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (!_isPanMode) return;
             _isPanning     = true;
-            _panStartMouse = e.GetPosition(_scrollViewer);
-            _panStartH     = _scrollViewer.HorizontalOffset;
-            _panStartV     = _scrollViewer.VerticalOffset;
+            _panStartMouse = e.GetPosition(_canvas);
+            _panStartDate  = _startDate;
             _scrollViewer.CaptureMouse();
             _scrollViewer.Cursor = AnnotationCursors.ClosedHand;
             e.Handled = true;
@@ -289,8 +269,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _scrollViewer.PreviewMouseMove += (_, e) =>
         {
             if (!_isPanning) return;
-            var pos = e.GetPosition(_scrollViewer);
-            _scrollViewer.ScrollToHorizontalOffset(_panStartH - (pos.X - _panStartMouse.X));
+            var pos              = e.GetPosition(_canvas);
+            var canvasGraphWidth = _canvas.ActualWidth - CommitActivityCanvas.LabelColumnWidth;
+            if (canvasGraphWidth <= 0) return;
+            int dayCount = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
+            var ppd      = canvasGraphWidth / dayCount;
+            var dayDelta = (int)Math.Round((_panStartMouse.X - pos.X) / ppd);
+            ShiftDateRange(_panStartDate, dayDelta);
             e.Handled = true;
         };
 
@@ -323,56 +308,65 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     // ── Zoom / pan helpers ────────────────────────────────────────────────────
 
-    private void ApplyZoom(double zoom)
+    /// <summary>
+    /// Narrows or widens the visible date range (horizontal zoom only).
+    /// <paramref name="mouseCanvasX"/> is the canvas-relative X of the mouse cursor.
+    /// Each step drifts the date under the mouse 20% toward the viewport center.
+    /// </summary>
+    private void ApplyDateRangeZoom(double mouseCanvasX, double factor)
     {
-        _zoomLevel = Math.Max(1.0, Math.Min(20.0, zoom));
-        _canvasScaleTransform.ScaleX = _zoomLevel;
-        _canvasScaleTransform.ScaleY = _zoomLevel;
-        _scrollViewer.HorizontalScrollBarVisibility =
-            _zoomLevel > 1.0 ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
-        _scrollViewer.InvalidateMeasure();
-        UpdateWindowSizeForZoom();
-        _scrollViewer.UpdateLayout();
+        var canvasGraphWidth = _canvas.ActualWidth - CommitActivityCanvas.LabelColumnWidth;
+        if (canvasGraphWidth <= 0) return;
+        int dayCount = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
+        var ppd         = canvasGraphWidth / dayCount;
+        var mouseGraphX = Math.Clamp(mouseCanvasX - CommitActivityCanvas.LabelColumnWidth, 0, canvasGraphWidth);
+
+        double mouseDateFrac  = _startDate.DayNumber + mouseGraphX / ppd;
+        double centerDateFrac = _startDate.DayNumber + (canvasGraphWidth / 2.0) / ppd;
+
+        int absRange     = _rangeSlider.MaxDate.DayNumber - _rangeSlider.MinDate.DayNumber + 1;
+        double newDayCount = Math.Clamp(dayCount / factor, 1, absRange);
+
+        double newMouseDateFrac = centerDateFrac + (mouseDateFrac - centerDateFrac) * 0.8;
+
+        double newPPD       = canvasGraphWidth / newDayCount;
+        double newStartFrac = newMouseDateFrac - mouseGraphX / newPPD;
+
+        int newStartDay = (int)Math.Round(newStartFrac);
+        int newEndDay   = newStartDay + (int)Math.Round(newDayCount) - 1;
+
+        ClampDateRange(ref newStartDay, ref newEndDay, (int)Math.Round(newDayCount));
+
+        _startDate = DateOnly.FromDayNumber(newStartDay);
+        _endDate   = DateOnly.FromDayNumber(newEndDay);
+        _rangeSlider.SetRange(_startDate, _endDate);
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
-    private void UpdateWindowSizeForZoom()
+    /// <summary>Shifts the visible date range by <paramref name="dayDelta"/> days from <paramref name="baseStart"/>.</summary>
+    private void ShiftDateRange(DateOnly baseStart, int dayDelta)
     {
-        Rect workDip;
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd != IntPtr.Zero)
-        {
-            var workPhys = NativeMethods.GetWorkAreaForWindow(hwnd);
-            var source   = PresentationSource.FromVisual(this);
-            double dpiX  = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            double dpiY  = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-            workDip = new Rect(workPhys.Left / dpiX, workPhys.Top / dpiY,
-                               workPhys.Width / dpiX, workPhys.Height / dpiY);
-        }
-        else
-        {
-            workDip = SystemParameters.WorkArea;
-        }
+        if (dayDelta == 0) return;
+        int rangeLen    = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
+        int newStartDay = baseStart.DayNumber + dayDelta;
+        int newEndDay   = newStartDay + rangeLen - 1;
+        ClampDateRange(ref newStartDay, ref newEndDay, rangeLen);
+        _startDate = DateOnly.FromDayNumber(newStartDay);
+        _endDate   = DateOnly.FromDayNumber(newEndDay);
+        _rangeSlider.SetRange(_startDate, _endDate);
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
+    }
 
-        double canvasNatW = _canvas.ActualWidth  > 0 ? _canvas.ActualWidth  : ActualWidth;
-        double canvasNatH = _canvas.ActualHeight > 0 ? _canvas.ActualHeight : ActualHeight;
-        double desiredW   = Math.Max(MinWidth,  canvasNatW * _zoomLevel + 40);
-        double desiredH   = Math.Max(MinHeight, canvasNatH * _zoomLevel + 80);
-
-        double newW = Math.Min(workDip.Width,  desiredW);
-        double newH = Math.Min(workDip.Height, desiredH);
-
-        double newLeft = Left + (Width  - newW) / 2.0;
-        double newTop  = Top  + (Height - newH) / 2.0;
-
-        if (newLeft < workDip.Left)                  newLeft = workDip.Left;
-        if (newTop  < workDip.Top)                   newTop  = workDip.Top;
-        if (newLeft + newW > workDip.Right)  newLeft = workDip.Right  - newW;
-        if (newTop  + newH > workDip.Bottom) newTop  = workDip.Bottom - newH;
-
-        Width  = newW;
-        Height = newH;
-        Left   = newLeft;
-        Top    = newTop;
+    private void ClampDateRange(ref int startDay, ref int endDay, int dayCount)
+    {
+        int minDay = _rangeSlider.MinDate.DayNumber;
+        int maxDay = _rangeSlider.MaxDate.DayNumber;
+        if (endDay   > maxDay) { endDay   = maxDay;   startDay = endDay   - dayCount + 1; }
+        if (startDay < minDay) { startDay = minDay;   endDay   = startDay + dayCount - 1; }
+        startDay = Math.Max(startDay, minDay);
+        endDay   = Math.Min(endDay,   maxDay);
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
