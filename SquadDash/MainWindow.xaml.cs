@@ -14069,7 +14069,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var inMain = VisualTreeSearch.FindByName(this, name);
                 if (inMain is not null) return inMain;
                 if (_preferencesWindow is { IsVisible: true })
-                    return VisualTreeSearch.FindByName(_preferencesWindow, name);
+                {
+                    var inPrefs = VisualTreeSearch.FindByName(_preferencesWindow, name);
+                    if (inPrefs is not null) return inPrefs;
+                }
+                // Also search popup trees registered by OpenMenu (e.g. HelpMenuItem_Popup).
+                // This allows a callout to target a MenuItem that lives in an open menu dropdown.
+                foreach (var popupRoot in _tourNamedElements.Values)
+                {
+                    var inPopup = VisualTreeSearch.FindByName(popupRoot, name) as FrameworkElement;
+                    if (inPopup is not null) return inPopup;
+                }
                 return null;
             },
             savePreTourLayout:       () => { if (!string.IsNullOrEmpty(_currentWorkspace?.FolderPath)) _dockingService?.SaveLayout(_currentWorkspace.FolderPath); },
