@@ -30890,7 +30890,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             hasPendingDirectQuickReplyHandoff: HasPendingDirectQuickReplyAgentFollowUp(),
             isVoiceInputActiveOrDraining:    _pttState == PttState.Active || _pttDraining,
             hasDocRevisionInFlight:          MarkdownDocumentWindow.AnyRevisionInFlight,
-            promptAppearsStalled:            _pec.PromptAppearsDeadShown);
+            promptAppearsStalled:            _pec.PromptAppearsDeadShown,
+            isCommitHistoryCategorizationInFlight: _commitActivityGraphWindow?.IsCategorizationInFlight == true);
 
     private bool DeferPendingRestartIfBlocked(string reason)
     {

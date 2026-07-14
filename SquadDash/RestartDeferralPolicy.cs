@@ -8,6 +8,7 @@ internal enum RestartDeferralReason {
     DirectQuickReplyHandoff,
     VoiceInput,
     DocRevision,
+    CommitHistoryCategorization,
 }
 
 internal static class RestartDeferralPolicy {
@@ -21,7 +22,8 @@ internal static class RestartDeferralPolicy {
         // When true the bridge has been silent for ≥5 min and is assumed dead.
         // We lift the restart gate so a pending build-restart can proceed without
         // requiring the user to manually cancel the unresponsive prompt first.
-        bool promptAppearsStalled = false) {
+        bool promptAppearsStalled = false,
+        bool isCommitHistoryCategorizationInFlight = false) {
         if (isPromptRunning && !promptAppearsStalled)
             return RestartDeferralReason.PromptRunning;
         if (isLoopRunning)
@@ -36,6 +38,8 @@ internal static class RestartDeferralPolicy {
             return RestartDeferralReason.VoiceInput;
         if (hasDocRevisionInFlight)
             return RestartDeferralReason.DocRevision;
+        if (isCommitHistoryCategorizationInFlight)
+            return RestartDeferralReason.CommitHistoryCategorization;
 
         return RestartDeferralReason.None;
     }
@@ -54,6 +58,8 @@ internal static class RestartDeferralPolicy {
                 "Build finished. Restart will happen after voice recording completes.",
             RestartDeferralReason.DocRevision =>
                 "Build finished. Restart will happen after in-flight AI revisions complete.",
+            RestartDeferralReason.CommitHistoryCategorization =>
+                "Build finished. Restart will happen after commit history categorization completes.",
             _ =>
                 "Build finished. Restart pending."
         };

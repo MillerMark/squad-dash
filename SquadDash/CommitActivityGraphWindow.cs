@@ -79,6 +79,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private SquadSdkCategorizationService? _categorizationService;
     private CommitCategoryCache?           _categoryCache;
     private bool                           _categorizationInFlight;
+    internal bool IsCategorizationInFlight => _categorizationInFlight;
     private TextBlock?                     _categorizeStatusText;
     private Button?                        _categorizeButton;
     private Action<IReadOnlyList<(string Sha, string Group)>>? _onCategoriesAssigned;
