@@ -4,6 +4,19 @@ using System.Windows.Documents;
 
 namespace SquadDash;
 public static class FlowDocumentHelper {
+    /// <summary>
+    /// Flushes pending layout work before callers inspect text geometry.
+    /// FlowDocument pagination is deferred, so changing PageWidth does not
+    /// immediately update the rectangles returned by TextPointer.
+    /// </summary>
+    public static void EnsureLayoutIsCurrent(FlowDocument flowDocument) {
+        if (flowDocument?.Parent is not FrameworkElement documentHost)
+            return;
+
+        documentHost.InvalidateMeasure();
+        documentHost.UpdateLayout();
+    }
+
     public static double GetLowestBlock(FlowDocument flowDocument) {
         if (flowDocument == null)
             return 0;

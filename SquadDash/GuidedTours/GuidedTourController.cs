@@ -495,7 +495,7 @@ internal sealed class GuidedTourController
         _activeCallout = FrmUltimateCallout.ShowCalloutCenteredOnScreen(
             step.MarkdownText,
             _ownerWindow,
-            width:    320,
+            width:    640,
             fontSize: Application.Current.Resources.Contains("FontSizeCallout")
                           ? (double)Application.Current.Resources["FontSizeCallout"]
                           : 18.0);

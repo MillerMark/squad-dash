@@ -2642,6 +2642,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
         if (flowDocument != null) {
             ReserveSpaceForCloseButton(flowDocument);
+            FlowDocumentHelper.EnsureLayoutIsCurrent(flowDocument);
             if ((string)markdownControl.Tag == STR_TempMarkdown) {
                 calculatedHeight = CalculateFlowDocumentHeight(flowDocument);
                 if (flowDocument.Parent is FlowDocumentScrollViewer flowDocumentScrollViewer) {
@@ -2652,6 +2653,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                     while (numTries < 300 && markdownViewer.Width > 10) {
                         markdownViewer.Width -= 5;
                         flowDocument.PageWidth = markdownViewer.Width;
+                        FlowDocumentHelper.EnsureLayoutIsCurrent(flowDocument);
                         double newHeight = CalculateFlowDocumentHeight(flowDocument);
                         if (newHeight != calculatedHeight)
                             break;
@@ -2664,6 +2666,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                     }
                     markdownViewer.Width = lastGoodWidth;
                     flowDocument.PageWidth = lastGoodWidth;
+                    FlowDocumentHelper.EnsureLayoutIsCurrent(flowDocument);
                     calculatedHeight = CalculateFlowDocumentHeight(flowDocument);
                 }
                 ResumeCalloutConstruction();
