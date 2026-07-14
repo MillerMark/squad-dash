@@ -1533,15 +1533,16 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     /// <summary>
     /// Returns the rect height for a commit, scaled logarithmically by lines changed.
-    /// 0 lines → 2px; ≥1000 lines → RowHeight × 1.5 (48px).
-    /// Rects may extend 50% beyond the row boundary, which is intentional.
+    /// 0 lines → 2px; 1 line → 3px (minimum for real commits); ≥1000 lines → RowHeight × 1.75 (56px).
+    /// Rects may extend 75% beyond the row boundary, which is intentional.
     /// </summary>
     private static double CommitRectHeight(CommitStatResult commit)
     {
-        const double MinHeight = 2.0;
-        const double MaxHeight = RowHeight * 1.5;
+        const double ZeroHeight = 2.0;
+        const double MinHeight  = 3.0;
+        const double MaxHeight  = RowHeight * 1.75;
         var totalLines = commit.Insertions + commit.Deletions;
-        if (totalLines <= 0)    return MinHeight;
+        if (totalLines <= 0)    return ZeroHeight;
         if (totalLines >= 1000) return MaxHeight;
         var t = Math.Log(totalLines + 1.0) / Math.Log(1001.0);
         return MinHeight + (MaxHeight - MinHeight) * t;
