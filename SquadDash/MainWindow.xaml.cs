@@ -14168,6 +14168,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_tourHighlightCanvas is null) return;
         const double pad = 2;
         const double thickness = 2.5;
+        Point canvasOrigin;
+        DpiScale dpi;
+        try {
+            canvasOrigin = _tourHighlightCanvas.PointToScreen(new Point(0, 0));
+            dpi          = VisualTreeHelper.GetDpi(_tourHighlightCanvas);
+        }
+        catch { return; }
+        if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0) return;
+
         foreach (var (el, rect) in _tourHighlightRects)
         {
             Point screenTL, screenBR;
@@ -14176,13 +14185,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
             }
             catch { continue; }
-            var overlayTL = _tourHighlightOverlay!.PointFromScreen(screenTL);
-            var overlayBR = _tourHighlightOverlay!.PointFromScreen(screenBR);
-            Canvas.SetLeft(rect, overlayTL.X - pad - thickness);
-            Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
-            // Update size too — element may have moved to a different DPI monitor.
-            rect.Width  = (overlayBR.X - overlayTL.X) + (pad + thickness) * 2;
-            rect.Height = (overlayBR.Y - overlayTL.Y) + (pad + thickness) * 2;
+            // Convert physical pixel offset from canvas origin → canvas logical units.
+            // This avoids Window.PointFromScreen whose DPI context can drift at runtime.
+            double cx = (screenTL.X - canvasOrigin.X) / dpi.DpiScaleX;
+            double cy = (screenTL.Y - canvasOrigin.Y) / dpi.DpiScaleY;
+            double cw = (screenBR.X - screenTL.X)     / dpi.DpiScaleX;
+            double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
+            Canvas.SetLeft(rect, cx - pad - thickness);
+            Canvas.SetTop(rect,  cy - pad - thickness);
+            rect.Width  = cw + (pad + thickness) * 2;
+            rect.Height = ch + (pad + thickness) * 2;
         }
     }
 
@@ -14572,20 +14584,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
             }
 
-            // Compute element bounds in overlay canvas coordinates via physical screen pixels.
-            // Using PointToScreen on BOTH corners gives DPI-correct size even when the element
-            // and overlay are on monitors with different scaling (e.g. element at 150%, overlay at 100%).
+            // Compute element bounds in canvas logical units using physical screen coordinates.
+            // Window.PointFromScreen is unreliable because the overlay's DPI context can change
+            // (e.g. when another topmost window appears). Instead: get the canvas physical origin
+            // via PointToScreen (always accurate), subtract element physical position, then divide
+            // by VisualTreeHelper.GetDpi to convert physical offset → canvas logical units.
             Point screenTL, screenBR;
             try {
                 screenTL = el.PointToScreen(new Point(0, 0));
                 screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
             }
             catch { return; } // element not in visual tree / not rendered yet
-            var overlayTL = _tourHighlightOverlay!.PointFromScreen(screenTL);
-            var overlayBR = _tourHighlightOverlay!.PointFromScreen(screenBR);
-            double w = overlayBR.X - overlayTL.X;
-            double h = overlayBR.Y - overlayTL.Y;
-            if (w <= 0 || h <= 0) return;
+            var canvasOrigin = _tourHighlightCanvas!.PointToScreen(new Point(0, 0));
+            var dpi          = VisualTreeHelper.GetDpi(_tourHighlightCanvas!);
+            if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0) return;
+            double cx = (screenTL.X - canvasOrigin.X) / dpi.DpiScaleX;
+            double cy = (screenTL.Y - canvasOrigin.Y) / dpi.DpiScaleY;
+            double cw = (screenBR.X - screenTL.X)     / dpi.DpiScaleX;
+            double ch = (screenBR.Y - screenTL.Y)     / dpi.DpiScaleY;
+            if (cw <= 0 || ch <= 0) return;
 
             const double pad = 2;
             const double thickness = 2.5;
@@ -14596,13 +14613,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 StrokeThickness = thickness,
                 Fill            = Brushes.Transparent,
                 IsHitTestVisible = false,
-                Width           = w + pad * 2 + thickness * 2,
-                Height          = h + pad * 2 + thickness * 2,
+                Width           = cw + (pad + thickness) * 2,
+                Height          = ch + (pad + thickness) * 2,
                 RadiusX         = 3,
                 RadiusY         = 3,
             };
-            Canvas.SetLeft(rect, overlayTL.X - pad - thickness);
-            Canvas.SetTop(rect,  overlayTL.Y - pad - thickness);
+            Canvas.SetLeft(rect, cx - pad - thickness);
+            Canvas.SetTop(rect,  cy - pad - thickness);
             _tourHighlightCanvas!.Children.Add(rect);
             _tourHighlightRects.Add((el, rect));
 
@@ -14614,10 +14631,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                 _tourHighlightZTimer.Tick += (_, _) =>
                 {
-                    // Use Win32 SetWindowPos to re-assert z-order. Unlike toggling the managed
-                    // Topmost property, this does NOT trigger WPF's per-monitor DPI
-                    // recalculation and does not shift the overlay window's position.
                     BringHighlightOverlayToFront();
+                    RefreshTourHighlightRects();
                 };
                 _tourHighlightZTimer.Start();
             }
