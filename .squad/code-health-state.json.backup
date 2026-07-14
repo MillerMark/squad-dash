@@ -58,11 +58,11 @@
     "prune-tasks": {
       "lastRunAt": "2026-06-22T17:29:46.8549235Z",
       "lastCommitSha": "5bcd270c051818a94318dc3a7dc3c679f9e11fd7",
-      "safetyOverride": "report-only"
+      "safetyOverride": "direct"
     },
     "categorize-approvals": {
-      "lastRunAt": "2026-07-11T01:38:11.9479386Z",
-      "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
+      "lastRunAt": "2026-07-14T19:24:40.5300555Z",
+      "lastCommitSha": "",
       "safetyOverride": ""
     },
     "clean-inbox": {
