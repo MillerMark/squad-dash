@@ -2675,21 +2675,28 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
     private static BitmapImage? ResolveCalloutImage(string path)
     {
-        // Try as a pack URI under Assets/GuidedTours/ first.
-        var packUri = new Uri(
-            $"pack://application:,,,/SquadDash;component/Assets/GuidedTours/{path}",
-            UriKind.Absolute);
-        try {
-            var bmp = new BitmapImage(packUri);
-            return bmp;
-        } catch { }
+        // Assets are deployed as Content (CopyToOutputDirectory), not embedded resources,
+        // so pack URIs won't work. Resolve relative to the exe's Assets/GuidedTours/ folder.
+        var exeDir = System.IO.Path.GetDirectoryName(
+            System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty;
 
-        // Fall back to absolute file path.
-        if (System.IO.File.Exists(path)) {
-            try {
-                var bmp = new BitmapImage(new Uri(path, UriKind.Absolute));
+        var candidates = new[]
+        {
+            // Relative path under Assets/GuidedTours/ beside the exe
+            System.IO.Path.Combine(exeDir, "Assets", "GuidedTours", path),
+            // Absolute path as written
+            path,
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (!System.IO.File.Exists(candidate)) continue;
+            try
+            {
+                var bmp = new BitmapImage(new Uri(candidate, UriKind.Absolute));
                 return bmp;
-            } catch { }
+            }
+            catch { }
         }
 
         return null;
