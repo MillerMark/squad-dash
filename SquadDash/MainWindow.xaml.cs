@@ -9162,7 +9162,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
             var activeRtb = (sender as RichTextBox) ?? OutputTextBox;
-            var hasSelection = !activeRtb.Selection.IsEmpty;
+
+            // If the click originated inside a code block TextBox, use its selection.
+            var codeBox = FindVisualAncestorOrSelf<TextBox>(e.OriginalSource as DependencyObject);
+            if (codeBox is not null && !"codeblock".Equals(codeBox.Tag as string))
+                codeBox = null;
+            var hasCodeSelection = codeBox is not null && codeBox.SelectionLength > 0;
+            var hasSelection     = hasCodeSelection || !activeRtb.Selection.IsEmpty;
 
             if (hasSelection)
             {
@@ -9200,7 +9206,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             copyItem.IsEnabled = hasSelection;
             copyItem.Click += (_, _) => {
-                var text = TranscriptCopyService.BuildSelectionText(activeRtb);
+                // Prefer code box selected text; fall back to RichTextBox selection.
+                var text = hasCodeSelection
+                    ? codeBox!.SelectedText
+                    : TranscriptCopyService.BuildSelectionText(activeRtb);
                 if (!string.IsNullOrEmpty(text))
                     SetClipboardTextWithRetry(text);
             };
@@ -22668,7 +22677,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var menu = new ContextMenu();
                 menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
-                var hasSelection = !rtb.Selection.IsEmpty;
+                var codeBox2     = FindVisualAncestorOrSelf<TextBox>(e.OriginalSource as DependencyObject);
+                if (codeBox2 is not null && !"codeblock".Equals(codeBox2.Tag as string))
+                    codeBox2 = null;
+                var hasCodeSel2  = codeBox2 is not null && codeBox2.SelectionLength > 0;
+                var hasSelection = hasCodeSel2 || !rtb.Selection.IsEmpty;
 
                 if (hasSelection)
                 {
@@ -22702,7 +22715,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 copyItem.IsEnabled = hasSelection;
                 copyItem.Click += (_, _) =>
                 {
-                    var text = TranscriptCopyService.BuildSelectionText(rtb);
+                    var text = hasCodeSel2
+                        ? codeBox2!.SelectedText
+                        : TranscriptCopyService.BuildSelectionText(rtb);
                     if (!string.IsNullOrEmpty(text))
                         SetClipboardTextWithRetry(text);
                 };
