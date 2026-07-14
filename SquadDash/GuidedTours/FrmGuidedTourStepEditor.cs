@@ -26,6 +26,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly string?           _workspaceFolderPath;
 
     private readonly Stack<string>     _undoStack = new();
+    private string                     _lastUndoSnapshot = string.Empty;
     private const int                  UndoStackMaxDepth = 50;
     private readonly Action?           _captureLayout;
 
@@ -575,9 +576,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             destIndex = Math.Clamp(destIndex, 0, _activeTour.Steps.Count - 1);
             if (destIndex == _listDragSourceIndex) return;
 
+            SaveCurrentFieldsToStep();
+            PushUndoSnapshot();
+
             var step = _activeTour.Steps[_listDragSourceIndex];
             _activeTour.Steps.RemoveAt(_listDragSourceIndex);
             _activeTour.Steps.Insert(destIndex, step);
+            PushUndoSnapshot();
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
             {
@@ -585,14 +590,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 catch { /* ignore */ }
             }
 
-            _stepListBox.Items.Clear();
-            for (int i = 0; i < _activeTour.Steps.Count; i++)
-                _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
-            _stepListBox.SelectedIndex = destIndex;
-
-            _stepIndex = destIndex;
-            _jumpToStepCallback?.Invoke(destIndex);
-            _livePreviewCallback?.Invoke();
+            RefreshAfterBulkEdit(destIndex);
         };
 
         // ── Context menu on the step list ────────────────────────────────────
@@ -854,6 +852,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _titleBox.LostFocus    += (_, _) => { if (!_isLoadingStep) { SaveCurrentFieldsToStep(); PushUndoSnapshot(); } };
 
         SnapshotCurrentValues();
+        _lastUndoSnapshot = SnapshotTourJson();
 
         PreviewKeyDown += (_, e) =>
         {
@@ -1045,7 +1044,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private void PushUndoSnapshot()
     {
-        _undoStack.Push(SnapshotTourJson());
+        var current = SnapshotTourJson();
+        if (string.Equals(current, _lastUndoSnapshot, StringComparison.Ordinal))
+            return;
+
+        _undoStack.Push(_lastUndoSnapshot);
+        _lastUndoSnapshot = current;
         if (_undoStack.Count > UndoStackMaxDepth)
         {
             var items = _undoStack.ToArray(); // top-first order
@@ -1070,6 +1074,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _activeTour.Steps.Clear();
             foreach (var s in steps)
                 _activeTour.Steps.Add(s);
+            _lastUndoSnapshot = json;
 
             if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
                 GuidedTourSaver.Save(_allTours, _workspaceFolderPath);
@@ -1164,6 +1169,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         try { _descriptionBox.Text = newTour.Description; }
         finally { _isLoadingStep = false; }
         RefreshStepList(selectStepIndex);
+        _lastUndoSnapshot = SnapshotTourJson();
     }
 
     private static string BuildEditorTitle(string tourName, int stepIndex, string stepTitle) =>
@@ -2652,9 +2658,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var json = ClipboardFormatMarker + System.Text.Json.JsonSerializer.Serialize(steps, s_clipboardJsonOptions);
         Clipboard.SetText(json);
 
+        SaveCurrentFieldsToStep();
+        PushUndoSnapshot();
         var indicesToRemove = GetSelectedIndicesOrdered();
         foreach (int idx in indicesToRemove.OrderByDescending(i => i))
             _activeTour.Steps.RemoveAt(idx);
+        PushUndoSnapshot();
 
         if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
         {
@@ -2677,12 +2686,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             return;
         }
 
+        SaveCurrentFieldsToStep();
+        PushUndoSnapshot();
         int insertAfter = _stepListBox.SelectedIndex >= 0
             ? _stepListBox.SelectedIndex
             : _activeTour.Steps.Count - 1;
 
         for (int i = 0; i < steps.Count; i++)
             _activeTour.Steps.Insert(insertAfter + 1 + i, steps[i]);
+        PushUndoSnapshot();
 
         if (!string.IsNullOrWhiteSpace(_workspaceFolderPath))
         {
@@ -2730,6 +2742,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private void RefreshAfterBulkEdit(int selectIndex = -1)
     {
+        _isLoadingStep = true;
         _stepListBox.Items.Clear();
         for (int i = 0; i < _activeTour.Steps.Count; i++)
             _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
@@ -2738,9 +2751,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             : Math.Min(_stepIndex, Math.Max(0, _activeTour.Steps.Count - 1));
         if (idx >= 0 && _activeTour.Steps.Count > 0)
         {
-            _stepListBox.SelectedIndex = idx;
-            _stepIndex = idx;
+            // Undo creates new step instances. Rebind the form so subsequent
+            // edits cannot be written through a stale, orphaned _step reference.
+            LoadStep(idx);
             _jumpToStepCallback?.Invoke(idx);
+        }
+        else
+        {
+            _isLoadingStep = false;
         }
         _livePreviewCallback?.Invoke();
     }
