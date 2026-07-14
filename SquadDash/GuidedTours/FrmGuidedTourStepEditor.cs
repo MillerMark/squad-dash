@@ -2462,6 +2462,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             acceptCallback: accepted =>
             {
                 _targetControlBox.Text = accepted;
+                _targetControlBox.CaretIndex = accepted.Length;
             });
         _intelliSenseHelpers.Add(helper);
     }
@@ -2483,6 +2484,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                     ApplyCommandAccepted(cb, accepted);
                 else
                     ApplyTriggerAccepted(accepted);
+                innerTb.CaretIndex = innerTb.Text.Length;
             });
         _intelliSenseHelpers.Add(helper);
     }

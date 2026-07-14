@@ -233,12 +233,13 @@ internal sealed class TourIntelliSenseHelper : IDisposable
         _suppressUpdate = true;
         try   { _acceptCallback(text); }
         finally { _suppressUpdate = false; }
-        // Move caret to end so the user can continue typing or Tab away cleanly.
-        _textSource.CaretIndex = _textSource.Text.Length;
-        // Only re-evaluate if the callback produced a partial text awaiting a parameter
-        // (e.g. "Command: ").  For complete values the popup should stay closed so the
-        // next Tab press moves focus to the next control instead of re-accepting.
-        if (_textSource.Text.EndsWith(": "))
+        // Only re-evaluate if the accepted text (up to the caret) ends with ": ", meaning
+        // a parameter value is expected next.  Checking text[..caret] rather than
+        // Text.EndsWith keeps multi-line boxes (commandsBefore/After) correct — the
+        // current line may not be at the very end of all text.
+        var fullText = _textSource.Text;
+        var caret    = Math.Clamp(_textSource.CaretIndex, 0, fullText.Length);
+        if (fullText[..caret].EndsWith(": "))
         {
             // Treat post-acceptance parameter prompting as user-initiated so the
             // popup opens to suggest parameter values.
