@@ -25,23 +25,23 @@ internal sealed class SquadSdkCategorizationService
     /// Sends a batch of commits to AI and returns SHA → group assignments.
     /// </summary>
     /// <param name="commits">List of (sha, description) pairs to categorize.</param>
-    /// <param name="existingGroups">Current known group names to suggest reuse.</param>
+    /// <param name="groups">Current groups, their usage counts, and starter provenance.</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<IReadOnlyList<(string Sha, string Group)>> CategorizeAsync(
         IReadOnlyList<(string Sha, string Description)> commits,
-        IReadOnlyList<string> existingGroups,
+        IReadOnlyList<FeatureGroupUsage> groups,
         CancellationToken ct = default)
     {
         if (commits.Count == 0) return [];
 
-        var prompt = BuildPrompt(commits, existingGroups);
+        var prompt = BuildPrompt(commits, groups);
         var responseText = await RunPromptAndCollectResponseAsync(prompt, ct).ConfigureAwait(false);
         return ParseResponse(responseText);
     }
 
-    private static string BuildPrompt(
+    internal static string BuildPrompt(
         IReadOnlyList<(string Sha, string Description)> commits,
-        IReadOnlyList<string> existingGroups)
+        IReadOnlyList<FeatureGroupUsage> groups)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are a commit categorizer. Analyze the git commits below and assign each to the most appropriate feature group.");
@@ -50,18 +50,12 @@ internal sealed class SquadSdkCategorizationService
         sb.AppendLine("[{\"sha\":\"<sha>\",\"group\":\"<group>\"}]");
         sb.AppendLine();
         sb.AppendLine("Rules:");
-        sb.AppendLine("- Reuse an existing group name if the commit clearly belongs there.");
-        sb.AppendLine("- Create a new short group name (2–4 words, Title Case) only if no existing group fits.");
-        sb.AppendLine("- Use \"Bug Fixes\" for fixes, corrections, and regressions.");
-        sb.AppendLine("- Use \"Developer Experience\" for build, test, or tooling changes.");
+        sb.AppendLine("- Use \"Bug Fixes\" for cross-cutting fixes only when no established feature category fits; keep feature-specific fixes with their established feature.");
+        sb.AppendLine("- Use \"Developer Experience\" for cross-cutting build, test, or tooling changes only when no established feature category fits.");
         sb.AppendLine("- Keep the sha field exactly as given (do not modify).");
         sb.AppendLine();
 
-        if (existingGroups.Count > 0)
-        {
-            sb.AppendLine($"Existing groups: {string.Join(", ", existingGroups)}");
-            sb.AppendLine();
-        }
+        FeatureGroupPromptBuilder.AppendCategorizationGuidance(sb, groups);
 
         sb.AppendLine("Commits to categorize:");
         foreach (var (sha, desc) in commits)

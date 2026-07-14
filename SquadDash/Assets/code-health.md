@@ -759,6 +759,52 @@ tasks:
         tooltip: When enabled, report will include PRs in addition to issues
         value: true
 
+  - id: consolidate-feature-categories
+    enabled: true
+    frequency: weekly-Sunday
+    safety: report-only
+    has_safety_options: false
+    title: Consolidate Feature Categories
+    instructions: |
+      Review the workspace's locally stored feature-category inventory and identify
+      categories that represent the same product area or ongoing endeavor. This
+      check prevents AI-created category names from fragmenting into synonyms or
+      near-duplicates over time.
+
+      The inventory distinguishes broad starter categories shipped with SquadDash
+      from established workspace categories and includes commit counts plus recent
+      example commits:
+
+      {{feature_category_inventory}}
+
+      Look for:
+      - Synonyms and naming variants (for example, "Theme / Tinting" and "Theming")
+      - Multiple names for the same feature (for example, "Commit Viewer" and
+        "Commit History Visualizer")
+      - Singular/plural, punctuation, abbreviation, and word-order variants
+      - New or low-use categories whose commits clearly belong to a mature,
+        frequently used workspace category
+      - Overly narrow categories that merely restate part of an established feature
+
+      Prefer an established workspace-specific category as the canonical name.
+      Use commit counts as evidence of maturity and as a tie-breaker, but do not
+      merge categories solely because one is more popular. Semantic equivalence is
+      required. Broad starter categories do not take precedence over a more precise
+      workspace category merely because they ship with the product.
+
+      Do not modify local category data in this report-only task. Produce a concise
+      proposed merge plan. For each proposal include:
+      - Source category or categories
+      - Recommended canonical category
+      - Commit counts
+      - Evidence from the example commits
+      - Confidence: high, medium, or low
+      - Any ambiguity that requires user judgment
+
+      Omit categories that are meaningfully distinct. If no consolidation is
+      warranted, say so. Send the report to the user's Inbox using an
+      INBOX_MESSAGE_JSON block (from: "argus-weld").
+
   - id: clean-inbox
     enabled: true
     frequency: daily

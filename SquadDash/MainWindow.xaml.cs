@@ -17585,6 +17585,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 isDark,
                 workspaceFolderPath: _workspacePaths.ApplicationRoot,
                 workspacePaths:      _workspacePaths,
+                getFeatureGroups:    () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList()).AsReadOnly(),
                 onCategoriesAssigned: assignments => Dispatcher.Invoke(() => ApplyCommitCategories(assignments)));
             if (CanShowOwnedWindow())
                 _commitActivityGraphWindow.Owner = this;
@@ -36957,12 +36958,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 foreach (var item in items)
                     sb.AppendLine($"- SHA: {item.CommitSha} | \"{item.Description}\"");
                 return sb.ToString().TrimEnd();
-            });
+            },
+            getFeatureCategoryInventory: BuildFeatureCategoryInventory);
 
         _idleDetectionService?.SetRunnerActive(true);
         _codeHealthPanel?.OnRunnerStarted("starting…");
 
         await _CodeHealthRunner.StartAsync(config, workspacePath, CancellationToken.None, forceTaskIds);
+    }
+
+    private string BuildFeatureCategoryInventory()
+    {
+        var groups = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
+        var usages = FeatureGroupPromptBuilder.BuildUsages(groups, _approvalItems);
+        var sb = new System.Text.StringBuilder();
+
+        foreach (var usage in usages)
+        {
+            var origin = usage.IsStarter ? "starter" : "workspace";
+            sb.AppendLine($"## {usage.Name} ({usage.CommitCount} commits; {origin})");
+            foreach (var item in _approvalItems
+                         .Where(item => string.Equals(item.FeatureGroup, usage.Name, StringComparison.OrdinalIgnoreCase))
+                         .OrderByDescending(item => item.TurnStartedAt)
+                         .Take(5))
+            {
+                sb.AppendLine($"- {item.CommitSha}: {item.Description}");
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     private bool ShouldSuppressCodeHealthCycle()
@@ -37460,7 +37485,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             var groups    = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
-            var groupList = string.Join(", ", groups);
+            var groupContext = FeatureGroupPromptBuilder.BuildContext(
+                FeatureGroupPromptBuilder.BuildUsages(groups, _approvalItems));
 
             // Build the item list as an attachment content block
             var itemsSb = new System.Text.StringBuilder();
@@ -37480,8 +37506,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Short instruction prompt — items are in the attachment
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("Please organize the attached pending approval items into feature groups.");
-            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
-            sb.AppendLine($"Existing groups: {groupList}");
+            sb.AppendLine("Assign each item to the most appropriate feature category.");
+            sb.AppendLine(groupContext);
             sb.AppendLine();
             sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
             sb.AppendLine("HOST_COMMAND_JSON:");
@@ -37519,7 +37545,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (uncategorizedItems.Count == 0) return;
 
             var groups    = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
-            var groupList = string.Join(", ", groups);
+            var groupContext = FeatureGroupPromptBuilder.BuildContext(
+                FeatureGroupPromptBuilder.BuildUsages(groups, _approvalItems));
 
             var itemsSb = new System.Text.StringBuilder();
             itemsSb.AppendLine("## Uncategorized items to organize");
@@ -37534,8 +37561,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("Please categorize the attached uncategorized approval items into feature groups.");
-            sb.AppendLine("Assign a specific, descriptive group name to each item. You may reuse groups from the existing list or invent more specific names that better reflect what the feature actually does.");
-            sb.AppendLine($"Existing groups: {groupList}");
+            sb.AppendLine("Assign each item to the most appropriate feature category.");
+            sb.AppendLine(groupContext);
             sb.AppendLine();
             sb.AppendLine("Respond using the organize_approvals command with the exact SHAs from the attached list:");
             sb.AppendLine("HOST_COMMAND_JSON:");

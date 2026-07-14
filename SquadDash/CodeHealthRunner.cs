@@ -20,6 +20,7 @@ internal sealed class CodeHealthRunner {
     private readonly Func<DateTimeOffset, bool>?                 _wasInboxSavedSince;
     private readonly Action<DecomposedTaskGroup>?                _onDecomposeGroupReady;
     private readonly Func<string>?                               _getUncategorizedApprovals;
+    private readonly Func<string>?                               _getFeatureCategoryInventory;
 
     private volatile bool _isRunning;
 
@@ -35,7 +36,8 @@ internal sealed class CodeHealthRunner {
         Func<DateTimeOffset, bool>?                     wasInboxSavedSince = null,
         Func<string, CancellationToken, Task<(int, string)>>? executePromptAndCaptureAsync = null,
         Action<DecomposedTaskGroup>?                                  onDecomposeGroupReady = null,
-        Func<string>?                                                 getUncategorizedApprovals = null) {
+        Func<string>?                                                 getUncategorizedApprovals = null,
+        Func<string>?                                                 getFeatureCategoryInventory = null) {
 
         _executePromptAsync            = executePromptAsync;
         _executePromptAndCaptureAsync  = executePromptAndCaptureAsync;
@@ -47,6 +49,7 @@ internal sealed class CodeHealthRunner {
         _wasInboxSavedSince            = wasInboxSavedSince;
         _onDecomposeGroupReady         = onDecomposeGroupReady;
         _getUncategorizedApprovals     = getUncategorizedApprovals;
+        _getFeatureCategoryInventory   = getFeatureCategoryInventory;
     }
 
     /// <summary>
@@ -134,7 +137,8 @@ internal sealed class CodeHealthRunner {
                     
                     var prompt = BuildPrompt(task, config.Safety, effectiveSafety, dynamicBranchName, 
                         taskStartedAt, lastReviewedSha, newCommitCount,
-                        uncategorizedApprovals: _getUncategorizedApprovals?.Invoke() ?? string.Empty);
+                        uncategorizedApprovals: _getUncategorizedApprovals?.Invoke() ?? string.Empty,
+                        featureCategoryInventory: _getFeatureCategoryInventory?.Invoke() ?? string.Empty);
                     int anchorIndex;
                     string? responseText = null;
 
@@ -309,7 +313,8 @@ internal sealed class CodeHealthRunner {
 
     private static string BuildPrompt(CodeHealthTask task, string globalSafety, string effectiveSafety, 
         string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0,
-        string? uncategorizedApprovals = null) {
+        string? uncategorizedApprovals = null,
+        string? featureCategoryInventory = null) {
 
         string safetyPrefix;
         string suffix;
@@ -346,6 +351,7 @@ internal sealed class CodeHealthRunner {
         instructions = instructions.Replace("{{last_reviewed_sha}}", lastReviewedSha ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{new_commit_count}}", newCommitCount.ToString(), StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{uncategorized_approvals}}", uncategorizedApprovals ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        instructions = instructions.Replace("{{feature_category_inventory}}", featureCategoryInventory ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         
         // Render instructions with Handlebars using dynamic variables
         try {

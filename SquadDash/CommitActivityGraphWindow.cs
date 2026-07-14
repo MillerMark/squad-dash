@@ -82,6 +82,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private TextBlock?                     _categorizeStatusText;
     private Button?                        _categorizeButton;
     private Action<IReadOnlyList<(string Sha, string Group)>>? _onCategoriesAssigned;
+    private readonly Func<IReadOnlyList<string>>? _getFeatureGroups;
 
     public CommitActivityGraphWindow(
         ICommitStatService              statService,
@@ -89,6 +90,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         bool                            isDark,
         string?                         workspaceFolderPath = null,
         IWorkspacePaths?                workspacePaths      = null,
+        Func<IReadOnlyList<string>>?    getFeatureGroups    = null,
         Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
     {
@@ -97,6 +99,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _isDark              = isDark;
         _workspaceFolderPath = workspaceFolderPath;
         _onCategoriesAssigned = onCategoriesAssigned;
+        _getFeatureGroups     = getFeatureGroups;
         if (workspacePaths is not null)
         {
             _categorizationService = new SquadSdkCategorizationService(workspacePaths);
@@ -738,18 +741,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 return;
             }
 
-            var existingGroups = _allItems
-                .Where(i => i.FeatureGroup is not null)
-                .Select(i => i.FeatureGroup!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(g => g)
-                .ToList();
+            var configuredGroups = _getFeatureGroups?.Invoke()
+                ?? FeatureGroupStore.Defaults;
+            var groupUsages = FeatureGroupPromptBuilder.BuildUsages(configuredGroups, _allItems);
 
             if (_categorizeStatusText is not null)
                 _categorizeStatusText.Text = $"Categorizing {uncategorized.Count} commits\u2026";
 
             var results = await Task.Run(() =>
-                _categorizationService.CategorizeAsync(uncategorized, existingGroups))
+                _categorizationService.CategorizeAsync(uncategorized, groupUsages))
                 .ConfigureAwait(true); // back on UI thread
 
             if (results.Count == 0)
