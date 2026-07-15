@@ -140,7 +140,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         }
 
         _endDate   = DateOnly.FromDateTime(DateTime.Today);
-        _startDate = _endDate.AddDays(-365);
+        _startDate = _endDate.AddDays(-30);
 
         Title         = "Commit History";
         Width         = 1100;
@@ -782,6 +782,31 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     private IEnumerable<Button> CreateQuickRangeButtons()
     {
+        // "Today" button — single-day range
+        var todayBtn = new Button
+        {
+            Content = "Today",
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin  = new Thickness(4, 0, 0, 0),
+        };
+        todayBtn.SetResourceReference(Button.StyleProperty,    "ThemedButtonStyle");
+        todayBtn.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
+        WindowChrome.SetIsHitTestVisibleInChrome(todayBtn, true);
+        todayBtn.Click += (_, _) =>
+        {
+            var today  = DateOnly.FromDateTime(DateTime.Today);
+            _startDate = today;
+            _endDate   = today;
+            _startTime = TimeOnly.MinValue;
+            _endTime   = new TimeOnly(23, 59);
+            _rangeSlider.MinRangeDays = 0;
+            _rangeSlider.SetRange(_startDate, _endDate);
+            _rangeSlider.MinRangeDays = 1;
+            _debounceTimer.Stop();
+            _debounceTimer.Start();
+        };
+        yield return todayBtn;
+
         (string Label, int Days)[] ranges =
         [
             ("Last Week",    7),
