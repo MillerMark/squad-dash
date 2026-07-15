@@ -75,6 +75,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private DateOnly _panStartDate;
     private ScrollViewer _scrollViewer = null!;
 
+    // ── Selection ─────────────────────────────────────────────────────────────
+    private bool   _isSelecting;
+    private double _selectionDragStartX;
+
     // ── AI categorization ─────────────────────────────────────────────────────
     private SquadSdkCategorizationService? _categorizationService;
     private CommitCategoryCache?           _categoryCache;
@@ -237,13 +241,23 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             e.Handled = true;
         };
 
-        // ── Spacebar pan mode ─────────────────────────────────────────────────
+        // ── Spacebar pan mode + selection keyboard shortcuts ──────────────────
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.Space && !_isPanMode)
             {
                 _isPanMode = true;
                 _scrollViewer.Cursor = AnnotationCursors.OpenHand;
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _canvas.HasSelection)
+            {
+                _canvas.ClearSelection();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && _canvas.HasSelection)
+            {
+                ApplySelectionAsDateRange();
                 e.Handled = true;
             }
         };
@@ -295,6 +309,40 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             _scrollViewer.ReleaseMouseCapture();
             _scrollViewer.Cursor = _isPanMode ? AnnotationCursors.OpenHand : null;
             e.Handled = true;
+        };
+
+        // ── Selection click-drag ──────────────────────────────────────────────
+        _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (_isPanMode) return;
+            var pos = e.GetPosition(_canvas);
+            if (pos.X < CommitActivityCanvas.LabelColumnWidth) return;
+            _selectionDragStartX = pos.X;
+            _canvas.SetSelection(pos.X, pos.X);
+            _scrollViewer.CaptureMouse();
+            _isSelecting = true;
+            e.Handled = true;
+        };
+
+        _scrollViewer.PreviewMouseMove += (_, e) =>
+        {
+            if (_isSelecting)
+            {
+                var pos = e.GetPosition(_canvas);
+                _canvas.SetSelection(_selectionDragStartX, pos.X);
+            }
+            else if (!_isPanMode && !_isPanning)
+            {
+                var pos = e.GetPosition(_canvas);
+                _scrollViewer.Cursor = pos.X > CommitActivityCanvas.LabelColumnWidth ? Cursors.Cross : null;
+            }
+        };
+
+        _scrollViewer.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!_isSelecting) return;
+            _isSelecting = false;
+            _scrollViewer.ReleaseMouseCapture();
         };
 
         // ── Right-click on canvas row: context menu for AI categorization ─────
@@ -376,6 +424,43 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (startDay < minDay) { startDay = minDay;   endDay   = startDay + dayCount - 1; }
         startDay = Math.Max(startDay, minDay);
         endDay   = Math.Min(endDay,   maxDay);
+    }
+
+    private void ApplySelectionAsDateRange()
+    {
+        if (!_canvas.HasSelection) return;
+        var ppd = _canvas.PixelsPerDay;
+        if (ppd <= 0) return;
+
+        var minGraphX   = _canvas.SelectionXMin - CommitActivityCanvas.LabelColumnWidth;
+        var maxGraphX   = _canvas.SelectionXMax - CommitActivityCanvas.LabelColumnWidth;
+        var startOffset = (int)(minGraphX / ppd);
+        var endOffset   = (int)(maxGraphX / ppd);
+
+        var newStart = _startDate.AddDays(startOffset);
+        var newEnd   = _startDate.AddDays(endOffset);
+
+        // Clamp to [_startDate, _endDate]
+        if (newStart < _startDate) newStart = _startDate;
+        if (newStart > _endDate)   newStart = _endDate;
+        if (newEnd   < _startDate) newEnd   = _startDate;
+        if (newEnd   > _endDate)   newEnd   = _endDate;
+
+        // Ensure at least 1 day apart
+        if (newEnd <= newStart)
+        {
+            newEnd = newStart.AddDays(1);
+            if (newEnd > _endDate)    newEnd   = _endDate;
+            if (newStart >= newEnd)   newStart = newEnd.AddDays(-1);
+            if (newStart < _startDate) newStart = _startDate;
+        }
+
+        _startDate = newStart;
+        _endDate   = newEnd;
+        _rangeSlider.SetRange(_startDate, _endDate);
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
+        _canvas.ClearSelection();
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
@@ -1227,6 +1312,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double                  _pixelsPerDip        = 1.0;
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
+    // ── Selection overlay ──────────────────────────────────────────────────────
+    private double? _selectionStartX;
+    private double? _selectionEndX;
+
     // ── Hover popup ────────────────────────────────────────────────────────────
     private Popup?     _hoverPopup;
     private TextBlock? _hoverContent;
@@ -1324,6 +1413,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         _isDark = isDark;
         InvalidateVisual();
     }
+
+    public void SetSelection(double? x1, double? x2) { _selectionStartX = x1; _selectionEndX = x2; InvalidateVisual(); }
+    public void ClearSelection() { _selectionStartX = null; _selectionEndX = null; InvalidateVisual(); }
+    public bool   HasSelection   => _selectionStartX.HasValue && _selectionEndX.HasValue;
+    public double SelectionXMin  => Math.Min(_selectionStartX!.Value, _selectionEndX!.Value);
+    public double SelectionXMax  => Math.Max(_selectionStartX!.Value, _selectionEndX!.Value);
+    public double PixelsPerDay   => _effectivePixelsPerDay;
 
     // ── Measure / Arrange ──────────────────────────────────────────────────────
 
@@ -1471,6 +1567,20 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 var ft = MakeText(labelText, labelBrush, 9.5);
                 dc.DrawText(ft, new Point(gx + 2, 2));
             }
+        }
+
+        // ── Selection overlay (behind commit bars) ────────────────────────────
+        if (HasSelection)
+        {
+            var selXMin     = SelectionXMin;
+            var selXMax     = SelectionXMax;
+            var graphHeight = _rows.Count * RowHeight;
+            var fillBrush   = new SolidColorBrush(Color.FromArgb(128, 0x29, 0x96, 0xFF));
+            var linePen     = new Pen(new SolidColorBrush(Color.FromArgb(255, 0x29, 0x96, 0xFF)), 1.5);
+            dc.DrawRectangle(fillBrush, null,
+                new Rect(selXMin, -VerticalPadding, selXMax - selXMin, graphHeight + VerticalPadding));
+            dc.DrawLine(linePen, new Point(selXMin, -VerticalPadding), new Point(selXMin, graphHeight));
+            dc.DrawLine(linePen, new Point(selXMax, -VerticalPadding), new Point(selXMax, graphHeight));
         }
 
         for (int i = 0; i < _rows.Count; i++)
