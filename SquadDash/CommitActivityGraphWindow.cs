@@ -1224,14 +1224,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _featureFilterClear = new Button
         {
             Content           = "×",
-            Padding           = new Thickness(2, 0, 2, 0),
+            Padding           = new Thickness(4, 0, 4, 0),
             VerticalAlignment = VerticalAlignment.Center,
             Visibility        = Visibility.Collapsed,
-            BorderThickness   = new Thickness(0),
         };
-        _featureFilterClear.SetResourceReference(Button.ForegroundProperty, "SubtleText");
-        _featureFilterClear.Background = Brushes.Transparent;
-        _featureFilterClear.SetResourceReference(Button.FontSizeProperty,   "FontSizeBody");
+        _featureFilterClear.SetResourceReference(Button.StyleProperty,    "PanelFilterClearButtonStyle");
+        _featureFilterClear.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
         WindowChrome.SetIsHitTestVisibleInChrome(_featureFilterClear, true);
         _featureFilterClear.Click += (_, _) => { _featureFilterBox.Text = ""; _canvas.ClearRowSelection(); };
 
