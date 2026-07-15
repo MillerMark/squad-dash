@@ -98,17 +98,17 @@
       },
       {
         "title": "Tooling 2",
-        "markdownText": "You can hover over edits to see diffs.\r\n![40:edit](res:ToolIcon_edit)  This **file edit** changed two files.",
-        "targetControlId": "TourInjectedLastToolEntry",
-        "calloutPlacement": "East",
+        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a file change. \r\nOn the right you can see the count of lines added (**\u002B1**) or removed (**-1**).\r\nHover over edits to see diffs.",
+        "targetControlId": "TourInjectedLastToolEntry_edit",
+        "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.32800530095242164,
-        "targetOffsetY": 0.583846153846153
+        "targetOffsetX": 0.07451923076923064,
+        "targetOffsetY": 0.47807692307692223
       },
       {
         "title": "File edit",
