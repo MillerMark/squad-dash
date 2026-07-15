@@ -452,7 +452,11 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         _startDate = newStart;
         _endDate   = newEnd;
+        // Allow a same-day (single-day) zoom when the selection spans < 1 day.
+        var prevMin = _rangeSlider.MinRangeDays;
+        _rangeSlider.MinRangeDays = 0;
         _rangeSlider.SetRange(_startDate, _endDate);
+        _rangeSlider.MinRangeDays = prevMin;
         _debounceTimer.Stop();
         _debounceTimer.Start();
         _canvas.ClearSelection();
