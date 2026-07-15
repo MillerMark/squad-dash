@@ -53,6 +53,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private bool                                 _isDark;
     private DateOnly                             _startDate;
     private DateOnly                             _endDate;
+    private TimeOnly                             _startTime = TimeOnly.MinValue;
+    private TimeOnly                             _endTime   = new TimeOnly(23, 59);
     private CancellationTokenSource?             _cts;
     private readonly DispatcherTimer             _debounceTimer;
 
@@ -60,8 +62,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private List<CommitActivityRow>?  _cachedRows;
     private List<CommitStatRequest>?  _cachedRequests;
     private HashSet<string>           _cachedPendingShas = new(StringComparer.OrdinalIgnoreCase);
-    private DateOnly                  _cachedStartDate;
-    private DateOnly                  _cachedEndDate;
+    private DateTimeOffset            _cachedStartDate;
+    private DateTimeOffset            _cachedEndDate;
+
+    // ── Sub-day viewport helpers ──────────────────────────────────────────────
+    private DateTimeOffset EffectiveStart =>
+        new DateTimeOffset(_startDate.ToDateTime(_startTime), DateTimeOffset.Now.Offset);
+    private DateTimeOffset EffectiveEnd =>
+        new DateTimeOffset(_endDate.ToDateTime(_endTime), DateTimeOffset.Now.Offset);
 
     // ── UI ────────────────────────────────────────────────────────────────────
     private readonly CommitActivityCanvas _canvas;
@@ -398,6 +406,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         _startDate = DateOnly.FromDayNumber(newStartDay);
         _endDate   = DateOnly.FromDayNumber(newEndDay);
+        _startTime = TimeOnly.MinValue;
+        _endTime   = new TimeOnly(23, 59);
         _rangeSlider.SetRange(_startDate, _endDate);
         _debounceTimer.Stop();
         _debounceTimer.Start();
@@ -413,6 +423,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         ClampDateRange(ref newStartDay, ref newEndDay, rangeLen);
         _startDate = DateOnly.FromDayNumber(newStartDay);
         _endDate   = DateOnly.FromDayNumber(newEndDay);
+        _startTime = TimeOnly.MinValue;
+        _endTime   = new TimeOnly(23, 59);
         _rangeSlider.SetRange(_startDate, _endDate);
         _debounceTimer.Stop();
         _debounceTimer.Start();
@@ -434,32 +446,29 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var ppd = _canvas.PixelsPerDay;
         if (ppd <= 0) return;
 
-        var minGraphX   = _canvas.SelectionXMin - CommitActivityCanvas.LabelColumnWidth;
-        var maxGraphX   = _canvas.SelectionXMax - CommitActivityCanvas.LabelColumnWidth;
-        // Both edges use Floor so the offset maps to "the day that contains this pixel".
-        // Ceiling was previously used for the end but caused a phantom +1 day when the
-        // selection was entirely within a single day (e.g. a few hours → 2 days shown).
-        var startOffset = (int)Math.Floor(minGraphX / ppd);
-        var endOffset   = (int)Math.Floor(maxGraphX / ppd);
+        var minGraphX = _canvas.SelectionXMin - CommitActivityCanvas.LabelColumnWidth;
+        var maxGraphX = _canvas.SelectionXMax - CommitActivityCanvas.LabelColumnWidth;
 
-        var newStart = _startDate.AddDays(startOffset);
-        var newEnd   = _startDate.AddDays(endOffset);
+        // Fractional day offsets from EffectiveStart
+        var newStart = EffectiveStart.AddDays(minGraphX / ppd);
+        var newEnd   = EffectiveStart.AddDays(maxGraphX / ppd);
 
-        // Clamp to [_startDate, _endDate]
-        if (newStart < _startDate) newStart = _startDate;
-        if (newStart > _endDate)   newStart = _endDate;
-        if (newEnd   < _startDate) newEnd   = _startDate;
-        if (newEnd   > _endDate)   newEnd   = _endDate;
+        // Minimum 30-minute range
+        if ((newEnd - newStart).TotalMinutes < 30)
+            newEnd = newStart.AddMinutes(30);
 
-        if (newEnd < newStart) newEnd = newStart;
+        // Extract DateOnly + TimeOnly from results
+        _startDate = DateOnly.FromDateTime(newStart.LocalDateTime);
+        _startTime = TimeOnly.FromDateTime(newStart.LocalDateTime);
+        _endDate   = DateOnly.FromDateTime(newEnd.LocalDateTime);
+        _endTime   = TimeOnly.FromDateTime(newEnd.LocalDateTime);
 
-        _startDate = newStart;
-        _endDate   = newEnd;
-        // Allow a same-day (single-day) zoom when the selection spans < 1 day.
+        // Update slider to show the containing day range (slider is day-granular)
         var prevMin = _rangeSlider.MinRangeDays;
         _rangeSlider.MinRangeDays = 0;
         _rangeSlider.SetRange(_startDate, _endDate);
         _rangeSlider.MinRangeDays = prevMin;
+
         _debounceTimer.Stop();
         _debounceTimer.Start();
         _canvas.ClearSelection();
@@ -471,11 +480,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         var ppd = _canvas.PixelsPerDay;
         if (ppd <= 0) return null;
-        var graphX = canvasX - CommitActivityCanvas.LabelColumnWidth;
-        if (graphX < 0) graphX = 0;
-        var fractionalDays = graphX / ppd;
-        var localBase = new DateTimeOffset(_startDate.ToDateTime(TimeOnly.MinValue), DateTimeOffset.Now.Offset);
-        return localBase.AddDays(fractionalDays);
+        var graphX = Math.Max(0, canvasX - CommitActivityCanvas.LabelColumnWidth);
+        return EffectiveStart.AddDays(graphX / ppd);
     }
 
     public void NotifyThemeChanged(bool isDark)
@@ -490,6 +496,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         _startDate = _rangeSlider.StartDate;
         _endDate   = _rangeSlider.EndDate;
+        _startTime = TimeOnly.MinValue;
+        _endTime   = new TimeOnly(23, 59);
         _debounceTimer.Stop();
         _debounceTimer.Start();
     }
@@ -528,6 +536,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 var today  = DateOnly.FromDateTime(DateTime.Today);
                 _startDate = today.AddDays(-d);
                 _endDate   = today;
+                _startTime = TimeOnly.MinValue;
+                _endTime   = new TimeOnly(23, 59);
                 _rangeSlider.SetRange(_startDate, _endDate);
                 _debounceTimer.Stop();
                 _debounceTimer.Start();
@@ -554,15 +564,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     private async Task LoadDataAsync(CancellationToken ct)
     {
-        var startDate = _startDate;
-        var endDate   = _endDate;
+        var startDate      = _startDate;    // DateOnly, for git log range
+        var endDate        = _endDate;      // DateOnly, for git log range
+        var effectiveStart = EffectiveStart;
+        var effectiveEnd   = EffectiveEnd;
 
         var filteredItems = _allItems
-            .Where(i =>
-            {
-                var d = DateOnly.FromDateTime(i.TurnStartedAt.LocalDateTime);
-                return d >= startDate && d <= endDate;
-            })
+            .Where(i => i.TurnStartedAt >= effectiveStart && i.TurnStartedAt <= effectiveEnd)
             .ToList();
 
         // Build rows from ALL items so every known feature group always has a row,
@@ -578,7 +586,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 pendingShas.Add(req.Sha);
         }
 
-        RefreshCanvasData(rows, requests, pendingShas, startDate, endDate);
+        RefreshCanvasData(rows, requests, pendingShas, effectiveStart, effectiveEnd);
 
         // ── Git history scan (Change 5) ───────────────────────────────────────
         if (_workspaceFolderPath is not null)
@@ -594,7 +602,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                         if (_statService.TryGetCached(req.Sha) is null)
                             pendingShas.Add(req.Sha);
                     }
-                    RefreshCanvasData(rows, requests, pendingShas, startDate, endDate);
+                    RefreshCanvasData(rows, requests, pendingShas, effectiveStart, effectiveEnd);
                 }
             }
             catch (OperationCanceledException) { return; }
@@ -607,7 +615,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (ct.IsCancellationRequested) return;
             foreach (var r in batch)
                 pendingShas.Remove(r.Sha);
-            RefreshCanvasData(rows, requests, pendingShas, startDate, endDate);
+            RefreshCanvasData(rows, requests, pendingShas, effectiveStart, effectiveEnd);
         });
 
         try
@@ -710,8 +718,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         List<CommitActivityRow>   rows,
         List<CommitStatRequest>   requests,
         HashSet<string>           pendingShas,
-        DateOnly                  startDate,
-        DateOnly                  endDate)
+        DateTimeOffset            startDt,
+        DateTimeOffset            endDt)
     {
         foreach (var row in rows)
         {
@@ -749,7 +757,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             ? rows.Where(r => r.FeatureGroup is not null).ToList()
             : rows;
 
-        _canvas.SetData(displayRows, startDate, endDate, _isDark);
+        _canvas.SetData(displayRows, startDt, endDt, _isDark);
 
         // Set slider MinDate to the global oldest date across the full dataset so
         // the track is stable regardless of which filter is active (e.g. "Last Week"
@@ -774,8 +782,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _cachedRows        = rows;
         _cachedRequests    = requests;
         _cachedPendingShas = new HashSet<string>(pendingShas, StringComparer.OrdinalIgnoreCase);
-        _cachedStartDate   = startDate;
-        _cachedEndDate     = endDate;
+        _cachedStartDate   = startDt;
+        _cachedEndDate     = endDt;
     }
 
     private static List<CommitActivityRow> BuildFeatureRows(
@@ -1323,8 +1331,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private List<CommitActivityRow> _rows      = [];
     private DateOnly                _startDate;
     private DateOnly                _endDate;
+    private DateTimeOffset          _viewStart;
+    private DateTimeOffset          _viewEnd;
     private bool                    _isDark;
-    private int                     _dayCount;
+    private double                  _dayCount;
     private double                  _pixelsPerDip        = 1.0;
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
@@ -1412,15 +1422,17 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     public void SetData(
         List<CommitActivityRow> rows,
-        DateOnly                startDate,
-        DateOnly                endDate,
+        DateTimeOffset          startDt,
+        DateTimeOffset          endDt,
         bool                    isDark)
     {
         _rows      = rows;
-        _startDate = startDate;
-        _endDate   = endDate;
+        _viewStart = startDt;
+        _viewEnd   = endDt;
+        _startDate = DateOnly.FromDateTime(startDt.LocalDateTime);
+        _endDate   = DateOnly.FromDateTime(endDt.LocalDateTime);
         _isDark    = isDark;
-        _dayCount  = Math.Max(1, endDate.DayNumber - startDate.DayNumber + 1);
+        _dayCount  = Math.Max(1.0 / 48.0, (endDt - startDt).TotalDays);
 
         InvalidateMeasure();
         InvalidateVisual();
@@ -1448,7 +1460,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         // Fill the available width so no horizontal scrollbar is needed.
         var w = double.IsFinite(availableSize.Width) && availableSize.Width > LabelColumnWidth
             ? availableSize.Width
-            : LabelColumnWidth + Math.Max(1, _dayCount) * FallbackPixelsPerDay;
+            : LabelColumnWidth + Math.Max(1.0, _dayCount) * FallbackPixelsPerDay;
         return new Size(w, h);
     }
 
@@ -1468,7 +1480,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        if (_dayCount == 0) return;
+        if (_dayCount <= 0) return;
 
         // Compute pixels-per-day to fit the entire range in the canvas width.
         var canvasWidth = ActualWidth - LabelColumnWidth;
@@ -1585,6 +1597,32 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             {
                 var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
                 var ft = MakeText(labelText, labelBrush, 9.5);
+                dc.DrawText(ft, new Point(gx + 2, 2));
+            }
+        }
+
+        // ── Sub-day grid lines (when viewing 1 day or less) ───────────────────
+        if (_dayCount <= 1.0)
+        {
+            bool halfHourGrid = _effectivePixelsPerDay >= 2000.0;
+            var  gridMinutes  = halfHourGrid ? 30 : 60;
+            var  subDayAlpha  = (byte)153;
+            var  subDayColor  = Color.FromArgb(subDayAlpha, gridBase.R, gridBase.G, gridBase.B);
+            var  subDayPen    = new Pen(new SolidColorBrush(subDayColor), 1.0);
+            var  subDayBrush  = new SolidColorBrush(subDayColor);
+
+            // First aligned tick at or after _viewStart
+            var startMins    = _viewStart.Hour * 60 + _viewStart.Minute;
+            var firstAligned = (int)Math.Ceiling((double)startMins / gridMinutes) * gridMinutes;
+            var firstGrid    = new DateTimeOffset(
+                _viewStart.Year, _viewStart.Month, _viewStart.Day,
+                0, 0, 0, _viewStart.Offset).AddMinutes(firstAligned);
+
+            for (var cur = firstGrid; cur <= _viewEnd; cur = cur.AddMinutes(gridMinutes))
+            {
+                var gx = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
+                dc.DrawLine(subDayPen, new Point(gx, 0), new Point(gx, gridHeight));
+                var ft = MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, 9.5);
                 dc.DrawText(ft, new Point(gx + 2, 2));
             }
         }
@@ -1790,8 +1828,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     private void RenderXAxis(DrawingContext dc, Brush textBrush, Brush tickBrush)
     {
-        var axisY        = VerticalPadding + _rows.Count * RowHeight;
-        var intervalDays = _dayCount <= 90 ? 7 : 30;
+        var axisY = VerticalPadding + _rows.Count * RowHeight;
 
         // Axis line
         dc.DrawLine(
@@ -1799,22 +1836,48 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             new Point(LabelColumnWidth, axisY),
             new Point(ActualWidth, axisY));
 
-        // Tick marks and labels — align to multiples of intervalDays from DayNumber epoch
-        var cursor = _startDate;
-        while (cursor.DayNumber % intervalDays != 0)
-            cursor = cursor.AddDays(1);
-
-        while (cursor <= _endDate)
+        if (_dayCount < 2.0)
         {
-            var x     = LabelColumnWidth + DayToX(cursor);
-            var tickY = axisY + 4;
-            dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
+            // Sub-day axis: hour or half-hour ticks with time labels
+            bool halfHourTicks  = (_effectivePixelsPerDay / 48.0) >= 50.0;
+            var  intervalMinutes = halfHourTicks ? 30 : 60;
 
-            var label = cursor.ToString("MMM d");
-            var ft    = MakeText(label, textBrush, 10);
-            dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
+            var startMins    = _viewStart.Hour * 60 + _viewStart.Minute;
+            var firstAligned = (int)Math.Ceiling((double)startMins / intervalMinutes) * intervalMinutes;
+            var firstTick    = new DateTimeOffset(
+                _viewStart.Year, _viewStart.Month, _viewStart.Day,
+                0, 0, 0, _viewStart.Offset).AddMinutes(firstAligned);
 
-            cursor = cursor.AddDays(intervalDays);
+            for (var cur = firstTick; cur <= _viewEnd; cur = cur.AddMinutes(intervalMinutes))
+            {
+                var x     = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
+                var tickY = axisY + 4;
+                dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
+                var label = cur.LocalDateTime.ToString("h:mm tt");
+                var ft    = MakeText(label, textBrush, 10);
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
+            }
+        }
+        else
+        {
+            // Day/week/month axis — align to multiples of intervalDays from DayNumber epoch
+            var intervalDays = _dayCount <= 90 ? 7 : 30;
+            var cursor = _startDate;
+            while (cursor.DayNumber % intervalDays != 0)
+                cursor = cursor.AddDays(1);
+
+            while (cursor <= _endDate)
+            {
+                var x     = LabelColumnWidth + DayToX(cursor);
+                var tickY = axisY + 4;
+                dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
+
+                var label = cursor.ToString("MMM d");
+                var ft    = MakeText(label, textBrush, 10);
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
+
+                cursor = cursor.AddDays(intervalDays);
+            }
         }
     }
 
@@ -1823,16 +1886,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     /// <summary>Returns the X offset (relative to the graph area, i.e. after LabelColumnWidth) for a date.</summary>
     private double DayToX(DateOnly date)
     {
-        var offset = date.DayNumber - _startDate.DayNumber;
-        return offset * _effectivePixelsPerDay; // left edge = midnight
+        var dt = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), _viewStart.Offset);
+        return (dt - _viewStart).TotalDays * _effectivePixelsPerDay;
     }
 
     /// <summary>Returns the X offset (relative to the graph area) for a precise timestamp.</summary>
     private double DateTimeToX(DateTimeOffset dt)
     {
-        var startDt = new DateTimeOffset(_startDate.ToDateTime(TimeOnly.MinValue), dt.Offset);
-        var days    = (dt - startDt).TotalDays;
-        return days * _effectivePixelsPerDay;
+        return (dt - _viewStart).TotalDays * _effectivePixelsPerDay;
     }
 
     /// <summary>
@@ -1856,7 +1917,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     private object? HitTestPoint(Point pt)
     {
-        if (_rows.Count == 0 || _dayCount == 0) return null;
+        if (_rows.Count == 0 || _dayCount <= 0) return null;
         if (pt.X < LabelColumnWidth) return null;
         var rowY = pt.Y - VerticalPadding;
         if (rowY < 0 || rowY > _rows.Count * RowHeight) return null;
@@ -1864,12 +1925,13 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         var rowIndex = (int)(rowY / RowHeight);
         if (rowIndex < 0 || rowIndex >= _rows.Count) return null;
 
-        var row    = _rows[rowIndex];
-        var graphX = pt.X - LabelColumnWidth;
-        var dayIdx = (int)(graphX / _effectivePixelsPerDay);
-        if (dayIdx < 0 || dayIdx >= _dayCount) return null;
+        var row            = _rows[rowIndex];
+        var graphX         = pt.X - LabelColumnWidth;
+        var fractionalDays = graphX / _effectivePixelsPerDay;
+        if (fractionalDays < 0 || fractionalDays > _dayCount) return null;
 
-        var date  = _startDate.AddDays(dayIdx);
+        var hoverDt = _viewStart.AddDays(fractionalDays);
+        var date    = DateOnly.FromDateTime(hoverDt.LocalDateTime);
 
         const double hitTolerance = 4;
 
