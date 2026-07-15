@@ -168,7 +168,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _scrollViewer = new ScrollViewer
         {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
             Content                       = canvasWrapper,
         };
         _scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
