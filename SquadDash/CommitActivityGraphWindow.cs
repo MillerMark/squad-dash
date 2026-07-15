@@ -75,6 +75,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private readonly CommitActivityCanvas _canvas;
     private readonly RangeSliderControl   _rangeSlider;
     private readonly CheckBox             _showUncategorizedCheckBox;
+    private TextBox?                      _featureFilterBox;
+    private Button?                       _featureFilterClear;
+    private string[]                      _featureFilters = [];
 
     // ── Zoom / pan ────────────────────────────────────────────────────────────
     private bool   _isPanMode;
@@ -240,12 +243,18 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _selectionPanel            = BuildSelectionPanel();
         _selectionPanel.Visibility = Visibility.Collapsed;
 
+        // ── Feature filter widget ─────────────────────────────────────────────
+        var filterWidget = BuildFeatureFilterWidget();
+
         // ── Main layout ───────────────────────────────────────────────────────
         var canvasGrid = new Grid();
+        canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(_scrollViewer, 0);
-        Grid.SetRow(_selectionPanel, 1);
+        Grid.SetRow(filterWidget,    0);
+        Grid.SetRow(_scrollViewer,   1);
+        Grid.SetRow(_selectionPanel, 2);
+        canvasGrid.Children.Add(filterWidget);
         canvasGrid.Children.Add(_scrollViewer);
         canvasGrid.Children.Add(_selectionPanel);
 
@@ -1003,6 +1012,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             ? rows.Where(r => r.FeatureGroup is not null).ToList()
             : rows;
 
+        if (_featureFilters.Length > 0)
+        {
+            displayRows = displayRows.Where(r =>
+                _featureFilters.Any(f =>
+                    (r.DisplayName ?? "").Contains(f, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+
         _canvas.SetData(displayRows, startDt, endDt, _isDark);
 
         // Set slider MinDate to the global oldest date across the full dataset so
@@ -1030,6 +1047,106 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _cachedPendingShas = new HashSet<string>(pendingShas, StringComparer.OrdinalIgnoreCase);
         _cachedStartDate   = startDt;
         _cachedEndDate     = endDt;
+
+        // Update filter box max width to match the widest feature name.
+        if (_featureFilterBox is not null)
+        {
+            var maxNameWidth = _cachedRows
+                .Select(r => MeasureTextWidth(r.DisplayName, 12.0))
+                .DefaultIfEmpty(CommitActivityCanvas.LabelColumnWidth)
+                .Max();
+            _featureFilterBox.MaxWidth = Math.Max(80, Math.Min(maxNameWidth + 16, CommitActivityCanvas.LabelColumnWidth));
+        }
+    }
+
+    private Panel BuildFeatureFilterWidget()
+    {
+        _featureFilterBox = new TextBox
+        {
+            BorderThickness   = new Thickness(0),
+            Padding           = new Thickness(2, 1, 2, 1),
+            VerticalAlignment = VerticalAlignment.Center,
+            MaxWidth          = CommitActivityCanvas.LabelColumnWidth,
+            MinWidth          = 40,
+        };
+        _featureFilterBox.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
+        _featureFilterBox.SetResourceReference(TextBox.FontSizeProperty,    "FontSizeBody");
+        _featureFilterBox.Background = Brushes.Transparent;
+        WindowChrome.SetIsHitTestVisibleInChrome(_featureFilterBox, true);
+
+        var placeholder = new TextBlock
+        {
+            Text              = "(filter)",
+            IsHitTestVisible  = false,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(4, 1, 2, 1),
+        };
+        placeholder.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        placeholder.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var filterGrid = new Grid { MaxWidth = CommitActivityCanvas.LabelColumnWidth };
+        filterGrid.Children.Add(placeholder);
+        filterGrid.Children.Add(_featureFilterBox);
+
+        _featureFilterClear = new Button
+        {
+            Content           = "×",
+            Padding           = new Thickness(2, 0, 2, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility        = Visibility.Collapsed,
+            BorderThickness   = new Thickness(0),
+        };
+        _featureFilterClear.SetResourceReference(Button.ForegroundProperty, "SubtleText");
+        _featureFilterClear.Background = Brushes.Transparent;
+        _featureFilterClear.SetResourceReference(Button.FontSizeProperty,   "FontSizeBody");
+        WindowChrome.SetIsHitTestVisibleInChrome(_featureFilterClear, true);
+        _featureFilterClear.Click += (_, _) => _featureFilterBox.Text = "";
+
+        var container = new StackPanel
+        {
+            Orientation       = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin            = new Thickness(2, 2, 0, 2),
+        };
+        WindowChrome.SetIsHitTestVisibleInChrome(container, true);
+        container.Children.Add(filterGrid);
+        container.Children.Add(_featureFilterClear);
+
+        _featureFilterBox.TextChanged += (_, _) =>
+        {
+            var text = _featureFilterBox.Text;
+            placeholder.Visibility       = string.IsNullOrEmpty(text) ? Visibility.Visible : Visibility.Collapsed;
+            _featureFilterClear.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+            _featureFilters = text
+                .Split(';')
+                .Select(t => t.Trim())
+                .Where(t => t.Length > 0)
+                .ToArray();
+            ApplyFeatureFilter();
+        };
+
+        return container;
+    }
+
+    private void ApplyFeatureFilter()
+    {
+        if (_cachedRows is null || _cachedRequests is null) return;
+        RefreshCanvasData(_cachedRows, _cachedRequests, _cachedPendingShas,
+                          _cachedStartDate, _cachedEndDate);
+    }
+
+    private static double MeasureTextWidth(string? text, double fontSize)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        var ft = new FormattedText(
+            text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            fontSize,
+            Brushes.Black,
+            VisualTreeHelper.GetDpi(Application.Current.MainWindow).PixelsPerDip);
+        return ft.Width;
     }
 
     private static List<CommitActivityRow> BuildFeatureRows(
