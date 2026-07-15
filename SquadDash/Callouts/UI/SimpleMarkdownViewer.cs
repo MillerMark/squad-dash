@@ -145,7 +145,7 @@ public class SimpleMarkdownViewer : Control {
                     }
 
                     // Image left, text right.
-                    img.Margin = new Thickness(0, 0, 8, 0);
+                    img.Margin = new Thickness(0, 0, 12, 0);
                     var textBlock = new TextBlock {
                         Text              = trailingText,
                         TextWrapping      = TextWrapping.Wrap,
