@@ -80,10 +80,10 @@
         "targetOffsetY": 0.27675198235539844
       },
       {
-        "title": "Tooling",
-        "markdownText": "**Tool calls** show what\u0027s happening while agents work.\r\nYou can hover over edits to see diffs.",
+        "title": "Tooling 1",
+        "markdownText": "**Tool calls** show what\u0027s happening while agents work.",
         "targetControlId": "TourInjectedToolingBlock",
-        "calloutPlacement": "East",
+        "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -93,13 +93,27 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "targetOffsetX": 0.05969357043819941,
+        "targetOffsetY": 0.05499999999999917
+      },
+      {
+        "title": "Tooling 2",
+        "markdownText": "You can hover over edits to see diffs.\r\n![40:edit](res:ToolIcon_edit)  This **file edit** changed two files.",
+        "targetControlId": "TourInjectedLastToolEntry",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
         "targetOffsetX": 0.32800530095242164,
         "targetOffsetY": 0.583846153846153
       },
       {
         "title": "File edit",
         "markdownText": "![24:edit](res:ToolIcon_edit) A **file edit** call shows the changed file.\r\nHover over it to see a before/after diff.",
-        "targetControlId": "TourInjectedLastToolEntry",
+        "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",

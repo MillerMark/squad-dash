@@ -15489,9 +15489,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await Task.Delay(rng.Next(120, 300));
         }
 
-        // Register the last tool entry's row so tour steps can target it directly.
+        // Register the overall last tool entry and the last entry for each tool name
+        // so tour steps can target e.g. "TourInjectedLastToolEntry_edit" directly.
         if (thinkingBlock.ToolEntries.Count > 0)
             _tourNamedElements["TourInjectedLastToolEntry"] = thinkingBlock.ToolEntries[^1].Expander;
+        foreach (var toolEntry in thinkingBlock.ToolEntries)
+        {
+            var key = "TourInjectedLastToolEntry_" + toolEntry.Descriptor.ToolName.Trim().ToLowerInvariant();
+            _tourNamedElements[key] = toolEntry.Expander;
+        }
 
         CoordinatorThread.CurrentTurn = null;
         TrackNewCoordinatorBlocks(blocksBefore);
