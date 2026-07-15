@@ -436,8 +436,11 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var minGraphX   = _canvas.SelectionXMin - CommitActivityCanvas.LabelColumnWidth;
         var maxGraphX   = _canvas.SelectionXMax - CommitActivityCanvas.LabelColumnWidth;
+        // Both edges use Floor so the offset maps to "the day that contains this pixel".
+        // Ceiling was previously used for the end but caused a phantom +1 day when the
+        // selection was entirely within a single day (e.g. a few hours → 2 days shown).
         var startOffset = (int)Math.Floor(minGraphX / ppd);
-        var endOffset   = (int)Math.Ceiling(maxGraphX / ppd);
+        var endOffset   = (int)Math.Floor(maxGraphX / ppd);
 
         var newStart = _startDate.AddDays(startOffset);
         var newEnd   = _startDate.AddDays(endOffset);
