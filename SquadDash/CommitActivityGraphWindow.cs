@@ -87,6 +87,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private bool   _isSelecting;
     private double _selectionDragStartX;
 
+    // ── Selection analysis panel ───────────────────────────────────────────────
+    private Border?     _selectionPanel;
+    private TextBlock?  _selectionEarliestValue;
+    private TextBlock?  _selectionLatestValue;
+    private TextBlock?  _selectionDurationValue;
+    private TextBlock?  _selectionCommitCountValue;
+    private TextBlock?  _selectionFilesValue;
+    private TextBlock?  _selectionLinesAddedValue;
+    private TextBlock?  _selectionLinesRemovedValue;
+    private StackPanel? _selectionCommitListPanel;
+
     // ── AI categorization ─────────────────────────────────────────────────────
     private SquadSdkCategorizationService? _categorizationService;
     private CommitCategoryCache?           _categoryCache;
@@ -225,11 +236,23 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         topBar.Children.Add(controlsBar);
         topBar.Children.Add(sliderPanel);
 
+        // ── Selection analysis panel ──────────────────────────────────────────
+        _selectionPanel            = BuildSelectionPanel();
+        _selectionPanel.Visibility = Visibility.Collapsed;
+
         // ── Main layout ───────────────────────────────────────────────────────
+        var canvasGrid = new Grid();
+        canvasGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(_scrollViewer, 0);
+        Grid.SetRow(_selectionPanel, 1);
+        canvasGrid.Children.Add(_scrollViewer);
+        canvasGrid.Children.Add(_selectionPanel);
+
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(topBar, Dock.Top);
         layout.Children.Add(topBar);
-        layout.Children.Add(_scrollViewer);
+        layout.Children.Add(canvasGrid);
 
         var contentBorder   = ApplyOuterBorder(titleText: "Commit History");
         contentBorder.Child = layout;
@@ -261,6 +284,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             else if (e.Key == Key.Escape && _canvas.HasSelection)
             {
                 _canvas.ClearSelection();
+                UpdateSelectionPanel();
                 e.Handled = true;
             }
             else if (e.Key == Key.Enter && _canvas.HasSelection)
@@ -340,6 +364,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 var dt1 = CanvasXToDateTime(_selectionDragStartX);
                 var dt2 = CanvasXToDateTime(pos.X);
                 _canvas.SetSelectionWithTimes(_selectionDragStartX, pos.X, dt1, dt2);
+                UpdateSelectionPanel();
             }
             else if (!_isPanMode && !_isPanning)
             {
@@ -353,6 +378,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (!_isSelecting) return;
             _isSelecting = false;
             _scrollViewer.ReleaseMouseCapture();
+            UpdateSelectionPanel();
         };
 
         // ── Right-click on canvas row: context menu for AI categorization ─────
@@ -472,6 +498,226 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _debounceTimer.Stop();
         _debounceTimer.Start();
         _canvas.ClearSelection();
+        UpdateSelectionPanel();
+    }
+
+    // ── Selection analysis panel ───────────────────────────────────────────────
+
+    private Border BuildSelectionPanel()
+    {
+        _selectionEarliestValue     = MakeStatValueBlock();
+        _selectionLatestValue       = MakeStatValueBlock();
+        _selectionDurationValue     = MakeStatValueBlock();
+        _selectionCommitCountValue  = MakeStatValueBlock();
+        _selectionFilesValue        = MakeStatValueBlock();
+        _selectionLinesAddedValue   = MakeStatValueBlock();
+        _selectionLinesRemovedValue = MakeStatValueBlock();
+
+        var statsWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 4, 0) };
+        statsWrap.Children.Add(MakeStatChip("🕐 Earliest",      _selectionEarliestValue));
+        statsWrap.Children.Add(MakeStatChip("🕐 Latest",        _selectionLatestValue));
+        statsWrap.Children.Add(MakeStatChip("⏱ Duration",      _selectionDurationValue));
+        statsWrap.Children.Add(MakeStatChip("📄 Commits",       _selectionCommitCountValue));
+        statsWrap.Children.Add(MakeStatChip("📝 Files",         _selectionFilesValue));
+        statsWrap.Children.Add(MakeStatChip("＋ Lines added",   _selectionLinesAddedValue));
+        statsWrap.Children.Add(MakeStatChip("－ Lines removed", _selectionLinesRemovedValue));
+
+        var statsScroller = new ScrollViewer
+        {
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content                       = statsWrap,
+        };
+        var statsContainer = new Border
+        {
+            Child           = statsScroller,
+            BorderThickness = new Thickness(0, 0, 1, 0),
+            Padding         = new Thickness(4, 0, 4, 0),
+        };
+        statsContainer.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+
+        _selectionCommitListPanel = new StackPanel { Orientation = Orientation.Vertical };
+        var commitScroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content                       = _selectionCommitListPanel,
+            Padding                       = new Thickness(6, 4, 4, 4),
+        };
+
+        var innerGrid = new Grid();
+        innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        innerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(statsContainer, 0);
+        Grid.SetColumn(commitScroll, 1);
+        innerGrid.Children.Add(statsContainer);
+        innerGrid.Children.Add(commitScroll);
+
+        var panel = new Border
+        {
+            Height          = 180,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Child           = innerGrid,
+        };
+        panel.SetResourceReference(Border.BackgroundProperty,  "AppSurface");
+        panel.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+        return panel;
+    }
+
+    private static TextBlock MakeStatValueBlock()
+    {
+        var tb = new TextBlock { FontSize = 11 };
+        tb.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        return tb;
+    }
+
+    private static FrameworkElement MakeStatChip(string label, TextBlock valueBlock)
+    {
+        var keyLabel = new TextBlock
+        {
+            Text              = label,
+            FontSize          = 10,
+            Margin            = new Thickness(0, 0, 5, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        keyLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        valueBlock.VerticalAlignment = VerticalAlignment.Center;
+
+        var chip = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin      = new Thickness(0, 0, 16, 6),
+        };
+        chip.Children.Add(keyLabel);
+        chip.Children.Add(valueBlock);
+        return chip;
+    }
+
+    private void UpdateSelectionPanel()
+    {
+        if (_selectionPanel is null) return;
+
+        if (!_canvas.HasSelection)
+        {
+            _selectionPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var rangeStartDt = CanvasXToDateTime(_canvas.SelectionXMin);
+        var rangeEndDt   = CanvasXToDateTime(_canvas.SelectionXMax);
+        if (rangeStartDt is null || rangeEndDt is null)
+        {
+            _selectionPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var selStart = rangeStartDt.Value < rangeEndDt.Value ? rangeStartDt.Value : rangeEndDt.Value;
+        var selEnd   = rangeStartDt.Value < rangeEndDt.Value ? rangeEndDt.Value   : rangeStartDt.Value;
+
+        var commits = new List<(CommitStatResult Result, string DisplayName)>();
+        if (_cachedRows is not null)
+        {
+            foreach (var row in _cachedRows)
+            {
+                foreach (var (_, dayCommits) in row.CommitsByDay)
+                {
+                    foreach (var commit in dayCommits)
+                    {
+                        var dt = commit.CommitTime ?? commit.TurnStartedAt;
+                        if (dt.HasValue && dt.Value >= selStart && dt.Value <= selEnd)
+                            commits.Add((commit, row.DisplayName));
+                    }
+                }
+            }
+        }
+
+        var times = commits
+            .Select(c => c.Result.CommitTime ?? c.Result.TurnStartedAt)
+            .Where(dt => dt.HasValue)
+            .Select(dt => dt!.Value)
+            .ToList();
+
+        var earliestTime = times.Count > 0 ? (DateTimeOffset?)times.Min() : null;
+        var latestTime   = times.Count > 0 ? (DateTimeOffset?)times.Max() : null;
+        var duration     = earliestTime.HasValue && latestTime.HasValue
+            ? latestTime.Value - earliestTime.Value
+            : TimeSpan.Zero;
+
+        int totalFiles   = commits.Sum(c => c.Result.FilesChanged);
+        int totalAdded   = commits.Sum(c => c.Result.Insertions);
+        int totalRemoved = commits.Sum(c => c.Result.Deletions);
+
+        if (_selectionEarliestValue     is not null)
+            _selectionEarliestValue.Text     = earliestTime.HasValue ? earliestTime.Value.LocalDateTime.ToString("MMM d  h:mm tt") : "—";
+        if (_selectionLatestValue       is not null)
+            _selectionLatestValue.Text       = latestTime.HasValue   ? latestTime.Value.LocalDateTime.ToString("MMM d  h:mm tt")   : "—";
+        if (_selectionDurationValue     is not null)
+            _selectionDurationValue.Text     = times.Count > 1 ? FormatSelectionDuration(duration) : "—";
+        if (_selectionCommitCountValue  is not null)
+            _selectionCommitCountValue.Text  = commits.Count.ToString();
+        if (_selectionFilesValue        is not null)
+            _selectionFilesValue.Text        = totalFiles.ToString("N0");
+        if (_selectionLinesAddedValue   is not null)
+            _selectionLinesAddedValue.Text   = totalAdded.ToString("N0");
+        if (_selectionLinesRemovedValue is not null)
+            _selectionLinesRemovedValue.Text = totalRemoved.ToString("N0");
+
+        if (_selectionCommitListPanel is not null)
+        {
+            _selectionCommitListPanel.Children.Clear();
+            var sorted = commits
+                .OrderBy(c => c.Result.CommitTime ?? c.Result.TurnStartedAt ?? DateTimeOffset.MaxValue)
+                .ToList();
+            foreach (var (commit, displayName) in sorted)
+                _selectionCommitListPanel.Children.Add(BuildSelectionCommitRow(commit, displayName));
+        }
+
+        _selectionPanel.Visibility = Visibility.Visible;
+    }
+
+    private static string FormatSelectionDuration(TimeSpan ts)
+    {
+        if (ts.TotalHours >= 1)
+            return $"{(int)ts.TotalHours}h {ts.Minutes}m";
+        if (ts.TotalMinutes >= 1)
+            return $"{(int)ts.TotalMinutes}m";
+        return $"{(int)ts.TotalSeconds}s";
+    }
+
+    private static FrameworkElement BuildSelectionCommitRow(CommitStatResult commit, string displayName)
+    {
+        const int MaxMsgChars = 50;
+        var sha     = commit.Sha.Length >= 7 ? commit.Sha[..7] : commit.Sha;
+        var msg     = string.IsNullOrWhiteSpace(commit.Message) ? "(no message)" : commit.Message;
+        if (msg.Length > MaxMsgChars) msg = msg[..MaxMsgChars] + "…";
+        var timeStr = commit.CommitTime.HasValue
+            ? commit.CommitTime.Value.LocalDateTime.ToString("h:mm tt")
+            : "—";
+
+        var tb = new TextBlock
+        {
+            FontSize     = 10,
+            Padding      = new Thickness(0, 1, 0, 1),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+
+        var shaRun = new Run(sha + "  ");
+        shaRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+
+        var featureRun = new Run(displayName + "  ");
+        featureRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+
+        var msgRun = new Run(msg + "  ");
+        msgRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+
+        var timeRun = new Run(timeStr);
+        timeRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+
+        tb.Inlines.Add(shaRun);
+        tb.Inlines.Add(featureRun);
+        tb.Inlines.Add(msgRun);
+        tb.Inlines.Add(timeRun);
+        return tb;
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
