@@ -329,7 +329,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (_isSelecting)
             {
                 var pos = e.GetPosition(_canvas);
-                _canvas.SetSelection(_selectionDragStartX, pos.X);
+                var dt1 = CanvasXToDateTime(_selectionDragStartX);
+                var dt2 = CanvasXToDateTime(pos.X);
+                _canvas.SetSelectionWithTimes(_selectionDragStartX, pos.X, dt1, dt2);
             }
             else if (!_isPanMode && !_isPanning)
             {
@@ -434,8 +436,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var minGraphX   = _canvas.SelectionXMin - CommitActivityCanvas.LabelColumnWidth;
         var maxGraphX   = _canvas.SelectionXMax - CommitActivityCanvas.LabelColumnWidth;
-        var startOffset = (int)(minGraphX / ppd);
-        var endOffset   = (int)(maxGraphX / ppd);
+        var startOffset = (int)Math.Floor(minGraphX / ppd);
+        var endOffset   = (int)Math.Ceiling(maxGraphX / ppd);
 
         var newStart = _startDate.AddDays(startOffset);
         var newEnd   = _startDate.AddDays(endOffset);
@@ -446,14 +448,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (newEnd   < _startDate) newEnd   = _startDate;
         if (newEnd   > _endDate)   newEnd   = _endDate;
 
-        // Ensure at least 1 day apart
-        if (newEnd <= newStart)
-        {
-            newEnd = newStart.AddDays(1);
-            if (newEnd > _endDate)    newEnd   = _endDate;
-            if (newStart >= newEnd)   newStart = newEnd.AddDays(-1);
-            if (newStart < _startDate) newStart = _startDate;
-        }
+        if (newEnd < newStart) newEnd = newStart;
 
         _startDate = newStart;
         _endDate   = newEnd;
@@ -464,6 +459,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     }
 
     // ── Theme ─────────────────────────────────────────────────────────────────
+
+    private DateTimeOffset? CanvasXToDateTime(double canvasX)
+    {
+        var ppd = _canvas.PixelsPerDay;
+        if (ppd <= 0) return null;
+        var graphX = canvasX - CommitActivityCanvas.LabelColumnWidth;
+        if (graphX < 0) graphX = 0;
+        var fractionalDays = graphX / ppd;
+        var localBase = new DateTimeOffset(_startDate.ToDateTime(TimeOnly.MinValue), DateTimeOffset.Now.Offset);
+        return localBase.AddDays(fractionalDays);
+    }
 
     public void NotifyThemeChanged(bool isDark)
     {
@@ -1316,8 +1322,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
 
     // ── Selection overlay ──────────────────────────────────────────────────────
-    private double? _selectionStartX;
-    private double? _selectionEndX;
+    private double?         _selectionStartX;
+    private double?         _selectionEndX;
+    private DateTimeOffset? _selectionStartDateTime;
+    private DateTimeOffset? _selectionEndDateTime;
 
     // ── Hover popup ────────────────────────────────────────────────────────────
     private Popup?     _hoverPopup;
@@ -1417,8 +1425,9 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    public void SetSelection(double? x1, double? x2) { _selectionStartX = x1; _selectionEndX = x2; InvalidateVisual(); }
-    public void ClearSelection() { _selectionStartX = null; _selectionEndX = null; InvalidateVisual(); }
+    public void SetSelection(double? x1, double? x2) { _selectionStartX = x1; _selectionEndX = x2; _selectionStartDateTime = null; _selectionEndDateTime = null; InvalidateVisual(); }
+    public void SetSelectionWithTimes(double? x1, double? x2, DateTimeOffset? dt1, DateTimeOffset? dt2) { _selectionStartX = x1; _selectionEndX = x2; _selectionStartDateTime = dt1; _selectionEndDateTime = dt2; InvalidateVisual(); }
+    public void ClearSelection() { _selectionStartX = null; _selectionEndX = null; _selectionStartDateTime = null; _selectionEndDateTime = null; InvalidateVisual(); }
     public bool   HasSelection   => _selectionStartX.HasValue && _selectionEndX.HasValue;
     public double SelectionXMin  => Math.Min(_selectionStartX!.Value, _selectionEndX!.Value);
     public double SelectionXMax  => Math.Max(_selectionStartX!.Value, _selectionEndX!.Value);
@@ -1584,6 +1593,45 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 new Rect(selXMin, -VerticalPadding, selXMax - selXMin, graphHeight + VerticalPadding));
             dc.DrawLine(linePen, new Point(selXMin, -VerticalPadding), new Point(selXMin, graphHeight));
             dc.DrawLine(linePen, new Point(selXMax, -VerticalPadding), new Point(selXMax, graphHeight));
+
+            // ── DateTime labels above selection boundaries ────────────────────
+            if (_selectionStartDateTime.HasValue || _selectionEndDateTime.HasValue)
+            {
+                const double labelY = -VerticalPadding + 2;
+                var startIsMin = (_selectionStartX ?? 0) <= (_selectionEndX ?? 0);
+                var minDt = startIsMin ? _selectionStartDateTime : _selectionEndDateTime;
+                var maxDt = startIsMin ? _selectionEndDateTime   : _selectionStartDateTime;
+
+                if (selXMax - selXMin < 80)
+                {
+                    // Lines are close — show one merged label at the midpoint
+                    var dt = minDt ?? maxDt;
+                    if (dt.HasValue)
+                    {
+                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var lx = (selXMin + selXMax) / 2.0 - ft.Width / 2.0;
+                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
+                        dc.DrawText(ft, new Point(lx, labelY));
+                    }
+                }
+                else
+                {
+                    if (minDt.HasValue)
+                    {
+                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var lx = selXMin - ft.Width / 2.0;
+                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
+                        dc.DrawText(ft, new Point(lx, labelY));
+                    }
+                    if (maxDt.HasValue)
+                    {
+                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var lx = selXMax - ft.Width / 2.0;
+                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
+                        dc.DrawText(ft, new Point(lx, labelY));
+                    }
+                }
+            }
         }
 
         for (int i = 0; i < _rows.Count; i++)
