@@ -116,6 +116,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private string                         _spinnerBaseText  = string.Empty;
     private static readonly string[]       SpinnerFrames     = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
     private Action<IReadOnlyList<(string Sha, string Group)>>? _onCategoriesAssigned;
+    private Action<IReadOnlyList<(string Source, string Target)>>? _onCategoriesMerged;
     private readonly Func<IReadOnlyList<string>>? _getFeatureGroups;
 
     public CommitActivityGraphWindow(
@@ -126,7 +127,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         IWorkspacePaths?                workspacePaths      = null,
         string?                         workspaceStateDirectory = null,
         Func<IReadOnlyList<string>>?    getFeatureGroups    = null,
-        Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null)
+        Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null,
+        Action<IReadOnlyList<(string Source, string Target)>>? onCategoriesMerged = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
     {
         _statService         = statService ?? throw new ArgumentNullException(nameof(statService));
@@ -134,6 +136,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _isDark              = isDark;
         _workspaceFolderPath = workspaceFolderPath;
         _onCategoriesAssigned = onCategoriesAssigned;
+        _onCategoriesMerged   = onCategoriesMerged;
         _getFeatureGroups     = getFeatureGroups;
         if (workspacePaths is not null)
         {
@@ -495,7 +498,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 _allItems[i] = _allItems[i] with { FeatureGroup = targetGroup };
         }
 
-        // Update the category cache
+        // Update the category cache locally so the canvas reflects the change immediately
         if (_categoryCache is not null)
         {
             bool changed = false;
@@ -509,12 +512,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 _categoryCache.Save();
         }
 
-        // Notify the host so Approvals panel and canonical category list update
-        var reassigned = _allItems
-            .Where(i => string.Equals(i.FeatureGroup, targetGroup, StringComparison.OrdinalIgnoreCase))
-            .Select(i => (i.CommitSha, targetGroup))
-            .ToList();
-        _onCategoriesAssigned?.Invoke(reassigned);
+        // Notify the host via the full merge path so it updates Approvals, the
+        // canonical category list (used in AI prompts), and the commit cache.
+        _onCategoriesMerged?.Invoke([(sourceGroup, targetGroup)]);
 
         StartLoadingData();
     }
