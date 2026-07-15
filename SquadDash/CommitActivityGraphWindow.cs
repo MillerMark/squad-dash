@@ -211,6 +211,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         foreach (var btn in CreateQuickRangeButtons())
             controlsBar.Children.Add(btn);
 
+        var zoomOutBtn = CreateZoomOutButton();
+        controlsBar.Children.Add(zoomOutBtn);
+
         if (_categorizationService is not null)
         {
             _categorizeButton = new Button
@@ -893,6 +896,42 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             };
             yield return btn;
         }
+    }
+
+    private Button CreateZoomOutButton()
+    {
+        var btn = new Button
+        {
+            Content = "Zoom Out",
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin  = new Thickness(12, 0, 0, 0),
+            ToolTip = "Expand the date range by 50% on each side.",
+        };
+        btn.SetResourceReference(Button.StyleProperty,    "ThemedButtonStyle");
+        btn.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
+        WindowChrome.SetIsHitTestVisibleInChrome(btn, true);
+        btn.Click += (_, _) => ZoomOut();
+        return btn;
+    }
+
+    private void ZoomOut()
+    {
+        int currentDays = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
+        int expand      = (int)Math.Round(currentDays * 0.5);
+
+        var today       = DateOnly.FromDateTime(DateTime.Today);
+        var oldestDate  = today.AddDays(-365);
+
+        int newStartDay = Math.Max(_startDate.DayNumber - expand, oldestDate.DayNumber);
+        int newEndDay   = Math.Min(_endDate.DayNumber   + expand, today.DayNumber);
+
+        _startDate = DateOnly.FromDayNumber(newStartDay);
+        _endDate   = DateOnly.FromDayNumber(newEndDay);
+        _startTime = TimeOnly.MinValue;
+        _endTime   = new TimeOnly(23, 59);
+        _rangeSlider.SetRange(_startDate, _endDate);
+        _debounceTimer.Stop();
+        _debounceTimer.Start();
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
