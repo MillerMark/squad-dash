@@ -2084,8 +2084,32 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     public void SetSelectionWithTimes(double? x1, double? x2, DateTimeOffset? dt1, DateTimeOffset? dt2) { _selectionStartX = x1; _selectionEndX = x2; _selectionStartDateTime = dt1; _selectionEndDateTime = dt2; InvalidateVisual(); }
     public void ClearSelection() { _selectionStartX = null; _selectionEndX = null; _selectionStartDateTime = null; _selectionEndDateTime = null; InvalidateVisual(); }
     public bool   HasSelection   => _selectionStartX.HasValue && _selectionEndX.HasValue;
-    public double SelectionXMin  => Math.Min(_selectionStartX!.Value, _selectionEndX!.Value);
-    public double SelectionXMax  => Math.Max(_selectionStartX!.Value, _selectionEndX!.Value);
+    public double SelectionXMin
+    {
+        get
+        {
+            if (_selectionStartDateTime.HasValue && _selectionEndDateTime.HasValue)
+            {
+                var x1 = LabelColumnWidth + DateTimeToX(_selectionStartDateTime.Value);
+                var x2 = LabelColumnWidth + DateTimeToX(_selectionEndDateTime.Value);
+                return Math.Min(x1, x2);
+            }
+            return Math.Min(_selectionStartX!.Value, _selectionEndX!.Value);
+        }
+    }
+    public double SelectionXMax
+    {
+        get
+        {
+            if (_selectionStartDateTime.HasValue && _selectionEndDateTime.HasValue)
+            {
+                var x1 = LabelColumnWidth + DateTimeToX(_selectionStartDateTime.Value);
+                var x2 = LabelColumnWidth + DateTimeToX(_selectionEndDateTime.Value);
+                return Math.Max(x1, x2);
+            }
+            return Math.Max(_selectionStartX!.Value, _selectionEndX!.Value);
+        }
+    }
     public double PixelsPerDay   => _effectivePixelsPerDay;
 
     // ── Row selection public API ────────────────────────────────────────────────
