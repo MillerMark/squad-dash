@@ -1468,9 +1468,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         _effectivePixelsPerDay = canvasWidth > 0 ? canvasWidth / _dayCount : FallbackPixelsPerDay;
 
         var palette     = _isDark ? CommitActivityGraphWindow.DarkPalette : CommitActivityGraphWindow.LightPalette;
-        var textBrush   = TryFindBrush("LabelText")   ?? Brushes.Black;
-        var subtleBrush = TryFindBrush("SubtleText")  ?? Brushes.Gray;
-        var borderBrush = TryFindBrush("PanelBorder") ?? Brushes.LightGray;
+        var textBrush          = TryFindBrush("LabelText")     ?? Brushes.Black;
+        var subtleBrush        = TryFindBrush("SubtleText")    ?? Brushes.Gray;
+        var importantTextBrush = TryFindBrush("ImportantText") ?? Brushes.White;
+        var borderBrush        = TryFindBrush("PanelBorder")   ?? Brushes.LightGray;
 
         // Background
         dc.DrawRectangle(
@@ -1587,12 +1588,16 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var selXMin     = SelectionXMin;
             var selXMax     = SelectionXMax;
             var graphHeight = _rows.Count * RowHeight;
+            // Leave a gap at the top so the datetime labels sit above the selection fill.
+            const double LabelAreaHeight = 20.0;
+            var selectionTop = -VerticalPadding + LabelAreaHeight;
+            var selectionH   = graphHeight + VerticalPadding - LabelAreaHeight;
             var fillBrush   = new SolidColorBrush(Color.FromArgb(128, 0x29, 0x96, 0xFF));
             var linePen     = new Pen(new SolidColorBrush(Color.FromArgb(255, 0x29, 0x96, 0xFF)), 1.5);
             dc.DrawRectangle(fillBrush, null,
-                new Rect(selXMin, -VerticalPadding, selXMax - selXMin, graphHeight + VerticalPadding));
-            dc.DrawLine(linePen, new Point(selXMin, -VerticalPadding), new Point(selXMin, graphHeight));
-            dc.DrawLine(linePen, new Point(selXMax, -VerticalPadding), new Point(selXMax, graphHeight));
+                new Rect(selXMin, selectionTop, selXMax - selXMin, selectionH));
+            dc.DrawLine(linePen, new Point(selXMin, selectionTop), new Point(selXMin, graphHeight));
+            dc.DrawLine(linePen, new Point(selXMax, selectionTop), new Point(selXMax, graphHeight));
 
             // ── DateTime labels above selection boundaries ────────────────────
             if (_selectionStartDateTime.HasValue || _selectionEndDateTime.HasValue)
@@ -1608,7 +1613,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                     var dt = minDt ?? maxDt;
                     if (dt.HasValue)
                     {
-                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
                         var lx = (selXMin + selXMax) / 2.0 - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
@@ -1618,14 +1623,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 {
                     if (minDt.HasValue)
                     {
-                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
                         var lx = selXMin - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
                     }
                     if (maxDt.HasValue)
                     {
-                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), subtleBrush, 9.5);
+                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
                         var lx = selXMax - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
