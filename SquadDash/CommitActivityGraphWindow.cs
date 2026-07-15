@@ -91,15 +91,18 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private double _selectionDragStartX;
 
     // ── Selection analysis panel ───────────────────────────────────────────────
-    private Border?     _selectionPanel;
-    private TextBlock?  _selectionEarliestValue;
-    private TextBlock?  _selectionLatestValue;
-    private TextBlock?  _selectionDurationValue;
-    private TextBlock?  _selectionCommitCountValue;
-    private TextBlock?  _selectionFilesValue;
-    private TextBlock?  _selectionLinesAddedValue;
-    private TextBlock?  _selectionLinesRemovedValue;
-    private StackPanel? _selectionCommitListPanel;
+    private Border?         _selectionPanel;
+    private GridSplitter?   _selectionSplitter;
+    private RowDefinition?  _selectionPanelRow;
+    private TextBlock?      _selectionEarliestValue;
+    private TextBlock?      _selectionLatestValue;
+    private TextBlock?      _selectionDurationValue;
+    private TextBlock?      _selectionCommitCountValue;
+    private TextBlock?      _selectionFilesValue;
+    private TextBlock?      _selectionLinesAddedValue;
+    private TextBlock?      _selectionLinesRemovedValue;
+    private TextBlock?      _selectionAiTimeValue;
+    private StackPanel?     _selectionCommitListPanel;
 
     // ── AI categorization ─────────────────────────────────────────────────────
     private SquadSdkCategorizationService? _categorizationService;
@@ -248,15 +251,34 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var filterWidget = BuildFeatureFilterWidget();
 
         // ── Main layout ───────────────────────────────────────────────────────
+        _selectionSplitter = new GridSplitter
+        {
+            Height              = 5,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment   = VerticalAlignment.Center,
+            ResizeDirection     = GridResizeDirection.Rows,
+            ResizeBehavior      = GridResizeBehavior.PreviousAndNext,
+            Visibility          = Visibility.Collapsed,
+            Cursor              = Cursors.SizeNS,
+        };
+        _selectionSplitter.SetResourceReference(GridSplitter.BackgroundProperty, "PanelBorder");
+        WindowChrome.SetIsHitTestVisibleInChrome(_selectionSplitter, true);
+
+        _selectionPanelRow        = new RowDefinition { MinHeight = 80 };
+        _selectionPanelRow.Height = new GridLength(180);
+
         var canvasGrid = new Grid();
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(filterWidget,    0);
-        Grid.SetRow(_scrollViewer,   1);
-        Grid.SetRow(_selectionPanel, 2);
+        canvasGrid.RowDefinitions.Add(_selectionPanelRow);
+        Grid.SetRow(filterWidget,       0);
+        Grid.SetRow(_scrollViewer,      1);
+        Grid.SetRow(_selectionSplitter, 2);
+        Grid.SetRow(_selectionPanel,    3);
         canvasGrid.Children.Add(filterWidget);
         canvasGrid.Children.Add(_scrollViewer);
+        canvasGrid.Children.Add(_selectionSplitter);
         canvasGrid.Children.Add(_selectionPanel);
 
         var layout = new DockPanel { LastChildFill = true };
@@ -538,6 +560,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _selectionLinesAddedValue   = MakeStatValueBlock();
         _selectionLinesRemovedValue = MakeStatValueBlock();
 
+        var aiTimeValue = MakeStatValueBlock();
+        _selectionAiTimeValue = aiTimeValue;
+
         var statsWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 4, 0) };
         statsWrap.Children.Add(MakeStatChip("🕐 Earliest",      _selectionEarliestValue));
         statsWrap.Children.Add(MakeStatChip("🕐 Latest",        _selectionLatestValue));
@@ -546,6 +571,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         statsWrap.Children.Add(MakeStatChip("📝 Files",         _selectionFilesValue));
         statsWrap.Children.Add(MakeStatChip("＋ Lines added",   _selectionLinesAddedValue));
         statsWrap.Children.Add(MakeStatChip("－ Lines removed", _selectionLinesRemovedValue));
+        statsWrap.Children.Add(MakeStatChip("🤖 Est. AI time",  aiTimeValue));
 
         var statsScroller = new ScrollViewer
         {
@@ -580,7 +606,6 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var panel = new Border
         {
-            Height          = 180,
             BorderThickness = new Thickness(0, 1, 0, 0),
             Child           = innerGrid,
         };
@@ -624,7 +649,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         if (!_canvas.HasSelection)
         {
-            _selectionPanel.Visibility = Visibility.Collapsed;
+            _selectionPanel.Visibility   = Visibility.Collapsed;
+            _selectionSplitter!.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -632,26 +658,45 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var rangeEndDt   = CanvasXToDateTime(_canvas.SelectionXMax);
         if (rangeStartDt is null || rangeEndDt is null)
         {
-            _selectionPanel.Visibility = Visibility.Collapsed;
+            _selectionPanel.Visibility   = Visibility.Collapsed;
+            _selectionSplitter!.Visibility = Visibility.Collapsed;
             return;
         }
 
         var selStart = rangeStartDt.Value < rangeEndDt.Value ? rangeStartDt.Value : rangeEndDt.Value;
         var selEnd   = rangeStartDt.Value < rangeEndDt.Value ? rangeEndDt.Value   : rangeStartDt.Value;
 
-        var commits = new List<(CommitStatResult Result, string DisplayName)>();
-        if (_cachedRows is not null)
+        // Determine which rows to analyse based on selection/filter scope
+        IEnumerable<CommitActivityRow> analysisRows;
+        var selectedIndices = _canvas.SelectedRowIndices;
+        if (selectedIndices.Count > 0)
         {
-            foreach (var row in _cachedRows)
+            var selectedNames = selectedIndices
+                .Select(i => _canvas.GetRowDisplayName(i))
+                .Where(n => n is not null)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            analysisRows = _cachedRows?.Where(r => selectedNames.Contains(r.DisplayName)) ?? [];
+        }
+        else if (_featureFilters.Length > 0)
+        {
+            analysisRows = _cachedRows?.Where(r =>
+                _featureFilters.Any(f => r.DisplayName.Contains(f, StringComparison.OrdinalIgnoreCase))) ?? [];
+        }
+        else
+        {
+            analysisRows = _cachedRows ?? [];
+        }
+
+        var commits = new List<(CommitStatResult Result, string DisplayName)>();
+        foreach (var row in analysisRows)
+        {
+            foreach (var (_, dayCommits) in row.CommitsByDay)
             {
-                foreach (var (_, dayCommits) in row.CommitsByDay)
+                foreach (var commit in dayCommits)
                 {
-                    foreach (var commit in dayCommits)
-                    {
-                        var dt = commit.CommitTime ?? commit.TurnStartedAt;
-                        if (dt.HasValue && dt.Value >= selStart && dt.Value <= selEnd)
-                            commits.Add((commit, row.DisplayName));
-                    }
+                    var dt = commit.CommitTime ?? commit.TurnStartedAt;
+                    if (dt.HasValue && dt.Value >= selStart && dt.Value <= selEnd)
+                        commits.Add((commit, row.DisplayName));
                 }
             }
         }
@@ -672,6 +717,11 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         int totalAdded   = commits.Sum(c => c.Result.Insertions);
         int totalRemoved = commits.Sum(c => c.Result.Deletions);
 
+        var totalAiTime = commits
+            .Select(c => c.Result)
+            .Where(r => r.CommitTime.HasValue && r.TurnStartedAt.HasValue && r.CommitTime > r.TurnStartedAt)
+            .Aggregate(TimeSpan.Zero, (acc, r) => acc + (r.CommitTime!.Value - r.TurnStartedAt!.Value));
+
         if (_selectionEarliestValue     is not null)
             _selectionEarliestValue.Text     = earliestTime.HasValue ? earliestTime.Value.LocalDateTime.ToString("MMM d  h:mm tt") : "—";
         if (_selectionLatestValue       is not null)
@@ -686,6 +736,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             _selectionLinesAddedValue.Text   = totalAdded.ToString("N0");
         if (_selectionLinesRemovedValue is not null)
             _selectionLinesRemovedValue.Text = totalRemoved.ToString("N0");
+        if (_selectionAiTimeValue is not null)
+            _selectionAiTimeValue.Text = totalAiTime > TimeSpan.Zero ? FormatSelectionDuration(totalAiTime) : "—";
 
         if (_selectionCommitListPanel is not null)
         {
@@ -697,7 +749,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 _selectionCommitListPanel.Children.Add(BuildSelectionCommitRow(commit, displayName));
         }
 
-        _selectionPanel.Visibility = Visibility.Visible;
+        _selectionPanel.Visibility   = Visibility.Visible;
+        _selectionSplitter!.Visibility = Visibility.Visible;
     }
 
     private static string FormatSelectionDuration(TimeSpan ts)
