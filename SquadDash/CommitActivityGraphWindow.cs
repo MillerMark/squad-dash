@@ -552,7 +552,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             })
             .ToList();
 
-        var rows     = BuildFeatureRows(filteredItems, hasWorkspace: _workspaceFolderPath is not null);
+        // Build rows from ALL items so every known feature group always has a row,
+        // even when its TurnStartedAt falls outside the current date window.
+        // The date filter only controls which commit requests (and git-log range) are queried.
+        var rows     = BuildFeatureRows(_allItems, hasWorkspace: _workspaceFolderPath is not null);
         var requests = BuildRequests(filteredItems);
 
         var pendingShas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
