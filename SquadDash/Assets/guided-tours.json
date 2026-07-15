@@ -80,7 +80,7 @@
         "targetOffsetY": 0.27675198235539844
       },
       {
-        "title": "Tooling 1",
+        "title": "Tooling",
         "markdownText": "**Tool calls** show what\u0027s happening while agents work.",
         "targetControlId": "TourInjectedToolingBlock",
         "calloutPlacement": "North",
@@ -97,8 +97,8 @@
         "targetOffsetY": 0.05499999999999917
       },
       {
-        "title": "Tooling 2",
-        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a file change. \r\nOn the right you can see the count of lines added (**\u002B1**) or removed (**-1**).\r\nHover over edits to see diffs.",
+        "title": "Edits and Diffs",
+        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a file change. \r\nOn the right you can see the count of lines added (**\u002B1**) or removed (**-1**).\r\nHover over file edits to see before/after diffs.",
         "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -111,22 +111,8 @@
         "targetOffsetY": 0.47807692307692223
       },
       {
-        "title": "File edit",
-        "markdownText": "![24:edit](res:ToolIcon_edit) A **file edit** call shows the changed file.\r\nHover over it to see a before/after diff.",
-        "targetControlId": "TourInjectedLastToolEntry_edit",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "Quick reply buttons",
-        "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\nTip: **keyboard users** press \u0022**[**\u0022 in an empty prompt for quick reply intellisense.",
+        "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\n**Tip for keyboard users**: press \u0022**[**\u0022 in an empty prompt for **quick reply** intellisense.",
         "targetControlId": "TourQuickReplyPanel",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -176,7 +162,7 @@
       },
       {
         "title": "Transcripts in parallel.",
-        "markdownText": "And all **active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript.",
+        "markdownText": "And all **active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript (to the left).",
         "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
         "calloutPlacement": "Auto",
         "preAction": "None",
