@@ -211,6 +211,50 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
     }
 
     [Test]
+    public void Load_PrefersNewerSmallerSnapshotOverOlderLargerSnapshot() {
+        using var workspace = new TestWorkspace();
+        var root = workspace.GetPath("state");
+        var store = new WorkspaceConversationStore(root);
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        var workspaceDirectory = store.GetWorkspaceStateDirectory(repo);
+        Directory.CreateDirectory(workspaceDirectory);
+        var oldReplaceTempPath = Path.Combine(workspaceDirectory, "conversation.json~RF-old.TMP");
+        var newReplaceTempPath = Path.Combine(workspaceDirectory, "conversation.json~RF-new.TMP");
+        var now = DateTimeOffset.UtcNow;
+
+        var olderLarger = CreateCrashRecoveryState(
+            "session-old",
+            turnCount: 8,
+            threadCount: 3,
+            activityAt: now.AddDays(-1));
+        var newerSmaller = CreateCrashRecoveryState(
+            "session-new",
+            turnCount: 2,
+            threadCount: 1,
+            activityAt: now) with {
+                QueuedPromptEntries = [new QueuedPromptEntry("recover this queued prompt", true)],
+                QueueLastChangedAt = now
+            };
+
+        File.WriteAllText(oldReplaceTempPath, JsonSerializer.Serialize(olderLarger));
+        File.WriteAllText(newReplaceTempPath, JsonSerializer.Serialize(newerSmaller));
+        File.SetLastWriteTimeUtc(oldReplaceTempPath, now.AddMinutes(-1).UtcDateTime);
+        File.SetLastWriteTimeUtc(newReplaceTempPath, now.UtcDateTime);
+
+        var loaded = store.Load(repo);
+
+        Assert.Multiple(() => {
+            Assert.That(loaded.SessionId, Is.EqualTo("session-new"));
+            Assert.That(loaded.Turns, Has.Count.EqualTo(2));
+            Assert.That(loaded.GetThreads(), Has.Count.EqualTo(1));
+            Assert.That(loaded.QueuedPromptEntries, Has.Count.EqualTo(1));
+            Assert.That(loaded.QueuedPromptEntries![0].Text, Is.EqualTo("recover this queued prompt"));
+        });
+    }
+
+    [Test]
     public void Save_BlocksEmptyOverwriteUsingAtomicReplaceTempRecoveryCandidate() {
         using var workspace = new TestWorkspace();
         var root = workspace.GetPath("state");
@@ -325,8 +369,9 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
     private static WorkspaceConversationState CreateCrashRecoveryState(
         string sessionId,
         int turnCount,
-        int threadCount) {
-        var now = DateTimeOffset.UtcNow;
+        int threadCount,
+        DateTimeOffset? activityAt = null) {
+        var now = activityAt ?? DateTimeOffset.UtcNow;
         var turns = Enumerable.Range(0, turnCount)
             .Select(index => new TranscriptTurnRecord(
                 now.AddMinutes(-10 + index),

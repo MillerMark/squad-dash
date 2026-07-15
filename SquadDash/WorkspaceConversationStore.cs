@@ -113,6 +113,7 @@ internal sealed class WorkspaceConversationStore {
         string Path,
         WorkspaceConversationState State,
         int Score,
+        DateTimeOffset? StateActivityAt,
         DateTime LastWriteUtc);
 
     public string GetSessionConfigDirectory(string workspaceFolder) {
@@ -200,15 +201,59 @@ internal sealed class WorkspaceConversationStore {
                 candidatePath,
                 normalized,
                 RecoveryContentScore(normalized),
+                GetRecoveryStateActivityAt(normalized),
                 File.GetLastWriteTimeUtc(candidatePath));
 
-            if (candidate is null ||
-                next.Score > candidate.Score ||
-                next.Score == candidate.Score && next.LastWriteUtc > candidate.LastWriteUtc)
+            if (candidate is null || IsPreferredRecoveryCandidate(next, candidate))
                 candidate = next;
         }
 
         return candidate is not null;
+    }
+
+    private static bool IsPreferredRecoveryCandidate(
+        ConversationRecoveryCandidate candidate,
+        ConversationRecoveryCandidate current) {
+        if (candidate.StateActivityAt is not null || current.StateActivityAt is not null) {
+            if (candidate.StateActivityAt is null)
+                return false;
+            if (current.StateActivityAt is null)
+                return true;
+            if (candidate.StateActivityAt != current.StateActivityAt)
+                return candidate.StateActivityAt > current.StateActivityAt;
+        }
+
+        if (candidate.LastWriteUtc != current.LastWriteUtc)
+            return candidate.LastWriteUtc > current.LastWriteUtc;
+
+        return candidate.Score > current.Score;
+    }
+
+    private static DateTimeOffset? GetRecoveryStateActivityAt(WorkspaceConversationState state) {
+        DateTimeOffset? latest = null;
+
+        Consider(state.SessionUpdatedAt);
+        Consider(state.QueueLastChangedAt);
+        Consider(state.ClearedAt);
+
+        foreach (var turn in state.Turns) {
+            Consider(turn.Timestamp);
+            Consider(turn.SessionBoundaryStartupTime);
+            Consider(turn.SessionBoundaryShutdownTime);
+        }
+
+        foreach (var thread in state.GetThreads()) {
+            Consider(thread.CompletedAt ?? thread.StartedAt);
+            foreach (var turn in thread.Turns)
+                Consider(turn.Timestamp);
+        }
+
+        return latest;
+
+        void Consider(DateTimeOffset? value) {
+            if (value is not null && (latest is null || value > latest))
+                latest = value.Value.ToUniversalTime();
+        }
     }
 
     private static IEnumerable<string> EnumerateRecoveryCandidatePaths(string primaryPath) {
