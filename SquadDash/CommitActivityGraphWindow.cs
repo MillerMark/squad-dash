@@ -156,6 +156,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         // ── Canvas / scroll area ──────────────────────────────────────────────
         _canvas = new CommitActivityCanvas();
+        _canvas.RowSelectionChanged += (_, _) => UpdateSelectionPanel();
 
         var canvasWrapper = new Border
         {
@@ -294,6 +295,21 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             {
                 _canvas.ClearSelection();
                 UpdateSelectionPanel();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape && _canvas.SelectedRowIndices.Count > 0)
+            {
+                _canvas.ClearRowSelection();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter && _canvas.SelectedRowIndices.Count > 0 && !_canvas.HasSelection)
+            {
+                var names = _canvas.SelectedRowIndices
+                    .Select(idx => _canvas.GetRowDisplayName(idx))
+                    .Where(n => !string.IsNullOrEmpty(n));
+                if (_featureFilterBox is not null)
+                    _featureFilterBox.Text = string.Join(";", names);
+                _canvas.ClearRowSelection();
                 e.Handled = true;
             }
             else if (e.Key == Key.Enter && _canvas.HasSelection)
@@ -1100,7 +1116,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _featureFilterClear.Background = Brushes.Transparent;
         _featureFilterClear.SetResourceReference(Button.FontSizeProperty,   "FontSizeBody");
         WindowChrome.SetIsHitTestVisibleInChrome(_featureFilterClear, true);
-        _featureFilterClear.Click += (_, _) => _featureFilterBox.Text = "";
+        _featureFilterClear.Click += (_, _) => { _featureFilterBox.Text = ""; _canvas.ClearRowSelection(); };
 
         var container = new StackPanel
         {
@@ -1707,6 +1723,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private DateTimeOffset? _selectionStartDateTime;
     private DateTimeOffset? _selectionEndDateTime;
 
+    // ── Row (label-column) multi-select ────────────────────────────────────────
+    private HashSet<int> _selectedRowIndices = new();
+    private int          _anchorRowIndex     = -1;
+    private int          _focusRowIndex      = -1;
+
     // ── Hover popup ────────────────────────────────────────────────────────────
     private Popup?     _hoverPopup;
     private TextBlock? _hoverContent;
@@ -1781,6 +1802,74 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         if (_hoverPopup is not null) _hoverPopup.IsOpen = false;
     }
 
+    protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
+    {
+        base.OnMouseLeftButtonDown(e);
+        var pt = e.GetPosition(this);
+
+        if (pt.X < LabelColumnWidth)
+        {
+            var rowY     = pt.Y - VerticalPadding;
+            var rowIndex = (int)(rowY / RowHeight);
+
+            if (rowY < 0 || rowIndex < 0 || rowIndex >= _rows.Count)
+            {
+                _selectedRowIndices.Clear();
+                _anchorRowIndex = -1;
+                _focusRowIndex  = -1;
+                InvalidateVisual();
+                RowSelectionChanged?.Invoke(this, EventArgs.Empty);
+                e.Handled = true;
+                return;
+            }
+
+            var ctrl  = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
+            var shift = (Keyboard.Modifiers & ModifierKeys.Shift)   != 0;
+
+            if (ctrl && shift)
+            {
+                if (_anchorRowIndex < 0) _anchorRowIndex = rowIndex;
+                int lo = Math.Min(_anchorRowIndex, rowIndex);
+                int hi = Math.Max(_anchorRowIndex, rowIndex);
+                for (int r = lo; r <= hi; r++)
+                    _selectedRowIndices.Remove(r);
+                _focusRowIndex = rowIndex;
+            }
+            else if (shift)
+            {
+                if (_anchorRowIndex < 0) _anchorRowIndex = rowIndex;
+                int lo = Math.Min(_anchorRowIndex, rowIndex);
+                int hi = Math.Max(_anchorRowIndex, rowIndex);
+                for (int r = lo; r <= hi; r++)
+                    _selectedRowIndices.Add(r);
+                _focusRowIndex = rowIndex;
+            }
+            else if (ctrl)
+            {
+                if (_selectedRowIndices.Contains(rowIndex))
+                {
+                    _selectedRowIndices.Remove(rowIndex);
+                }
+                else
+                {
+                    _selectedRowIndices.Add(rowIndex);
+                    _anchorRowIndex = rowIndex;
+                }
+                _focusRowIndex = rowIndex;
+            }
+            else
+            {
+                _selectedRowIndices = [rowIndex];
+                _anchorRowIndex = rowIndex;
+                _focusRowIndex  = rowIndex;
+            }
+
+            InvalidateVisual();
+            RowSelectionChanged?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+    }
+
     // ── Public API ─────────────────────────────────────────────────────────────
 
     public void SetData(
@@ -1814,6 +1903,19 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     public double SelectionXMin  => Math.Min(_selectionStartX!.Value, _selectionEndX!.Value);
     public double SelectionXMax  => Math.Max(_selectionStartX!.Value, _selectionEndX!.Value);
     public double PixelsPerDay   => _effectivePixelsPerDay;
+
+    // ── Row selection public API ────────────────────────────────────────────────
+    public event EventHandler? RowSelectionChanged;
+    public IReadOnlySet<int> SelectedRowIndices => _selectedRowIndices;
+    public void ClearRowSelection()
+    {
+        _selectedRowIndices.Clear();
+        _anchorRowIndex = -1;
+        _focusRowIndex  = -1;
+        InvalidateVisual();
+    }
+    public string? GetRowDisplayName(int index) =>
+        index >= 0 && index < _rows.Count ? _rows[index].DisplayName : null;
 
     // ── Measure / Arrange ──────────────────────────────────────────────────────
 
@@ -1882,6 +1984,33 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             {
                 var sepPen = new Pen(borderBrush, 0.5) { DashStyle = DashStyles.Dot };
                 dc.DrawLine(sepPen, new Point(0, i * RowHeight), new Point(ActualWidth, i * RowHeight));
+            }
+
+            // Selection background
+            if (_selectedRowIndices.Contains(i))
+            {
+                var selBrush = TryFindBrush("DocEditorSelectionBrush");
+                if (selBrush is SolidColorBrush scbSel)
+                {
+                    var halfOpacity = new SolidColorBrush(Color.FromArgb(128, scbSel.Color.R, scbSel.Color.G, scbSel.Color.B));
+                    dc.DrawRectangle(halfOpacity, null, new Rect(0, i * RowHeight, LabelColumnWidth, RowHeight));
+                }
+                else
+                {
+                    dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(128, 0x29, 0x96, 0xFF)), null,
+                        new Rect(0, i * RowHeight, LabelColumnWidth, RowHeight));
+                }
+            }
+
+            // Focus dotted border (last-clicked row)
+            if (i == _focusRowIndex && _selectedRowIndices.Count > 0)
+            {
+                var focusColor = _isDark ? Color.FromArgb(64, 255, 255, 255) : Color.FromArgb(64, 0, 0, 0);
+                var focusPen = new Pen(new SolidColorBrush(focusColor), 1.0)
+                {
+                    DashStyle = new DashStyle(new double[] { 3, 3 }, 0)
+                };
+                dc.DrawRectangle(null, focusPen, new Rect(1, i * RowHeight + 1, LabelColumnWidth - 2, RowHeight - 2));
             }
 
             var labelFt = MakeText(row.DisplayName, textBrush, 12);
@@ -2054,7 +2183,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var color = palette[row.ColorIndex % 7];
 
             // ── Full-width guide line (always drawn) ──────────────────────────
-            var guideColor = Color.FromArgb(128, color.R, color.G, color.B);
+            byte guideAlpha = _selectedRowIndices.Contains(i) ? (byte)255 : (byte)128;
+            var guideColor = Color.FromArgb(guideAlpha, color.R, color.G, color.B);
             dc.DrawLine(new Pen(new SolidColorBrush(guideColor), 1.0),
                 new Point(LabelColumnWidth, cy),
                 new Point(ActualWidth, cy));
