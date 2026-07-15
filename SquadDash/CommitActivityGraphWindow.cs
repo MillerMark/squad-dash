@@ -1393,7 +1393,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (_categoryCache is null) return;
         for (int i = 0; i < items.Count; i++)
         {
-            if (items[i].FeatureGroup is not null) continue;
+            // Cache always wins: it holds the user's intentional (merged/AI) assignments
+            // and must override the host-supplied group on every reload.
             if (_categoryCache.TryGetGroup(items[i].CommitSha, out var group) && group is not null)
                 items[i] = items[i] with { FeatureGroup = group };
         }
