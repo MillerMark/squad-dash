@@ -2363,7 +2363,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
                 double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
                 if (Math.Abs(tp3x - tp2x) < minDangleBase) {
-                    double tipX = Math.Clamp(trianglePoint1.X, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
+                    double xMin = cbLeft + minDangleBase / 2;
+                    double xMax = cbRight - minDangleBase / 2;
+                    double tipX = xMin <= xMax
+                        ? Math.Clamp(trianglePoint1.X, xMin, xMax)
+                        : (cbLeft + cbRight) / 2;
                     tp2x = tipX - minDangleBase / 2;
                     tp3x = tipX + minDangleBase / 2;
                 }
@@ -2375,7 +2379,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2x = Math.Clamp(trianglePoint2.X, cbLeft, cbRight);
                 double tp3x = Math.Clamp(trianglePoint3.X, cbLeft, cbRight);
                 if (Math.Abs(tp3x - tp2x) < minDangleBase) {
-                    double tipX = Math.Clamp(trianglePoint1.X, cbLeft + minDangleBase / 2, cbRight - minDangleBase / 2);
+                    double xMin = cbLeft + minDangleBase / 2;
+                    double xMax = cbRight - minDangleBase / 2;
+                    double tipX = xMin <= xMax
+                        ? Math.Clamp(trianglePoint1.X, xMin, xMax)
+                        : (cbLeft + cbRight) / 2;
                     tp2x = tipX - minDangleBase / 2;
                     tp3x = tipX + minDangleBase / 2;
                 }
@@ -2387,7 +2395,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
                 double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
                 if (Math.Abs(tp3y - tp2y) < minDangleBase) {
-                    double tipY = Math.Clamp(trianglePoint1.Y, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
+                    double yMin = cbTop + minDangleBase / 2;
+                    double yMax = cbBottom - minDangleBase / 2;
+                    double tipY = yMin <= yMax
+                        ? Math.Clamp(trianglePoint1.Y, yMin, yMax)
+                        : (cbTop + cbBottom) / 2;
                     tp2y = tipY - minDangleBase / 2;
                     tp3y = tipY + minDangleBase / 2;
                 }
@@ -2399,7 +2411,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 double tp2y = Math.Clamp(trianglePoint2.Y, cbTop, cbBottom);
                 double tp3y = Math.Clamp(trianglePoint3.Y, cbTop, cbBottom);
                 if (Math.Abs(tp3y - tp2y) < minDangleBase) {
-                    double tipY = Math.Clamp(trianglePoint1.Y, cbTop + minDangleBase / 2, cbBottom - minDangleBase / 2);
+                    double yMin = cbTop + minDangleBase / 2;
+                    double yMax = cbBottom - minDangleBase / 2;
+                    double tipY = yMin <= yMax
+                        ? Math.Clamp(trianglePoint1.Y, yMin, yMax)
+                        : (cbTop + cbBottom) / 2;
                     tp2y = tipY - minDangleBase / 2;
                     tp3y = tipY + minDangleBase / 2;
                 }
