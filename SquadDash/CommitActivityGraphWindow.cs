@@ -364,6 +364,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (!_isPanMode) return;
+            if (IsScrollBarSource(e.OriginalSource as DependencyObject)) return;
             _isPanning     = true;
             _panStartMouse = e.GetPosition(_canvas);
             _panStartDate  = _startDate;
@@ -398,6 +399,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _scrollViewer.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (_isPanMode) return;
+            if (IsScrollBarSource(e.OriginalSource as DependencyObject)) return;
             var pos = e.GetPosition(_canvas);
             if (pos.X < CommitActivityCanvas.LabelColumnWidth) return;
             _selectionDragStartX = pos.X;
@@ -877,6 +879,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (ppd <= 0) return null;
         var graphX = Math.Max(0, canvasX - CommitActivityCanvas.LabelColumnWidth);
         return EffectiveStart.AddDays(graphX / ppd);
+    }
+
+    private static bool IsScrollBarSource(DependencyObject? source)
+    {
+        var current = source;
+        while (current != null)
+        {
+            if (current is ScrollBar) return true;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     public void NotifyThemeChanged(bool isDark)
