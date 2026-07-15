@@ -172,6 +172,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             Content                       = canvasWrapper,
         };
         _scrollViewer.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
+        WindowChrome.SetIsHitTestVisibleInChrome(_scrollViewer, true);
 
         // ── Range slider ──────────────────────────────────────────────────────
         var minDate = DateOnly.FromDateTime(DateTime.Today.AddYears(-5));
