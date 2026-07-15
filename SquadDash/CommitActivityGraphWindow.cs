@@ -434,11 +434,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         // ── Right-click on canvas row: context menu for AI categorization ─────
         _canvas.MouseRightButtonDown += (_, e) =>
         {
-            if (_categorizationService is null) return;
             var pos    = e.GetPosition(_canvas);
             var hitRow = _canvas.HitTestRow(pos);
+
             if (hitRow?.FeatureGroup is null) // null FeatureGroup = Uncategorized row
             {
+                if (_categorizationService is null) return;
                 var menu     = new ContextMenu();
                 var menuItem = new MenuItem { Header = "Categorize with AI" };
                 menuItem.Click += (_, _) => OnCategorizeButtonClick(null, null!);
@@ -446,7 +447,73 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 menu.IsOpen = true;
                 e.Handled = true;
             }
+            else // named feature row
+            {
+                var sourceGroup = hitRow.FeatureGroup;
+                var otherGroups = _cachedRows?
+                    .Where(r => r.FeatureGroup is not null &&
+                                !string.Equals(r.FeatureGroup, sourceGroup, StringComparison.OrdinalIgnoreCase))
+                    .Select(r => r.FeatureGroup!)
+                    .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (otherGroups is null || otherGroups.Count == 0) return;
+
+                var menu      = new ContextMenu();
+                var mergeItem = new MenuItem { Header = "Merge with ▶" };
+                foreach (var targetGroup in otherGroups)
+                {
+                    var target    = targetGroup; // capture for closure
+                    var subItem   = new MenuItem { Header = target };
+                    subItem.Click += (_, _) =>
+                    {
+                        var result = MessageBox.Show(
+                            $"Merge \"{sourceGroup}\" into \"{target}\"?\n\nAll commits in \"{sourceGroup}\" will be reassigned to \"{target}\". This cannot be undone.",
+                            "Merge Categories",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning);
+                        if (result != MessageBoxResult.Yes) return;
+                        MergeFeatureCategories(sourceGroup, target);
+                    };
+                    mergeItem.Items.Add(subItem);
+                }
+                menu.Items.Add(mergeItem);
+                menu.IsOpen = true;
+                e.Handled = true;
+            }
         };
+    }
+
+    private void MergeFeatureCategories(string sourceGroup, string targetGroup)
+    {
+        // Reassign all _allItems from sourceGroup → targetGroup
+        for (int i = 0; i < _allItems.Count; i++)
+        {
+            if (string.Equals(_allItems[i].FeatureGroup, sourceGroup, StringComparison.OrdinalIgnoreCase))
+                _allItems[i] = _allItems[i] with { FeatureGroup = targetGroup };
+        }
+
+        // Update the category cache
+        if (_categoryCache is not null)
+        {
+            bool changed = false;
+            foreach (var item in _allItems.Where(i =>
+                string.Equals(i.FeatureGroup, targetGroup, StringComparison.OrdinalIgnoreCase)))
+            {
+                _categoryCache.SetGroup(item.CommitSha, targetGroup);
+                changed = true;
+            }
+            if (changed)
+                _categoryCache.Save();
+        }
+
+        // Notify the host so Approvals panel and canonical category list update
+        var reassigned = _allItems
+            .Where(i => string.Equals(i.FeatureGroup, targetGroup, StringComparison.OrdinalIgnoreCase))
+            .Select(i => (i.CommitSha, targetGroup))
+            .ToList();
+        _onCategoriesAssigned?.Invoke(reassigned);
+
+        StartLoadingData();
     }
 
     // ── Zoom / pan helpers ────────────────────────────────────────────────────
