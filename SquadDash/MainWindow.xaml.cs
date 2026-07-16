@@ -9589,6 +9589,50 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
+    /// <summary>
+    /// Cycles the case of the selected text in <see cref="PromptTextBox"/> (the Shift+F3 action).
+    /// No-op when nothing is selected. Called by the key handler and forwarded from the tour callout.
+    /// </summary>
+    internal void CyclePromptTextCase()
+    {
+        if (PromptTextBox.SelectionLength == 0)
+            return;
+
+        var selStart     = PromptTextBox.SelectionStart;
+        var selectedText = PromptTextBox.SelectedText;
+
+        bool continuing = _promptCycleVariants is not null
+            && selStart == _promptCycleSelStart
+            && selectedText == _promptCycleVariants[_promptCycleIndex];
+
+        if (!continuing)
+        {
+            _promptCycleOriginal  = PromptTextBox.Text;
+            _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
+            _promptCycleIndex     = 0;
+            _promptCycleSelStart  = selStart;
+            _promptCycleSelLen    = PromptTextBox.SelectionLength;
+
+            PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
+            PromptTextBox.SelectionStart  = _promptCycleSelStart;
+            PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+        }
+        else
+        {
+            _promptCycleIndex = (_promptCycleIndex + 1) % _promptCycleVariants!.Count;
+            var nextVariant = _promptCycleVariants[_promptCycleIndex];
+
+            PromptTextBox.IsUndoEnabled   = false;
+            PromptTextBox.Text            = _promptCycleOriginal!;
+            PromptTextBox.IsUndoEnabled   = true;
+            PromptTextBox.SelectionStart  = _promptCycleSelStart;
+            PromptTextBox.SelectionLength = _promptCycleSelLen;
+            PromptTextBox.SelectedText    = nextVariant;
+            PromptTextBox.SelectionStart  = _promptCycleSelStart;
+            PromptTextBox.SelectionLength = nextVariant.Length;
+        }
+    }
+
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         var sw = Stopwatch.StartNew();
@@ -9682,46 +9726,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // ── Shift+F3: cycle case of selected text ─────────────────────────────
             if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
             {
-                var selStart     = PromptTextBox.SelectionStart;
-                var selectedText = PromptTextBox.SelectedText;
-
-                // Continue an existing cycle if the selection is still on the same range and
-                // shows one of our computed variants.
-                bool continuing = _promptCycleVariants is not null
-                    && selStart == _promptCycleSelStart
-                    && selectedText == _promptCycleVariants[_promptCycleIndex];
-
-                if (!continuing)
-                {
-                    // New selection — initialize cycle state.
-                    _promptCycleOriginal  = PromptTextBox.Text;
-                    _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
-                    _promptCycleIndex     = 0;
-                    _promptCycleSelStart  = selStart;
-                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
-
-                    // First press: normal replacement — creates one undo entry (original → variant).
-                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
-                }
-                else
-                {
-                    // Subsequent press on same selection — advance to next variant.
-                    _promptCycleIndex = (_promptCycleIndex + 1) % _promptCycleVariants!.Count;
-                    var nextVariant = _promptCycleVariants[_promptCycleIndex];
-
-                    // Restore original text without adding to the undo stack, then apply the
-                    // new variant as a single replacement so Ctrl+Z always undoes back to original.
-                    PromptTextBox.IsUndoEnabled   = false;
-                    PromptTextBox.Text            = _promptCycleOriginal!;
-                    PromptTextBox.IsUndoEnabled   = true;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleSelLen;
-                    PromptTextBox.SelectedText    = nextVariant;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = nextVariant.Length;
-                }
+                CyclePromptTextCase();
                 e.Handled = true;
                 return;
             }
