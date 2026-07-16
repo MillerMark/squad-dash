@@ -21,6 +21,14 @@ internal class ChromedWindow : Window {
     /// </summary>
     protected const double CloseButtonHeight = 34;
 
+    // Hover border state — populated by ApplyOuterBorder, consumed by the WndProc hook.
+    private Border?          _hoverBorderInstance;
+    private SolidColorBrush? _hoverBrushInstance;
+    private bool             _hoverActive;
+
+    private const int WM_MOUSEMOVE  = 0x0200;
+    private const int WM_MOUSELEAVE = 0x02A3;
+
     /// <summary>
     /// Applies the standard SquadDash custom chrome to the window.
     /// </summary>
@@ -51,8 +59,37 @@ internal class ChromedWindow : Window {
             UseAeroCaptionButtons = false,
         });
 
-        SourceInitialized += (_, _) =>
-            NativeMethods.DisableRoundedCorners(new WindowInteropHelper(this).Handle);
+        SourceInitialized += (_, _) => {
+            var handle = new WindowInteropHelper(this).Handle;
+            NativeMethods.DisableRoundedCorners(handle);
+            // Hook Win32 messages to get reliable mouse-enter/leave for the entire
+            // window including the WindowChrome caption zone (which suppresses WPF
+            // hit-test events and causes Window.MouseEnter to miss fast entries).
+            HwndSource.FromHwnd(handle)?.AddHook(HoverWndProc);
+        };
+    }
+
+    private IntPtr HoverWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        switch (msg)
+        {
+            case WM_MOUSEMOVE:
+                if (!_hoverActive && _hoverBorderInstance != null && _hoverBrushInstance != null)
+                {
+                    _hoverActive = true;
+                    _hoverBorderInstance.BorderBrush = _hoverBrushInstance;
+                }
+                // Re-arm the leave notification every move so tracking stays active.
+                NativeMethods.TrackMouseLeave(hwnd);
+                break;
+
+            case WM_MOUSELEAVE:
+                _hoverActive = false;
+                if (_hoverBorderInstance != null)
+                    _hoverBorderInstance.BorderBrush = Brushes.Transparent;
+                break;
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>
@@ -82,6 +119,8 @@ internal class ChromedWindow : Window {
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
         // Thin 1px overlay border that lights up when the mouse is over the window.
+        // Driven by Win32 WM_MOUSEMOVE/WM_MOUSELEAVE via HoverWndProc for reliability
+        // across the entire window including the WindowChrome caption zone.
         var hoverBorder = new Border {
             BorderThickness  = new Thickness(1),
             CornerRadius     = new CornerRadius(4),
@@ -97,9 +136,9 @@ internal class ChromedWindow : Window {
                 var restBrush = (SolidColorBrush)FindResource("PanelBorder");
                 WindowOpenGlow.Animate(outerBorder, glowColor, restBrush);
 
-                var hoverBrush = new SolidColorBrush(Color.FromArgb(128, glowColor.R, glowColor.G, glowColor.B));
-                MouseEnter += (_, _) => hoverBorder.BorderBrush = hoverBrush;
-                MouseLeave += (_, _) => hoverBorder.BorderBrush = Brushes.Transparent;
+                // Wire up the Win32 hover tracking fields.
+                _hoverBorderInstance = hoverBorder;
+                _hoverBrushInstance  = new SolidColorBrush(Color.FromArgb(128, glowColor.R, glowColor.G, glowColor.B));
             }
             catch { /* silently skip if resources are unavailable (designer / test context) */ }
         };

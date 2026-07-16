@@ -124,6 +124,38 @@ internal static class NativeMethods {
         }
     }
 
+    // ── TrackMouseEvent ────────────────────────────────────────────────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TRACKMOUSEEVENT
+    {
+        public uint  cbSize;
+        public uint  dwFlags;
+        public nint  hwndTrack;
+        public uint  dwHoverTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+    private const uint TME_LEAVE = 0x00000002;
+
+    /// <summary>
+    /// Requests a <c>WM_MOUSELEAVE</c> message when the mouse leaves the given HWND's client area.
+    /// Call this each time WM_MOUSEMOVE fires to keep the tracking active.
+    /// </summary>
+    public static void TrackMouseLeave(nint hwnd)
+    {
+        var tme = new TRACKMOUSEEVENT
+        {
+            cbSize      = (uint)Marshal.SizeOf<TRACKMOUSEEVENT>(),
+            dwFlags     = TME_LEAVE,
+            hwndTrack   = hwnd,
+            dwHoverTime = 0,
+        };
+        TrackMouseEvent(ref tme);
+    }
+
     public static bool IsRectOnAnyMonitor(int left, int top, int right, int bottom) {
         var rect = new RECT { Left = left, Top = top, Right = right, Bottom = bottom };
         return MonitorFromRect(ref rect, MONITOR_DEFAULTTONULL) != nint.Zero;
