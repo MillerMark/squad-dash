@@ -1266,8 +1266,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         // Update filter box max width to match the widest feature name.
         if (_featureFilterBox is not null)
         {
+            var nameFontSize = (double)Application.Current.Resources["FontSizeNormal"];
             var maxNameWidth = _cachedRows
-                .Select(r => MeasureTextWidth(r.DisplayName, 12.0))
+                .Select(r => MeasureTextWidth(r.DisplayName, nameFontSize))
                 .DefaultIfEmpty(CommitActivityCanvas.LabelColumnWidth)
                 .Max();
             _featureFilterBox.MaxWidth = Math.Max(80, Math.Min(maxNameWidth + 16, CommitActivityCanvas.LabelColumnWidth));
@@ -1894,7 +1895,14 @@ internal sealed record CommitLineHit(
 internal sealed class CommitActivityCanvas : FrameworkElement
 {
     // ── Layout ─────────────────────────────────────────────────────────────────
-    internal const double LabelColumnWidth    = 160;
+    /// <summary>
+    /// Width of the feature-name label column. Scales proportionally with FontSizeNormal
+    /// (baseline: 160px at the default 13px font).
+    /// </summary>
+    internal static double LabelColumnWidth =>
+        Application.Current?.Resources.Contains("FontSizeNormal") == true
+            ? Math.Ceiling((double)Application.Current.Resources["FontSizeNormal"] * (160.0 / 13.0))
+            : 160.0;
     internal const double RowHeight           = 32;
     internal const double XAxisHeight         = 24;
     internal const double FallbackPixelsPerDay = 20; // used when ActualWidth is unavailable
