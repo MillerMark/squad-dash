@@ -29342,6 +29342,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: _currentWorkspace is null — skipping SaveWorkspaceShutdownTime.");
             }
+            // If a guided tour is active, stop it synchronously before saving so that demo agents
+            // and dummy queue items created by the tour are removed before they can be persisted.
+            if (_guidedTourController?.IsActive == true)
+            {
+                SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: guided tour active — stopping tour and purging tour artifacts before save.");
+                _guidedTourController.StopTourForShutdown();
+                CleanUpTourInjectedThreads();
+                CleanUpTourQueueItems();
+                SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: tour artifacts purged.");
+            }
             EmergencySaveAfterDrainingBridgeEvents("main-window-closing");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: EmergencySave {emergencySaveSw.ElapsedMilliseconds}ms elapsed={closingSw.ElapsedMilliseconds}ms.");
             SquadDashTrace.Write(TraceCategory.Shutdown, $"MainWindow_Closing: complete {closingSw.ElapsedMilliseconds}ms.");

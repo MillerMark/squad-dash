@@ -330,6 +330,27 @@ internal sealed class GuidedTourController
         StopTourInternal(showHint: true, commandsAfter: commandsAfter);
     }
 
+    /// <summary>
+    /// Synchronously clears all active-tour state during application shutdown.
+    /// Unlike <see cref="StopTour"/>, this method does not run <c>commandsAfter</c> (which are
+    /// async and cannot be awaited on the UI thread during <c>Closing</c>), does not restore the
+    /// pre-tour layout, and does not show the restart hint — none of which are meaningful when
+    /// the process is about to exit. The caller is expected to follow up with its own synchronous
+    /// cleanup (e.g. removing dummy queue items and demo agents) before persisting state to disk.
+    /// </summary>
+    public void StopTourForShutdown()
+    {
+        if (!IsActive) return;
+
+        _onStepChanging?.Invoke();
+        _activeTriggerSubscription?.Dispose();
+        _activeTriggerSubscription = null;
+        _activeTour       = null;
+        _currentStepIndex = 0;
+        CloseActiveCallout();
+        _tourInjectedThreadIds.Clear();
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
 
     private void HandleEditStep()
