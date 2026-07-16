@@ -1943,6 +1943,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private Popup?     _hoverPopup;
     private TextBlock? _hoverContent;
 
+    // ── Cursor time popup ──────────────────────────────────────────────────────
+    private Popup?     _timeCursorPopup;
+    private TextBlock? _timeCursorDate;
+    private TextBlock? _timeCursorTime;
+
     // ── Constructor ────────────────────────────────────────────────────────────
 
     public CommitActivityCanvas()
@@ -1994,11 +1999,56 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         };
     }
 
+    private void EnsureTimeCursorPopup()
+    {
+        if (_timeCursorPopup is not null) return;
+
+        _timeCursorDate = new TextBlock { FontWeight = FontWeights.SemiBold };
+        _timeCursorDate.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        _timeCursorDate.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        _timeCursorTime = new TextBlock();
+        _timeCursorTime.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _timeCursorTime.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var stack = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
+        stack.Children.Add(_timeCursorDate);
+        stack.Children.Add(_timeCursorTime);
+
+        var border = new Border
+        {
+            Child           = stack,
+            CornerRadius    = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
+        };
+        border.SetResourceReference(Border.BackgroundProperty,  "InputSurface");
+        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+
+        _timeCursorPopup = new Popup
+        {
+            Child              = border,
+            AllowsTransparency = true,
+            Placement          = PlacementMode.Mouse,
+            HorizontalOffset   = 10,
+            VerticalOffset     = 10,
+            StaysOpen          = true,
+            IsHitTestVisible   = false,
+            PlacementTarget    = this,
+        };
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         EnsurePopup();
-        var hit = HitTestPoint(e.GetPosition(this));
+        EnsureTimeCursorPopup();
+
+        var pt  = e.GetPosition(this);
+        var hit = HitTestPoint(pt);
+
+        bool inGraphArea = pt.X > LabelColumnWidth;
+
+        // Commit-detail popup: show when hovering a commit marker.
         if (hit is null)
         {
             _hoverPopup!.IsOpen = false;
@@ -2008,12 +2058,30 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             PopulateTooltipInlines(_hoverContent!, hit);
             _hoverPopup!.IsOpen = true;
         }
+
+        // Cursor time popup: show whenever the mouse is over the graph area.
+        // Hidden when the commit popup is showing to avoid overlapping text.
+        if (inGraphArea && hit is null && _dayCount > 0)
+        {
+            var dt  = _viewStart.AddDays((pt.X - LabelColumnWidth) / _effectivePixelsPerDay);
+            var local = dt.LocalDateTime;
+            _timeCursorDate!.Text = local.ToString("dddd, MMMM d, yyyy",
+                                        System.Globalization.CultureInfo.CurrentCulture);
+            _timeCursorTime!.Text = local.ToString("t",
+                                        System.Globalization.CultureInfo.CurrentCulture);
+            _timeCursorPopup!.IsOpen = true;
+        }
+        else
+        {
+            _timeCursorPopup!.IsOpen = false;
+        }
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)
     {
         base.OnMouseLeave(e);
-        if (_hoverPopup is not null) _hoverPopup.IsOpen = false;
+        if (_hoverPopup     is not null) _hoverPopup.IsOpen     = false;
+        if (_timeCursorPopup is not null) _timeCursorPopup.IsOpen = false;
     }
 
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
