@@ -2292,6 +2292,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         var gridBase   = _isDark ? Colors.White : Colors.Black;
         var gridHeight = _rows.Count * RowHeight;
+
+        // Collect label candidates while drawing grid lines; draw labels afterward
+        // with alternating top/bottom row placement and overlap-avoiding thinning.
+        var dateLabelCandidates = new List<(double gx, FormattedText ft)>();
+
         for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
         {
             // Classify at coarsest matching boundary.
@@ -2311,7 +2316,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 new Point(gx, 0),
                 new Point(gx, gridHeight));
 
-            // Draw a date label just to the right of the line at the top of the graph.
             // Month: always (e.g. "Aug 1"). Week: when spacing ≥ 80px (e.g. "Jun 16").
             // Day: when spacing ≥ 60px (e.g. "Mon Jun 16").
             string? labelText = level switch
@@ -2326,10 +2330,11 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             if (labelText is not null)
             {
                 var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
-                var ft = MakeText(labelText, labelBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(gx + 2, 2));
+                dateLabelCandidates.Add((gx, MakeText(labelText, labelBrush, FontSizeSmall)));
             }
         }
+
+        DrawAlternatingGridLabels(dc, dateLabelCandidates, gridHeight);
 
         // ── Sub-day grid lines (when viewing 1 day or less) ───────────────────
         if (_dayCount <= 1.0)
@@ -2348,13 +2353,15 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 _viewStart.Year, _viewStart.Month, _viewStart.Day,
                 0, 0, 0, _viewStart.Offset).AddMinutes(firstAligned);
 
+            var subDayCandidates = new List<(double gx, FormattedText ft)>();
             for (var cur = firstGrid; cur <= _viewEnd; cur = cur.AddMinutes(gridMinutes))
             {
                 var gx = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
                 dc.DrawLine(subDayPen, new Point(gx, 0), new Point(gx, gridHeight));
-                var ft = MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(gx + 2, 2));
+                subDayCandidates.Add((gx, MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, FontSizeSmall)));
             }
+
+            DrawAlternatingGridLabels(dc, subDayCandidates, gridHeight);
         }
 
         // ── Selection overlay (behind commit bars) ────────────────────────────
@@ -2615,6 +2622,54 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
                 cursor = cursor.AddDays(intervalDays);
             }
+        }
+    }
+
+    // ── Grid label helpers ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Draws grid-line labels from <paramref name="candidates"/> in alternating top/bottom rows,
+    /// thinning them so no two labels in the same row overlap (minimum 6px gap).
+    /// Must be called within the VerticalPadding translate transform: y=0 is the top of row 0,
+    /// y=<paramref name="gridHeight"/> is the bottom of the last row.
+    /// </summary>
+    private void DrawAlternatingGridLabels(
+        DrawingContext dc,
+        List<(double gx, FormattedText ft)> candidates,
+        double gridHeight)
+    {
+        if (candidates.Count == 0) return;
+
+        double maxLabelWidth = 0;
+        foreach (var (_, ft) in candidates)
+            if (ft.Width > maxLabelWidth) maxLabelWidth = ft.Width;
+
+        // Minimum pixel gap between consecutive candidate x positions.
+        double minGap = double.MaxValue;
+        for (int ci = 1; ci < candidates.Count; ci++)
+        {
+            var gap = candidates[ci].gx - candidates[ci - 1].gx;
+            if (gap < minGap) minGap = gap;
+        }
+
+        // Same-row labels are 2S candidates apart; require spacing ≥ maxLabelWidth + 6.
+        int stepS = 1;
+        if (candidates.Count > 1 && minGap > 0)
+        {
+            stepS = (int)Math.Ceiling((maxLabelWidth + 6.0) / (2.0 * minGap));
+            stepS = Math.Max(1, Math.Min(stepS, candidates.Count));
+        }
+
+        int drawnCount = 0;
+        for (int ci = 0; ci < candidates.Count; ci++)
+        {
+            if (ci % stepS != 0) continue;
+            var (gx, ft) = candidates[ci];
+            bool topRow = drawnCount % 2 == 0;
+            double y = topRow ? -ft.Baseline - 4 : gridHeight + 4;
+            double x = Math.Max(LabelColumnWidth + 2, Math.Min(gx - ft.Width / 2.0, ActualWidth - ft.Width - 2));
+            dc.DrawText(ft, new Point(x, y));
+            drawnCount++;
         }
     }
 
