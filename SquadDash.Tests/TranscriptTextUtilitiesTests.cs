@@ -160,6 +160,41 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_ApprovalGroupBeforeQuickReplies_PreservesQuickRepliesForRenderer() {
+        const string text = """
+            Want CassianRook to continue, or would you like to review the code first?
+
+            APPROVAL_GROUP_JSON:
+            {"sha":"86f4988","group":"GitHub Copilot Integration"}
+
+            QUICK_REPLIES_JSON:
+            [
+              {
+                "label": "Continue — implement VS account provider next",
+                "routeMode": "start_named_agent",
+                "targetAgent": "cassian-rook",
+                "reason": "CassianRook owns the AI model integration."
+              }
+            ]
+
+            <system_notification>{"notification":"Copilot provider committed."}</system_notification>
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+        var parsed = QuickReplyOptionParser.TryExtractWithMetadata(
+            sanitized,
+            out var body,
+            out QuickReplyOptionMetadata[] options);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(body, Is.EqualTo("Want CassianRook to continue, or would you like to review the code first?"));
+        Assert.That(options, Has.Length.EqualTo(1));
+        Assert.That(options[0].Label, Is.EqualTo("Continue — implement VS account provider next"));
+        Assert.That(options[0].RouteMode, Is.EqualTo("start_named_agent"));
+        Assert.That(options[0].TargetAgent, Is.EqualTo("cassian-rook"));
+    }
+
+    [Test]
     public void MergeStreamingAndFinalResponse_AppendsTail_WhenFinalStartsWithStreamedText() {
         const string streamed = "Okay, now I have everything I need to solve the problem.";
         const string final = """

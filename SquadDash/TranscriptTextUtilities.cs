@@ -210,7 +210,15 @@ internal static class TranscriptTextUtilities
         // stripping here only affects display; parsing is unaffected.
         var sentinelIdx = FindTopLevelSentinelIndex(text, "APPROVAL_GROUP_JSON:");
         if (sentinelIdx >= 0)
+        {
+            // Approval metadata is not necessarily the final machine-readable footer. Preserve
+            // a following quick-reply block so the renderer can still turn it into buttons.
+            var quickRepliesIdx = FindTopLevelSentinelIndex(text, "QUICK_REPLIES_JSON:");
+            if (quickRepliesIdx > sentinelIdx)
+                return $"{text[..sentinelIdx].TrimEnd()}\n\n{text[quickRepliesIdx..].TrimStart()}";
+
             return text[..sentinelIdx].TrimEnd();
+        }
         return text;
     }
 
