@@ -2366,7 +2366,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         // Collect label candidates while drawing grid lines; draw labels afterward
         // with alternating top/bottom row placement and overlap-avoiding thinning.
+        // Day labels use a separate priority pool so Mon/Fri/Wed are preferred over
+        // Tue/Thu/Sat/Sun, ensuring the most meaningful anchors survive at low zoom.
         var dateLabelCandidates = new List<(double gx, FormattedText ft)>();
+        var dayLabelPool        = new List<(double cx, FormattedText ft, int priority)>();
 
         for (var d = _startDate; d <= _endDate; d = d.AddDays(1))
         {
@@ -2387,31 +2390,44 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 new Point(gx, 0),
                 new Point(gx, gridHeight));
 
-            // Month: always (e.g. "Aug 1"). Week: when spacing ≥ 80px (e.g. "Jun 16").
-            // Day: when spacing ≥ 60px (e.g. "Mon Jun 16").
-            string? labelText = level switch
+            // Month: always. Week: when spacing ≥ 80px. Day: priority pool (Mon > Fri > Wed > Tue > Thu > Sat > Sun).
+            if (level == 0 && dayVisible)
             {
-                4 => null,  // year lines: the month label on Jan 1 is enough
-                3 => null,  // quarter lines: month label covers it
-                2 => $"{d:MMM d}",                                                // "Aug 1"
-                1 when 7.0 * _effectivePixelsPerDay >= 80.0  => $"{d:MMM d}",    // "Jun 16"
-                0 when _effectivePixelsPerDay         >= 60.0 => $"{d:ddd MMM d}", // "Mon Jun 16"
-                _ => null
-            };
-            if (labelText is not null)
+                // Day labels go into the priority pool; SelectPriorityDayLabels picks
+                // which ones to show without overlap after the loop.
+                var cx          = gx + 0.5 * _effectivePixelsPerDay;
+                var labelBrush  = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
+                var ft          = MakeText($"{d:ddd MMM d}", labelBrush, FontSizeSmall);
+                dayLabelPool.Add((cx, ft, DayLabelPriority(d.DayOfWeek)));
+            }
+            else
             {
-                // Place the label centered in the middle of the period it represents,
-                // not at the boundary line.
-                double labelCx = level switch
+                string? labelText = level switch
                 {
-                    2 => gx + 0.5 * DateTime.DaysInMonth(d.Year, d.Month) * _effectivePixelsPerDay,
-                    1 => gx + 3.5 * _effectivePixelsPerDay,  // Mon → center of week (Thu)
-                    _ => gx + 0.5 * _effectivePixelsPerDay,  // day: center of that day
+                    4 => null,  // year lines: the month label on Jan 1 is enough
+                    3 => null,  // quarter lines: month label covers it
+                    2 => $"{d:MMM d}",                                              // "Aug 1"
+                    1 when 7.0 * _effectivePixelsPerDay >= 80.0 => $"{d:MMM d}",   // "Jun 16"
+                    _ => null
                 };
-                var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
-                dateLabelCandidates.Add((labelCx, MakeText(labelText, labelBrush, FontSizeSmall)));
+                if (labelText is not null)
+                {
+                    double labelCx = level switch
+                    {
+                        2 => gx + 0.5 * DateTime.DaysInMonth(d.Year, d.Month) * _effectivePixelsPerDay,
+                        1 => gx + 3.5 * _effectivePixelsPerDay,  // Mon → center of week (Thu)
+                        _ => gx + 0.5 * _effectivePixelsPerDay,
+                    };
+                    var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
+                    dateLabelCandidates.Add((labelCx, MakeText(labelText, labelBrush, FontSizeSmall)));
+                }
             }
         }
+
+        // Merge priority-selected day labels into the main candidate list and sort by X.
+        foreach (var item in SelectPriorityDayLabels(dayLabelPool))
+            dateLabelCandidates.Add(item);
+        dateLabelCandidates.Sort((a, b) => a.gx.CompareTo(b.gx));
 
         DrawAlternatingGridLabels(dc, dateLabelCandidates, gridHeight);
 
@@ -2755,6 +2771,47 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     }
 
     // ── Off-hours shading ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Priority order for day-of-week labels: Mon first, then Fri, Wed, Tue, Thu, Sat, Sun.
+    /// Lower value = drawn first. Ensures key business-week anchors survive at low zoom.
+    /// </summary>
+    private static int DayLabelPriority(DayOfWeek dow) => dow switch
+    {
+        DayOfWeek.Monday    => 1,
+        DayOfWeek.Friday    => 2,
+        DayOfWeek.Wednesday => 3,
+        DayOfWeek.Tuesday   => 4,
+        DayOfWeek.Thursday  => 5,
+        DayOfWeek.Saturday  => 6,
+        DayOfWeek.Sunday    => 7,
+        _                   => 8,
+    };
+
+    /// <summary>
+    /// Greedily selects day labels in priority order, accepting each only if it does
+    /// not overlap (with 4px padding) any already-accepted label.
+    /// Returns the accepted set sorted by X for correct alternating-row drawing.
+    /// </summary>
+    private static IEnumerable<(double gx, FormattedText ft)> SelectPriorityDayLabels(
+        List<(double cx, FormattedText ft, int priority)> pool)
+    {
+        if (pool.Count == 0) yield break;
+        const double Padding = 4.0;
+
+        var accepted = new List<(double cx, FormattedText ft)>();
+
+        foreach (var (cx, ft, _) in pool.OrderBy(p => p.priority).ThenBy(p => p.cx))
+        {
+            bool overlaps = accepted.Any(a =>
+                Math.Abs(a.cx - cx) < (a.ft.Width + ft.Width) / 2.0 + Padding);
+            if (!overlaps)
+                accepted.Add((cx, ft));
+        }
+
+        foreach (var item in accepted.OrderBy(a => a.cx))
+            yield return item;
+    }
 
     /// <summary>
     /// Draws off-hours shading rectangles over the graph area.
