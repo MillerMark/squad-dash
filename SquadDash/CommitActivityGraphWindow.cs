@@ -2386,19 +2386,25 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 }
                 else
                 {
-                    if (minDt.HasValue)
+                    var ftMin = minDt.HasValue ? MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall) : null;
+                    var ftMax = maxDt.HasValue ? MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall) : null;
+
+                    // When both labels centered over their endpoints would overlap, anchor them
+                    // outward: start label right-aligns to selXMin, end label left-aligns to selXMax.
+                    bool wouldOverlap = ftMin != null && ftMax != null
+                        && (selXMin + ftMin.Width / 2.0 + 4 > selXMax - ftMax.Width / 2.0);
+
+                    if (ftMin != null)
                     {
-                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall);
-                        var lx = selXMin - ft.Width / 2.0;
-                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
-                        dc.DrawText(ft, new Point(lx, labelY));
+                        var lx = wouldOverlap ? selXMin - ftMin.Width : selXMin - ftMin.Width / 2.0;
+                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ftMin.Width - 2));
+                        dc.DrawText(ftMin, new Point(lx, labelY));
                     }
-                    if (maxDt.HasValue)
+                    if (ftMax != null)
                     {
-                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall);
-                        var lx = selXMax - ft.Width / 2.0;
-                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
-                        dc.DrawText(ft, new Point(lx, labelY));
+                        var lx = wouldOverlap ? selXMax : selXMax - ftMax.Width / 2.0;
+                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ftMax.Width - 2));
+                        dc.DrawText(ftMax, new Point(lx, labelY));
                     }
                 }
             }
@@ -2576,7 +2582,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
                 var label = cur.LocalDateTime.ToString("h:mm tt");
                 var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY - ft.Baseline - 2));
             }
         }
         else
@@ -2595,7 +2601,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
                 var label = cursor.ToString("MMM d");
                 var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY - ft.Baseline - 2));
 
                 cursor = cursor.AddDays(intervalDays);
             }
