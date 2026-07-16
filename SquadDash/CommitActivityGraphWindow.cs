@@ -1613,7 +1613,19 @@ internal sealed class RangeSliderControl : FrameworkElement
 
     // ── Measure ────────────────────────────────────────────────────────────────
 
-    private double FontSize => (double)GetValue(TextElement.FontSizeProperty);
+    private double FontSize
+    {
+        get
+        {
+            var parent = VisualTreeHelper.GetParent(this);
+            while (parent != null)
+            {
+                if (parent is Control c) return c.FontSize;
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+            return (double)GetValue(TextElement.FontSizeProperty);
+        }
+    }
 
     protected override Size MeasureOverride(Size availableSize)
     {
@@ -1939,9 +1951,21 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         SizeChanged += (_, _) => InvalidateVisual();
     }
 
-    private double FontSize => (double)GetValue(TextElement.FontSizeProperty);
+    private double FontSize
+    {
+        get
+        {
+            var parent = VisualTreeHelper.GetParent(this);
+            while (parent != null)
+            {
+                if (parent is Control c) return c.FontSize;
+                parent = VisualTreeHelper.GetParent(parent);
+            }
+            return (double)GetValue(TextElement.FontSizeProperty);
+        }
+    }
 
-    // Make the entire canvas surface hittable (not just rendered pixels) so
+    // Make the entire canvas surface hittable(not just rendered pixels) so
     // OnMouseMove fires everywhere and the popup shows over dots and lines.
     protected override HitTestResult HitTestCore(PointHitTestParameters hitTestParameters)
         => new PointHitTestResult(this, hitTestParameters.HitPoint);
