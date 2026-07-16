@@ -397,6 +397,8 @@ internal sealed class GuidedTourController
             SquadDashTrace.Write(TraceCategory.Callouts,
                 $"ShowCurrentStep: guard passed, calling ShowStepCallout for \"{step.Title}\" (target=\"{step.TargetControlId}\")");
             ShowStepCallout(step);
+            if (GuidedTourStateStore.Shared.MaintainFocus)
+                _ownerWindow.Activate();
             _activeEditor?.SyncToActiveTourStep(_activeTour!, _currentStepIndex);
             _readingNudgeCts?.Cancel();
             _readingNudgeCts = new CancellationTokenSource();

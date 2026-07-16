@@ -21,6 +21,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     private readonly Button    _nextButton;
     private readonly Button    _editStepButton;
     private readonly Button    _newStepAfterButton;
+    private readonly CheckBox  _maintainFocusCheckBox;
 
     /// <summary>Fired when the user clicks "← Prev" or presses F2.</summary>
     public event EventHandler? PrevRequested;
@@ -72,7 +73,18 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         _newStepAfterButton.Click      += (_, _) => NewStepAfterRequested?.Invoke(this, EventArgs.Empty);
         _newStepAfterButton.Visibility  = Visibility.Collapsed;
 
-        // Button row: [← Prev] [Next →] [✎ Edit Step] ··· spacer ··· [✕ Close Tour]
+        _maintainFocusCheckBox = new CheckBox
+        {
+            Content             = "Maintain focus",
+            VerticalAlignment   = VerticalAlignment.Center,
+            Margin              = new Thickness(8, 0, 3, 0),
+            IsChecked           = GuidedTourStateStore.Shared.MaintainFocus,
+        };
+        _maintainFocusCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "LabelText");
+        _maintainFocusCheckBox.Checked   += (_, _) => GuidedTourStateStore.Shared.MaintainFocus = true;
+        _maintainFocusCheckBox.Unchecked += (_, _) => GuidedTourStateStore.Shared.MaintainFocus = false;
+
+        // Button row: [← Prev] [Next →] [Maintain focus] ··· spacer ··· [✎ Edit Step] [✕ Close Tour]
         // DockPanel keeps Close Tour pinned right with a natural gap.
         var buttonRow = new DockPanel
         {
@@ -91,6 +103,7 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal };
         leftButtons.Children.Add(_prevButton);
         leftButtons.Children.Add(_nextButton);
+        leftButtons.Children.Add(_maintainFocusCheckBox);
         buttonRow.Children.Add(leftButtons);
 
         var stack = new StackPanel();

@@ -85,6 +85,22 @@ internal sealed class GuidedTourStateStore
     }
 
     /// <summary>
+    /// Whether the navigator's "Maintain focus" checkbox is checked.
+    /// When <c>true</c>, the main window is re-activated after each step is shown
+    /// so that keyboard shortcuts (e.g. Shift+F3) continue to work.
+    /// </summary>
+    public bool MaintainFocus
+    {
+        get => _state.MaintainFocus;
+        set
+        {
+            if (_state.MaintainFocus == value) return;
+            _state = _state with { MaintainFocus = value };
+            Flush();
+        }
+    }
+
+    /// <summary>
     /// Resets all tour state (Offered, SkippedFirstRun, CompletedTourIds, TourNavAdvanceCount)
     /// and flushes to disk. Intended for developer use only.
     /// </summary>
@@ -125,4 +141,5 @@ internal sealed record GuidedTourState
     public bool SkippedFirstRun { get; set; }
     public HashSet<string> CompletedTourIds { get; set; } = new();
     public int TourNavAdvanceCount { get; set; }
+    public bool MaintainFocus { get; set; }
 }
