@@ -81,12 +81,13 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
             return null;
         }
 
-        var squadDirectory = Path.Combine(workspaceFolder, ".squad");
+        var layout = SquadWorkspaceLayoutResolver.Resolve(workspaceFolder);
+        var squadDirectory = layout?.TeamSquadFolderPath ?? Path.Combine(workspaceFolder, ".squad");
         var customUniversePath = Path.Combine(squadDirectory, "universes", "squaddash.md");
         if (!File.Exists(customUniversePath))
             return null;
 
-        return "The authoritative roster is `.squad/team.md`. When adding or hiring a teammate in this workspace, consult `.squad/casting/policy.json`, `.squad/casting/history.json`, and `.squad/casting/registry.json` first. If the user's request explicitly names a preferred universe, treat that universe choice as authoritative for this hire as long as it is allowlisted; do not override it just because the workspace previously used the SquadDash Universe. Use `.squad/universes/squaddash.md` when the selected universe is the SquadDash Universe or when you need the SquadDash roster as a reference. Do not invent an ad hoc temporary role when a real team member should be recruited.";
+        return $"The authoritative roster for this workspace is `{Path.Combine(squadDirectory, "team.md")}`. When adding or hiring a teammate, consult `{Path.Combine(squadDirectory, "casting", "policy.json")}`, `{Path.Combine(squadDirectory, "casting", "history.json")}`, and `{Path.Combine(squadDirectory, "casting", "registry.json")}` first. If the user's request explicitly names a preferred universe, treat that universe choice as authoritative for this hire as long as it is allowlisted; do not override it just because the workspace previously used the SquadDash Universe. Use `{customUniversePath}` when the selected universe is the SquadDash Universe or when you need the SquadDash roster as a reference. Do not invent an ad hoc temporary role when a real team member should be recruited.";
     }
 
     private bool LooksLikeHiringPrompt(string prompt) {
@@ -104,15 +105,16 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
         if (string.IsNullOrWhiteSpace(prompt) || string.IsNullOrWhiteSpace(workspaceFolder))
             return new RoutingContext(null, null, null, "routing=none");
 
-        var squadDirectory = Path.Combine(workspaceFolder, ".squad");
+        var layout = SquadWorkspaceLayoutResolver.Resolve(workspaceFolder);
+        var squadDirectory = layout?.TeamSquadFolderPath ?? Path.Combine(workspaceFolder, ".squad");
         var teamPath = Path.Combine(squadDirectory, "team.md");
         var routingPath = Path.Combine(squadDirectory, "routing.md");
 
-        var members = LoadTeamMembers(teamPath, workspaceFolder);
+        var members = LoadTeamMembers(teamPath, squadDirectory);
         var rules = LoadRoutingRules(routingPath);
 
         var genericInstruction = File.Exists(teamPath) && File.Exists(routingPath)
-            ? "The active squad roster is defined in `.squad/team.md`, and the routing guide is in `.squad/routing.md`. Consult those files before deciding who should handle this request. If one specialist is the clear primary owner, route to that specialist instead of keeping the work in the Coordinator. If the task spans multiple specialties, keep the Coordinator responsible for delegation and orchestration. When you name owners in plans, delegated follow-up work, backlog breakdowns, reviews, or recommendations, keep those named owners aligned with `.squad/routing.md` instead of assigning by convenience. In particular, keep testing, QA, verification, and coverage work with the testing owner from `.squad/routing.md` unless that file explicitly says otherwise or the work is clearly described as collaboration under that testing owner."
+            ? $"The active squad roster for this workspace is defined in `{teamPath}`, and its routing guide is `{routingPath}`. These are authoritative even when the Git repository root or current shell directory is different. Consult those exact files before deciding who should handle this request. If one specialist is the clear primary owner, route to that specialist instead of keeping the work in the Coordinator. If the task spans multiple specialties, keep the Coordinator responsible for delegation and orchestration. When you name owners in plans, delegated follow-up work, backlog breakdowns, reviews, or recommendations, keep those named owners aligned with `{routingPath}` instead of assigning by convenience. In particular, keep testing, QA, verification, and coverage work with the testing owner from `{routingPath}` unless that file explicitly says otherwise or the work is clearly described as collaboration under that testing owner."
             : null;
 
         var explicitInstruction = BuildMentionRoutingInstruction(prompt, members);
@@ -279,7 +281,7 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
             _ => null
         };
 
-    private TeamRoutingMember[] LoadTeamMembers(string teamPath, string workspaceFolder) {
+    private TeamRoutingMember[] LoadTeamMembers(string teamPath, string squadDirectory) {
         if (!File.Exists(teamPath))
             return [];
 
@@ -318,7 +320,7 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
             var handle = DeriveHandle(name, charterPath);
             var resolvedCharter = string.IsNullOrWhiteSpace(charterPath)
                 ? null
-                : Path.Combine(workspaceFolder, ".squad", charterPath.Replace('/', Path.DirectorySeparatorChar));
+                : Path.Combine(squadDirectory, charterPath.Replace('/', Path.DirectorySeparatorChar));
             rows.Add(new TeamRoutingMember(name, handle, role, resolvedCharter));
         }
 

@@ -46,8 +46,8 @@ internal sealed class SquadBridgePromptBuilderTests {
             null,
             workspace.RootPath).PromptText;
 
-        Assert.That(built, Does.Contain(".squad/universes/squaddash.md"));
-        Assert.That(built, Does.Contain(".squad/casting/policy.json"));
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "universes", "squaddash.md")));
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "casting", "policy.json")));
     }
 
     [Test]
@@ -96,8 +96,8 @@ internal sealed class SquadBridgePromptBuilderTests {
             null,
             workspace.RootPath).PromptText;
 
-        Assert.That(built, Does.Contain(".squad/universes/squaddash.md"));
-        Assert.That(built, Does.Contain(".squad/casting/policy.json"));
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "universes", "squaddash.md")));
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "casting", "policy.json")));
     }
 
     [Test]
@@ -149,11 +149,56 @@ internal sealed class SquadBridgePromptBuilderTests {
             null,
             workspace.RootPath);
 
-        Assert.That(built.PromptText, Does.Contain(".squad/team.md"));
-        Assert.That(built.PromptText, Does.Contain(".squad/routing.md"));
+        Assert.That(built.PromptText, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "team.md")));
+        Assert.That(built.PromptText, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "routing.md")));
         Assert.That(built.PromptText, Does.Contain("When you name owners in plans, delegated follow-up work, backlog breakdowns, reviews, or recommendations"));
         Assert.That(built.PromptText, Does.Contain("keep testing, QA, verification, and coverage work with the testing owner"));
         Assert.That(built.RoutingSummary, Does.Contain("generic"));
+    }
+
+    [Test]
+    public void Build_RoutingGuidanceUsesResolvedAbsolutePaths() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", "# Squad Team\n\n## Members");
+        workspace.CreateFile(".squad/routing.md", "# Work Routing");
+
+        var built = new SquadBridgePromptBuilder().Build(
+            "Review this change.",
+            "Quick replies enabled.",
+            null,
+            null,
+            null,
+            workspace.RootPath).PromptText;
+
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "team.md")));
+        Assert.That(built, Does.Contain(Path.Combine(workspace.RootPath, ".squad", "routing.md")));
+        Assert.That(built, Does.Contain("authoritative even when the Git repository root or current shell directory is different"));
+    }
+
+    [Test]
+    public void Build_RoutingGuidanceUsesConfiguredExternalTeamRoot() {
+        using var workspace = new TestWorkspace();
+        var externalSquad = workspace.GetPath("shared-team");
+        workspace.CreateFile(".squad/config.json", """
+            {
+              "version": 1,
+              "teamRoot": "shared-team"
+            }
+            """);
+        workspace.CreateFile("shared-team/team.md", "# Squad Team\n\n## Members");
+        workspace.CreateFile("shared-team/routing.md", "# Work Routing");
+
+        var built = new SquadBridgePromptBuilder().Build(
+            "Review this change.",
+            "Quick replies enabled.",
+            null,
+            null,
+            null,
+            workspace.RootPath).PromptText;
+
+        Assert.That(built, Does.Contain(Path.Combine(externalSquad, "team.md")));
+        Assert.That(built, Does.Contain(Path.Combine(externalSquad, "routing.md")));
+        Assert.That(built, Does.Not.Contain(Path.Combine(workspace.RootPath, ".squad", "team.md")));
     }
 
     [Test]
