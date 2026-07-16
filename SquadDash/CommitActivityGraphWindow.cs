@@ -2041,13 +2041,20 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         {
             Child              = border,
             AllowsTransparency = true,
-            Placement          = PlacementMode.Mouse,
-            HorizontalOffset   = 10,
-            VerticalOffset     = 10,
+            Placement          = PlacementMode.Absolute,
             StaysOpen          = true,
             IsHitTestVisible   = false,
             PlacementTarget    = this,
         };
+    }
+
+    private void PositionTimeCursorPopup(Point canvasPt)
+    {
+        if (_timeCursorPopup is null) return;
+        // Convert canvas-local point to screen coordinates, then offset by 10px.
+        var screen = PointToScreen(canvasPt);
+        _timeCursorPopup.HorizontalOffset = screen.X + 10;
+        _timeCursorPopup.VerticalOffset   = screen.Y + 10;
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -2076,12 +2083,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         // Hidden when the commit popup is showing to avoid overlapping text.
         if (inGraphArea && hit is null && _dayCount > 0)
         {
-            var dt  = _viewStart.AddDays((pt.X - LabelColumnWidth) / _effectivePixelsPerDay);
+            var dt    = _viewStart.AddDays((pt.X - LabelColumnWidth) / _effectivePixelsPerDay);
             var local = dt.LocalDateTime;
             _timeCursorDate!.Text = local.ToString("dddd, MMMM d, yyyy",
                                         System.Globalization.CultureInfo.CurrentCulture);
             _timeCursorTime!.Text = local.ToString("t",
                                         System.Globalization.CultureInfo.CurrentCulture);
+            // Position before opening so there's no one-frame jump on first show.
+            PositionTimeCursorPopup(pt);
             _timeCursorPopup!.IsOpen = true;
         }
         else
