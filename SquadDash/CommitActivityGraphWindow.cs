@@ -1002,10 +1002,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         int expand      = (int)Math.Round(currentDays * 0.5);
 
         var today       = DateOnly.FromDateTime(DateTime.Today);
-        var oldestDate  = today.AddDays(-365);
 
-        int newStartDay = Math.Max(_startDate.DayNumber - expand, oldestDate.DayNumber);
+        int newStartDay = Math.Max(_startDate.DayNumber - expand, _rangeSlider.MinDate.DayNumber);
         int newEndDay   = Math.Min(_endDate.DayNumber   + expand, today.DayNumber);
+
+        // Already at the maximum range — nothing to do.
+        if (newStartDay == _startDate.DayNumber && newEndDay == _endDate.DayNumber) return;
 
         _startDate = DateOnly.FromDayNumber(newStartDay);
         _endDate   = DateOnly.FromDayNumber(newEndDay);
