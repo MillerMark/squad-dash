@@ -268,6 +268,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private ScreenshotHealthWindow?      _screenshotHealthWindow;
     private CommitActivityGraphWindow?   _commitActivityGraphWindow;
     private ICommitStatService?          _commitStatService;
+    private readonly WorkHoursStore      _workHoursStore = new WorkHoursStore();
     // Offset (floating window Left/Top minus main window Right/Top) last set by the user
     // dragging the floating window. Null means "use default snap position".
     private Vector? _tasksWindowOffset;
@@ -16362,7 +16363,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _ = StartPushToTalkAsync();
                 },
                 stopPtt: () => _ = StopPushToTalkAsync(send: false),
-                startGuidedTour: () => OpenGuidedTourSelector());
+                startGuidedTour: () => OpenGuidedTourSelector(),
+                workHoursStore:      _workHoursStore,
+                workHoursWorkspaceDir: _currentWorkspace is not null
+                    ? _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath)
+                    : null,
+                onWorkHoursSaved: settings => _commitActivityGraphWindow?.SetWorkHours(settings));
             _preferencesWindow.PageSelected += label => _tourPreferencePageSelected?.Invoke(label);
             _preferencesWindow.Closed += (_, _) => _tourPreferencesWindowClosed?.Invoke();
             _tourPreferencesWindowShown?.Invoke();

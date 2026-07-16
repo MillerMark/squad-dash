@@ -163,6 +163,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         // ── Canvas / scroll area ──────────────────────────────────────────────
         _canvas = new CommitActivityCanvas();
         _canvas.RowSelectionChanged += (_, _) => UpdateSelectionPanel();
+        _canvas.SetWorkHours(new WorkHoursStore().Load(workspaceStateDirectory));
 
         var canvasWrapper = new Border
         {
@@ -897,6 +898,11 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         _isDark = isDark;
         _canvas.SetTheme(isDark);
+    }
+
+    public void SetWorkHours(WorkHoursSettings settings)
+    {
+        _canvas.SetWorkHours(settings);
     }
 
     // ── Range slider ──────────────────────────────────────────────────────────
@@ -1927,6 +1933,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     private double                  _dayCount;
     private double                  _pixelsPerDip        = 1.0;
     private double                  _effectivePixelsPerDay = FallbackPixelsPerDay;
+    private WorkHoursSettings       _workHours           = WorkHoursSettings.Default;
 
     // ── Selection overlay ──────────────────────────────────────────────────────
     private double?         _selectionStartX;
@@ -1953,6 +1960,12 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     public CommitActivityCanvas()
     {
         SizeChanged += (_, _) => InvalidateVisual();
+    }
+
+    public void SetWorkHours(WorkHoursSettings settings)
+    {
+        _workHours = settings;
+        InvalidateVisual();
     }
 
     private static double FontSizeSmall   => (double)Application.Current.Resources["FontSizeSmall"];
@@ -2815,7 +2828,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
     /// <summary>
     /// Draws off-hours shading rectangles over the graph area.
-    /// Off hours: before 09:00 and after 17:00 on weekdays; all day on weekends.
+    /// Off hours are determined by <see cref="WorkHoursSettings"/>: before WorkDayStartHour
+    /// and after WorkDayEndHour on work days; all day on non-work days.
     /// Uses the contrasting colour (white in dark theme, black in light) at 8% opacity.
     /// </summary>
     private void DrawOffHoursShading(DrawingContext dc, double gridHeight)
@@ -2836,19 +2850,19 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             var dayStart = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue),           offset);
             var dayEnd   = new DateTimeOffset(day.AddDays(1).ToDateTime(TimeOnly.MinValue), offset);
 
-            if (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            if (!_workHours.IsWorkDay(day.DayOfWeek))
             {
                 DrawOffHoursRect(dc, brush, gridHeight, dayStart, dayEnd);
             }
             else
             {
-                // Pre-work: midnight → 09:00
-                var nineAm = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 0)),  offset);
-                DrawOffHoursRect(dc, brush, gridHeight, dayStart, nineAm);
+                // Pre-work: midnight → WorkDayStartHour
+                var workStart = new DateTimeOffset(day.ToDateTime(new TimeOnly(_workHours.WorkDayStartHour, 0)), offset);
+                DrawOffHoursRect(dc, brush, gridHeight, dayStart, workStart);
 
-                // Post-work: 17:00 → midnight
-                var fivePm = new DateTimeOffset(day.ToDateTime(new TimeOnly(17, 0)), offset);
-                DrawOffHoursRect(dc, brush, gridHeight, fivePm, dayEnd);
+                // Post-work: WorkDayEndHour → midnight
+                var workEnd = new DateTimeOffset(day.ToDateTime(new TimeOnly(_workHours.WorkDayEndHour, 0)), offset);
+                DrawOffHoursRect(dc, brush, gridHeight, workEnd, dayEnd);
             }
         }
     }

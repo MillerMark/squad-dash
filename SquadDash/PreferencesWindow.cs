@@ -84,6 +84,19 @@ internal sealed class PreferencesWindow : Window {
     // ── Hints page ───────────────────────────────────────────────────────────
     private readonly HintsOptionsPage _hintsOptionsPage;
     private readonly Action?          _startGuidedTour;
+    // ── Work Hours page ──────────────────────────────────────────────────────
+    private readonly WorkHoursStore   _workHoursStore;
+    private readonly string?          _workHoursWorkspaceDir;
+    private readonly Action<WorkHoursSettings>? _onWorkHoursSaved;
+    private CheckBox _mondayWorkCheckBox    = null!;
+    private CheckBox _tuesdayWorkCheckBox   = null!;
+    private CheckBox _wednesdayWorkCheckBox = null!;
+    private CheckBox _thursdayWorkCheckBox  = null!;
+    private CheckBox _fridayWorkCheckBox    = null!;
+    private CheckBox _saturdayWorkCheckBox  = null!;
+    private CheckBox _sundayWorkCheckBox    = null!;
+    private ComboBox _workStartComboBox     = null!;
+    private ComboBox _workEndComboBox       = null!;
 
     private static readonly string[] KnownCopilotModelOptions = {
         ApplicationSettingsSnapshot.DefaultCopilotModel,
@@ -124,6 +137,7 @@ internal sealed class PreferencesWindow : Window {
         "Remote Access",  // Connectivity
         "Notifications",  // Connectivity
         "Hints",          // Discoverability
+        "Work Hours",     // Commit History
         "Dev / Diag.",    // standalone
     };
 
@@ -145,6 +159,7 @@ internal sealed class PreferencesWindow : Window {
         "PrefNav_RemoteAccess",  // Connectivity > Remote Access
         "PrefNav_Notifications", // Connectivity > Notifications
         "PrefNav_Hints",         // Discoverability > Hints
+        "PrefNav_WorkHours",     // Commit History > Work Hours
         "PrefNav_DevDiag",       // Dev / Diag.
         // Provider page content controls
         "SpeechProvider_Azure",          // "Azure Cognitive Services" radio button
@@ -184,7 +199,10 @@ internal sealed class PreferencesWindow : Window {
         bool showDevOptions = false,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null,
-        Action? startGuidedTour = null) {
+        Action? startGuidedTour = null,
+        WorkHoursStore? workHoursStore = null,
+        string? workHoursWorkspaceDir = null,
+        Action<WorkHoursSettings>? onWorkHoursSaved = null) {
         _settingsStore    = settingsStore;
         _pushNotificationService = pushNotificationService;
         _workspacePaths   = workspacePaths;
@@ -192,6 +210,9 @@ internal sealed class PreferencesWindow : Window {
         _startPtt         = startPtt;
         _stopPtt          = stopPtt;
         _startGuidedTour  = startGuidedTour;
+        _workHoursStore       = workHoursStore ?? new WorkHoursStore();
+        _workHoursWorkspaceDir = workHoursWorkspaceDir;
+        _onWorkHoursSaved     = onWorkHoursSaved;
 
         Title = "Preferences";
         Width = 640;
@@ -693,6 +714,8 @@ internal sealed class PreferencesWindow : Window {
         _hintsOptionsPage.Initialize(currentSettings);
         _hintsOptionsPage.SettingsChanged += (_, _) => SaveHintsNow();
 
+        var initialWorkHours = _workHoursStore.Load(_workHoursWorkspaceDir);
+
         var pageList = new List<(string label, UIElement page)> {
             ("General",           BuildGeneralPage()),
             ("Provider",          BuildSpeechProviderPage()),
@@ -705,6 +728,7 @@ internal sealed class PreferencesWindow : Window {
             ("TTS Provider",      BuildTtsProviderPage(currentSettings)),
             ("Commands",          BuildAiPage()),
             ("Hints",             WrapInScrollViewer(BuildHintsPage())),
+            ("Work Hours",        WrapInScrollViewer(BuildWorkHoursPage(initialWorkHours))),
         };
 
 
@@ -826,6 +850,7 @@ internal sealed class PreferencesWindow : Window {
         tree.Items.Add(MakeGroup("AI",             "Commands", "Model"));
         tree.Items.Add(MakeGroup("Connectivity",   "Remote Access", "Notifications"));
         tree.Items.Add(MakeGroup("Discoverability", "Hints"));
+        tree.Items.Add(MakeGroup("Commit History",  "Work Hours"));
 
         foreach (var standalone in new[] { "Dev / Diag." })
             if (pageIndex.ContainsKey(standalone))
@@ -2430,6 +2455,24 @@ internal sealed class PreferencesWindow : Window {
         _onSaved(updated);
     }
 
+    private void SaveWorkHoursNow()
+    {
+        var settings = ReadWorkHoursFromControls();
+        _workHoursStore.Save(settings, _workHoursWorkspaceDir);
+        _onWorkHoursSaved?.Invoke(settings);
+    }
+
+    private WorkHoursSettings ReadWorkHoursFromControls() => new WorkHoursSettings(
+        MondayWork:       _mondayWorkCheckBox.IsChecked    == true,
+        TuesdayWork:      _tuesdayWorkCheckBox.IsChecked   == true,
+        WednesdayWork:    _wednesdayWorkCheckBox.IsChecked == true,
+        ThursdayWork:     _thursdayWorkCheckBox.IsChecked  == true,
+        FridayWork:       _fridayWorkCheckBox.IsChecked    == true,
+        SaturdayWork:     _saturdayWorkCheckBox.IsChecked  == true,
+        SundayWork:       _sundayWorkCheckBox.IsChecked    == true,
+        WorkDayStartHour: _workStartComboBox.SelectedIndex,
+        WorkDayEndHour:   _workEndComboBox.SelectedIndex);
+
     private string ReadCopilotDefaultModelInput() =>
         string.IsNullOrWhiteSpace(_copilotModelComboBox.Text)
             ? ApplicationSettingsSnapshot.DefaultCopilotModel
@@ -2445,8 +2488,11 @@ internal sealed class PreferencesWindow : Window {
         Action<ApplicationSettingsSnapshot> onSaved,
         Action<TextBox>? startPtt = null,
         Action? stopPtt = null,
-        Action? startGuidedTour = null) {
-        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour);
+        Action? startGuidedTour = null,
+        WorkHoursStore? workHoursStore = null,
+        string? workHoursWorkspaceDir = null,
+        Action<WorkHoursSettings>? onWorkHoursSaved = null) {
+        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour, workHoursStore, workHoursWorkspaceDir, onWorkHoursSaved);
         if (owner != null)
             window.Owner = owner;
         window.Show();
@@ -2564,6 +2610,110 @@ internal sealed class PreferencesWindow : Window {
         startTourButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         startTourButton.Click += (_, _) => _startGuidedTour?.Invoke();
         stack.Children.Add(startTourButton);
+
+        return stack;
+    }
+
+    private static string[] BuildHourLabels()
+    {
+        var labels = new string[24];
+        for (int h = 0; h < 24; h++)
+        {
+            if (h == 0)       labels[h] = "12:00 AM";
+            else if (h < 12)  labels[h] = $"{h}:00 AM";
+            else if (h == 12) labels[h] = "12:00 PM";
+            else              labels[h] = $"{h - 12}:00 PM";
+        }
+        return labels;
+    }
+
+    private UIElement BuildWorkHoursPage(WorkHoursSettings initial)
+    {
+        var stack = new StackPanel { Margin = new Thickness(20, 20, 20, 20) };
+        var hourLabels = BuildHourLabels();
+
+        void OnChanged(object? s, System.Windows.RoutedEventArgs e) => SaveWorkHoursNow();
+        void OnSelectionChanged(object? s, SelectionChangedEventArgs e) => SaveWorkHoursNow();
+
+        // ── Work Days ──────────────────────────────────────────────────────────
+        AddSectionHeader(stack, "Work Days");
+
+        var daysRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
+
+        CheckBox MakeDayCheckBox(string label, bool isChecked)
+        {
+            var cb = new CheckBox
+            {
+                Content   = label,
+                IsChecked = isChecked,
+                Margin    = new Thickness(0, 0, 12, 0),
+            };
+            cb.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+            cb.Checked   += OnChanged;
+            cb.Unchecked += OnChanged;
+            return cb;
+        }
+
+        _mondayWorkCheckBox    = MakeDayCheckBox("Mon", initial.MondayWork);
+        _tuesdayWorkCheckBox   = MakeDayCheckBox("Tue", initial.TuesdayWork);
+        _wednesdayWorkCheckBox = MakeDayCheckBox("Wed", initial.WednesdayWork);
+        _thursdayWorkCheckBox  = MakeDayCheckBox("Thu", initial.ThursdayWork);
+        _fridayWorkCheckBox    = MakeDayCheckBox("Fri", initial.FridayWork);
+        _saturdayWorkCheckBox  = MakeDayCheckBox("Sat", initial.SaturdayWork);
+        _sundayWorkCheckBox    = MakeDayCheckBox("Sun", initial.SundayWork);
+
+        daysRow.Children.Add(_mondayWorkCheckBox);
+        daysRow.Children.Add(_tuesdayWorkCheckBox);
+        daysRow.Children.Add(_wednesdayWorkCheckBox);
+        daysRow.Children.Add(_thursdayWorkCheckBox);
+        daysRow.Children.Add(_fridayWorkCheckBox);
+        daysRow.Children.Add(_saturdayWorkCheckBox);
+        daysRow.Children.Add(_sundayWorkCheckBox);
+        stack.Children.Add(daysRow);
+
+        // ── Work Hours ─────────────────────────────────────────────────────────
+        AddSectionHeader(stack, "Work Hours");
+
+        ComboBox MakeHourComboBox(int selectedIndex)
+        {
+            var cb = new ComboBox { Width = 110, HorizontalAlignment = HorizontalAlignment.Left };
+            foreach (var label in hourLabels)
+                cb.Items.Add(new ComboBoxItem { Content = label });
+            cb.SelectedIndex = Math.Clamp(selectedIndex, 0, 23);
+            cb.SetResourceReference(ComboBox.ForegroundProperty,   "LabelText");
+            cb.SetResourceReference(ComboBox.BackgroundProperty,   "AppSurface");
+            cb.SetResourceReference(ComboBox.FontSizeProperty,     "FontSizeBody");
+            cb.SelectionChanged += OnSelectionChanged;
+            return cb;
+        }
+
+        var startRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+        var startLabel = new TextBlock
+        {
+            Text              = "Start time",
+            VerticalAlignment = VerticalAlignment.Center,
+            Width             = 90,
+        };
+        startLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        startLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        _workStartComboBox = MakeHourComboBox(initial.WorkDayStartHour);
+        startRow.Children.Add(startLabel);
+        startRow.Children.Add(_workStartComboBox);
+        stack.Children.Add(startRow);
+
+        var endRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+        var endLabel = new TextBlock
+        {
+            Text              = "End time",
+            VerticalAlignment = VerticalAlignment.Center,
+            Width             = 90,
+        };
+        endLabel.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        endLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        _workEndComboBox = MakeHourComboBox(initial.WorkDayEndHour);
+        endRow.Children.Add(endLabel);
+        endRow.Children.Add(_workEndComboBox);
+        stack.Children.Add(endRow);
 
         return stack;
     }
