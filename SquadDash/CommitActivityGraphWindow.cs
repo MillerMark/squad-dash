@@ -689,7 +689,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
     private static TextBlock MakeStatValueBlock()
     {
-        var tb = new TextBlock { FontSize = 11 };
+        var tb = new TextBlock();
+        tb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         tb.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
         return tb;
     }
@@ -699,11 +700,11 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var keyLabel = new TextBlock
         {
             Text              = label,
-            FontSize          = 10,
             Margin            = new Thickness(0, 0, 5, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
         keyLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        keyLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         valueBlock.VerticalAlignment = VerticalAlignment.Center;
 
         var chip = new StackPanel
@@ -847,10 +848,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         var tb = new TextBlock
         {
-            FontSize     = 10,
             Padding      = new Thickness(0, 1, 0, 1),
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        tb.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         var shaRun = new Run(sha + "  ");
         shaRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -1612,6 +1613,8 @@ internal sealed class RangeSliderControl : FrameworkElement
 
     // ── Measure ────────────────────────────────────────────────────────────────
 
+    private double FontSize => (double)GetValue(TextElement.FontSizeProperty);
+
     protected override Size MeasureOverride(Size availableSize)
     {
         var w = double.IsFinite(availableSize.Width) && availableSize.Width > 0
@@ -1676,8 +1679,8 @@ internal sealed class RangeSliderControl : FrameworkElement
 
         // Date labels below handles
         var textBrush = TryFindBrush("SubtleText") ?? Brushes.Gray;
-        var leftFt    = MakeText(StartDate.ToString("MMM d, yyyy"), textBrush, 10);
-        var rightFt   = MakeText(EndDate.ToString("MMM d, yyyy"),   textBrush, 10);
+        var leftFt    = MakeText(StartDate.ToString("MMM d, yyyy"), textBrush, FontSize);
+        var rightFt   = MakeText(EndDate.ToString("MMM d, yyyy"),   textBrush, FontSize);
 
         var leftLabelX  = Math.Max(0, Math.Min(leftX  - leftFt.Width  / 2, ActualWidth - leftFt.Width));
         var rightLabelX = Math.Max(0, Math.Min(rightX - rightFt.Width / 2, ActualWidth - rightFt.Width));
@@ -1935,6 +1938,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     {
         SizeChanged += (_, _) => InvalidateVisual();
     }
+
+    private double FontSize => (double)GetValue(TextElement.FontSizeProperty);
 
     // Make the entire canvas surface hittable (not just rendered pixels) so
     // OnMouseMove fires everywhere and the popup shows over dots and lines.
@@ -2234,7 +2239,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 dc.DrawRectangle(null, focusPen, new Rect(1, i * RowHeight + 1, LabelColumnWidth - 2, RowHeight - 2));
             }
 
-            var labelFt = MakeText(row.DisplayName, textBrush, 12);
+            var labelFt = MakeText(row.DisplayName, textBrush, FontSize);
             dc.PushClip(new RectangleGeometry(new Rect(4, i * RowHeight + 2, LabelColumnWidth - 8, RowHeight - 4)));
             dc.DrawText(labelFt, new Point(8, cy - labelFt.Height / 2.0));
             dc.Pop();
@@ -2309,7 +2314,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             if (labelText is not null)
             {
                 var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
-                var ft = MakeText(labelText, labelBrush, 9.5);
+                var ft = MakeText(labelText, labelBrush, FontSize * 0.8);
                 dc.DrawText(ft, new Point(gx + 2, 2));
             }
         }
@@ -2335,7 +2340,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             {
                 var gx = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
                 dc.DrawLine(subDayPen, new Point(gx, 0), new Point(gx, gridHeight));
-                var ft = MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, 9.5);
+                var ft = MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, FontSize * 0.8);
                 dc.DrawText(ft, new Point(gx + 2, 2));
             }
         }
@@ -2371,7 +2376,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                     var dt = minDt ?? maxDt;
                     if (dt.HasValue)
                     {
-                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
+                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSize * 0.8);
                         var lx = (selXMin + selXMax) / 2.0 - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
@@ -2381,14 +2386,14 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 {
                     if (minDt.HasValue)
                     {
-                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
+                        var ft = MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSize * 0.8);
                         var lx = selXMin - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
                     }
                     if (maxDt.HasValue)
                     {
-                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, 9.5);
+                        var ft = MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSize * 0.8);
                         var lx = selXMax - ft.Width / 2.0;
                         lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
                         dc.DrawText(ft, new Point(lx, labelY));
@@ -2568,7 +2573,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 var tickY = axisY + 4;
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
                 var label = cur.LocalDateTime.ToString("h:mm tt");
-                var ft    = MakeText(label, textBrush, 10);
+                var ft    = MakeText(label, textBrush, FontSize * 0.85);
                 dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
             }
         }
@@ -2587,7 +2592,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
 
                 var label = cursor.ToString("MMM d");
-                var ft    = MakeText(label, textBrush, 10);
+                var ft    = MakeText(label, textBrush, FontSize * 0.85);
                 dc.DrawText(ft, new Point(x - ft.Width / 2.0, tickY + 2));
 
                 cursor = cursor.AddDays(intervalDays);
