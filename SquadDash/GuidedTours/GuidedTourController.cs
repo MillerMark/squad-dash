@@ -595,9 +595,9 @@ internal sealed class GuidedTourController
         {
             _restorePreTourLayout?.Invoke();
 
-            if (showHint && tourId is not null)
-                GuidedTourStateStore.Shared.MarkCompleted(tourId);
-
+            // Do NOT mark completed here — completion is only recorded when the user
+            // reaches the last step via Next() or NextTour(). Stopping mid-tour should
+            // not count as having completed it.
             if (showHint)
                 ShowRestartHint();
         }
