@@ -999,7 +999,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private void ZoomOut()
     {
         int currentDays = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
-        int expand      = (int)Math.Round(currentDays * 0.5);
+        int expand      = Math.Max(1, (int)Math.Round(currentDays * 0.5));
 
         var today       = DateOnly.FromDateTime(DateTime.Today);
 
