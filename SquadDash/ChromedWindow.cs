@@ -81,6 +81,14 @@ internal class ChromedWindow : Window {
         outerBorder.SetResourceReference(Border.BackgroundProperty,  backgroundResource);
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
 
+        // Thin 1px overlay border that lights up when the mouse is over the window.
+        var hoverBorder = new Border {
+            BorderThickness  = new Thickness(1),
+            CornerRadius     = new CornerRadius(4),
+            IsHitTestVisible = false,
+            BorderBrush      = Brushes.Transparent,
+        };
+
         RoutedEventHandler? loadedHandler = null;
         loadedHandler = (_, _) => {
             Loaded -= loadedHandler;
@@ -88,6 +96,10 @@ internal class ChromedWindow : Window {
                 var glowColor = ((SolidColorBrush)FindResource("WindowBorderGlow")).Color;
                 var restBrush = (SolidColorBrush)FindResource("PanelBorder");
                 WindowOpenGlow.Animate(outerBorder, glowColor, restBrush);
+
+                var hoverBrush = new SolidColorBrush(Color.FromArgb(128, glowColor.R, glowColor.G, glowColor.B));
+                MouseEnter += (_, _) => hoverBorder.BorderBrush = hoverBrush;
+                MouseLeave += (_, _) => hoverBorder.BorderBrush = Brushes.Transparent;
             }
             catch { /* silently skip if resources are unavailable (designer / test context) */ }
         };
@@ -149,6 +161,7 @@ internal class ChromedWindow : Window {
 
             var overlay = new Grid();
             overlay.Children.Add(outerBorder);
+            overlay.Children.Add(hoverBorder);
             Content = overlay;
             return contentHolder;
         }
@@ -161,6 +174,7 @@ internal class ChromedWindow : Window {
 
         var grid = new Grid();
         grid.Children.Add(outerBorder);
+        grid.Children.Add(hoverBorder);
         grid.Children.Add(closeBtn);
         Content = grid;
         return outerBorder;
