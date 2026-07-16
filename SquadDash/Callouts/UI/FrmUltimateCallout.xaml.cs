@@ -444,11 +444,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// <summary>Fired when the tour overlay Prev button is clicked.</summary>
     public event EventHandler? TourPrevRequested;
 
-    /// <summary>Fired when the user presses Shift+F3 while the callout is focused in tour mode,
-    /// so subscribers (e.g. <see cref="GuidedTourController"/>) can forward the action to the
-    /// focused prompt-box even when the callout window holds keyboard focus.</summary>
-    public event EventHandler? TourShiftF3Requested;
-
     /// <summary>Fired when the user clicks the pencil edit button in the tour overlay (developer mode only).</summary>
     public event EventHandler? TourEditRequested;
 
@@ -630,13 +625,6 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         else if (e.Key == Key.Back)
         {
             TourPrevRequested?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.F3 && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-        {
-            // Forward to the subscriber (GuidedTourController → MainWindow.CyclePromptTextCase)
-            // so Shift+F3 works even when the callout holds keyboard focus.
-            TourShiftF3Requested?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
         }
     }

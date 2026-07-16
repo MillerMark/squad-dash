@@ -489,7 +489,6 @@ internal sealed class GuidedTourController
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
-            _activeCallout.TourShiftF3Requested      += (_, _) => (_ownerWindow as MainWindow)?.CyclePromptTextCase();
         }
     }
 
@@ -529,7 +528,6 @@ internal sealed class GuidedTourController
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
-            _activeCallout.TourShiftF3Requested      += (_, _) => (_ownerWindow as MainWindow)?.CyclePromptTextCase();
         }
     }
 
