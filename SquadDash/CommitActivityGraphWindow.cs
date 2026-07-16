@@ -2400,8 +2400,16 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             };
             if (labelText is not null)
             {
+                // Place the label centered in the middle of the period it represents,
+                // not at the boundary line.
+                double labelCx = level switch
+                {
+                    2 => gx + 0.5 * DateTime.DaysInMonth(d.Year, d.Month) * _effectivePixelsPerDay,
+                    1 => gx + 3.5 * _effectivePixelsPerDay,  // Mon → center of week (Thu)
+                    _ => gx + 0.5 * _effectivePixelsPerDay,  // day: center of that day
+                };
                 var labelBrush = new SolidColorBrush(Color.FromArgb(alpha, gridBase.R, gridBase.G, gridBase.B));
-                dateLabelCandidates.Add((gx, MakeText(labelText, labelBrush, FontSizeSmall)));
+                dateLabelCandidates.Add((labelCx, MakeText(labelText, labelBrush, FontSizeSmall)));
             }
         }
 
@@ -2429,7 +2437,9 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             {
                 var gx = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
                 dc.DrawLine(subDayPen, new Point(gx, 0), new Point(gx, gridHeight));
-                subDayCandidates.Add((gx, MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, FontSizeSmall)));
+                // Center the label in the middle of the time slot.
+                var slotCx = gx + 0.5 * gridMinutes / 1440.0 * _effectivePixelsPerDay;
+                subDayCandidates.Add((slotCx, MakeText(cur.LocalDateTime.ToString("h:mm tt"), subDayBrush, FontSizeSmall)));
             }
 
             DrawAlternatingGridLabels(dc, subDayCandidates, gridHeight);
