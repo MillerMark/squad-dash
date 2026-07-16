@@ -349,6 +349,7 @@ internal sealed class GuidedTourController
         _currentStepIndex = 0;
         CloseActiveCallout();
         _tourInjectedThreadIds.Clear();
+        _commandRegistry?.Execute("ClearShortcutTarget");
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
@@ -604,6 +605,7 @@ internal sealed class GuidedTourController
 
         // Clear after restorePreTourLayout so CleanUpTourInjectedThreads can still read the list.
         _tourInjectedThreadIds.Clear();
+        _commandRegistry?.Execute("ClearShortcutTarget");
     }
 
     private void HandleNewStepAfter()

@@ -663,6 +663,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _pttShiftTappedDuringRecording;
     private bool _voiceStartedWithSendEnabled;
     private bool _dictationStartedForQuickReply; // set at PTT start when quick replies visible and box empty
+
+    // ── Tour shortcut routing ─────────────────────────────────────────────────
+    // When a tour step needs keyboard shortcuts (e.g. Shift+F3) to reach a specific
+    // control while the tour navigator window has focus, this field names the intended
+    // target.  SetShortcutTarget / ClearShortcutTarget tour commands manage it.
+    private UIElement? _tourShortcutTarget;
     private bool _pttLostFocusDuringRecording;   // set when another window stole focus mid-PTT
     private IInputElement? _lastFocusedTextElement;
     private DispatcherTimer? _pttCtrlPollTimer;   // polls GetAsyncKeyState while window is inactive
@@ -9871,6 +9877,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (TryRecoverPromptInputFromStaleModifiers(e))
                 return;
 
+            // ── Tour shortcut routing ─────────────────────────────────────────────
+            // When a guided-tour step sets a shortcut target (e.g. PromptTextBox for
+            // Shift+F3 case-cycling), ensure that control has keyboard focus so the
+            // keystroke reaches its normal handler instead of being swallowed by the
+            // tour navigator window.
+            if (_tourShortcutTarget is not null && !_tourShortcutTarget.IsKeyboardFocusWithin)
+                _tourShortcutTarget.Focus();
+
             // ── Ctrl+O: open Options ─────────────────────────────────────────────
             if (e.Key == Key.O
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
@@ -14861,6 +14875,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             UpdateFollowUpStrip();
             SyncQueuePanel();
         });
+
+        // ── Shortcut routing ──────────────────────────────────────────────────
+        // Tour steps can route specific keyboard shortcuts (e.g. Shift+F3) to a
+        // named control so the shortcut reaches its normal handler even while the
+        // tour navigator window is focused.
+        _tourCommandRegistry.RegisterParameterized("SetShortcutTarget", arg =>
+        {
+            _tourShortcutTarget = arg.Trim() switch
+            {
+                "PromptTextBox" => PromptTextBox,
+                _ => null
+            };
+        });
+        _tourCommandRegistry.Register("ClearShortcutTarget", () => _tourShortcutTarget = null);
 
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
         {

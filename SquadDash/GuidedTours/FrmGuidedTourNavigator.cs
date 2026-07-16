@@ -266,7 +266,10 @@ internal sealed class FrmGuidedTourNavigator : ChromedWindow
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.F2) { PrevRequested?.Invoke(this, EventArgs.Empty); e.Handled = true; }
-        if (e.Key == Key.F3) { NextRequested?.Invoke(this, EventArgs.Empty); e.Handled = true; }
+        // Do not intercept Shift+F3 — that combination is reserved for case-cycling in the
+        // prompt box (and any other shortcut target set by the active tour step).
+        if (e.Key == Key.F3 && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
+        { NextRequested?.Invoke(this, EventArgs.Empty); e.Handled = true; }
     }
 
     // ── Helper ───────────────────────────────────────────────────────────────
