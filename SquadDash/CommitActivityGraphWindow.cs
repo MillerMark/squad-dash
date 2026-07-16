@@ -2265,6 +2265,9 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             Math.Max(0, ActualWidth - LabelColumnWidth),
             (_rows.Count + 1) * RowHeight + VerticalPadding)));
 
+        // ── Off-hours shading (before 9am / after 5pm on weekdays; all day on weekends) ──
+        DrawOffHoursShading(dc, _rows.Count * RowHeight);
+
         // ── Vertical grid lines (day/week/month/quarter/year) ─────────────────
         // All lines are 1px wide. A type is suppressed when spacing < 50px.
         // Opacity steps up from finest visible unit: 20% / 40% / 60% / 80%+.
@@ -2671,6 +2674,64 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             dc.DrawText(ft, new Point(x, y));
             drawnCount++;
         }
+    }
+
+    // ── Off-hours shading ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Draws off-hours shading rectangles over the graph area.
+    /// Off hours: before 09:00 and after 17:00 on weekdays; all day on weekends.
+    /// Uses the contrasting colour (white in dark theme, black in light) at 8% opacity.
+    /// </summary>
+    private void DrawOffHoursShading(DrawingContext dc, double gridHeight)
+    {
+        byte alpha = 20; // ~8% of 255
+        var color = _isDark
+            ? Color.FromArgb(alpha, 255, 255, 255)
+            : Color.FromArgb(alpha, 0, 0, 0);
+        var brush  = new SolidColorBrush(color);
+        var offset = _viewStart.Offset;
+
+        // Iterate over every calendar day that could overlap the visible range.
+        var startDay = DateOnly.FromDateTime(_viewStart.LocalDateTime);
+        var endDay   = DateOnly.FromDateTime(_viewEnd.LocalDateTime).AddDays(1);
+
+        for (var day = startDay; day <= endDay; day = day.AddDays(1))
+        {
+            var dayStart = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue),           offset);
+            var dayEnd   = new DateTimeOffset(day.AddDays(1).ToDateTime(TimeOnly.MinValue), offset);
+
+            if (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)
+            {
+                DrawOffHoursRect(dc, brush, gridHeight, dayStart, dayEnd);
+            }
+            else
+            {
+                // Pre-work: midnight → 09:00
+                var nineAm = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 0)),  offset);
+                DrawOffHoursRect(dc, brush, gridHeight, dayStart, nineAm);
+
+                // Post-work: 17:00 → midnight
+                var fivePm = new DateTimeOffset(day.ToDateTime(new TimeOnly(17, 0)), offset);
+                DrawOffHoursRect(dc, brush, gridHeight, fivePm, dayEnd);
+            }
+        }
+    }
+
+    private void DrawOffHoursRect(DrawingContext dc, Brush brush, double gridHeight,
+                                   DateTimeOffset segStart, DateTimeOffset segEnd)
+    {
+        var x1 = LabelColumnWidth + DateTimeToX(segStart);
+        var x2 = LabelColumnWidth + DateTimeToX(segEnd);
+
+        // Skip if entirely outside the visible area.
+        if (x2 <= LabelColumnWidth || x1 >= ActualWidth) return;
+
+        x1 = Math.Max(x1, LabelColumnWidth);
+        x2 = Math.Min(x2, ActualWidth);
+        if (x2 <= x1) return;
+
+        dc.DrawRectangle(brush, null, new Rect(x1, 0, x2 - x1, gridHeight));
     }
 
     // ── Coordinate helpers ─────────────────────────────────────────────────────
