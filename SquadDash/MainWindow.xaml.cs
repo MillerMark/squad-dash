@@ -14252,16 +14252,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             catch { continue; }
 
-            // The overlay canvas DPI is that of the primary/system monitor (e.g. 1.0 at 100%).
-            // When the TARGET element is on a different monitor (e.g. 150%), Windows renders
-            // the canvas content at monitorDpi/canvasDpi scale on that region.
-            // So 1 canvas unit = (monitorDpi/canvasDpi) physical pixels on the target monitor.
-            // Dividing by this ratio converts physical pixel offsets → correct canvas units.
-            double monitorScale = GetMonitorDpiScaleForPoint(screenTL, canvasDpi);
-            double cx = (screenTL.X - canvasOrigin.X) / monitorScale;
-            double cy = (screenTL.Y - canvasOrigin.Y) / monitorScale;
-            double cw = (screenBR.X - screenTL.X)     / monitorScale;
-            double ch = (screenBR.Y - screenTL.Y)     / monitorScale;
+            // Convert physical screen pixels to the overlay canvas's own DIP space.
+            var (cx, cy, cw, ch) = GetTourHighlightCanvasBounds(
+                screenTL, screenBR, canvasOrigin, canvasDpi);
             Canvas.SetLeft(rect, cx - pad - thickness);
             Canvas.SetTop(rect,  cy - pad - thickness);
             rect.Width  = cw + (pad + thickness) * 2;
@@ -14284,42 +14277,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private const uint SWP_NOACTIVATE = 0x0010;
 
     // ── Win32 monitor-DPI helpers ─────────────────────────────────────────────
-    // The overlay window lives on the primary (system-DPI) monitor context.
-    // When elements are on a secondary monitor with a DIFFERENT DPI setting,
-    // Windows scales the overlay's rendered output for that monitor region.
-    // 1 canvas unit → (monitorDpi / canvasDpi) physical pixels on that monitor.
-    // Dividing physical offsets by that ratio converts them to correct canvas units.
-    [DllImport("user32.dll", SetLastError = false)]
-    private static extern IntPtr MonitorFromPoint(POINT_Highlight pt, uint dwFlags);
-
-    [DllImport("shcore.dll", SetLastError = false)]
-    private static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType,
-        out uint dpiX, out uint dpiY);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT_Highlight { public int X, Y; }
-
-    private const uint MONITOR_DEFAULTTONEAREST_HL = 2;
-    private const int  MDT_EFFECTIVE_DPI_HL        = 0;
-
-    /// <summary>
-    /// Returns the effective DPI scale of the monitor that contains <paramref name="screenPt"/>
-    /// (a physical screen coordinate), divided by the overlay canvas's DPI scale.
-    /// On a 100 % monitor this is 1.0; on a 150 % monitor it is 1.5.
-    /// Dividing physical pixel offsets by this value converts them to canvas logical units.
-    /// </summary>
-    private double GetMonitorDpiScaleForPoint(Point screenPt, DpiScale canvasDpi)
-    {
-        var hMon = MonitorFromPoint(
-            new POINT_Highlight { X = (int)screenPt.X, Y = (int)screenPt.Y },
-            MONITOR_DEFAULTTONEAREST_HL);
-        if (hMon == IntPtr.Zero) return canvasDpi.DpiScaleX;
-        if (GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI_HL, out uint dpiX, out _) != 0)
-            return canvasDpi.DpiScaleX; // S_OK = 0; on failure fall back to canvas DPI
-        // monitorDpi/96 gives the monitor scale; canvas at canvasDpi.DpiScaleX * 96 DPI.
-        // Effective render scale = monitorDpi / (canvasDpi.DpiScaleX * 96).
-        return dpiX / (canvasDpi.DpiScaleX * 96.0);
-    }
+    // PointToScreen uses physical pixels; canvas coordinates use the overlay's DIPs.
+    private static (double X, double Y, double Width, double Height) GetTourHighlightCanvasBounds(
+        Point screenTL, Point screenBR, Point canvasOrigin, DpiScale canvasDpi) =>
+        ((screenTL.X - canvasOrigin.X) / canvasDpi.DpiScaleX,
+         (screenTL.Y - canvasOrigin.Y) / canvasDpi.DpiScaleY,
+         (screenBR.X - screenTL.X) / canvasDpi.DpiScaleX,
+         (screenBR.Y - screenTL.Y) / canvasDpi.DpiScaleY);
 
     private void BringHighlightOverlayToFront()
     {
@@ -14688,7 +14652,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _tourHighlightOverlay.Width  = SystemParameters.VirtualScreenWidth;
                     _tourHighlightOverlay.Height = SystemParameters.VirtualScreenHeight;
                     SquadDashTrace.Write(TraceCategory.UI, "[HighlightDiag] DpiChanged — resetting overlay to virtual screen");
-                    RefreshTourHighlightRects();
+                    _ = Dispatcher.InvokeAsync(RefreshTourHighlightRects, DispatcherPriority.Loaded);
                 };
             }
             else
@@ -14700,11 +14664,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
             }
 
-            // Compute element bounds in canvas logical units using physical screen coordinates.
-            // The overlay canvas DPI = system/primary monitor DPI (e.g. 1.0 at 100%).
-            // When the element is on a DIFFERENT DPI monitor (e.g. 150%), Windows renders
-            // the canvas at monitorDpi/canvasDpi scale on that region.
-            // Dividing physical pixel offsets by GetMonitorDpiScaleForPoint corrects for this.
+            // Convert physical screen pixels to the overlay canvas's own DIP space.
             Point screenTL, screenBR;
             try {
                 screenTL = el.PointToScreen(new Point(0, 0));
@@ -14714,11 +14674,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var canvasOrigin  = _tourHighlightCanvas!.PointToScreen(new Point(0, 0));
             var canvasDpi     = VisualTreeHelper.GetDpi(_tourHighlightCanvas!);
             if (canvasDpi.DpiScaleX <= 0 || canvasDpi.DpiScaleY <= 0) return;
-            double monitorScale = GetMonitorDpiScaleForPoint(screenTL, canvasDpi);
-            double cx = (screenTL.X - canvasOrigin.X) / monitorScale;
-            double cy = (screenTL.Y - canvasOrigin.Y) / monitorScale;
-            double cw = (screenBR.X - screenTL.X)     / monitorScale;
-            double ch = (screenBR.Y - screenTL.Y)     / monitorScale;
+            var (cx, cy, cw, ch) = GetTourHighlightCanvasBounds(
+                screenTL, screenBR, canvasOrigin, canvasDpi);
             if (cw <= 0 || ch <= 0) return;
 
             const double pad = 2;
@@ -14805,10 +14762,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     elTL = el.PointToScreen(new Point(0, 0));
                     elBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
                 } catch { elTL = elBR = new Point(double.NaN, double.NaN); }
-                double monitorScale = GetMonitorDpiScaleForPoint(elTL, dpi);
-                double cx = (elTL.X - canvasOrigin.X) / monitorScale;
-                double cy = (elTL.Y - canvasOrigin.Y) / monitorScale;
-                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) monitorScale={monitorScale:F3} computed cx={cx:F1} cy={cy:F1} " +
+                var (cx, cy, _, _) = GetTourHighlightCanvasBounds(elTL, elBR, canvasOrigin, dpi);
+                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) computed cx={cx:F1} cy={cy:F1} " +
                        $"rect.L={Canvas.GetLeft(rect):F1} rect.T={Canvas.GetTop(rect):F1}";
             }
             SquadDashTrace.Write(TraceCategory.UI, msg);
