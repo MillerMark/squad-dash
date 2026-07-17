@@ -4,26 +4,6 @@
       "Name": "Preset 1",
       "Slots": [
         {
-          "PanelId": "loop",
-          "Zone": "Top",
-          "Order": 0
-        },
-        {
-          "PanelId": "approvals",
-          "Zone": "Top",
-          "Order": 1
-        },
-        {
-          "PanelId": "notes",
-          "Zone": "Top",
-          "Order": 2
-        },
-        {
-          "PanelId": "inbox",
-          "Zone": "Right",
-          "Order": 0
-        },
-        {
           "PanelId": "maintenance",
           "Zone": "Right",
           "Order": 1
@@ -32,12 +12,36 @@
           "PanelId": "tasks",
           "Zone": "Right2",
           "Order": 0
+        },
+        {
+          "PanelId": "approvals",
+          "Zone": "Left",
+          "Order": 0
+        },
+        {
+          "PanelId": "loop",
+          "Zone": "Left2",
+          "Order": 0
+        },
+        {
+          "PanelId": "inbox",
+          "Zone": "Left2",
+          "Order": 1
+        },
+        {
+          "PanelId": "notes",
+          "Zone": "Top",
+          "Order": 0
         }
       ],
+      "LeftZoneWidth": 280,
       "RightZoneWidth": 280,
-      "Right2ZoneWidth": 252.14666666666665,
-      "Right3ZoneWidth": 280,
-      "Right4ZoneWidth": 280
+      "Left2ZoneWidth": 280,
+      "Right2ZoneWidth": 280,
+      "VisiblePanelIds": [
+        "approvals"
+      ],
+      "DocumentationVisible": false
     },
     {
       "Name": "Preset 2",
@@ -58,41 +62,42 @@
           "Order": 0
         },
         {
-          "PanelId": "inbox",
+          "PanelId": "loop",
           "Zone": "Left2",
           "Order": 0
         },
         {
-          "PanelId": "loop",
+          "PanelId": "inbox",
           "Zone": "Left2",
           "Order": 1
         },
         {
           "PanelId": "notes",
-          "Zone": "Left2",
-          "Order": 2
+          "Zone": "Top",
+          "Order": 0
         }
       ],
-      "RightZoneWidth": 276.35333333333335,
-      "Right2ZoneWidth": 317.43
+      "LeftZoneWidth": 280,
+      "VisiblePanelIds": [],
+      "DocumentationVisible": true
     },
     {
       "Name": "Preset 3",
       "Slots": [
         {
-          "PanelId": "approvals",
-          "Zone": "Left",
+          "PanelId": "maintenance",
+          "Zone": "Right",
           "Order": 1
         },
         {
-          "PanelId": "maintenance",
-          "Zone": "Top",
+          "PanelId": "tasks",
+          "Zone": "Right2",
           "Order": 0
         },
         {
-          "PanelId": "notes",
-          "Zone": "Top",
-          "Order": 1
+          "PanelId": "approvals",
+          "Zone": "Left",
+          "Order": 0
         },
         {
           "PanelId": "loop",
@@ -100,19 +105,20 @@
           "Order": 0
         },
         {
-          "PanelId": "tasks",
+          "PanelId": "inbox",
           "Zone": "Left2",
           "Order": 1
         },
         {
-          "PanelId": "inbox",
-          "Zone": "Right",
+          "PanelId": "notes",
+          "Zone": "Top",
           "Order": 0
         }
       ],
       "LeftZoneWidth": 280,
+      "RightZoneWidth": 280,
       "Left2ZoneWidth": 280,
-      "Left3ZoneWidth": 280
+      "Right2ZoneWidth": 280
     }
   ]
 }

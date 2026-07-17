@@ -6,7 +6,7 @@
     "steps": [
       {
         "title": "Welcome to the Guided Tour",
-        "markdownText": "Meet SquadDash...\r\nStart by clicking the **Next** button below.",
+        "markdownText": "Let\u0027s learn the essence of the SquadDash **user interface**.\r\nClick **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
