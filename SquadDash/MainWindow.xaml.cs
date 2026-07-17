@@ -10297,8 +10297,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
+            // ── Ctrl+Alt+PageUp: navigate to previous question prompt ────────────
+            if (e.Key == Key.PageUp
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0)
+            {
+                PromptNavUpButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Alt+PageDown: navigate to next question prompt ──────────────
+            if (e.Key == Key.PageDown
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     != 0
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0)
+            {
+                PromptNavDownButton_Click(this, new RoutedEventArgs());
+                e.Handled = true;
+                return;
+            }
+
             // ── Ctrl+Page Up / Ctrl+Page Down: navigate between prompts ─────────
-            if (e.Key == Key.PageUp && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            if (e.Key == Key.PageUp
+                && (Keyboard.Modifiers & ModifierKeys.Control) != 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
             {
                 PromptNavUpButton_Click(this, new RoutedEventArgs());
                 e.Handled = true;
@@ -10306,7 +10330,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             if (e.Key == Key.PageDown
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0)
+                && (Keyboard.Modifiers & ModifierKeys.Shift)   == 0
+                && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
             {
                 PromptNavDownButton_Click(this, new RoutedEventArgs());
                 e.Handled = true;
