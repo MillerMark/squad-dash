@@ -155,9 +155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
-    private Window?  _tourHighlightOverlay;
-    private Canvas?  _tourHighlightCanvas;
-    private readonly List<(FrameworkElement El, System.Windows.Shapes.Rectangle Rect)> _tourHighlightRects = new();
+    private readonly List<(FrameworkElement El, Window Overlay)> _tourHighlightOverlays = new();
     private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
     private DispatcherTimer? _tourHighlightZTimer;
     private readonly PushNotificationService _pushNotificationService;
@@ -14162,6 +14160,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
             onStepChanging:          FreezeTypeIntoPromptAnimation,
+            onCalloutShown:           ReassertTourHighlightOverlays,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
             isTypeAnimationRunning:  () => _typeIntoPromptTimer != null,
             extraPickWindowsProvider: () => _preferencesWindow is { IsVisible: true }
@@ -14181,16 +14180,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _tourHighlightZTimer?.Stop();
         _tourHighlightZTimer = null;
-        if (_tourHighlightOverlay is not null)
-        {
-            _tourHighlightOverlay.Close();
-            _tourHighlightOverlay = null;
-            _tourHighlightCanvas  = null;
-        }
+        foreach (var (_, overlay) in _tourHighlightOverlays)
+            overlay.Close();
         // Unsubscribe visibility handlers before clearing the list
-        foreach (var (el, _) in _tourHighlightRects)
+        foreach (var (el, _) in _tourHighlightOverlays)
             el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
-        _tourHighlightRects.Clear();
+        _tourHighlightOverlays.Clear();
         foreach (var w in _tourHighlightTrackedWindows)
             w.LocationChanged -= OnTourHighlightWindowMoved;
         _tourHighlightTrackedWindows.Clear();
@@ -14205,24 +14200,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (sender is not FrameworkElement el) return;
         el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
 
-        // Remove the specific rect(s) for this element from the canvas and list
-        var toRemove = _tourHighlightRects.Where(r => ReferenceEquals(r.El, el)).ToList();
-        foreach (var (_, rect) in toRemove)
-            _tourHighlightCanvas?.Children.Remove(rect);
-        _tourHighlightRects.RemoveAll(r => ReferenceEquals(r.El, el));
+        var toRemove = _tourHighlightOverlays.Where(r => ReferenceEquals(r.El, el)).ToList();
+        foreach (var (_, overlay) in toRemove)
+            overlay.Close();
+        _tourHighlightOverlays.RemoveAll(r => ReferenceEquals(r.El, el));
 
-        // If no rects remain, close the overlay entirely to avoid a lingering
-        // transparent topmost window consuming hit-test events.
-        if (_tourHighlightRects.Count == 0)
+        // If no highlights remain, stop tracking parent-window movement.
+        if (_tourHighlightOverlays.Count == 0)
         {
             _tourHighlightZTimer?.Stop();
             _tourHighlightZTimer = null;
-            if (_tourHighlightOverlay is not null)
-            {
-                _tourHighlightOverlay.Close();
-                _tourHighlightOverlay = null;
-                _tourHighlightCanvas  = null;
-            }
             foreach (var w in _tourHighlightTrackedWindows)
                 w.LocationChanged -= OnTourHighlightWindowMoved;
             _tourHighlightTrackedWindows.Clear();
@@ -14231,35 +14218,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void RefreshTourHighlightRects()
     {
-        if (_tourHighlightCanvas is null) return;
-        const double pad = 2;
-        const double thickness = 2.5;
-        Point canvasOrigin;
-        DpiScale canvasDpi;
-        try {
-            canvasOrigin = _tourHighlightCanvas.PointToScreen(new Point(0, 0));
-            canvasDpi    = VisualTreeHelper.GetDpi(_tourHighlightCanvas);
-        }
-        catch { return; }
-        if (canvasDpi.DpiScaleX <= 0 || canvasDpi.DpiScaleY <= 0) return;
+        foreach (var (el, overlay) in _tourHighlightOverlays)
+            PositionTourHighlightOverlay(el, overlay);
+    }
 
-        foreach (var (el, rect) in _tourHighlightRects)
-        {
-            Point screenTL, screenBR;
-            try {
-                screenTL = el.PointToScreen(new Point(0, 0));
-                screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
-            }
-            catch { continue; }
-
-            // Convert physical screen pixels to the overlay canvas's own DIP space.
-            var (cx, cy, cw, ch) = GetTourHighlightCanvasBounds(
-                screenTL, screenBR, canvasOrigin, canvasDpi);
-            Canvas.SetLeft(rect, cx - pad - thickness);
-            Canvas.SetTop(rect,  cy - pad - thickness);
-            rect.Width  = cw + (pad + thickness) * 2;
-            rect.Height = ch + (pad + thickness) * 2;
-        }
+    private void ReassertTourHighlightOverlays()
+    {
+        RefreshTourHighlightRects();
+        foreach (var (_, overlay) in _tourHighlightOverlays)
+            BringHighlightOverlayToFront(overlay);
     }
 
     // ── Win32 z-order helper ─────────────────────────────────────────────────
@@ -14275,20 +14242,41 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private const uint SWP_NOSIZE     = 0x0001;
     private const uint SWP_NOMOVE     = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
 
     // ── Win32 monitor-DPI helpers ─────────────────────────────────────────────
-    // PointToScreen uses physical pixels; canvas coordinates use the overlay's DIPs.
-    private static (double X, double Y, double Width, double Height) GetTourHighlightCanvasBounds(
-        Point screenTL, Point screenBR, Point canvasOrigin, DpiScale canvasDpi) =>
-        ((screenTL.X - canvasOrigin.X) / canvasDpi.DpiScaleX,
-         (screenTL.Y - canvasOrigin.Y) / canvasDpi.DpiScaleY,
-         (screenBR.X - screenTL.X) / canvasDpi.DpiScaleX,
-         (screenBR.Y - screenTL.Y) / canvasDpi.DpiScaleY);
-
-    private void BringHighlightOverlayToFront()
+    // Keep each small overlay in the target's physical screen coordinate space. Unlike a
+    // virtual-screen-sized HWND, its DPI ownership cannot change when a callout appears.
+    private static void PositionTourHighlightOverlay(FrameworkElement el, Window overlay)
     {
-        if (_tourHighlightOverlay is null) return;
-        var hwnd = new WindowInteropHelper(_tourHighlightOverlay).Handle;
+        Point screenTL;
+        Point screenBR;
+        DpiScale targetDpi;
+        try
+        {
+            screenTL = el.PointToScreen(new Point(0, 0));
+            screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
+            targetDpi = VisualTreeHelper.GetDpi(el);
+        }
+        catch { return; }
+
+        const double inset = 4.5; // pad (2) + stroke thickness (2.5), in target DIPs
+        int insetX = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleX));
+        int insetY = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleY));
+        int left = (int)Math.Floor(screenTL.X) - insetX;
+        int top = (int)Math.Floor(screenTL.Y) - insetY;
+        int width = Math.Max(1, (int)Math.Ceiling(screenBR.X) - left + insetX);
+        int height = Math.Max(1, (int)Math.Ceiling(screenBR.Y) - top + insetY);
+
+        var hwnd = new WindowInteropHelper(overlay).Handle;
+        if (hwnd != IntPtr.Zero)
+            SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+
+    private static void BringHighlightOverlayToFront(Window overlay)
+    {
+        var hwnd = new WindowInteropHelper(overlay).Handle;
         if (hwnd != IntPtr.Zero)
             SetWindowPos(hwnd, HWND_TOPMOST_VALUE, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -14493,6 +14481,80 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static bool IsTourOrSimTag(string? tag) =>
         tag == TourDummyTag || tag == TourTypeTag;
 
+    private static System.Windows.Controls.Primitives.Popup? FindTourMenuPopup(MenuItem menuItem)
+    {
+        menuItem.ApplyTemplate();
+        return menuItem.Template?.FindName("SubMenuPopup", menuItem) as System.Windows.Controls.Primitives.Popup
+            ?? menuItem.Template?.FindName("PART_Popup", menuItem) as System.Windows.Controls.Primitives.Popup
+            ?? VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(menuItem);
+    }
+
+    private static FrameworkElement? GetRenderedTourMenuPopupChild(MenuItem menuItem)
+    {
+        var popup = FindTourMenuPopup(menuItem);
+        if (!menuItem.IsSubmenuOpen || popup is not { IsOpen: true, Child: FrameworkElement child })
+            return null;
+
+        return child.ActualWidth > 0 && child.ActualHeight > 0 && PresentationSource.FromVisual(child) is not null
+            ? child
+            : null;
+    }
+
+    private async Task<FrameworkElement?> OpenTourMenuItemAsync(MenuItem menuItem, string name)
+    {
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            menuItem.ApplyTemplate();
+            menuItem.UpdateLayout();
+            if (GetRenderedTourMenuPopupChild(menuItem) is { } existingChild)
+                return existingChild;
+
+            var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            RoutedEventHandler submenuOpened = (_, _) => opened.TrySetResult(true);
+            var popupBeforeOpen = FindTourMenuPopup(menuItem);
+            EventHandler popupOpened = (_, _) => opened.TrySetResult(true);
+            menuItem.SubmenuOpened += submenuOpened;
+            if (popupBeforeOpen is not null)
+                popupBeforeOpen.Opened += popupOpened;
+
+            try
+            {
+                // Recover from the inconsistent state where IsSubmenuOpen is true but the
+                // Popup HWND was never created (or was already dismissed).
+                if (menuItem.IsSubmenuOpen)
+                {
+                    menuItem.IsSubmenuOpen = false;
+                    await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                }
+
+                menuItem.IsSubmenuOpen = true;
+                await Task.WhenAny(opened.Task, Task.Delay(500));
+                await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+                await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+                // Require the popup to remain open across a short settling interval. This
+                // catches opens that WPF immediately cancels because menu focus/capture moved.
+                await Task.Delay(60);
+                if (GetRenderedTourMenuPopupChild(menuItem) is { } child)
+                    return child;
+            }
+            finally
+            {
+                menuItem.SubmenuOpened -= submenuOpened;
+                if (popupBeforeOpen is not null)
+                    popupBeforeOpen.Opened -= popupOpened;
+            }
+
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"[TourOpenMenu] '{name}' did not reach a rendered-open state (attempt {attempt}/{maxAttempts}).");
+            menuItem.IsSubmenuOpen = false;
+            await Task.Delay(80);
+        }
+
+        return null;
+    }
+
     private void RegisterTourCommands()
     {
         const string DummyTag = TourDummyTag;
@@ -14544,36 +14606,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Opens each named MenuItem in sequence so a callout can point at it / its children.
             // After each level opens, subsequent names are searched inside the opened popup
             // child (which lives in a separate HwndSource) rather than the main window.
-            var names = arg.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            var names = arg.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             DependencyObject searchRoot = this;   // start search in main window visual tree
             foreach (var name in names)
             {
+                _tourNamedElements.Remove($"{name}_Popup");
                 var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
                        : VisualTreeSearch.FindByName(searchRoot, name)
                        ?? (searchRoot != this ? VisualTreeSearch.FindByName(this, name) : null);
-                if (el is MenuItem mi)
+                if (el is not MenuItem mi)
                 {
-                    mi.ApplyTemplate();
-                    mi.IsSubmenuOpen = true;
-                    await Task.Delay(180); // let WPF render the submenu before opening the next level
-
-                    // Register the submenu popup child as "{Name}_Popup" so a callout can
-                    // point at the open dropdown panel rather than the small menu-bar header.
-                    // The custom TopLevelMenuItemStyle uses "SubMenuPopup"; standard WPF uses
-                    // "PART_Popup". Try both, then fall back to a visual tree search.
-                    System.Windows.Controls.Primitives.Popup? popup =
-                        mi.Template?.FindName("SubMenuPopup", mi) as System.Windows.Controls.Primitives.Popup
-                        ?? mi.Template?.FindName("PART_Popup",   mi) as System.Windows.Controls.Primitives.Popup
-                        ?? VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(mi);
-
-                    var child = popup?.Child as FrameworkElement;
-                    if (child is not null)
-                    {
-                        _tourNamedElements[$"{name}_Popup"] = child;
-                        // Search next level's items within this popup's visual tree
-                        searchRoot = child;
-                    }
+                    SquadDashTrace.Write(TraceCategory.UI,
+                        $"[TourOpenMenu] Could not resolve MenuItem '{name}' beneath '{searchRoot.GetType().Name}'.");
+                    break;
                 }
+
+                var child = await OpenTourMenuItemAsync(mi, name);
+                if (child is null)
+                {
+                    SquadDashTrace.Write(TraceCategory.UI,
+                        $"[TourOpenMenu] Giving up opening '{name}' after all retries.");
+                    break;
+                }
+
+                // Popup content is hosted in a separate HwndSource. Register that live root
+                // so nested menu names, highlights, and the tour callout can resolve it.
+                _tourNamedElements[$"{name}_Popup"] = child;
+                searchRoot = child;
             }
         });
 
@@ -14608,94 +14667,51 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // that just became visible via OpenMenu).
             await Task.Delay(80);
 
-            if (!el.IsVisible) return;
+            bool isRendered = el.IsVisible
+                           || (el.ActualWidth > 0 && el.ActualHeight > 0
+                               && PresentationSource.FromVisual(el) is not null);
+            if (!isRendered) return;
 
             var isDark = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
             var rectColor = isDark
                 ? Color.FromRgb(0xFF, 0xA0, 0xA0)  // light red for dark theme
                 : Color.FromRgb(0x8B, 0x00, 0x00);  // dark red for light theme
 
-            // Lazily create the overlay window. It spans the full virtual screen so that
-            // elements in any window (MainWindow, PreferencesWindow, etc.) can be highlighted —
-            // PointFromScreen then always yields in-canvas coordinates.
-            var screenLeft   = SystemParameters.VirtualScreenLeft;
-            var screenTop    = SystemParameters.VirtualScreenTop;
-            var screenWidth  = SystemParameters.VirtualScreenWidth;
-            var screenHeight = SystemParameters.VirtualScreenHeight;
-            if (_tourHighlightOverlay is null)
-            {
-                _tourHighlightCanvas = new Canvas { IsHitTestVisible = false };
-                _tourHighlightOverlay = new Window
-                {
-                    Owner                 = this,
-                    WindowStyle           = WindowStyle.None,
-                    AllowsTransparency    = true,
-                    Background            = Brushes.Transparent,
-                    Topmost               = true,
-                    ShowInTaskbar         = false,
-                    IsHitTestVisible      = false,
-                    WindowStartupLocation = WindowStartupLocation.Manual,
-                    Left                  = screenLeft,
-                    Top                   = screenTop,
-                    Width                 = screenWidth,
-                    Height                = screenHeight,
-                    Content               = _tourHighlightCanvas,
-                };
-                _tourHighlightOverlay.Show();
-                _tourHighlightOverlay.DpiChanged += (_, _) =>
-                {
-                    // WPF per-monitor DPI handling may resize/reposition the overlay after Show().
-                    // Reset it immediately to the full virtual screen so canvas coordinate
-                    // calculations in RefreshTourHighlightRects remain valid.
-                    _tourHighlightOverlay.Left   = SystemParameters.VirtualScreenLeft;
-                    _tourHighlightOverlay.Top    = SystemParameters.VirtualScreenTop;
-                    _tourHighlightOverlay.Width  = SystemParameters.VirtualScreenWidth;
-                    _tourHighlightOverlay.Height = SystemParameters.VirtualScreenHeight;
-                    SquadDashTrace.Write(TraceCategory.UI, "[HighlightDiag] DpiChanged — resetting overlay to virtual screen");
-                    _ = Dispatcher.InvokeAsync(RefreshTourHighlightRects, DispatcherPriority.Loaded);
-                };
-            }
-            else
-            {
-                _tourHighlightOverlay.Left   = screenLeft;
-                _tourHighlightOverlay.Top    = screenTop;
-                _tourHighlightOverlay.Width  = screenWidth;
-                _tourHighlightOverlay.Height = screenHeight;
-                if (!_tourHighlightOverlay.IsVisible) _tourHighlightOverlay.Show();
-            }
-
-            // Convert physical screen pixels to the overlay canvas's own DIP space.
-            Point screenTL, screenBR;
-            try {
-                screenTL = el.PointToScreen(new Point(0, 0));
-                screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
-            }
-            catch { return; } // element not in visual tree / not rendered yet
-            var canvasOrigin  = _tourHighlightCanvas!.PointToScreen(new Point(0, 0));
-            var canvasDpi     = VisualTreeHelper.GetDpi(_tourHighlightCanvas!);
-            if (canvasDpi.DpiScaleX <= 0 || canvasDpi.DpiScaleY <= 0) return;
-            var (cx, cy, cw, ch) = GetTourHighlightCanvasBounds(
-                screenTL, screenBR, canvasOrigin, canvasDpi);
-            if (cw <= 0 || ch <= 0) return;
-
-            const double pad = 2;
-            const double thickness = 2.5;
-
             var rect = new System.Windows.Shapes.Rectangle
             {
                 Stroke          = new SolidColorBrush(Color.FromArgb(128, rectColor.R, rectColor.G, rectColor.B)),
-                StrokeThickness = thickness,
+                StrokeThickness = 2.5,
                 Fill            = Brushes.Transparent,
                 IsHitTestVisible = false,
-                Width           = cw + (pad + thickness) * 2,
-                Height          = ch + (pad + thickness) * 2,
+                Margin          = new Thickness(1),
                 RadiusX         = 3,
                 RadiusY         = 3,
             };
-            Canvas.SetLeft(rect, cx - pad - thickness);
-            Canvas.SetTop(rect,  cy - pad - thickness);
-            _tourHighlightCanvas!.Children.Add(rect);
-            _tourHighlightRects.Add((el, rect));
+            var overlay = new Window
+            {
+                Owner                 = Window.GetWindow(el) ?? this,
+                WindowStyle           = WindowStyle.None,
+                ResizeMode            = ResizeMode.NoResize,
+                AllowsTransparency    = true,
+                Background            = Brushes.Transparent,
+                Topmost               = true,
+                ShowInTaskbar         = false,
+                ShowActivated         = false,
+                Focusable             = false,
+                IsHitTestVisible      = false,
+                Opacity               = 0,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Width                 = Math.Max(1, el.ActualWidth + 9),
+                Height                = Math.Max(1, el.ActualHeight + 9),
+                Content               = rect,
+            };
+            _tourHighlightOverlays.Add((el, overlay));
+            overlay.Show();
+            PositionTourHighlightOverlay(el, overlay);
+            overlay.Opacity = 1;
+            overlay.DpiChanged += (_, _) =>
+                _ = Dispatcher.InvokeAsync(
+                    () => PositionTourHighlightOverlay(el, overlay), DispatcherPriority.Loaded);
 
             // WPF popup menus (and callout repositioning) can bump the overlay below themselves
             // in the topmost z-band. A periodic Topmost re-assertion keeps the overlay on top
@@ -14704,10 +14720,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
                 _tourHighlightZTimer.Tick += (_, _) =>
-                {
-                    BringHighlightOverlayToFront();
-                    RefreshTourHighlightRects();
-                };
+                    ReassertTourHighlightOverlays();
                 _tourHighlightZTimer.Start();
             }
 
@@ -14733,40 +14746,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Writes [HighlightDiag] entries to the trace log; also injects a short text callout.
         _tourCommandRegistry.Register("DiagHighlight", () =>
         {
-            if (_tourHighlightCanvas is null || _tourHighlightOverlay is null)
+            if (_tourHighlightOverlays.Count == 0)
             {
                 SquadDashTrace.Write(TraceCategory.Callouts, "[HighlightDiag] overlay not created yet.");
                 return;
             }
-            Point canvasOrigin;
-            DpiScale dpi;
-            try {
-                canvasOrigin = _tourHighlightCanvas.PointToScreen(new Point(0, 0));
-                dpi          = VisualTreeHelper.GetDpi(_tourHighlightCanvas);
-            }
-            catch (Exception ex) {
-                SquadDashTrace.Write(TraceCategory.Callouts, $"[HighlightDiag] PointToScreen/GetDpi threw: {ex.Message}");
-                return;
-            }
-            string msg =
-                $"[HighlightDiag] canvasOrigin=({canvasOrigin.X:F1},{canvasOrigin.Y:F1})  " +
-                $"dpi=({dpi.DpiScaleX:F3},{dpi.DpiScaleY:F3})  " +
-                $"overlay L={_tourHighlightOverlay.Left:F1} T={_tourHighlightOverlay.Top:F1} " +
-                $"W={_tourHighlightOverlay.Width:F1} H={_tourHighlightOverlay.Height:F1}  " +
-                $"rects={_tourHighlightRects.Count}";
-            if (_tourHighlightRects.Count > 0)
+            var (el, overlay) = _tourHighlightOverlays[0];
+            try
             {
-                var (el, rect) = _tourHighlightRects[0];
-                Point elTL, elBR;
-                try {
-                    elTL = el.PointToScreen(new Point(0, 0));
-                    elBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
-                } catch { elTL = elBR = new Point(double.NaN, double.NaN); }
-                var (cx, cy, _, _) = GetTourHighlightCanvasBounds(elTL, elBR, canvasOrigin, dpi);
-                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) computed cx={cx:F1} cy={cy:F1} " +
-                       $"rect.L={Canvas.GetLeft(rect):F1} rect.T={Canvas.GetTop(rect):F1}";
+                var elTL = el.PointToScreen(new Point(0, 0));
+                var elBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
+                var overlayTL = ((FrameworkElement)overlay.Content).PointToScreen(new Point(0, 0));
+                var overlayDpi = VisualTreeHelper.GetDpi(overlay);
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[HighlightDiag] count={_tourHighlightOverlays.Count} " +
+                    $"element=({elTL.X:F1},{elTL.Y:F1})-({elBR.X:F1},{elBR.Y:F1}) " +
+                    $"overlayOrigin=({overlayTL.X:F1},{overlayTL.Y:F1}) " +
+                    $"overlayDpi=({overlayDpi.DpiScaleX:F3},{overlayDpi.DpiScaleY:F3})");
             }
-            SquadDashTrace.Write(TraceCategory.UI, msg);
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(TraceCategory.Callouts, $"[HighlightDiag] failed: {ex.Message}");
+            }
         });
 
         _tourCommandRegistry.Register("ShowPreferences", () =>

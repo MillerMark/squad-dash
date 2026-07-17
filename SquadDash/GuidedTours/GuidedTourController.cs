@@ -32,6 +32,7 @@ internal sealed class GuidedTourController
     private readonly Func<string?>?                       _workspaceFolderProvider;
     private readonly GuidedTourCommandRegistry?           _commandRegistry;
     private readonly Action?                              _onStepChanging;
+    private readonly Action?                              _onCalloutShown;
     private readonly GuidedTourAdvanceTriggerRegistry?    _triggerRegistry;
     private IDisposable?                                  _activeTriggerSubscription;
     private readonly Func<bool>?                          _isTypeAnimationRunning;
@@ -56,6 +57,7 @@ internal sealed class GuidedTourController
     /// </param>
     /// <param name="workspaceFolderProvider">Returns the current workspace folder path, used when saving tours.</param>
     /// <param name="onStepChanging">Called just before transitioning to a new step or stopping the tour.</param>
+    /// <param name="onCalloutShown">Called after a step callout is shown and again after its animation settles.</param>
     public GuidedTourController(
         Window                          ownerWindow,
         Func<string, FrameworkElement?> elementLocator,
@@ -65,6 +67,7 @@ internal sealed class GuidedTourController
         Func<string?>?                  workspaceFolderProvider = null,
         GuidedTourCommandRegistry?      commandRegistry      = null,
         Action?                         onStepChanging       = null,
+        Action?                         onCalloutShown       = null,
         GuidedTourAdvanceTriggerRegistry? triggerRegistry    = null,
         Func<bool>?                     isTypeAnimationRunning = null,
         Func<IReadOnlyList<Window>?>?   extraPickWindowsProvider = null,
@@ -82,6 +85,7 @@ internal sealed class GuidedTourController
         _workspaceFolderProvider = workspaceFolderProvider;
         _commandRegistry         = commandRegistry;
         _onStepChanging          = onStepChanging;
+        _onCalloutShown          = onCalloutShown;
         _triggerRegistry         = triggerRegistry;
         _isTypeAnimationRunning  = isTypeAnimationRunning;
         _extraPickWindowsProvider = extraPickWindowsProvider;
@@ -490,6 +494,7 @@ internal sealed class GuidedTourController
 
         if (_activeCallout is not null)
         {
+            _activeCallout.Settled += (_, _) => _onCalloutShown?.Invoke();
             _activeCallout.HorizontalPercentOffset = (step.TargetOffsetX - 0.5) * 2;
             _activeCallout.VerticalPercentOffset   = (step.TargetOffsetY - 0.5) * 2;
             _activeCallout.IsSticky = true;
@@ -516,6 +521,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
+            _onCalloutShown?.Invoke();
         }
     }
 
