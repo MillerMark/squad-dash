@@ -199,6 +199,7 @@ public class SimpleMarkdownViewer : Control {
         double? marginLeft = null;
         bool isCentered = false;
         double? sizeMultiplier = null;
+        int? linesCount = null;
         bool modified = true;
         while (modified) {
             modified = false;
@@ -230,6 +231,12 @@ public class SimpleMarkdownViewer : Control {
                 cleanParagraphText = cleanParagraphText[sm.Length..].TrimStart();
                 modified = true;
             }
+            var lm = LinesRegex.Match(cleanParagraphText);
+            if (lm.Success && int.TryParse(lm.Groups[1].Value, out var n) && n > 1) {
+                linesCount = n;
+                cleanParagraphText = cleanParagraphText[lm.Length..].TrimStart();
+                modified = true;
+            }
         }
         if (marginTop.HasValue || marginLeft.HasValue) {
             double top = marginTop ?? 0;
@@ -249,6 +256,53 @@ public class SimpleMarkdownViewer : Control {
             paragraph.TextAlignment = TextAlignment.Center;
         if (sizeMultiplier.HasValue)
             paragraph.FontSize = FontSize * sizeMultiplier.Value;
+
+        if (linesCount.HasValue)
+        {
+            string plainForMeasure = InlineMarkupRegex.Replace(cleanParagraphText, m =>
+            {
+                var s = m.Value;
+                if (s.StartsWith("**") && s.EndsWith("**") && s.Length > 4) return s[2..^2];
+                if (s.StartsWith('*')  && s.EndsWith('*')  && s.Length > 2)  return s[1..^1];
+                return s;
+            });
+
+            double effectiveFontSize = sizeMultiplier.HasValue ? FontSize * sizeMultiplier.Value : FontSize;
+            var typeface = new Typeface(FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            double pixelsPerDip = 1.0;
+            try { pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip; }
+            catch { /* not yet in visual tree — 1.0 is a safe logical-unit fallback */ }
+            if (pixelsPerDip <= 0) pixelsPerDip = 1.0;
+
+            var ft = new FormattedText(
+                plainForMeasure,
+                System.Globalization.CultureInfo.CurrentUICulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                effectiveFontSize,
+                Brushes.Black,
+                pixelsPerDip);
+
+            double singleLineWidth = ft.WidthIncludingTrailingWhitespace;
+            if (singleLineWidth > 0)
+            {
+                // Paragraph does not expose MaxWidth; use a TextBlock inside a
+                // BlockUIContainer so we can constrain the wrapping width directly.
+                var tb = new System.Windows.Controls.TextBlock {
+                    TextWrapping = System.Windows.TextWrapping.Wrap,
+                    MaxWidth     = singleLineWidth / linesCount.Value,
+                    FontSize     = effectiveFontSize,
+                    FontFamily   = FontFamily,
+                };
+                if (isCentered) tb.TextAlignment = TextAlignment.Center;
+                foreach (var inline in ParseInlines(cleanParagraphText))
+                    tb.Inlines.Add(inline);
+
+                var container = new BlockUIContainer(tb) { Margin = paragraph.Margin };
+                flowDocument.Blocks.Add(container);
+                return container;
+            }
+        }
 
         // ── <br> continuation: append to existing paragraph ───────────────────
         if (continuationParagraph is not null) {
@@ -298,6 +352,11 @@ public class SimpleMarkdownViewer : Control {
     // Matches [size:N] at the start of a paragraph (N is a positive multiplier, e.g. 1.2)
     private static readonly Regex SizeRegex = new(
         @"^\[size:(\d+(?:\.\d+)?)\]",
+        RegexOptions.Compiled);
+
+    // Matches [lines:N] at the start of a paragraph (N is a positive integer, e.g. 2)
+    private static readonly Regex LinesRegex = new(
+        @"^\[lines:(\d+)\]",
         RegexOptions.Compiled);
 
     FlowDocument CreateFlowDocumentFromMarkdown() {

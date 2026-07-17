@@ -213,7 +213,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\nTour Completed:\r\n[vspace:0.75][size:1.25][center]**Introduction to the UI**\r\n[vspace:0]\r\n![120:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -300,7 +300,7 @@
       },
       {
         "title": "New Queue Prompt",
-        "markdownText": "You can create a **new queued prompt entry** by pressing **Ctrl**\u002B**Q**.\r\nUse this when you need to send a different prompt **before** your current draft.",
+        "markdownText": "**Ctrl**\u002B**Q** creates a **new prompt** at the front of the queue.\r\nUse this for **urgent prompts** that need priority attention.\r\n",
         "targetControlId": "QueueTabStrip[9]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -316,8 +316,22 @@
         "targetOffsetY": 0.46410256410256395
       },
       {
+        "title": "Pausing the Queue",
+        "markdownText": "**Pause queue processing** if you need to review the work before allowing the next prompt to run.",
+        "targetControlId": "QueuePlayPauseButton",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "Edit and Pause",
-        "markdownText": "To edit a queued prompt, click its tab. \r\nProcessing pauses when the right-most tab is **active**.",
+        "markdownText": "To view/edit a queued prompt, click its **tab**. \r\nQueue processing also naturally pauses when the **rightmost tab** is **active**.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -333,8 +347,8 @@
       },
       {
         "title": "Queue Nav Shortcuts",
-        "markdownText": "You can press **Ctrl**\u002B**Tab** and **Ctrl**\u002B**Shift**\u002B**Tab** to navigate among these queued prompts.",
-        "targetControlId": "QueueTabStrip[3]",
+        "markdownText": "**Ctrl**\u002B**Tab** navigates through these prompts.",
+        "targetControlId": "QueueTabStrip[9]",
         "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
@@ -349,7 +363,7 @@
       },
       {
         "title": "Edit menu",
-        "markdownText": "The **Edit** menu includes commands for composing prompts and working with markdown.",
+        "markdownText": "The **Edit** menu includes commands for **composing prompts** and working with **markdown**.",
         "targetControlId": "EditMenuItem_Popup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -364,25 +378,8 @@
         "targetOffsetY": 0.8138461538461548
       },
       {
-        "title": "Selection",
-        "markdownText": "This menu works with selections.\r\nPress **Shift**\u002B**F3** to **cycle case** in the selection below.",
-        "targetControlId": "EditSelectionMenuItem_Popup",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText|Let\u0027s create a brand new class called the data resource binder.|data resource binder",
-          "OpenMenu: EditMenuItem|EditSelectionMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
         "title": "Prompts navigation",
-        "markdownText": "Jump to past prompts.",
+        "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\n[vspace:0]**Ctrl**\u002B**Alt**\u002B**PgUp** -- previous **question**\r\n\r\nYou can also hold **Alt** and click this button to navigate to the previous **question**.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -395,8 +392,22 @@
         "targetOffsetY": 0.5
       },
       {
+        "title": "Prompts navigation forward",
+        "markdownText": "Same shortcuts work here with **PgDn**.\r\nHover over enabled nav buttons for reminders on these shortcuts.",
+        "targetControlId": "PromptNavDownButton",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\nTour Completed:\r\n[vspace:0.75][size:1.25][center]**Prompts and the Queue**\r\n[vspace:0]\r\n![110:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -411,8 +422,77 @@
     ]
   },
   {
+    "id": "bfaa6492",
+    "name": "Selection Embedding",
+    "description": "Quickly modify text selections with useful shortcuts.",
+    "steps": [
+      {
+        "title": "Ctrl\u002BB for Bold",
+        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.11093247588424437,
+        "targetOffsetY": 0.6432803382160294
+      },
+      {
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": null,
+        "commandsAfter": null,
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Quotes",
+        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Backticks",
+        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      }
+    ]
+  },
+  {
     "id": "5514ddcd",
-    "name": "Setting Up Voice PTT",
+    "name": "Using Voice",
     "description": "Set up voice dictation and push to talk (PTT).",
     "steps": [
       {
@@ -603,6 +683,20 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[vspace:0]You just learned how to configure and use push-to-talk voice input.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       }
     ]
   },
@@ -633,8 +727,8 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
+        "commandsBefore": [],
+        "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
@@ -673,75 +767,6 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "bfaa6492",
-    "name": "Selection Embedding",
-    "description": "Quickly modify text selections with useful shortcuts.",
-    "steps": [
-      {
-        "title": "Ctrl\u002BB for Bold",
-        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.11093247588424437,
-        "targetOffsetY": 0.6432803382160294
-      },
-      {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Quotes",
-        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      },
-      {
-        "title": "Backticks",
-        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
       }
     ]
   },
