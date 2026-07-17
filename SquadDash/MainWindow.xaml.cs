@@ -8898,8 +8898,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _fontScaleCommitTimer?.Stop();
         FontScaleIndicator.Visibility = Visibility.Collapsed;
+        // Apply visual change first so WPF can render the new sizes this frame
+        // before the file save occupies the UI thread.
         ApplyFontSizeScale();
-        _settingsSnapshot = _settingsStore.SaveFontSizeScaleLevel(_fontScaleLevel);
+        // Persist asynchronously; update the snapshot on the UI thread when done.
+        var level = _fontScaleLevel;
+        _ = Task.Run(() =>
+        {
+            var snapshot = _settingsStore.SaveFontSizeScaleLevel(level);
+            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+        });
     }
 
     private bool IsInExcludedScrollArea(DependencyObject element)
@@ -32374,20 +32382,34 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_currentWorkspace is null) return;
         _activeTintStop = stop;
-        _settingsSnapshot = _settingsStore.SaveWorkspaceTintStop(_currentWorkspace.FolderPath, stop);
         var defaultAccentOffset = DefaultAccentOffsetByTintStop[stop];
         _activeAccentHueOffset = defaultAccentOffset;
-        _settingsSnapshot = _settingsStore.SaveWorkspaceAccentHueOffset(_currentWorkspace.FolderPath, defaultAccentOffset);
+        // Apply visual change immediately so the user sees feedback on this frame —
+        // file I/O must not block the UI thread before the first repaint.
         ApplyTintStop(stop);
         UpdateTintMenuState();
+        // Persist asynchronously; update the snapshot on the UI thread when done.
+        var folderPath = _currentWorkspace.FolderPath;
+        _ = Task.Run(() =>
+        {
+            var snapshot = _settingsStore.SaveWorkspaceTintStop(folderPath, stop);
+            snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, defaultAccentOffset);
+            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+        });
     }
 
     private void SetWorkspaceAccentHueOffset(int offsetDegrees)
     {
         if (_currentWorkspace is null) return;
         _activeAccentHueOffset = offsetDegrees;
-        _settingsSnapshot = _settingsStore.SaveWorkspaceAccentHueOffset(_currentWorkspace.FolderPath, offsetDegrees);
+        // Apply visual change immediately, then persist off the UI thread.
         ApplyTintStop(_activeTintStop);
+        var folderPath = _currentWorkspace.FolderPath;
+        _ = Task.Run(() =>
+        {
+            var snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, offsetDegrees);
+            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+        });
     }
 
     private void UpdateTintMenuState()
