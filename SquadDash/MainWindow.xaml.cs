@@ -158,6 +158,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly List<(FrameworkElement El, Window Overlay)> _tourHighlightOverlays = new();
     private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
     private DispatcherTimer? _tourHighlightZTimer;
+    private readonly List<MenuItem> _tourKeptOpenMenuItems = new();
+    private string? _tourKeptOpenMenuPath;
+    private bool _tourMenuRecoveryRunning;
+    private int _tourMenuTrackingGeneration;
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -14159,7 +14163,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
             commandRegistry:         _tourCommandRegistry,
-            onStepChanging:          FreezeTypeIntoPromptAnimation,
+            onStepChanging:          () =>
+            {
+                FreezeTypeIntoPromptAnimation();
+                StopKeepingTourMenusOpen();
+            },
             onCalloutShown:           ReassertTourHighlightOverlays,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
             isTypeAnimationRunning:  () => _typeIntoPromptTimer != null,
@@ -14198,22 +14206,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if ((bool)e.NewValue) return; // became visible — nothing to clean up
         if (sender is not FrameworkElement el) return;
-        el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
-
-        var toRemove = _tourHighlightOverlays.Where(r => ReferenceEquals(r.El, el)).ToList();
-        foreach (var (_, overlay) in toRemove)
-            overlay.Close();
-        _tourHighlightOverlays.RemoveAll(r => ReferenceEquals(r.El, el));
-
-        // If no highlights remain, stop tracking parent-window movement.
-        if (_tourHighlightOverlays.Count == 0)
+        _ = Dispatcher.InvokeAsync(async () =>
         {
-            _tourHighlightZTimer?.Stop();
-            _tourHighlightZTimer = null;
-            foreach (var w in _tourHighlightTrackedWindows)
-                w.LocationChanged -= OnTourHighlightWindowMoved;
-            _tourHighlightTrackedWindows.Clear();
-        }
+            // Showing a no-activate callout can still make WPF briefly tear down and recreate
+            // menu popup HWNDs. Give the active OpenMenu path time to recover before deciding
+            // that the highlighted element is genuinely gone.
+            await Task.Delay(250);
+            bool isRendered = el.IsVisible
+                           || (el.ActualWidth > 0 && el.ActualHeight > 0
+                               && PresentationSource.FromVisual(el) is not null);
+            if (isRendered) return;
+
+            el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
+            var toRemove = _tourHighlightOverlays.Where(r => ReferenceEquals(r.El, el)).ToList();
+            foreach (var (_, overlay) in toRemove)
+                overlay.Close();
+            _tourHighlightOverlays.RemoveAll(r => ReferenceEquals(r.El, el));
+
+            if (_tourHighlightOverlays.Count == 0)
+            {
+                _tourHighlightZTimer?.Stop();
+                _tourHighlightZTimer = null;
+                foreach (var w in _tourHighlightTrackedWindows)
+                    w.LocationChanged -= OnTourHighlightWindowMoved;
+                _tourHighlightTrackedWindows.Clear();
+            }
+        }, DispatcherPriority.Send);
     }
 
     private void RefreshTourHighlightRects()
@@ -14224,6 +14242,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ReassertTourHighlightOverlays()
     {
+        if (_tourKeptOpenMenuItems.Any(menuItem => !menuItem.IsSubmenuOpen))
+            RecoverKeptOpenTourMenuPath();
         RefreshTourHighlightRects();
         foreach (var (_, overlay) in _tourHighlightOverlays)
             BringHighlightOverlayToFront(overlay);
@@ -14555,6 +14575,66 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return null;
     }
 
+    private void StopKeepingTourMenusOpen()
+    {
+        _tourMenuTrackingGeneration++;
+        ClearTourMenuTracking(closeMenus: true);
+    }
+
+    private void ClearTourMenuTracking(bool closeMenus)
+    {
+        foreach (var menuItem in _tourKeptOpenMenuItems)
+            menuItem.SubmenuClosed -= OnKeptOpenTourMenuClosed;
+        if (closeMenus)
+            for (int i = _tourKeptOpenMenuItems.Count - 1; i >= 0; i--)
+                _tourKeptOpenMenuItems[i].IsSubmenuOpen = false;
+        _tourKeptOpenMenuItems.Clear();
+        _tourKeptOpenMenuPath = null;
+    }
+
+    private void KeepTourMenuPathOpen(string path, IReadOnlyList<MenuItem> menuItems)
+    {
+        ClearTourMenuTracking(closeMenus: false);
+        _tourKeptOpenMenuPath = path;
+        foreach (var menuItem in menuItems)
+        {
+            if (_tourKeptOpenMenuItems.Contains(menuItem)) continue;
+            _tourKeptOpenMenuItems.Add(menuItem);
+            menuItem.SubmenuClosed += OnKeptOpenTourMenuClosed;
+        }
+    }
+
+    private void OnKeptOpenTourMenuClosed(object sender, RoutedEventArgs e) =>
+        RecoverKeptOpenTourMenuPath();
+
+    private void RecoverKeptOpenTourMenuPath()
+    {
+        if (_tourMenuRecoveryRunning || string.IsNullOrWhiteSpace(_tourKeptOpenMenuPath)) return;
+        string path = _tourKeptOpenMenuPath;
+        int generation = _tourMenuTrackingGeneration;
+        _tourMenuRecoveryRunning = true;
+        _ = Dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                if (!string.Equals(_tourKeptOpenMenuPath, path, StringComparison.Ordinal)) return;
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[TourOpenMenu] Menu path '{path}' closed during its tour step; reopening it.");
+                await _tourCommandRegistry.ExecuteAsync($"OpenMenu: {path}");
+                if (_tourMenuTrackingGeneration != generation)
+                {
+                    ClearTourMenuTracking(closeMenus: true);
+                    return;
+                }
+                ReassertTourHighlightOverlays();
+            }
+            finally
+            {
+                _tourMenuRecoveryRunning = false;
+            }
+        }, DispatcherPriority.Send);
+    }
+
     private void RegisterTourCommands()
     {
         const string DummyTag = TourDummyTag;
@@ -14602,11 +14682,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
         {
+            int menuGeneration = _tourMenuTrackingGeneration;
             // Format: "MenuItemName" or "MenuItemName|SubMenuItemName|..."
             // Opens each named MenuItem in sequence so a callout can point at it / its children.
             // After each level opens, subsequent names are searched inside the opened popup
             // child (which lives in a separate HwndSource) rather than the main window.
             var names = arg.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var openedMenuItems = new List<MenuItem>();
+            bool openedEntirePath = names.Length > 0;
             DependencyObject searchRoot = this;   // start search in main window visual tree
             foreach (var name in names)
             {
@@ -14618,6 +14701,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     SquadDashTrace.Write(TraceCategory.UI,
                         $"[TourOpenMenu] Could not resolve MenuItem '{name}' beneath '{searchRoot.GetType().Name}'.");
+                    openedEntirePath = false;
                     break;
                 }
 
@@ -14626,6 +14710,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     SquadDashTrace.Write(TraceCategory.UI,
                         $"[TourOpenMenu] Giving up opening '{name}' after all retries.");
+                    openedEntirePath = false;
                     break;
                 }
 
@@ -14633,7 +14718,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 // so nested menu names, highlights, and the tour callout can resolve it.
                 _tourNamedElements[$"{name}_Popup"] = child;
                 searchRoot = child;
+                openedMenuItems.Add(mi);
             }
+
+            if (openedEntirePath && _tourMenuTrackingGeneration == menuGeneration)
+                KeepTourMenuPathOpen(string.Join('|', names), openedMenuItems);
+            else if (_tourMenuTrackingGeneration != menuGeneration)
+                foreach (var menuItem in openedMenuItems)
+                    menuItem.IsSubmenuOpen = false;
         });
 
         _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
