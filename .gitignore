@@ -399,3 +399,4 @@ Squad.SDK/tsconfig.tsbuildinfo
 
 /.squad/archive/agent-artifacts/2026-07-13
 /.squad/archive/agent-artifacts/2026-07-14
+/build_errors.txt
