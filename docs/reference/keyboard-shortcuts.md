@@ -16,18 +16,16 @@ Complete reference for all keyboard shortcuts and hotkeys in SquadDash.
 |---|---|
 | **F11** | Toggle fullscreen transcript mode |
 | **Shift+F11** | Toggle agents panel focus mode (hides agent cards/panels strip, expands transcript height) |
-| **Double-Ctrl** | Activate push-to-talk (voice input) |
+| **Double-tap Ctrl** | Activate push-to-talk (voice input) |
 | **Shift-Click** (on agent card) | Open agent transcript panel |
 | **Ctrl+F** | Focus the transcript/markdown search box (or the doc find bar when the Documentation Panel is open) |
-| **F3** | Jump to next search match |
-| **Shift+F3** | Jump to previous search match |
 | **Ctrl+Shift+C** | Quick AI Cleanup of selected text (uses the configured cleanup prompt); falls back to opening the screenshot capture overlay when no selection is active |
 | **Ctrl+Shift+A** | Revise selected text with AI — opens the Revise popup for the focused text box |
 | **Ctrl+Scroll** (on transcript) | Adjust transcript font size (persisted globally) |
 | **Ctrl+Scroll** (on prompt) | Adjust prompt font size (persisted globally) |
 | **Ctrl+Scroll** (on title bar) | Adjust system UI font size — 7 scale levels: 0.75×, 0.875×, 1.0×, 1.125×, 1.25×, 1.4×, 1.6× (saved globally) |
-| **Ctrl+Break** | Abort the running prompt (same as clicking the Abort button) |
-| **Ctrl+Shift+Break** | Abort the running loop (when the loop panel is active) |
+| **Ctrl+Break** | **Abort** the running **prompt** (same as clicking the **Stop** button) |
+| **Ctrl+Shift+Break** | **Abort** the running **loop** (when loop processing is active) |
 | **Ctrl+Shift+Z** | Redo — works in any focused text control (RichTextBox or TextBox) |
 
 ---
@@ -73,23 +71,24 @@ See **[Tinting and Themes](../customization/Tinting and Themes.md)** for full de
 
 | Shortcut | Action |
 |---|---|
-| **F7** | Restore layout from Slot 1 |
-| **F8** | Restore layout from Slot 2 |
-| **F9** | Restore layout from Slot 3 |
 | **Shift+F7** | Save current layout to Slot 1 |
 | **Shift+F8** | Save current layout to Slot 2 |
 | **Shift+F9** | Save current layout to Slot 3 |
+| **F7** | Restore layout from Slot 1 |
+| **F8** | Restore layout from Slot 2 |
+| **F9** | Restore layout from Slot 3 |
 
 Layouts persist per workspace in `.squad/panel-layout-presets.json`. See **[Layout Presets](../features/layout-presets.md)** for full details.
 
 ---
 
 **Double-tap Ctrl** to activate voice input:
-1. Tap **Ctrl** twice quickly
-2. Speak your prompt
-3. Release **Ctrl** (or tap **Esc**) to end recording
 
-Requires Azure Cognitive Services Speech key (see **[Configuration](configuration.md)**).
+1. Tap **Ctrl** twice quickly (hold **Ctrl** down on the second tap)
+2. Speak your prompt
+3. Release **Ctrl** to end recording
+
+push to talk requires an API key (see **[Configuration](configuration.md)**).
 
 ---
 
@@ -130,8 +129,8 @@ See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for f
 | **Ctrl+Page Down** | Navigate to the next prompt in history |
 | **Ctrl+Shift+Page Up** | Jump to the very first prompt |
 | **Ctrl+Shift+Page Down** | Jump to the very latest prompt |
-| **Alt+▲ (nav button)** | Jump to the previous prompt containing a `?` (question review mode) |
-| **Alt+▼ (nav button)** | Jump to the next prompt containing a `?` (question review mode) |
+| **Ctrl+Alt+Page Up** | Jump to the previous prompt containing a `?` (question review mode) |
+| **Ctrl+Alt+Page Down** | Jump to the next prompt containing a `?` (question review mode) |
 
 ---
 
