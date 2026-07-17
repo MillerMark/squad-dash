@@ -147,10 +147,11 @@ public class SimpleMarkdownViewer : Control {
                     // Image left, text right.
                     img.Margin = new Thickness(0, 0, 12, 0);
                     var textBlock = new TextBlock {
-                        Text              = trailingText,
                         TextWrapping      = TextWrapping.Wrap,
                         VerticalAlignment = VerticalAlignment.Top,
                     };
+                    foreach (var inline in ParseInlines(trailingText))
+                        textBlock.Inlines.Add(inline);
                     var dock = new DockPanel { LastChildFill = true };
                     DockPanel.SetDock(img, Dock.Left);
                     dock.Children.Add(img);
