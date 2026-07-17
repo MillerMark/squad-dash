@@ -530,6 +530,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             int hitIndex = lbi != null
                 ? _stepListBox.ItemContainerGenerator.IndexFromContainer(lbi)
                 : -1;
+            // Persist while the old step and its form fields are still current,
+            // before WPF changes selection or keyboard focus.
+            if (hitIndex >= 0 && hitIndex != _stepIndex && !FlushPendingChanges())
+            {
+                e.Handled = true;
+                return;
+            }
             _listDragStart       = hitIndex >= 0 ? e.GetPosition(_stepListBox) : new Point(double.NaN, double.NaN);
             _listDragInProgress  = false;
             _listDragSourceIndex = hitIndex;
@@ -713,6 +720,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             int hitIndex = lbi != null
                 ? _tourListBox.ItemContainerGenerator.IndexFromContainer(lbi)
                 : -1;
+            // Persist before WPF changes the selected tour. LostFocus and
+            // SelectionChanged can otherwise observe already-transitioning state.
+            if (hitIndex >= 0 && hitIndex < _allTours.Count &&
+                !ReferenceEquals(_allTours[hitIndex], _activeTour) &&
+                !FlushPendingChanges())
+            {
+                e.Handled = true;
+                return;
+            }
             _tourDragStart       = hitIndex >= 0 ? e.GetPosition(_tourListBox) : new Point(double.NaN, double.NaN);
             _tourDragInProgress  = false;
             _tourDragSourceIndex = hitIndex;
