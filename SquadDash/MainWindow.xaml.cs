@@ -14668,6 +14668,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Content               = _tourHighlightCanvas,
                 };
                 _tourHighlightOverlay.Show();
+                _tourHighlightOverlay.DpiChanged += (_, _) =>
+                {
+                    // WPF per-monitor DPI handling may resize/reposition the overlay after Show().
+                    // Reset it immediately to the full virtual screen so canvas coordinate
+                    // calculations in RefreshTourHighlightRects remain valid.
+                    _tourHighlightOverlay.Left   = SystemParameters.VirtualScreenLeft;
+                    _tourHighlightOverlay.Top    = SystemParameters.VirtualScreenTop;
+                    _tourHighlightOverlay.Width  = SystemParameters.VirtualScreenWidth;
+                    _tourHighlightOverlay.Height = SystemParameters.VirtualScreenHeight;
+                    SquadDashTrace.Write(TraceCategory.UI, "[HighlightDiag] DpiChanged — resetting overlay to virtual screen");
+                    RefreshTourHighlightRects();
+                };
             }
             else
             {
@@ -14783,9 +14795,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     elTL = el.PointToScreen(new Point(0, 0));
                     elBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
                 } catch { elTL = elBR = new Point(double.NaN, double.NaN); }
-                double cx = (elTL.X - canvasOrigin.X) / dpi.DpiScaleX;
-                double cy = (elTL.Y - canvasOrigin.Y) / dpi.DpiScaleY;
-                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) computed cx={cx:F1} cy={cy:F1} " +
+                double monitorScale = GetMonitorDpiScaleForPoint(elTL, dpi);
+                double cx = (elTL.X - canvasOrigin.X) / monitorScale;
+                double cy = (elTL.Y - canvasOrigin.Y) / monitorScale;
+                msg += $"  el[0] screenTL=({elTL.X:F1},{elTL.Y:F1}) monitorScale={monitorScale:F3} computed cx={cx:F1} cy={cy:F1} " +
                        $"rect.L={Canvas.GetLeft(rect):F1} rect.T={Canvas.GetTop(rect):F1}";
             }
             SquadDashTrace.Write(TraceCategory.UI, msg);
