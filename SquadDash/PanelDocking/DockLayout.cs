@@ -59,6 +59,12 @@ public sealed class DockLayout
     public List<double>? TopZonePanelWidths { get; set; }
 
     /// <summary>
+    /// Panel IDs that were visible (non-collapsed) when this layout was saved.
+    /// Null means no visibility state was captured (legacy presets — visibility is left unchanged on restore).
+    /// </summary>
+    public List<string>? VisiblePanelIds { get; set; }
+
+    /// <summary>
     /// Returns the canonical default layout: every dockable panel in the Top zone,
     /// ordered to match their current left-to-right position in the status strip.
     /// </summary>

@@ -39127,7 +39127,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         try
         {
-            _layoutPresetManager.SavePreset(slotIndex, _dockingService.CurrentLayout);
+            var visibleIds = _dockingService.GetCurrentLayoutData().VisiblePanelIds;
+            _layoutPresetManager.SavePreset(slotIndex, _dockingService.CurrentLayout, visibleIds);
             ShowStatusNotification($"Layout preset {slotIndex + 1} saved (Shift+F{7 + slotIndex})", 2000);
         }
         catch (Exception ex)
@@ -39181,7 +39182,45 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Left7ZoneColumn.Width = new System.Windows.GridLength(l7w, System.Windows.GridUnitType.Pixel);
             if (preset.Right7ZoneWidth is double r7w && r7w > 0 && Right7ZoneColumn.Width.Value > 0)
                 Right7ZoneColumn.Width = new System.Windows.GridLength(r7w, System.Windows.GridUnitType.Pixel);
-            
+
+            // Restore panel visibility — only when the preset carries visibility state
+            // (VisiblePanelIds is null for legacy presets saved before this feature existed).
+            if (preset.VisiblePanelIds is not null)
+            {
+                var ids = new HashSet<string>(preset.VisiblePanelIds, StringComparer.OrdinalIgnoreCase);
+
+                _loopPanelVisible = ids.Contains("loop");
+                SyncLoopPanel();
+                if (ViewLoopPanelMenuItem is not null) ViewLoopPanelMenuItem.IsChecked = _loopPanelVisible;
+
+                _tasksPanelVisible = ids.Contains("tasks");
+                SyncTasksPanel();
+                if (ViewTasksMenuItem is not null) ViewTasksMenuItem.IsChecked = _tasksPanelVisible;
+
+                _approvalPanelVisible = ids.Contains("approvals");
+                SyncApprovalPanel();
+                if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
+
+                _notesPanelVisible = ids.Contains("notes");
+                SyncNotesPanel();
+                if (ViewNotesMenuItem is not null) ViewNotesMenuItem.IsChecked = _notesPanelVisible;
+
+                _codeHealthPanelVisible = ids.Contains("maintenance");
+                SyncCodeHealthPanel();
+                if (ViewCodeHealthMenuItem is not null) ViewCodeHealthMenuItem.IsChecked = _codeHealthPanelVisible;
+
+                _inboxPanelVisible = ids.Contains("inbox");
+                SyncInboxPanel();
+                if (ViewInboxMenuItem is not null) ViewInboxMenuItem.IsChecked = _inboxPanelVisible;
+
+                // watch-health requires an async refresh to populate results; close it if not in preset.
+                if (ids.Contains("watch-health") && !_watchHealthPanelVisible)
+                    _ = RefreshWatchHealthPanelAsync();
+                else if (!ids.Contains("watch-health") && _watchHealthPanelVisible)
+                    CloseWatchHealthPanel();
+                if (ViewWatchHealthMenuItem is not null) ViewWatchHealthMenuItem.IsChecked = _watchHealthPanelVisible;
+            }
+
             ShowStatusNotification($"Layout preset {slotIndex + 1} restored (F{7 + slotIndex})", 2000);
         }
         catch (Exception ex)

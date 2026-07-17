@@ -34,7 +34,13 @@ internal sealed class LayoutPresetManager
     /// <summary>
     /// Save the current layout to the specified slot (0, 1, or 2).
     /// </summary>
-    public void SavePreset(int slotIndex, DockLayout layout)
+    /// <param name="slotIndex">Preset slot index (0-2).</param>
+    /// <param name="layout">Current layout to snapshot.</param>
+    /// <param name="visiblePanelIds">
+    /// IDs of panels that are currently open/visible. When provided, restoring this preset
+    /// will also restore which panels are open. Pass null to omit visibility state (legacy behaviour).
+    /// </param>
+    public void SavePreset(int slotIndex, DockLayout layout, IReadOnlySet<string>? visiblePanelIds = null)
     {
         if (slotIndex < 0 || slotIndex >= PresetSlotCount)
             throw new ArgumentOutOfRangeException(nameof(slotIndex), $"Slot must be 0-{PresetSlotCount - 1}");
@@ -60,6 +66,7 @@ internal sealed class LayoutPresetManager
             Right6ZoneWidth = layout.Right6ZoneWidth,
             Left7ZoneWidth = layout.Left7ZoneWidth,
             Right7ZoneWidth = layout.Right7ZoneWidth,
+            VisiblePanelIds = visiblePanelIds?.ToList(),
         };
 
         // Ensure we have enough slots
