@@ -487,6 +487,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             : GetOrCreatePrimaryAgentTranscriptHost(_selectedTranscriptThread!).TranscriptBox;
 
     private TranscriptSearchController _search = null!;
+
+    // ── Question-sentence Run highlight state (Ctrl+Alt+PageUp/Down nav) ───────
+    private Paragraph? _questionHighlightParagraph;
+    private List<(TextPointer Start, TextPointer End)>? _questionHighlightRanges;
+
     private string? _lastAgentImageFolder;
     private ScrollViewer? _transcriptScrollViewer;
     private DispatcherTimer? _coordinatorIntentDebounceTimer;
@@ -8849,7 +8854,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            _search.ClearQuestionHighlight();
+            ClearQuestionHighlightRuns();
             ActiveScrollController.DismissScrollButton();
         }
         catch (Exception ex)
@@ -26503,14 +26508,66 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Highlights all question sentences in <paramref name="paragraph"/>
-    /// using the question-highlight adorner (same visual as transcript search highlights).
+    /// Highlights all question sentences in <paramref name="paragraph"/> by directly
+    /// coloring the matching <see cref="Run"/> elements via
+    /// <see cref="TextRange.ApplyPropertyValue"/>.  This avoids the adorner overlay
+    /// approach (which drifts on word-wrap and redraws text on top of itself).
     /// </summary>
     private void ApplyQuestionHighlight(Paragraph paragraph)
     {
+        ClearQuestionHighlightRuns();
+
         var ranges = FindAllQuestionSentencePointers(paragraph);
         if (ranges.Count == 0) return;
-        _search.SetQuestionHighlight(ranges);
+
+        _questionHighlightParagraph = paragraph;
+        _questionHighlightRanges = ranges;
+
+        var highlightBrush = TryFindResource("SearchHighlightCurrent") as Brush
+            ?? new SolidColorBrush(Color.FromArgb(230, 255, 143, 0));
+        var textBrush = TryFindResource("SearchHighlightTextCurrent") as Brush
+            ?? new SolidColorBrush(Color.FromRgb(49, 34, 0));
+
+        foreach (var (start, end) in ranges)
+        {
+            var range = new TextRange(start, end);
+            range.ApplyPropertyValue(TextElement.BackgroundProperty, highlightBrush);
+            range.ApplyPropertyValue(TextElement.ForegroundProperty, textBrush);
+        }
+    }
+
+    /// <summary>
+    /// Clears the question-sentence inline highlight by restoring Background and
+    /// Foreground to their inherited (unset) values on all inlines in the previously
+    /// highlighted paragraph.
+    /// </summary>
+    private void ClearQuestionHighlightRuns()
+    {
+        if (_questionHighlightParagraph == null)
+        {
+            _questionHighlightRanges = null;
+            return;
+        }
+
+        ClearInlineHighlightProperties(_questionHighlightParagraph.Inlines);
+
+        _questionHighlightParagraph = null;
+        _questionHighlightRanges = null;
+    }
+
+    /// <summary>
+    /// Recursively clears locally-set Background and Foreground values from every
+    /// <see cref="Inline"/> in <paramref name="inlines"/>, restoring inherited styling.
+    /// </summary>
+    private static void ClearInlineHighlightProperties(InlineCollection inlines)
+    {
+        foreach (Inline inline in inlines)
+        {
+            inline.ClearValue(TextElement.BackgroundProperty);
+            inline.ClearValue(TextElement.ForegroundProperty);
+            if (inline is Span span)
+                ClearInlineHighlightProperties(span.Inlines);
+        }
     }
 
     private void RefreshActiveTranscriptScrollViewer()
@@ -26731,7 +26788,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            _search.ClearQuestionHighlight();
+            ClearQuestionHighlightRuns();
 
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
@@ -26796,7 +26853,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            _search.ClearQuestionHighlight();
+            ClearQuestionHighlightRuns();
 
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
