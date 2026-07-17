@@ -516,6 +516,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private double _activeSaturation;                  // -1.0 to +1.0, default 0.0
     private double _activeContrast;                    // 0.0 to 1.0, default 0.0
     private Dictionary<string, Color>? _tintBaseline; // baseline theme colors per TintKeys.All, refreshed on theme switch
+    private DispatcherTimer? _tintCommitTimer;         // debounces full palette apply during key-repeat bursts
+    // Palette cache: keyed by (stop, sat×1000, con×1000, accentOffset); cleared on theme/baseline change.
+    private readonly Dictionary<(int, int, int, int), Dictionary<string, SolidColorBrush>> _tintPaletteCache = new();
     private Slider? _saturationSlider;
     private Slider? _contrastSlider;
     private DispatcherTimer? _sliderDebounceTimer;
@@ -2014,7 +2017,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     try
                     {
                         if (savedTintStop != 0)
-                            SetWorkspaceTintStop(0);
+                            SetWorkspaceTintStop(0, immediate: true);
 
                         // Allow WPF to finish any pending layout/rendering before capturing,
                         // including the tint change applied above.
@@ -2078,7 +2081,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     finally
                     {
                         if (savedTintStop != 0)
-                            SetWorkspaceTintStop(savedTintStop);
+                            SetWorkspaceTintStop(savedTintStop, immediate: true);
                     }
                 }
                 catch (Exception ex)
@@ -32234,6 +32237,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void CaptureTintBaseline()
     {
         _tintBaseline = new Dictionary<string, Color>(StringComparer.Ordinal);
+        _tintPaletteCache.Clear(); // baseline changed; cached palettes are stale
         var themeDict = _themeDict;
         if (themeDict is null) return;
         foreach (var key in TintKeys.All)
@@ -32258,13 +32262,37 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_tintBaseline is null) return;
         if (!_tintBaseline.ContainsKey(key) && !TintKeys.ActiveAccent.Contains(key)) return;
         _tintBaseline[key] = newBaseColor;
+        _tintPaletteCache.Clear(); // a baseline token changed; all cached palettes are stale
         ApplyTintStop(_activeTintStop, notify: false);
     }
 
     private void ApplyTintStop(int stop, bool notify = true)
     {
         if (_tintBaseline is null) return;
+        // Cache key encodes every input that affects the computed palette.
+        var cacheKey = (stop,
+            (int)Math.Round(_activeSaturation * 1000),
+            (int)Math.Round(_activeContrast    * 1000),
+            _activeAccentHueOffset);
+        if (!_tintPaletteCache.TryGetValue(cacheKey, out var palette))
+        {
+            palette = ComputeTintPalette(stop);
+            _tintPaletteCache[cacheKey] = palette;
+        }
         var resources = Application.Current.Resources;
+        foreach (var (key, brush) in palette)
+            resources[key] = brush;
+        if (notify)
+            NotifyTintChanged();
+    }
+
+    /// <summary>
+    /// Computes the full set of frozen brushes for the given tint stop using the current
+    /// saturation, contrast, and accent-hue-offset settings.  Results are cached by the caller.
+    /// </summary>
+    private Dictionary<string, SolidColorBrush> ComputeTintPalette(int stop)
+    {
+        var palette = new Dictionary<string, SolidColorBrush>(_tintBaseline!.Count, StringComparer.Ordinal);
         // Subtract 35° to compensate for the ~34° baseline hue of the theme surfaces,
         // so stop 1 (Amber) lands near orange rather than yellow-green.
         // Stop 0 is always unmodified (natural theme colours).
@@ -32302,10 +32330,43 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             tinted = ApplyContrastAdjust(tinted, _activeContrast);
             var brush = new SolidColorBrush(tinted);
             brush.Freeze();
+            palette[key] = brush;
+        }
+        return palette;
+    }
+
+    // Most visually prominent surfaces — updated immediately on every tint keypress so the user
+    // sees perceptual feedback before the debounced full-palette commit fires 40 ms later.
+    private static readonly string[] TintPreviewKeys =
+    [
+        "AppSurface",
+        "ChromeSurface",
+        "PanelSurface",
+        "TranscriptSurface",
+    ];
+
+    /// <summary>
+    /// Applies a rapid visual preview to the 4 most prominent surface keys.
+    /// Called on every keypress; the full palette commit is debounced.
+    /// </summary>
+    private void ApplyTintPreview(int stop)
+    {
+        if (_tintBaseline is null) return;
+        var resources = Application.Current.Resources;
+        const double baselineHueOffset = 35.0;
+        const double naturalTintShift  = -30.0;
+        var hueDelta = stop * (360.0 / 8) - baselineHueOffset;
+        foreach (var key in TintPreviewKeys)
+        {
+            if (!_tintBaseline.TryGetValue(key, out var baseColor)) continue;
+            var delta = stop == 0 ? naturalTintShift : hueDelta;
+            var tinted = RotateHue(baseColor, delta);
+            tinted = ApplySaturationAdjust(tinted, _activeSaturation);
+            tinted = ApplyContrastAdjust(tinted, _activeContrast);
+            var brush = new SolidColorBrush(tinted);
+            brush.Freeze();
             resources[key] = brush;
         }
-        if (notify)
-            NotifyTintChanged();
     }
 
     private static Color RotateHue(Color color, double hueDeltaDegrees)
@@ -32378,22 +32439,53 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncSliderValues();
     }
 
-    private void SetWorkspaceTintStop(int stop)
+    private void SetWorkspaceTintStop(int stop, bool immediate = false)
     {
         if (_currentWorkspace is null) return;
         _activeTintStop = stop;
         var defaultAccentOffset = DefaultAccentOffsetByTintStop[stop];
         _activeAccentHueOffset = defaultAccentOffset;
-        // Apply visual change immediately so the user sees feedback on this frame —
-        // file I/O must not block the UI thread before the first repaint.
-        ApplyTintStop(stop);
+
+        if (immediate)
+        {
+            // Screenshot capture path: apply synchronously so WPF can render before the RTB capture.
+            CommitTintStop();
+        }
+        else
+        {
+            // Keyboard path: give instant perceptual feedback on the 4 most prominent surfaces,
+            // then debounce the full 95-key palette update to avoid 30 redundant applies/sec
+            // when the key is held.
+            ApplyTintPreview(stop);
+            if (_tintCommitTimer is null)
+            {
+                _tintCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+                _tintCommitTimer.Tick += (_, _) => CommitTintStop();
+            }
+            _tintCommitTimer.Stop();
+            _tintCommitTimer.Start();
+        }
+
         UpdateTintMenuState();
-        // Persist asynchronously; update the snapshot on the UI thread when done.
+    }
+
+    /// <summary>
+    /// Applies the full tint palette for the current stop and persists it.
+    /// Called once per key-repeat burst (via <see cref="_tintCommitTimer"/>) or
+    /// immediately for non-interactive callers (e.g. screenshot capture).
+    /// </summary>
+    private void CommitTintStop()
+    {
+        _tintCommitTimer?.Stop();
+        ApplyTintStop(_activeTintStop);
+        if (_currentWorkspace is null) return;
         var folderPath = _currentWorkspace.FolderPath;
+        var stop = _activeTintStop;
+        var accentOffset = _activeAccentHueOffset;
         _ = Task.Run(() =>
         {
             var snapshot = _settingsStore.SaveWorkspaceTintStop(folderPath, stop);
-            snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, defaultAccentOffset);
+            snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, accentOffset);
             Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
         });
     }
