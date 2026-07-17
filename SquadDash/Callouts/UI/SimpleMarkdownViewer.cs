@@ -145,19 +145,36 @@ public class SimpleMarkdownViewer : Control {
                     }
 
                     // Image left, text right.
-                    // Strip a leading [lines:N] hint from trailingText and honour it on the TextBlock.
+                    // Strip leading [lines:N] and [valign:X] hints (in any order) from trailingText.
                     int? imageSideLines = null;
-                    var ilm = LinesRegex.Match(trailingText);
-                    if (ilm.Success && int.TryParse(ilm.Groups[1].Value, out var iln) && iln > 1) {
-                        imageSideLines = iln;
-                        trailingText = trailingText[ilm.Length..].TrimStart();
+                    VerticalAlignment textVAlign = VerticalAlignment.Top;
+                    bool modifiedTrailing = true;
+                    while (modifiedTrailing) {
+                        modifiedTrailing = false;
+                        var ilm = LinesRegex.Match(trailingText);
+                        if (ilm.Success && int.TryParse(ilm.Groups[1].Value, out var iln) && iln > 1) {
+                            imageSideLines = iln;
+                            trailingText = trailingText[ilm.Length..].TrimStart();
+                            modifiedTrailing = true;
+                        }
+                        var vam = VAlignRegex.Match(trailingText);
+                        if (vam.Success) {
+                            textVAlign = vam.Groups[1].Value.ToLowerInvariant() switch {
+                                "center" => VerticalAlignment.Center,
+                                "bottom" => VerticalAlignment.Bottom,
+                                _        => VerticalAlignment.Top,
+                            };
+                            trailingText = trailingText[vam.Length..].TrimStart();
+                            modifiedTrailing = true;
+                        }
                     }
+                    img.VerticalAlignment = textVAlign;
                     img.Margin = new Thickness(0, 0, 12, 0);
                     var textBlock = new TextBlock {
                         // WrapWithOverflow: wraps at word boundaries only — never splits a word
                         // mid-character even when the available width is very narrow.
                         TextWrapping      = TextWrapping.WrapWithOverflow,
-                        VerticalAlignment = VerticalAlignment.Top,
+                        VerticalAlignment = textVAlign,
                     };
                     if (imageSideLines.HasValue) {
                         // Measure the plain-text single-line width, then constrain to 1/N of that
@@ -398,6 +415,11 @@ public class SimpleMarkdownViewer : Control {
     private static readonly Regex LinesRegex = new(
         @"^\[lines:(\d+)\]",
         RegexOptions.Compiled);
+
+    // Matches [valign:top|center|bottom] — controls vertical alignment of text beside an image
+    private static readonly Regex VAlignRegex = new(
+        @"^\[valign:(top|center|bottom)\]",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     FlowDocument CreateFlowDocumentFromMarkdown() {
         FlowDocument flowDocument = new FlowDocument();
