@@ -8837,6 +8837,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            _search.ClearQuestionHighlight();
             ActiveScrollController.DismissScrollButton();
         }
         catch (Exception ex)
@@ -26363,6 +26364,80 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         });
     }
 
+    /// <summary>
+    /// Finds TextPointers bracketing the sentence that contains the first <c>?</c> in
+    /// <paramref name="paragraph"/>.  Returns <c>(null, null)</c> when no <c>?</c> exists.
+    /// </summary>
+    private static (TextPointer? Start, TextPointer? End) FindQuestionSentencePointers(Paragraph paragraph)
+    {
+        var fullText = new System.Windows.Documents.TextRange(
+            paragraph.ContentStart, paragraph.ContentEnd).Text;
+
+        int qIdx = fullText.IndexOf('?');
+        if (qIdx < 0) return (null, null);
+
+        int sentenceStart = 0;
+        for (int i = qIdx - 1; i >= 0; i--)
+        {
+            char c = fullText[i];
+            if (c == '.' || c == '!' || c == '?' || c == '\n' || c == '\r')
+            {
+                sentenceStart = i + 1;
+                while (sentenceStart < qIdx && char.IsWhiteSpace(fullText[sentenceStart]))
+                    sentenceStart++;
+                break;
+            }
+        }
+
+        var startPointer = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, sentenceStart);
+        var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, qIdx + 1);
+        return (startPointer, endPointer);
+    }
+
+    /// <summary>
+    /// Walks forward from <paramref name="rangeStart"/> through text runs to find the
+    /// <see cref="System.Windows.Documents.TextPointer"/> that corresponds to
+    /// <paramref name="charOffset"/> characters into the plain text of the range.
+    /// </summary>
+    private static System.Windows.Documents.TextPointer CharOffsetToTextPointer(
+        System.Windows.Documents.TextPointer rangeStart,
+        System.Windows.Documents.TextPointer rangeEnd,
+        int charOffset)
+    {
+        if (charOffset <= 0) return rangeStart;
+        var tp = rangeStart;
+        int remaining = charOffset;
+        while (tp != null && remaining > 0 && tp.CompareTo(rangeEnd) < 0)
+        {
+            var ctx = tp.GetPointerContext(System.Windows.Documents.LogicalDirection.Forward);
+            if (ctx == System.Windows.Documents.TextPointerContext.Text)
+            {
+                int runLen = tp.GetTextRunLength(System.Windows.Documents.LogicalDirection.Forward);
+                if (remaining <= runLen)
+                    return tp.GetPositionAtOffset(remaining, System.Windows.Documents.LogicalDirection.Forward);
+                remaining -= runLen;
+            }
+            else if (ctx == System.Windows.Documents.TextPointerContext.None)
+            {
+                break;
+            }
+            tp = tp.GetNextContextPosition(System.Windows.Documents.LogicalDirection.Forward);
+        }
+        return tp ?? rangeEnd;
+    }
+
+    /// <summary>
+    /// Highlights the sentence containing the first <c>?</c> in <paramref name="paragraph"/>
+    /// using the question-highlight adorner (same visual as transcript search highlights).
+    /// </summary>
+    private void ApplyQuestionHighlight(Paragraph paragraph)
+    {
+        var (start, end) = FindQuestionSentencePointers(paragraph);
+        if (start is null || end is null) return;
+        var text = new System.Windows.Documents.TextRange(start, end).Text;
+        _search.SetQuestionHighlight(start, end, text);
+    }
+
     private void RefreshActiveTranscriptScrollViewer()
     {
         var activeBox = ActiveTranscriptBox;
@@ -26576,6 +26651,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            _search.ClearQuestionHighlight();
+
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
 
@@ -26601,6 +26678,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         thread.PromptNavIndex = i;
                         ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                         return;
                     }
                 }
@@ -26638,6 +26716,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            _search.ClearQuestionHighlight();
+
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
 
@@ -26664,6 +26744,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         thread.PromptNavIndex = i;
                         ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                        ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                         return;
                     }
                 }

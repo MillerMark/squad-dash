@@ -51,6 +51,10 @@ internal sealed class TranscriptSearchController
     private DispatcherTimer? _searchDebounceTimer;
     private SearchHighlightAdorner? _searchAdorner;
     private ScrollbarMarkerAdorner? _scrollbarAdorner;
+
+    // ── Question-sentence highlight (Ctrl+Alt+PageUp/Down nav) ───────────────
+    private SearchHighlightAdorner? _questionAdorner;
+    private RichTextBox? _questionAdornerTarget;
     // Pointer cache — built on first RefreshAdornerHighlights after a search, reused on Next/Prev.
     private List<(TextPointer Start, TextPointer End, string Text)>? _cachedSearchPointers;
     private int[] _cachedMatchToCursor = [];  // match i → index in _cachedSearchPointers, -1 if BUC/skip
@@ -61,7 +65,11 @@ internal sealed class TranscriptSearchController
     private ScrollBar? _transcriptScrollBar;
 
     /// <summary>Disposes search resources. Call on window close.</summary>
-    internal void Dispose() => _searchAdorner?.Dispose();
+    internal void Dispose()
+    {
+        _searchAdorner?.Dispose();
+        _questionAdorner?.Dispose();
+    }
 
     // ── Properties ───────────────────────────────────────────────────────────
 
@@ -236,10 +244,41 @@ internal sealed class TranscriptSearchController
     }
 
     /// <summary>Forces the search highlight adorner to repaint.</summary>
-    internal void InvalidateAdornerHighlights() => _searchAdorner?.InvalidateHighlights();
+    internal void InvalidateAdornerHighlights()
+    {
+        _searchAdorner?.InvalidateHighlights();
+        _questionAdorner?.InvalidateHighlights();
+    }
 
     /// <summary>Forces the scrollbar marker adorner to repaint.</summary>
     internal void InvalidateScrollbarAdorner() => _scrollbarAdorner?.InvalidateVisual();
+
+    /// <summary>
+    /// Applies a highlight to the question sentence in the given prompt, using a dedicated
+    /// adorner that is independent of the active search highlights.
+    /// </summary>
+    internal void SetQuestionHighlight(TextPointer start, TextPointer end, string text)
+    {
+        var activeRtb = _getActiveTranscriptBox();
+        if (!ReferenceEquals(activeRtb, _questionAdornerTarget))
+        {
+            _questionAdorner?.Dispose();
+            _questionAdorner = null;
+            _questionAdornerTarget = null;
+
+            var adornerLayer = AdornerLayer.GetAdornerLayer(activeRtb);
+            if (adornerLayer is null) return;
+
+            _questionAdorner = new SearchHighlightAdorner(activeRtb);
+            adornerLayer.Add(_questionAdorner);
+            _questionAdornerTarget = activeRtb;
+        }
+
+        _questionAdorner?.SetMatches([(start, end, text)], 0);
+    }
+
+    /// <summary>Clears the question-sentence highlight.</summary>
+    internal void ClearQuestionHighlight() => _questionAdorner?.Clear();
 
     /// <summary>Navigates to the previous search match.</summary>
     internal void NavigatePrev() => _ = NavigateToMatchAsync(_searchMatchCursor - 1);
