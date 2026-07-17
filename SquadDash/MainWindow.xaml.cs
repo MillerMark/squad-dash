@@ -14469,6 +14469,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourAdvanceTriggerRegistry.Register(
             "PromptQueued",
             new PromptQueuedAdvanceTrigger(_promptQueue));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "KeyboardShortcut",
+            new KeyboardShortcutAdvanceTrigger(this),
+            hasParameter: true);
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

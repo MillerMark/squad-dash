@@ -335,6 +335,7 @@
     <Compile Include="..\SquadDash\GuidedTours\PreferencesWindowShownAdvanceTrigger.cs" Link="Source\GuidedTours\PreferencesWindowShownAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\PreferencesWindowClosedAdvanceTrigger.cs" Link="Source\GuidedTours\PreferencesWindowClosedAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\PreferencePageSelectedAdvanceTrigger.cs" Link="Source\GuidedTours\PreferencePageSelectedAdvanceTrigger.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\KeyboardShortcutAdvanceTrigger.cs" Link="Source\GuidedTours\KeyboardShortcutAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\TourIntelliSenseHelper.cs" Link="Source\GuidedTours\TourIntelliSenseHelper.cs" />
   </ItemGroup>
 
