@@ -26399,46 +26399,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var fullText = new System.Windows.Documents.TextRange(
             paragraph.ContentStart, paragraph.ContentEnd).Text;
 
-        var qPositions = new List<int>();
-        for (int i = 0; i < fullText.Length; i++)
-            if (fullText[i] == '?')
-                qPositions.Add(i);
-
-        if (qPositions.Count == 0) return [];
-
-        // Build groups of (sentenceStart, lastQIdx). Merge when the new sentence start
-        // falls at or before the previous group's last '?' (same sentence) or is
-        // immediately adjacent (handles "??").
-        var groups = new List<(int sentenceStart, int lastQIdx)>();
-        foreach (int qIdx in qPositions)
-        {
-            int sentenceStart = 0;
-            for (int i = qIdx - 1; i >= 0; i--)
-            {
-                char c = fullText[i];
-                if (c == '.' || c == '!' || c == '?' || c == '\n' || c == '\r')
-                {
-                    sentenceStart = i + 1;
-                    while (sentenceStart < qIdx && char.IsWhiteSpace(fullText[sentenceStart]))
-                        sentenceStart++;
-                    break;
-                }
-            }
-
-            if (groups.Count > 0 && sentenceStart <= groups[^1].lastQIdx + 1)
-            {
-                // Extend the last group to include this '?'
-                var last = groups[^1];
-                groups[^1] = (last.sentenceStart, qIdx);
-            }
-            else
-            {
-                groups.Add((sentenceStart, qIdx));
-            }
-        }
-
-        var result = new List<(TextPointer Start, TextPointer End)>();
-        foreach (var (sentenceStart, lastQIdx) in groups)
+        var ranges = QuestionSentenceExtractor.ExtractQuestionSentenceRanges(fullText);
+        var result = new List<(TextPointer Start, TextPointer End)>(ranges.Count);
+        foreach (var (sentenceStart, lastQIdx) in ranges)
         {
             var startPointer = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, sentenceStart);
             var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, lastQIdx + 1);
@@ -29350,13 +29313,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             _backgroundTaskPresenter.RecoverStaleBackgroundThreads(DateTimeOffset.Now, "window-closing");
 
-            // Queued items are only a blocking concern when the queue is actively running.
-            // If the user manually paused the queue and no agent is in flight, the items
-            // are dormant and closing immediately is safe — skip the confirmation dialog.
+            // Queued items are only a blocking concern when they can begin executing.
+            // Empty items, a manually paused queue, and a queue held by its active rightmost
+            // tab are dormant persisted UI state, so closing immediately is safe.
             // Background work entries are treated the same way: if the queue is manually
             // paused and no prompt is actively running, stale background entries should not
             // block the close dialog.
-            bool queueBlocking = _promptQueue.Count > 0 && !_queueManuallyPaused;
+            bool hasExecutableQueueItem = _promptQueue.Items.Any(item => !IsEmptyQueueItem(item));
+            bool queueBlocking = ShutdownProtectionPolicy.HasQueueWorkThatCanStart(
+                hasExecutableQueueItem,
+                _queueManuallyPaused,
+                IsRightmostQueueTabActive());
             bool backgroundWorkBlocking = (_isPromptRunning || !_queueManuallyPaused) &&
                                           _backgroundTaskPresenter.HasRestartBlockingBackgroundWork();
             bool isBusy = _isPromptRunning ||
@@ -29371,7 +29338,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 var dialog = new ShutdownProtectionWindow(
                     isRunning: _isPromptRunning,
-                    hasQueue: _promptQueue.Count > 0,
+                    hasQueue: queueBlocking,
                     isLoopRunning: IsNativeLoopRunning)
                 {
                     Owner = this
