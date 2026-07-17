@@ -2680,6 +2680,17 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                     if (widthDelta != 0) {
                         idealCalloutWidth = calloutWidth + widthDelta;
                     }
+                    // Ensure image+text lines have enough room: the shrink loop can't detect wrapping
+                    // inside BlockUIContainer elements via GetCharacterRect, so apply a minimum width floor.
+                    double minWidthFromImages = ComputeMinWidthFromImageBlocks(flowDocument);
+                    if (minWidthFromImages > 0) {
+                        double minIdealFromImages = minWidthFromImages - leftExtension - rightExtension - GetMarkdownWidthAdjust();
+                        double currentIdeal = idealCalloutWidth != 0 ? idealCalloutWidth : calloutWidth;
+                        if (minIdealFromImages > currentIdeal)
+                            idealCalloutWidth = minIdealFromImages;
+                    }
+                    if (idealCalloutWidth != 0)
+                        lastGoodWidth = idealCalloutWidth + leftExtension + rightExtension + GetMarkdownWidthAdjust();
                     markdownViewer.Width = lastGoodWidth;
                     flowDocument.PageWidth = lastGoodWidth;
                     FlowDocumentHelper.EnsureLayoutIsCurrent(flowDocument);
@@ -2688,6 +2699,38 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 ResumeCalloutConstruction();
             }
         }
+    }
+
+    /// <summary>
+    /// Walks the flow document looking for image-left / text-right DockPanel blocks and
+    /// returns the minimum markdownViewer.Width needed so that text sits comfortably beside
+    /// its image without wrapping.  Returns 0 when no such blocks exist.
+    /// </summary>
+    private double ComputeMinWidthFromImageBlocks(FlowDocument flowDocument) {
+        const double docPaddingBuffer = 20; // conservative estimate for FlowDocument horizontal padding
+        double maxMinWidth = 0;
+        foreach (var block in flowDocument.Blocks) {
+            if (block is not BlockUIContainer buc)
+                continue;
+            if (buc.Child is not DockPanel dock)
+                continue;
+            System.Windows.Controls.Image? img = null;
+            TextBlock? tb = null;
+            foreach (UIElement child in dock.Children) {
+                if (child is System.Windows.Controls.Image image)
+                    img = image;
+                else if (child is TextBlock textBlock)
+                    tb = textBlock;
+            }
+            if (img == null || tb == null)
+                continue;
+            tb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double naturalTextWidth = tb.DesiredSize.Width;
+            double minWidth = img.Width + img.Margin.Right + naturalTextWidth + docPaddingBuffer;
+            if (minWidth > maxMinWidth)
+                maxMinWidth = minWidth;
+        }
+        return maxMinWidth;
     }
 
     private void CreateMarkdownViewer() {
