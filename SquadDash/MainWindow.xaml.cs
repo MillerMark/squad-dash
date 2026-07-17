@@ -26390,33 +26390,61 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Finds TextPointers bracketing the sentence that contains the first <c>?</c> in
-    /// <paramref name="paragraph"/>.  Returns <c>(null, null)</c> when no <c>?</c> exists.
+    /// Finds TextPointers bracketing every question sentence (ending with <c>?</c>) in
+    /// <paramref name="paragraph"/>.  Returns an empty list when no <c>?</c> exists.
+    /// Adjacent or overlapping question sentences (e.g. <c>??</c>) are merged into one range.
     /// </summary>
-    private static (TextPointer? Start, TextPointer? End) FindQuestionSentencePointers(Paragraph paragraph)
+    private static List<(TextPointer Start, TextPointer End)> FindAllQuestionSentencePointers(Paragraph paragraph)
     {
         var fullText = new System.Windows.Documents.TextRange(
             paragraph.ContentStart, paragraph.ContentEnd).Text;
 
-        int qIdx = fullText.IndexOf('?');
-        if (qIdx < 0) return (null, null);
+        var qPositions = new List<int>();
+        for (int i = 0; i < fullText.Length; i++)
+            if (fullText[i] == '?')
+                qPositions.Add(i);
 
-        int sentenceStart = 0;
-        for (int i = qIdx - 1; i >= 0; i--)
+        if (qPositions.Count == 0) return [];
+
+        // Build groups of (sentenceStart, lastQIdx). Merge when the new sentence start
+        // falls at or before the previous group's last '?' (same sentence) or is
+        // immediately adjacent (handles "??").
+        var groups = new List<(int sentenceStart, int lastQIdx)>();
+        foreach (int qIdx in qPositions)
         {
-            char c = fullText[i];
-            if (c == '.' || c == '!' || c == '?' || c == '\n' || c == '\r')
+            int sentenceStart = 0;
+            for (int i = qIdx - 1; i >= 0; i--)
             {
-                sentenceStart = i + 1;
-                while (sentenceStart < qIdx && char.IsWhiteSpace(fullText[sentenceStart]))
-                    sentenceStart++;
-                break;
+                char c = fullText[i];
+                if (c == '.' || c == '!' || c == '?' || c == '\n' || c == '\r')
+                {
+                    sentenceStart = i + 1;
+                    while (sentenceStart < qIdx && char.IsWhiteSpace(fullText[sentenceStart]))
+                        sentenceStart++;
+                    break;
+                }
+            }
+
+            if (groups.Count > 0 && sentenceStart <= groups[^1].lastQIdx + 1)
+            {
+                // Extend the last group to include this '?'
+                var last = groups[^1];
+                groups[^1] = (last.sentenceStart, qIdx);
+            }
+            else
+            {
+                groups.Add((sentenceStart, qIdx));
             }
         }
 
-        var startPointer = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, sentenceStart);
-        var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, qIdx + 1);
-        return (startPointer, endPointer);
+        var result = new List<(TextPointer Start, TextPointer End)>();
+        foreach (var (sentenceStart, lastQIdx) in groups)
+        {
+            var startPointer = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, sentenceStart);
+            var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, lastQIdx + 1);
+            result.Add((startPointer, endPointer));
+        }
+        return result;
     }
 
     /// <summary>
@@ -26452,15 +26480,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Highlights the sentence containing the first <c>?</c> in <paramref name="paragraph"/>
+    /// Highlights all question sentences in <paramref name="paragraph"/>
     /// using the question-highlight adorner (same visual as transcript search highlights).
     /// </summary>
     private void ApplyQuestionHighlight(Paragraph paragraph)
     {
-        var (start, end) = FindQuestionSentencePointers(paragraph);
-        if (start is null || end is null) return;
-        var text = new System.Windows.Documents.TextRange(start, end).Text;
-        _search.SetQuestionHighlight(start, end, text);
+        var ranges = FindAllQuestionSentencePointers(paragraph);
+        if (ranges.Count == 0) return;
+        _search.SetQuestionHighlight(ranges);
     }
 
     private void RefreshActiveTranscriptScrollViewer()

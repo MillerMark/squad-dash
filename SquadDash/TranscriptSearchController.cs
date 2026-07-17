@@ -254,10 +254,10 @@ internal sealed class TranscriptSearchController
     internal void InvalidateScrollbarAdorner() => _scrollbarAdorner?.InvalidateVisual();
 
     /// <summary>
-    /// Applies a highlight to the question sentence in the given prompt, using a dedicated
+    /// Applies highlights to all question sentences in the given prompt, using a dedicated
     /// adorner that is independent of the active search highlights.
     /// </summary>
-    internal void SetQuestionHighlight(TextPointer start, TextPointer end, string text)
+    internal void SetQuestionHighlight(IReadOnlyList<(TextPointer start, TextPointer end)> ranges)
     {
         var activeRtb = _getActiveTranscriptBox();
         if (!ReferenceEquals(activeRtb, _questionAdornerTarget))
@@ -274,7 +274,10 @@ internal sealed class TranscriptSearchController
             _questionAdornerTarget = activeRtb;
         }
 
-        _questionAdorner?.SetMatches([(start, end, text)], 0);
+        var matches = ranges
+            .Select(r => (r.start, r.end, new TextRange(r.start, r.end).Text))
+            .ToList();
+        _questionAdorner?.SetMatches(matches, 0);
     }
 
     /// <summary>Clears the question-sentence highlight.</summary>
