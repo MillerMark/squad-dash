@@ -289,10 +289,13 @@ public class SimpleMarkdownViewer : Control {
                 // Paragraph does not expose MaxWidth; use a TextBlock inside a
                 // BlockUIContainer so we can constrain the wrapping width directly.
                 var tb = new System.Windows.Controls.TextBlock {
-                    TextWrapping = System.Windows.TextWrapping.Wrap,
-                    MaxWidth     = singleLineWidth / linesCount.Value,
-                    FontSize     = effectiveFontSize,
-                    FontFamily   = FontFamily,
+                    TextWrapping      = System.Windows.TextWrapping.Wrap,
+                    MaxWidth          = singleLineWidth / linesCount.Value,
+                    FontSize          = effectiveFontSize,
+                    FontFamily        = FontFamily,
+                    HorizontalAlignment = isCentered
+                        ? HorizontalAlignment.Center
+                        : HorizontalAlignment.Left,
                 };
                 if (isCentered) tb.TextAlignment = TextAlignment.Center;
                 foreach (var inline in ParseInlines(cleanParagraphText))
