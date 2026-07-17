@@ -147,7 +147,9 @@ public class SimpleMarkdownViewer : Control {
                     // Image left, text right.
                     img.Margin = new Thickness(0, 0, 12, 0);
                     var textBlock = new TextBlock {
-                        TextWrapping      = TextWrapping.Wrap,
+                        // WrapWithOverflow: wraps at word boundaries only — never splits a word
+                        // mid-character even when the available width is very narrow.
+                        TextWrapping      = TextWrapping.WrapWithOverflow,
                         VerticalAlignment = VerticalAlignment.Top,
                     };
                     foreach (var inline in ParseInlines(trailingText))
