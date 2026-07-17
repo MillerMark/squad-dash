@@ -26664,6 +26664,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         PromptNavHintTextBlock.Visibility = Visibility.Collapsed;
     }
 
+    private static bool IsAltHeld()
+        => (Keyboard.Modifiers & ModifierKeys.Alt) != 0
+        || Keyboard.IsKeyDown(Key.LeftAlt)
+        || Keyboard.IsKeyDown(Key.RightAlt);
+
     private void PromptNavUpButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -26682,7 +26687,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Alt+click: find the nearest prompt above that contains a question mark.
-            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            if (IsAltHeld())
             {
                 GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
                 var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
@@ -26748,7 +26753,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
 
             // Alt+click: find the nearest prompt below that contains a question mark.
-            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+            if (IsAltHeld())
             {
                 GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
                 if (nearestBelowIdx < 0) return;
