@@ -404,6 +404,8 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         closeButton.FontSize = 14;
         closeButton.Width  = closeButtonEdgeSize;
         closeButton.Height = closeButtonEdgeSize;
+        closeButton.PreviewMouseLeftButtonDown += (_, _) =>
+            UserDismissStarting?.Invoke(this, EventArgs.Empty);
         closeButton.Click += CloseButton_Click;
         _closeButton = closeButton;
         cvsCallout.Children.Add(closeButton);
@@ -421,6 +423,11 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// Subscribe to record a "dismissed" state for hint tracking.
     /// </summary>
     public event EventHandler? UserDismissed;
+
+    /// <summary>
+    /// Raised on close-button mouse-down, before popup/menu capture changes can interrupt Click.
+    /// </summary>
+    public event EventHandler? UserDismissStarting;
 
     // ── Tour Mode ────────────────────────────────────────────────────────────────
     bool _isTourMode;

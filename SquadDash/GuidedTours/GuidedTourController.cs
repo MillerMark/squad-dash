@@ -520,6 +520,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
+            _activeCallout.UserDismissStarting       += (_, _) => StopTour();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
             _onCalloutShown?.Invoke();
         }
@@ -560,6 +561,7 @@ internal sealed class GuidedTourController
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
+            _activeCallout.UserDismissStarting       += (_, _) => StopTour();
             _activeCallout.UserDismissed             += (_, _) => StopTour();
         }
     }
