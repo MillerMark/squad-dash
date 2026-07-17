@@ -275,10 +275,34 @@ internal sealed class TranscriptSearchController
         }
 
         var matches = ranges
-            .Select(r => (r.start, r.end, new TextRange(r.start, r.end).Text))
+            .Select(r =>
+            {
+                var end = TrimEndToLastQuestionMark(r.start, r.end);
+                return (r.start, end, new TextRange(r.start, end).Text);
+            })
             .ToList();
         // Pass -2 as the sentinel so every question sentence renders with the "current" (bright) brush.
         _questionAdorner?.SetMatches(matches, -2);
+    }
+
+    /// <summary>
+    /// Walks <paramref name="end"/> backward one insertion position at a time until
+    /// the text of the range [<paramref name="start"/>, end] ends with '?'.
+    /// Protects against infinite loops by capping iterations at 8.
+    /// </summary>
+    private static TextPointer TrimEndToLastQuestionMark(TextPointer start, TextPointer end)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            var text = new TextRange(start, end).Text;
+            if (text.Length == 0 || text[text.Length - 1] == '?')
+                return end;
+            var prev = end.GetNextInsertionPosition(LogicalDirection.Backward);
+            if (prev == null || prev.CompareTo(start) <= 0)
+                return end;
+            end = prev;
+        }
+        return end;
     }
 
     /// <summary>Clears the question-sentence highlight.</summary>
