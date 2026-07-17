@@ -183,7 +183,8 @@ internal sealed class SearchHighlightAdorner : Adorner, IDisposable
             var (start, end, matchText) = _matches[i];
             if (start is null || end is null) continue;
 
-            var isCurrent = i == _currentIndex;
+            // _currentIndex == -2 is the "all current" sentinel used by question highlights.
+            var isCurrent = _currentIndex == -2 || i == _currentIndex;
             var brush     = isCurrent ? currentBrush : normalBrush;
             var opacity   = 1.0; // always fully opaque — transparency causes original text to bleed through
 

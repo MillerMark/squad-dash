@@ -26404,7 +26404,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         foreach (var (sentenceStart, lastQIdx) in ranges)
         {
             var startPointer = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, sentenceStart);
-            var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, lastQIdx + 1);
+            var endPointer   = CharOffsetToTextPointer(paragraph.ContentStart, paragraph.ContentEnd, lastQIdx + 1,
+                System.Windows.Documents.LogicalDirection.Backward);
             result.Add((startPointer, endPointer));
         }
         return result;
@@ -26418,7 +26419,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static System.Windows.Documents.TextPointer CharOffsetToTextPointer(
         System.Windows.Documents.TextPointer rangeStart,
         System.Windows.Documents.TextPointer rangeEnd,
-        int charOffset)
+        int charOffset,
+        System.Windows.Documents.LogicalDirection gravityAtBoundary = System.Windows.Documents.LogicalDirection.Forward)
     {
         if (charOffset <= 0) return rangeStart;
         var tp = rangeStart;
@@ -26430,7 +26432,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 int runLen = tp.GetTextRunLength(System.Windows.Documents.LogicalDirection.Forward);
                 if (remaining <= runLen)
-                    return tp.GetPositionAtOffset(remaining, System.Windows.Documents.LogicalDirection.Forward);
+                    return tp.GetPositionAtOffset(remaining, gravityAtBoundary);
                 remaining -= runLen;
             }
             else if (ctx == System.Windows.Documents.TextPointerContext.None)

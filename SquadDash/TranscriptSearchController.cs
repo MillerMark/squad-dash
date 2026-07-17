@@ -277,7 +277,8 @@ internal sealed class TranscriptSearchController
         var matches = ranges
             .Select(r => (r.start, r.end, new TextRange(r.start, r.end).Text))
             .ToList();
-        _questionAdorner?.SetMatches(matches, 0);
+        // Pass -2 as the sentinel so every question sentence renders with the "current" (bright) brush.
+        _questionAdorner?.SetMatches(matches, -2);
     }
 
     /// <summary>Clears the question-sentence highlight.</summary>
