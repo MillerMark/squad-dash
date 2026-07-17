@@ -100,6 +100,20 @@ Common element names from the built-in tour:
 | `QueuePlayPauseButton` | The queue pause button |
 | `CodeHealthPanelBorder` | The Code Health panel |
 
+#### Attachment strip targets
+
+These targets are registered dynamically after `AttachText` / `AttachImage` commands populate the strip. Use them to point at demo attachments you added earlier in the tour.
+
+| Element Name | What it is |
+|---|---|
+| `FollowUpStrip` | The entire attachment strip bar |
+| `FollowUpAttachmentRow0` | The first attachment row (icon + label) |
+| `FollowUpAttachmentRow1` | The second attachment row |
+| `FollowUpAttachmentDismiss0` | The × close button on the first attachment |
+| `FollowUpAttachmentDismiss1` | The × close button on the second attachment |
+
+Indices are 0-based and match the order attachments were added. These targets are cleared automatically when `ClearAttachments` removes all rows.
+
 ### 4. Preview a step
 
 With a tour active, use **Developer** → **Preview Current Tour Step** to re-render the callout at the current step index without advancing. Useful when adjusting `calloutPlacement` or offset values.
@@ -172,6 +186,56 @@ Streams a response-only turn (no user prompt bubble) into a named agent's thread
 
 ```
 commandBefore: "InjectAgentResponse|Analysing codebase...\nDone.|Rex"
+```
+
+---
+
+### Attachment commands
+
+These commands add or remove demo attachments in the prompt attachment strip. They are ideal for demonstrating the attachment feature without the user having to manually attach anything. Always clean up with `ClearAttachments` in a `commandAfter`.
+
+#### `AttachText|text`
+
+Adds a text attachment to the **draft** prompt's attachment strip. Use `\n` for newlines in the text.
+
+```
+commandBefore: "AttachText|Here is some sample attached text.\nIt can span multiple lines."
+```
+
+#### `AttachTextToActive|text`
+
+Same as `AttachText` but targets the **currently active tab** (a demo queue item or the draft), rather than always targeting the draft. Useful when demo queue items are present.
+
+```
+commandBefore: "AttachTextToActive|Sample context for this queue item."
+```
+
+#### `AttachImage|path`
+
+Adds an image attachment. `path` may be relative to the current workspace folder or absolute.
+
+```
+commandBefore: "AttachImage|Assets/GuidedTours/demo-screenshot.png"
+```
+
+#### `ClearAttachments`
+
+Removes all demo attachments from the draft attachment strip. Always pair this with any `AttachText` or `AttachImage` command in a `commandAfter` to leave the UI clean.
+
+```
+commandAfter: "ClearAttachments"
+```
+
+**Typical pattern:**
+
+```json
+{
+  "title": "Attaching context",
+  "markdownText": "You can attach text or images to provide extra context...",
+  "targetControlId": "FollowUpStrip",
+  "commandBefore": "AttachText|This is demo attached context.",
+  "commandAfter": "ClearAttachments"
+}
 ```
 
 ---
