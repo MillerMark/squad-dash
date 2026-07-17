@@ -237,6 +237,8 @@
     <Compile Include="..\SquadDash\ICommitStatService.cs" Link="Source\ICommitStatService.cs" />
     <Compile Include="..\SquadDash\CommitStatService.cs" Link="Source\CommitStatService.cs" />
     <Compile Include="..\SquadDash\AnnotationCursors.cs" Link="Source\AnnotationCursors.cs" />
+    <Compile Include="..\SquadDash\WorkHoursSettings.cs" Link="Source\WorkHoursSettings.cs" />
+    <Compile Include="..\SquadDash\WorkHoursStore.cs" Link="Source\WorkHoursStore.cs" />
     <Compile Include="..\SquadDash\CommitActivityGraphWindow.cs" Link="Source\CommitActivityGraphWindow.cs" />
     <Compile Include="..\SquadDash\FeatureGroupStore.cs" Link="Source\FeatureGroupStore.cs" />
     <Compile Include="..\SquadDash\FeatureGroupPromptBuilder.cs" Link="Source\FeatureGroupPromptBuilder.cs" />
@@ -306,6 +308,7 @@
     <Compile Include="..\SquadDash\PanelDocking\DockingMapBuilder.cs" Link="Source\PanelDocking\DockingMapBuilder.cs" />
     <Compile Include="..\SquadDash\PanelDocking\PanelLayoutData.cs" Link="Source\PanelDocking\PanelLayoutData.cs" />
     <Compile Include="..\SquadDash\PanelDocking\DockingLayoutEngine.cs" Link="Source\PanelDocking\DockingLayoutEngine.cs" />
+    <Compile Include="..\SquadDash\PanelDocking\LayoutPresetManager.cs" Link="Source\PanelDocking\LayoutPresetManager.cs" />
 
     <!-- Clipboard Editor State Persistence -->
     <Compile Include="..\SquadDash\ClipboardAnnotationState.cs" Link="Source\ClipboardAnnotationState.cs" />
