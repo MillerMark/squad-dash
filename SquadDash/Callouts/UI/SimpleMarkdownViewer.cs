@@ -145,9 +145,10 @@ public class SimpleMarkdownViewer : Control {
                     }
 
                     // Image left, text right.
-                    // Strip leading [lines:N] and [valign:X] hints (in any order) from trailingText.
+                    // Strip leading [lines:N], [valign:X], [size:N] hints (in any order) from trailingText.
                     int? imageSideLines = null;
                     VerticalAlignment textVAlign = VerticalAlignment.Top;
+                    double? imageSideSize = null;
                     bool modifiedTrailing = true;
                     while (modifiedTrailing) {
                         modifiedTrailing = false;
@@ -167,14 +168,25 @@ public class SimpleMarkdownViewer : Control {
                             trailingText = trailingText[vam.Length..].TrimStart();
                             modifiedTrailing = true;
                         }
+                        var ism = SizeRegex.Match(trailingText);
+                        if (ism.Success && double.TryParse(ism.Groups[1].Value,
+                                System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out var isz) && isz > 0) {
+                            imageSideSize = isz;
+                            trailingText = trailingText[ism.Length..].TrimStart();
+                            modifiedTrailing = true;
+                        }
                     }
                     img.VerticalAlignment = textVAlign;
                     img.Margin = new Thickness(0, 0, 12, 0);
+                    double effectiveTextFontSize = imageSideSize.HasValue ? FontSize * imageSideSize.Value : FontSize;
                     var textBlock = new TextBlock {
                         // WrapWithOverflow: wraps at word boundaries only — never splits a word
                         // mid-character even when the available width is very narrow.
                         TextWrapping      = TextWrapping.WrapWithOverflow,
                         VerticalAlignment = textVAlign,
+                        FontSize          = effectiveTextFontSize,
                     };
                     if (imageSideLines.HasValue) {
                         // Measure the plain-text single-line width, then constrain to 1/N of that
@@ -196,7 +208,7 @@ public class SimpleMarkdownViewer : Control {
                             System.Globalization.CultureInfo.CurrentUICulture,
                             FlowDirection.LeftToRight,
                             typeface,
-                            FontSize,
+                            effectiveTextFontSize,
                             Brushes.Black,
                             pixelsPerDip);
                         double singleLineWidth = ft.WidthIncludingTrailingWhitespace;
@@ -248,10 +260,11 @@ public class SimpleMarkdownViewer : Control {
 
         Paragraph paragraph = new Paragraph();
 
-        // ── [vspace:N], [indent], [center] prefix modifiers ───────────────────
+        // ── [vspace:N], [indent], [center], [right] prefix modifiers ─────────
         double? marginTop  = null;
         double? marginLeft = null;
         bool isCentered = false;
+        bool isRight = false;
         double? sizeMultiplier = null;
         int? linesCount = null;
         bool modified = true;
@@ -260,6 +273,11 @@ public class SimpleMarkdownViewer : Control {
             if (cleanParagraphText.StartsWith("[center]", StringComparison.OrdinalIgnoreCase)) {
                 isCentered = true;
                 cleanParagraphText = cleanParagraphText[8..].TrimStart();
+                modified = true;
+            }
+            if (cleanParagraphText.StartsWith("[right]", StringComparison.OrdinalIgnoreCase)) {
+                isRight = true;
+                cleanParagraphText = cleanParagraphText[7..].TrimStart();
                 modified = true;
             }
             if (cleanParagraphText.StartsWith("[indent]", StringComparison.OrdinalIgnoreCase)) {
@@ -308,6 +326,8 @@ public class SimpleMarkdownViewer : Control {
         }
         if (isCentered)
             paragraph.TextAlignment = TextAlignment.Center;
+        if (isRight)
+            paragraph.TextAlignment = TextAlignment.Right;
         if (sizeMultiplier.HasValue)
             paragraph.FontSize = FontSize * sizeMultiplier.Value;
 
@@ -347,11 +367,12 @@ public class SimpleMarkdownViewer : Control {
                     MaxWidth          = singleLineWidth / linesCount.Value,
                     FontSize          = effectiveFontSize,
                     FontFamily        = FontFamily,
-                    HorizontalAlignment = isCentered
-                        ? HorizontalAlignment.Center
-                        : HorizontalAlignment.Left,
+                    HorizontalAlignment = isCentered ? HorizontalAlignment.Center
+                                       : isRight    ? HorizontalAlignment.Right
+                                                    : HorizontalAlignment.Left,
                 };
                 if (isCentered) tb.TextAlignment = TextAlignment.Center;
+                if (isRight)    tb.TextAlignment = TextAlignment.Right;
                 foreach (var inline in ParseInlines(cleanParagraphText))
                     tb.Inlines.Add(inline);
 
