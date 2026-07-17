@@ -14907,6 +14907,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncQueuePanel();
         });
 
+        // AttachTextToActive: same as AttachText but targets the currently active tab
+        // (demo/dummy queue item OR the draft), rather than always targeting the draft.
+        _tourCommandRegistry.RegisterParameterized("AttachTextToActive", arg =>
+        {
+            var text = arg.Replace(@"\n", "\n");
+            var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+            if (list.Any(a => a.ContentBlock == text)) return;
+            list.Add(new FollowUpAttachment("", "Attachment", null, ContentBlock: text));
+            UpdateFollowUpStrip();
+            SyncQueuePanel();
+        });
+
         _tourCommandRegistry.RegisterParameterized("AttachImage", arg =>
         {
             var path = arg.Trim();
