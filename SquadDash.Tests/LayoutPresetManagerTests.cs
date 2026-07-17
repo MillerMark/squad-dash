@@ -471,6 +471,99 @@ internal sealed class LayoutPresetManagerTests
             "Retrieving an empty slot should return null — guard for graceful no-op restore");
     }
 
+    // ── Documentation panel visibility ───────────────────────────────────────
+
+    [Test]
+    public void SavePreset_WithDocsVisible_PreservesDocumentationVisible_True()
+    {
+        var mgr = CreateInitialized();
+        mgr.SavePreset(0, DockLayout.CreateDefault(), documentationVisible: true);
+
+        var preset = mgr.GetPreset(0)!;
+        Assert.That(preset.DocumentationVisible, Is.True,
+            "DocumentationVisible should be true when saved with docs open");
+    }
+
+    [Test]
+    public void SavePreset_WithDocsHidden_PreservesDocumentationVisible_False()
+    {
+        var mgr = CreateInitialized();
+        mgr.SavePreset(0, DockLayout.CreateDefault(), documentationVisible: false);
+
+        var preset = mgr.GetPreset(0)!;
+        Assert.That(preset.DocumentationVisible, Is.False,
+            "DocumentationVisible should be false when saved with docs closed");
+    }
+
+    [Test]
+    public void SavePreset_WithoutDocsFlag_DocumentationVisible_IsNull()
+    {
+        // Legacy-style save: no docs visibility passed → null for backward compat
+        var mgr = CreateInitialized();
+        mgr.SavePreset(0, DockLayout.CreateDefault());
+
+        var preset = mgr.GetPreset(0)!;
+        Assert.That(preset.DocumentationVisible, Is.Null,
+            "Omitting documentationVisible should yield null (legacy preset, don't change docs state on restore)");
+    }
+
+    [Test]
+    public void RoundTrip_DocsVisible_True_SurvivesReload()
+    {
+        var mgr1 = CreateInitialized();
+        mgr1.SavePreset(0, DockLayout.CreateDefault(), documentationVisible: true);
+
+        var mgr2 = new LayoutPresetManager();
+        mgr2.Initialize(_workspacePath);
+
+        Assert.That(mgr2.GetPreset(0)!.DocumentationVisible, Is.True,
+            "DocumentationVisible=true must survive a save→reload cycle");
+    }
+
+    [Test]
+    public void RoundTrip_DocsVisible_False_SurvivesReload()
+    {
+        var mgr1 = CreateInitialized();
+        mgr1.SavePreset(0, DockLayout.CreateDefault(), documentationVisible: false);
+
+        var mgr2 = new LayoutPresetManager();
+        mgr2.Initialize(_workspacePath);
+
+        Assert.That(mgr2.GetPreset(0)!.DocumentationVisible, Is.False,
+            "DocumentationVisible=false must survive a save→reload cycle");
+    }
+
+    [Test]
+    public void RoundTrip_LegacyPreset_DocumentationVisible_IsNull_AfterReload()
+    {
+        // Simulate a preset file written before DocumentationVisible was introduced.
+        // The JSON will lack the field entirely; deserialization should produce null.
+        var squadDir = Path.Combine(_workspacePath, ".squad");
+        Directory.CreateDirectory(squadDir);
+        File.WriteAllText(
+            Path.Combine(squadDir, "panel-layout-presets.json"),
+            """
+            {
+              "Presets": [
+                {
+                  "Name": "Preset 1",
+                  "Slots": [],
+                  "LeftZoneWidth": 280.0
+                },
+                null,
+                null
+              ]
+            }
+            """);
+
+        var mgr = new LayoutPresetManager();
+        mgr.Initialize(_workspacePath);
+
+        var preset = mgr.GetPreset(0)!;
+        Assert.That(preset.DocumentationVisible, Is.Null,
+            "Legacy preset without DocumentationVisible field should deserialize as null (backward compat)");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private LayoutPresetManager CreateInitialized()

@@ -65,6 +65,12 @@ public sealed class DockLayout
     public List<string>? VisiblePanelIds { get; set; }
 
     /// <summary>
+    /// Whether the documentation panel was visible when this layout was saved.
+    /// Null means no docs-visibility state was captured (legacy presets — docs state is left unchanged on restore).
+    /// </summary>
+    public bool? DocumentationVisible { get; set; }
+
+    /// <summary>
     /// Returns the canonical default layout: every dockable panel in the Top zone,
     /// ordered to match their current left-to-right position in the status strip.
     /// </summary>

@@ -40,7 +40,12 @@ internal sealed class LayoutPresetManager
     /// IDs of panels that are currently open/visible. When provided, restoring this preset
     /// will also restore which panels are open. Pass null to omit visibility state (legacy behaviour).
     /// </param>
-    public void SavePreset(int slotIndex, DockLayout layout, IReadOnlySet<string>? visiblePanelIds = null)
+    /// <param name="documentationVisible">
+    /// Whether the documentation panel is currently visible. When provided, restoring this
+    /// preset will show or hide the docs panel accordingly. Pass null to omit (legacy behaviour).
+    /// </param>
+    public void SavePreset(int slotIndex, DockLayout layout, IReadOnlySet<string>? visiblePanelIds = null,
+        bool? documentationVisible = null)
     {
         if (slotIndex < 0 || slotIndex >= PresetSlotCount)
             throw new ArgumentOutOfRangeException(nameof(slotIndex), $"Slot must be 0-{PresetSlotCount - 1}");
@@ -67,6 +72,7 @@ internal sealed class LayoutPresetManager
             Left7ZoneWidth = layout.Left7ZoneWidth,
             Right7ZoneWidth = layout.Right7ZoneWidth,
             VisiblePanelIds = visiblePanelIds?.ToList(),
+            DocumentationVisible = documentationVisible,
         };
 
         // Ensure we have enough slots

@@ -39128,7 +39128,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var visibleIds = _dockingService.GetCurrentLayoutData().VisiblePanelIds;
-            _layoutPresetManager.SavePreset(slotIndex, _dockingService.CurrentLayout, visibleIds);
+            _layoutPresetManager.SavePreset(slotIndex, _dockingService.CurrentLayout, visibleIds,
+                documentationVisible: _documentationModeEnabled);
             ShowStatusNotification($"Layout preset {slotIndex + 1} saved (Shift+F{7 + slotIndex})", 2000);
         }
         catch (Exception ex)
@@ -39220,6 +39221,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     CloseWatchHealthPanel();
                 if (ViewWatchHealthMenuItem is not null) ViewWatchHealthMenuItem.IsChecked = _watchHealthPanelVisible;
             }
+
+            // Restore documentation panel visibility — only when preset carries the state
+            // (DocumentationVisible is null for legacy presets saved before this feature).
+            if (preset.DocumentationVisible is bool docsVisible)
+                SetDocumentationMode(docsVisible, persistChange: false);
 
             ShowStatusNotification($"Layout preset {slotIndex + 1} restored (F{7 + slotIndex})", 2000);
         }
