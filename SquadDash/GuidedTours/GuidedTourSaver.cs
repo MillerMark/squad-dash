@@ -34,12 +34,16 @@ internal static class GuidedTourSaver
         if (File.Exists(path) && string.Equals(File.ReadAllText(path), content, System.StringComparison.Ordinal))
         {
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"GuidedTourSaver.Save: unchanged; write and backup skipped, hash={hash}");
+                $"GuidedTourSaver.Save: unchanged; write skipped, hash={hash}");
             return;
         }
 
         var tempPath = path + ".tmp";
         File.WriteAllText(tempPath, content);
+        // Force the complete temporary file through the OS cache before the
+        // atomic replacement. This protects edits during rapid app restarts.
+        using (var stream = new FileStream(tempPath, FileMode.Open, FileAccess.Write, FileShare.Read))
+            stream.Flush(flushToDisk: true);
         File.Move(tempPath, path, overwrite: true);
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GuidedTourSaver.Save: completed, path=\"{path}\", hash={hash}");

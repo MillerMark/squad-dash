@@ -6259,6 +6259,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            if (_guidedTourController?.FlushEditorChanges() == false)
+            {
+                MessageBox.Show(
+                    "The guided tour editor could not save its pending changes. The restart was cancelled.",
+                    "Guided Tour Save Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
             var exePath = Environment.ProcessPath
                 ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
             if (string.IsNullOrEmpty(exePath)) return;
@@ -29386,6 +29396,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (e.Cancel)
             {
                 _mainWindowClosingInProgress = false;
+                return;
+            }
+
+            // The tour editor is an owned window and may otherwise close after the
+            // main-window shutdown sequence has begun. Flush it while all controls
+            // and the active workspace are still intact.
+            if (_guidedTourController?.FlushEditorChanges() == false)
+            {
+                e.Cancel = true;
+                _mainWindowClosingInProgress = false;
+                MessageBox.Show(
+                    "The guided tour editor could not save its pending changes. Shutdown was cancelled.",
+                    "Guided Tour Save Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
                 return;
             }
 

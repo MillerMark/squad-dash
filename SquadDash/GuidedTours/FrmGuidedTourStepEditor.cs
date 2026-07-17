@@ -831,10 +831,15 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _autoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         _autoSaveTimer.Tick += (_, _) => { _autoSaveTimer.Stop(); PerformAutoSave(); };
         _markdownBox.TextChanged += (_, _) => { if (_isLoadingStep) return; _debounceTimer.Stop(); _debounceTimer.Start(); QueueAutoSave(); };
+        Closing += (_, _) =>
+        {
+            if (!_isLoadingStep)
+                FlushPendingChanges();
+        };
         Closed += (_, _) =>
         {
             _debounceTimer.Stop();
-            if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
+            _autoSaveTimer.Stop();
             CloseTargetOverlay();
             if (!WasSaved) RestoreOriginals();
             _onClosed?.Invoke(WasSaved);
@@ -854,8 +859,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // Push an undo snapshot the moment focus leaves either text box so the
         // snapshot reflects in-flight edits rather than waiting for the auto-save timer.
-        _markdownBox.LostFocus += (_, _) => { if (!_isLoadingStep) { SaveCurrentFieldsToStep(); PushUndoSnapshot(); } };
-        _titleBox.LostFocus    += (_, _) => { if (!_isLoadingStep) { SaveCurrentFieldsToStep(); PushUndoSnapshot(); } };
+        _markdownBox.LostFocus += (_, _) => { if (!_isLoadingStep) FlushPendingChanges(); };
+        _titleBox.LostFocus    += (_, _) => { if (!_isLoadingStep) FlushPendingChanges(); };
 
         SnapshotCurrentValues();
         _lastUndoSnapshot = SnapshotTourJson();
@@ -998,14 +1003,14 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         }
     }
 
-    private void PerformAutoSave()
+    private bool PerformAutoSave()
     {
         var workspaceFolderPath = ResolveWorkspaceFolderPath();
         if (workspaceFolderPath is null)
         {
             ShowStatus("⚠ Cannot save: no workspace is open");
             SquadDashTrace.Write(TraceCategory.Callouts, "PerformAutoSave: skipped because no workspace path is available");
-            return;
+            return false;
         }
         _isLoadingStep = true;
         try
@@ -1018,15 +1023,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
             GuidedTourSaver.Save(_allTours, workspaceFolderPath);
             WasSaved = true;
-            ShowStatus("✓ Saved");
+            ShowStatus($"✓ Saved {DateTime.Now:T}");
 
             var clearTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             clearTimer.Tick += (_, _) => { clearTimer.Stop(); _statusLabel.Visibility = Visibility.Collapsed; };
             clearTimer.Start();
+            return true;
         }
         catch (Exception ex)
         {
             ShowStatus($"⚠ Auto-save failed: {ex.Message}");
+            return false;
         }
         finally
         {
@@ -1038,6 +1045,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private string? ResolveWorkspaceFolderPath() =>
         GuidedTourWorkspacePathResolver.Resolve(_workspaceFolderPath, _workspaceFolderProvider);
+
+    /// <summary>
+    /// Synchronously commits the visible fields and persists the complete tour file.
+    /// Safe to call redundantly; the saver skips unchanged content.
+    /// </summary>
+    internal bool FlushPendingChanges()
+    {
+        _debounceTimer.Stop();
+        _autoSaveTimer.Stop();
+        return PerformAutoSave();
+    }
 
     private void QueueAutoSave()
     {
@@ -1116,6 +1134,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         if (!ReferenceEquals(_activeTour, activeTour))
         {
+            if (!FlushPendingChanges()) return;
             // Tour changed — switch fully (also updates _tourListBox selection)
             var tourIdx = _allTours.IndexOf(activeTour);
             if (tourIdx >= 0)
@@ -1133,6 +1152,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // _isLoadingStep is true, and setting SelectedIndex inside a guard would
         // leave the right-side panel showing the previously-selected step's data.
         if (stepIndex < 0 || stepIndex >= _stepListBox.Items.Count) return;
+        if (stepIndex != _stepIndex && !FlushPendingChanges()) return;
         LoadStep(stepIndex);    // sets _stepListBox.SelectedIndex and scrolls into view internally
     }
 
@@ -1426,7 +1446,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private void TryNavigate(int newIndex)
     {
         if (newIndex < 0 || newIndex >= _activeTour.Steps.Count) return;
-        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
+        if (!FlushPendingChanges()) return;
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
@@ -1516,7 +1536,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         ExitMultiSelectMode();
         int newIndex = _stepListBox.SelectedIndex;
         if (newIndex < 0 || newIndex == _stepIndex) return;
-        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
+        if (!FlushPendingChanges()) return;
         LoadStep(newIndex);
         _jumpToStepCallback?.Invoke(newIndex);
     }
@@ -1541,7 +1561,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         int newIndex = _tourListBox.SelectedIndex;
         if (newIndex < 0 || newIndex >= _allTours.Count) return;
         if (ReferenceEquals(_allTours[newIndex], _activeTour)) return;
-        if (_autoSaveTimer.IsEnabled) { _autoSaveTimer.Stop(); PerformAutoSave(); }
+        if (!FlushPendingChanges()) return;
         _switchTourCallback?.Invoke(newIndex);
     }
 

@@ -102,6 +102,9 @@ internal sealed class GuidedTourController
     /// <summary>True when the standalone guided tour editor is currently open.</summary>
     public bool IsEditorOpen => _activeEditor is { IsLoaded: true };
 
+    /// <summary>Synchronously persists fields currently visible in the editor.</summary>
+    public bool FlushEditorChanges() => _activeEditor?.FlushPendingChanges() ?? true;
+
     /// <summary>The workspace folder path resolved at the moment of the call, or null.</summary>
     public string? WorkspaceFolderPath => _workspaceFolderProvider?.Invoke();
 

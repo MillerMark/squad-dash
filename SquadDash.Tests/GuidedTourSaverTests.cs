@@ -18,6 +18,7 @@ namespace SquadDash.Tests
         {
             Assert.That(path, Is.EqualTo(GuidedTourSaver.GetPath(workspace.RootPath)));
             Assert.That(File.ReadAllText(path), Does.Contain("saved-version"));
+            Assert.That(File.Exists(path + ".tmp"), Is.False);
             Assert.That(Directory.Exists(Path.Combine(workspace.RootPath, ".squad")), Is.False);
         });
     }
