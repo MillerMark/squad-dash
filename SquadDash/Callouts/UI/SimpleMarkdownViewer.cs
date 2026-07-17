@@ -145,6 +145,13 @@ public class SimpleMarkdownViewer : Control {
                     }
 
                     // Image left, text right.
+                    // Strip a leading [lines:N] hint from trailingText and honour it on the TextBlock.
+                    int? imageSideLines = null;
+                    var ilm = LinesRegex.Match(trailingText);
+                    if (ilm.Success && int.TryParse(ilm.Groups[1].Value, out var iln) && iln > 1) {
+                        imageSideLines = iln;
+                        trailingText = trailingText[ilm.Length..].TrimStart();
+                    }
                     img.Margin = new Thickness(0, 0, 12, 0);
                     var textBlock = new TextBlock {
                         // WrapWithOverflow: wraps at word boundaries only — never splits a word
@@ -152,6 +159,33 @@ public class SimpleMarkdownViewer : Control {
                         TextWrapping      = TextWrapping.WrapWithOverflow,
                         VerticalAlignment = VerticalAlignment.Top,
                     };
+                    if (imageSideLines.HasValue) {
+                        // Measure the plain-text single-line width, then constrain to 1/N of that
+                        // so the text wraps into roughly imageSideLines lines — same logic as the
+                        // standalone [lines:N] paragraph path.
+                        string plainForMeasure = InlineMarkupRegex.Replace(trailingText, mo => {
+                            var s = mo.Value;
+                            if (s.StartsWith("**") && s.EndsWith("**") && s.Length > 4) return s[2..^2];
+                            if (s.StartsWith('*')  && s.EndsWith('*')  && s.Length > 2)  return s[1..^1];
+                            return s;
+                        });
+                        var typeface = new Typeface(FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+                        double pixelsPerDip = 1.0;
+                        try { pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip; }
+                        catch { /* not yet in visual tree — 1.0 is a safe logical-unit fallback */ }
+                        if (pixelsPerDip <= 0) pixelsPerDip = 1.0;
+                        var ft = new FormattedText(
+                            plainForMeasure,
+                            System.Globalization.CultureInfo.CurrentUICulture,
+                            FlowDirection.LeftToRight,
+                            typeface,
+                            FontSize,
+                            Brushes.Black,
+                            pixelsPerDip);
+                        double singleLineWidth = ft.WidthIncludingTrailingWhitespace;
+                        if (singleLineWidth > 0)
+                            textBlock.MaxWidth = singleLineWidth / imageSideLines.Value;
+                    }
                     foreach (var inline in ParseInlines(trailingText))
                         textBlock.Inlines.Add(inline);
                     var dock = new DockPanel { LastChildFill = true };
