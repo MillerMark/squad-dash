@@ -14719,12 +14719,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
         {
-            // Format: "text to type|Mode"  (Mode is "Sim" or "Draft"; defaults to Draft)
+            // Format: "text to type|Mode|OnCompleteCommand"
+            // Mode: "Sim" or "Draft" (defaults to Draft)
+            // OnCompleteCommand: optional tour command to execute after all characters are typed (e.g. "ShowAtIntelliSense")
             var parts = arg.Split('|');
             var text = parts[0];
             _tourTypeItemIsSimulated = parts.Length >= 2 &&
                 string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
-            StartTypeIntoPromptAnimation(text);
+            var onComplete = parts.Length >= 3 ? parts[2].Trim() : null;
+            StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
         });
 
         _tourCommandRegistry.Register("ShowSlashIntelliSense", () =>
@@ -15969,7 +15972,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _typeIntoPromptTimer = null;
     }
 
-    private void StartTypeIntoPromptAnimation(string text)
+    private void StartTypeIntoPromptAnimation(string text, string? onCompleteCommand = null)
     {
         StopTypeIntoPromptAnimation(); // cancel any in-progress animation (also removes any prior tour-type item)
 
@@ -15999,6 +16002,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _typeIntoPromptTimer?.Stop();
                 _typeIntoPromptTimer = null;
+                if (!string.IsNullOrWhiteSpace(onCompleteCommand))
+                    _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
             }
         };
         _typeIntoPromptTimer.Start();
