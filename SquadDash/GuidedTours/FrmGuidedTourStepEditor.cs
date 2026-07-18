@@ -560,6 +560,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                     _listDragSourceIndex = -1;
                     return;
                 }
+                // Guard: list may have been rebuilt (RefreshStepList) since the drag index was captured.
+                if (_listDragSourceIndex >= _stepListBox.Items.Count)
+                {
+                    _listDragSourceIndex = -1;
+                    return;
+                }
                 _listDragInProgress = true;
                 var item = _stepListBox.Items[_listDragSourceIndex];
                 DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);

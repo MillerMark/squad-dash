@@ -5,8 +5,8 @@
     "description": "A quick walkthrough of the main interface panels.",
     "steps": [
       {
-        "title": "Welcome to the Guided Tour",
-        "markdownText": "Let\u0027s learn the essence of the SquadDash **user interface**.\r\nClick **Next** to start the tour.",
+        "title": "Welcome",
+        "markdownText": "#Introduction to the UI\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.5] The basics of the SquadDash user interface.\r\n[size:1.25][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -213,7 +213,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][lines:2][vspace:0]You just learned the basics of the SquadDash UI. Try sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -233,6 +233,20 @@
     "description": "Powerful prompt creation and prompt queue techniques.",
     "steps": [
       {
+        "title": "Welcome",
+        "markdownText": "#Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.5]How to create and submit prompts (and navigate through previously sent prompts in the transcript).\r\n[size:1.25][right]Click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "The Prompt Box",
         "markdownText": "Your AI prompts go here.",
         "targetControlId": "PromptTextBox",
@@ -247,6 +261,67 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.0594541910331384,
         "targetOffsetY": 0.43030945419102895
+      },
+      {
+        "title": "Attachments 1",
+        "markdownText": "You can attach files, text, and images to your prompts.\r\n* **Ctrl**\u002B**Shift**\u002B**V** to attach clipboard **text**\r\n* Copy and paste **images**\r\n* Drag and drop **files**",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.06806002143622722,
+        "targetOffsetY": 0.5500522508038566
+      },
+      {
+        "title": "Attachments 2",
+        "markdownText": "You can also **right-click** and select \u0022**Add to Chat**\u0022 on most items:\r\n* transcript selections\r\n* tasks\r\n* inbox messages\r\n* notes\r\nAnd more.\r\n",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.06806002143622722,
+        "targetOffsetY": 0.5500522508038566
+      },
+      {
+        "title": "Slash Commands",
+        "markdownText": "You can invoke commands with the slash key (\u0022**/**\u0022) in an empty prompt.",
+        "targetControlId": "IntelliSensePopup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "TypeIntoPrompt|/|Sim",
+          "ShowSlashIntelliSense"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2277599142550911,
+        "targetOffsetY": 0.310125602893889
+      },
+      {
+        "title": "Intellisense",
+        "markdownText": "You can invoke agent name intellisense by pressing the **@** symbol.",
+        "targetControlId": "IntelliSensePopup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "TypeIntoPrompt|I want this feature designed by |Sim|ShowAtIntelliSense"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.03376205787781351,
+        "targetOffsetY": 0.6378989147909951
       },
       {
         "title": "The Send button.",
@@ -265,8 +340,8 @@
         "targetOffsetY": 0.5
       },
       {
-        "title": "The Queue Tab Strip (part1)",
-        "markdownText": "This is the **Prompt Queue**.\r\nIf Squad is busy when you send a prompt, it will enter this queue.",
+        "title": "The Queue Tab Strip",
+        "markdownText": "This is the **Queue**.\r\nWhen Squad is busy, new prompts enter this queue.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -283,7 +358,7 @@
       },
       {
         "title": "The Rightmost Tab",
-        "markdownText": "The rightmost tab is the **front** of the queue. It sends when Squad finishes its turn.\r\nYou can right-click or **drag** tabs to reorder.",
+        "markdownText": "The **rightmost** prompt goes **first** when Squad finishes its turn.\r\nDrag tabs to **reorder**.",
         "targetControlId": "QueueTabStrip[12]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -300,7 +375,7 @@
       },
       {
         "title": "New Queue Prompt",
-        "markdownText": "**Ctrl**\u002B**Q** creates a **new prompt** at the front of the queue.\r\nUse this for **urgent prompts** that need priority attention.\r\n",
+        "markdownText": "**Ctrl**\u002B**Q** creates a **new prompt** at the front of the queue.\r\nIt\u0027s ideal for urgent prompts that need priority attention.\r\n",
         "targetControlId": "QueueTabStrip[9]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -317,7 +392,7 @@
       },
       {
         "title": "Pausing the Queue",
-        "markdownText": "**Pause queue processing** if you need to review the work before allowing the next prompt to run.",
+        "markdownText": "**Pause queue processing** when you need to review work before the next prompt sends.",
         "targetControlId": "QueuePlayPauseButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -407,7 +482,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[size:1][lines:2][vspace:0]You just learned how to use the queue to create, send, and browse prompts.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -426,6 +501,20 @@
     "name": "Selection Embedding",
     "description": "Quickly modify text selections with useful shortcuts.",
     "steps": [
+      {
+        "title": "Welcome",
+        "markdownText": "#Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.5]Working with text selections in the prompt box.\r\n[size:1.25][right]Click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
       {
         "title": "Ctrl\u002BB for Bold",
         "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
@@ -686,7 +775,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[vspace:0]You just learned how to configure and use push-to-talk voice input.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to create and edit prompts with voice.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -697,6 +786,46 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "aac81aa5",
+    "name": "Theme and Appearance",
+    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
+    "steps": [
+      {
+        "title": "View menu.",
+        "markdownText": "Appearance controls are inside the **View** menu.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Theme",
+        "markdownText": "Set the theme here.",
+        "targetControlId": "ViewThemeMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
+          "HighlightMenuItem: ViewThemeLightMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4639423076923076,
+        "targetOffsetY": 0.5130448717948715
       }
     ]
   },
@@ -767,46 +896,6 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "aac81aa5",
-    "name": "Theme and Appearance",
-    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
-    "steps": [
-      {
-        "title": "View menu.",
-        "markdownText": "Appearance controls are inside the **View** menu.",
-        "targetControlId": "ViewMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Theme",
-        "markdownText": "Set the theme here.",
-        "targetControlId": "ViewThemeMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
-          "HighlightMenuItem: ViewThemeLightMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.4639423076923076,
-        "targetOffsetY": 0.5130448717948715
       }
     ]
   }
