@@ -421,6 +421,21 @@ internal sealed class GuidedTourController
         // The ReferenceEquals guard ensures we don't show a stale callout if the user
         // navigates before the deferred callback fires.
         await _ownerWindow.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        // Wait for any TypeIntoPrompt animation to complete before showing the callout.
+        // The animation is fire-and-forget (DispatcherTimer), so ExecuteAsync for the
+        // TypeIntoPrompt command returns immediately while typing is still in progress.
+        // Without this wait, ShowStepCallout runs before the on-complete command fires
+        // (e.g. ShowAtIntelliSense) and the target element (IntelliSensePopup) doesn't
+        // exist in _tourNamedElements yet.
+        if (_isTypeAnimationRunning is not null && _isTypeAnimationRunning())
+        {
+            while (IsActive && ReferenceEquals(CurrentStep, step) && _isTypeAnimationRunning())
+                await Task.Delay(50);
+            // Give the on-complete command (e.g. ShowAtIntelliSense) and resulting UI
+            // changes a moment to settle before we try to locate the target element.
+            if (IsActive && ReferenceEquals(CurrentStep, step))
+                await Task.Delay(200);
+        }
         if (IsActive && ReferenceEquals(CurrentStep, step))
         {
             SquadDashTrace.Write(TraceCategory.Callouts,
