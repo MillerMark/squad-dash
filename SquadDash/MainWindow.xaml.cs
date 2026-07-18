@@ -11871,6 +11871,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_intelliSenseState is null || _intelliSenseState.FilteredSuggestions.Count == 0)
         {
             IntelliSensePopup.IsOpen = false;
+            _tourNamedElements.Remove("IntelliSensePopup");
             return;
         }
 
@@ -11894,6 +11895,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
         };
         IntelliSensePopup.IsOpen = true;
+        if (IntelliSensePopup.Child is FrameworkElement popupChild)
+            _tourNamedElements["IntelliSensePopup"] = popupChild;
     }
 
     private void ApplyIntelliSenseAccept(bool andSubmit)
@@ -14683,6 +14686,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourTypeItemIsSimulated = parts.Length >= 2 &&
                 string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
             StartTypeIntoPromptAnimation(text);
+        });
+
+        _tourCommandRegistry.Register("ShowSlashIntelliSense", () =>
+        {
+            var current = PromptTextBox.Text;
+            if (string.IsNullOrEmpty(current) || current[0] == '/')
+            {
+                if (string.IsNullOrEmpty(current))
+                    SetPromptTextBoxLogicalBuffer("/", 1, reason: "tour-slash-intellisense");
+                TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+            }
+        });
+
+        _tourCommandRegistry.Register("ShowAtIntelliSense", () =>
+        {
+            var current = PromptTextBox.Text;
+            if (!current.EndsWith('@'))
+            {
+                var newText = current + "@";
+                SetPromptTextBoxLogicalBuffer(newText, newText.Length, reason: "tour-at-intellisense");
+            }
+            TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
         });
 
         _tourCommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
