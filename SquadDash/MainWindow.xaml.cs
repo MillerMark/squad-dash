@@ -161,6 +161,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly List<MenuItem> _tourKeptOpenMenuItems = new();
     private string? _tourKeptOpenMenuPath;
     private bool _tourMenuRecoveryRunning;
+    private string? _tourKeptOpenIntelliSenseTrigger;  // "slash" or "at", null if not tracking
+    private bool _tourIntelliSenseRecoveryRunning;
     private int _tourMenuTrackingGeneration;
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
@@ -14175,6 +14177,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 FreezeTypeIntoPromptAnimation();
                 StopKeepingTourMenusOpen();
+                StopKeepingTourIntelliSenseOpen();
             },
             onCalloutShown:           ReassertTourHighlightOverlays,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
@@ -14252,6 +14255,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_tourKeptOpenMenuItems.Any(menuItem => !menuItem.IsSubmenuOpen))
             RecoverKeptOpenTourMenuPath();
+        if (_tourKeptOpenIntelliSenseTrigger is not null && !IntelliSensePopup.IsOpen)
+            RecoverKeptOpenTourIntelliSense();
         RefreshTourHighlightRects();
         foreach (var (_, overlay) in _tourHighlightOverlays)
             BringHighlightOverlayToFront(overlay);
@@ -14589,6 +14594,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         ClearTourMenuTracking(closeMenus: true);
     }
 
+    private void StopKeepingTourIntelliSenseOpen()
+    {
+        _tourKeptOpenIntelliSenseTrigger = null;
+        if (_intelliSenseState is not null)
+        {
+            _intelliSenseState = null;
+            _intelliSenseOwnerBox = null;
+            UpdateIntelliSensePopup();
+        }
+    }
+
     private void ClearTourMenuTracking(bool closeMenus)
     {
         foreach (var menuItem in _tourKeptOpenMenuItems)
@@ -14614,6 +14630,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void OnKeptOpenTourMenuClosed(object sender, RoutedEventArgs e) =>
         RecoverKeptOpenTourMenuPath();
+
+    private void RecoverKeptOpenTourIntelliSense()
+    {
+        if (_tourIntelliSenseRecoveryRunning || _tourKeptOpenIntelliSenseTrigger is null) return;
+        if (IntelliSensePopup.IsOpen) return;
+        string trigger = _tourKeptOpenIntelliSenseTrigger;
+        _tourIntelliSenseRecoveryRunning = true;
+        _ = Dispatcher.InvokeAsync(() =>
+        {
+            try
+            {
+                if (_tourKeptOpenIntelliSenseTrigger != trigger) return;
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"[TourIntelliSense] IntelliSense closed during tour step; reopening (trigger={trigger}).");
+                var commandName = trigger == "slash" ? "ShowSlashIntelliSense" : "ShowAtIntelliSense";
+                _ = _tourCommandRegistry.ExecuteAsync(commandName);
+            }
+            finally
+            {
+                _tourIntelliSenseRecoveryRunning = false;
+            }
+        }, DispatcherPriority.Send);
+    }
 
     private void RecoverKeptOpenTourMenuPath()
     {
@@ -14696,6 +14735,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (string.IsNullOrEmpty(current))
                     SetPromptTextBoxLogicalBuffer("/", 1, reason: "tour-slash-intellisense");
                 TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+                _tourKeptOpenIntelliSenseTrigger = "slash";
             }
         });
 
@@ -14708,6 +14748,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SetPromptTextBoxLogicalBuffer(newText, newText.Length, reason: "tour-at-intellisense");
             }
             TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+            _tourKeptOpenIntelliSenseTrigger = "at";
         });
 
         _tourCommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
