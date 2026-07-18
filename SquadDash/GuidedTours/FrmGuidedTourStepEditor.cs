@@ -988,6 +988,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         try
         {
+            if (!EnsureActiveTourIsAttached(nameof(PerformSave)))
+                return false;
             SaveCurrentFieldsToStep();
             var workspaceFolderPath = ResolveWorkspaceFolderPath();
 
@@ -1021,6 +1023,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private bool PerformAutoSave()
     {
+        if (!EnsureActiveTourIsAttached(nameof(PerformAutoSave)))
+            return false;
+
         var workspaceFolderPath = ResolveWorkspaceFolderPath();
         if (workspaceFolderPath is null)
         {
@@ -1035,7 +1040,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             PushUndoSnapshot();
 
             SquadDashTrace.Write(TraceCategory.Callouts,
-                $"PerformAutoSave: tour=\"{_activeTour.Name}\", stepIndex={_stepIndex}, tourStepCount={_activeTour.Steps.Count}, stepHash={StepHash()}, workspacePath=\"{workspaceFolderPath}\"");
+                $"PerformAutoSave: tour=\"{_activeTour.Name}\", tourId=\"{_activeTour.Id}\", activeTourInAllTours={_allTours.Contains(_activeTour)}, stepIndex={_stepIndex}, selectedStepIndex={_stepListBox.SelectedIndex}, stepTitle=\"{_step.Title}\", tourStepCount={_activeTour.Steps.Count}, stepHash={StepHash()}, markdownHash={GuidedTourSaver.ComputeHash(_step.MarkdownText)}, markdownLen={_step.MarkdownText.Length}, workspacePath=\"{workspaceFolderPath}\"");
 
             GuidedTourSaver.Save(_allTours, workspaceFolderPath);
             WasSaved = true;
@@ -1058,6 +1063,17 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     }
 
     private string StepHash() => GuidedTourSaver.ComputeHash(JsonSerializer.Serialize(_step));
+
+    private bool EnsureActiveTourIsAttached(string operation)
+    {
+        if (_allTours.Contains(_activeTour))
+            return true;
+
+        var message = $"{operation}: REFUSED detached active tour name=\"{_activeTour.Name}\" id=\"{_activeTour.Id}\" stepIndex={_stepIndex} allTours={_allTours.Count}";
+        SquadDashTrace.Write(TraceCategory.Callouts, message);
+        ShowStatus("⚠ Save blocked: editor tour is detached. Close and reopen the editor.");
+        return false;
+    }
 
     private string? ResolveWorkspaceFolderPath() =>
         GuidedTourWorkspacePathResolver.Resolve(_workspaceFolderPath, _workspaceFolderProvider);

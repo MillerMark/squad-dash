@@ -35,12 +35,23 @@ namespace SquadDash.Tests
         Thread.Sleep(20);
         GuidedTourSaver.Save(Tours("two"), workspace.RootPath);
         var fileTimeAfter = File.GetLastWriteTimeUtc(path);
+        var recoveryDirectory = GuidedTourSaver.GetRecoveryDirectory(workspace.RootPath);
 
-        Assert.Multiple(() =>
+        try
         {
-            Assert.That(File.ReadAllText(path), Does.Contain("two"));
-            Assert.That(fileTimeAfter, Is.EqualTo(fileTimeBefore));
-        });
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.ReadAllText(path), Does.Contain("two"));
+                Assert.That(fileTimeAfter, Is.EqualTo(fileTimeBefore));
+                Assert.That(Directory.GetFiles(recoveryDirectory, "*.json"), Has.Length.EqualTo(1));
+                Assert.That(File.ReadAllText(Directory.GetFiles(recoveryDirectory, "*.json").Single()), Does.Contain("one"));
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(recoveryDirectory))
+                Directory.Delete(recoveryDirectory, recursive: true);
+        }
     }
 
     [Test]
@@ -54,6 +65,17 @@ namespace SquadDash.Tests
         Assert.That(tours.Single().Steps.Single().Title, Is.EqualTo("single-source"));
     }
 
+    [Test]
+    public void Rebind_FreshListContainsSameTourId_ReturnsFreshInstance()
+    {
+        var detached = new GuidedTour { Id = "prompts", Name = "Old display name" };
+        var fresh = new GuidedTour { Id = "prompts", Name = "Prompts and the Queue" };
+
+        var rebound = GuidedTourObjectGraph.Rebind(detached, [fresh]);
+
+        Assert.That(rebound, Is.SameAs(fresh));
+    }
+
     private static List<GuidedTour> Tours(string title) =>
         [new GuidedTour { Name = "Tour", Steps = [new GuidedTourStep { Title = title }] }];
  }
@@ -64,6 +86,7 @@ namespace SquadDash.GuidedTours
 {
     internal sealed class GuidedTour
     {
+        [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
         [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
         [JsonPropertyName("steps")] public List<GuidedTourStep> Steps { get; set; } = new();
     }

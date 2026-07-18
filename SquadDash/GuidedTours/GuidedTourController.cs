@@ -161,6 +161,8 @@ internal sealed class GuidedTourController
     {
         if (_activeEditor is { IsLoaded: true }) { _activeEditor.Activate(); return; }
 
+        var previousActiveTour = _activeTour;
+        var previousStepIndex = _currentStepIndex;
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GuidedTourController.OpenEditorStandalone: replacing _allTours with freshly-loaded list, oldSteps=[{TourStepCounts(_allTours)}], newSteps=[{TourStepCounts(allTours)}], workspacePath=\"{WorkspaceFolderPath ?? "(none)"}\"");
         _allTours = allTours;
@@ -175,8 +177,17 @@ internal sealed class GuidedTourController
             return;
         }
 
-        // Restore the last-selected tour (by name) unless a tour is already active.
-        if (!IsActive)
+        // A running tour belongs to the old object graph. Rebind it to the matching
+        // instance in the freshly loaded list so editor mutations are included when
+        // _allTours is serialized. Retaining the old reference silently loses edits.
+        var reboundTour = GuidedTourObjectGraph.Rebind(previousActiveTour, _allTours);
+
+        if (reboundTour is not null)
+        {
+            _activeTour = reboundTour;
+            _currentStepIndex = Math.Clamp(previousStepIndex, 0, Math.Max(0, reboundTour.Steps.Count - 1));
+        }
+        else
         {
             var lastName = _getLastEditorTourName?.Invoke();
             var restored = string.IsNullOrWhiteSpace(lastName)
@@ -189,6 +200,9 @@ internal sealed class GuidedTourController
             var lastStep = _getLastEditorStepIndex?.Invoke() ?? 0;
             _currentStepIndex = (lastStep >= 0 && lastStep < _activeTour.Steps.Count) ? lastStep : 0;
         }
+
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"GuidedTourController.OpenEditorStandalone: activeTour=\"{_activeTour?.Name ?? "(none)"}\", activeTourId=\"{_activeTour?.Id ?? "(none)"}\", rebound={reboundTour is not null}, activeTourInAllTours={_activeTour is not null && _allTours.Contains(_activeTour)}, stepIndex={_currentStepIndex}");
 
         if (_activeTour!.Steps.Count == 0)
         {

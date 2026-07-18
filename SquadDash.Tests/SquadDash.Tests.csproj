@@ -329,6 +329,7 @@
     <!-- Guided Tour state store -->
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourStateStore.cs" Link="Source\GuidedTours\GuidedTourStateStore.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourLoader.cs" Link="Source\GuidedTours\GuidedTourLoader.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourObjectGraph.cs" Link="Source\GuidedTours\GuidedTourObjectGraph.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourSaver.cs" Link="Source\GuidedTours\GuidedTourSaver.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourWorkspacePathResolver.cs" Link="Source\GuidedTours\GuidedTourWorkspacePathResolver.cs" />
 
