@@ -26558,13 +26558,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// <summary>
     /// Recursively clears locally-set Background and Foreground values from every
     /// <see cref="Inline"/> in <paramref name="inlines"/>, restoring inherited styling.
+    /// Only clears properties whose local value is a concrete <see cref="Brush"/> —
+    /// this avoids a <see cref="NullReferenceException"/> from
+    /// <c>ResourceReferenceExpression.OnDetach</c> when the inline already had a
+    /// theme resource reference on that property before we applied the highlight.
     /// </summary>
     private static void ClearInlineHighlightProperties(InlineCollection inlines)
     {
         foreach (Inline inline in inlines)
         {
-            inline.ClearValue(TextElement.BackgroundProperty);
-            inline.ClearValue(TextElement.ForegroundProperty);
+            if (inline.ReadLocalValue(TextElement.BackgroundProperty) is Brush)
+                inline.ClearValue(TextElement.BackgroundProperty);
+            if (inline.ReadLocalValue(TextElement.ForegroundProperty) is Brush)
+                inline.ClearValue(TextElement.ForegroundProperty);
             if (inline is Span span)
                 ClearInlineHighlightProperties(span.Inlines);
         }
