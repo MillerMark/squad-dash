@@ -122,6 +122,8 @@ With a tour active, use **Developer** → **Preview Current Tour Step** to re-re
 
 Tours are saved automatically to `SquadDash/Assets/guided-tours.json` after edits settle. Press `Ctrl+S` to save immediately.
 
+Before replacing changed content, SquadDash archives the previous 50 versions under the workspace state directory in `%LocalAppData%/SquadDash/workspaces/.../guided-tour-history`. These files are recovery snapshots; the tracked asset remains the only source of truth.
+
 ---
 
 ## Tour Commands
