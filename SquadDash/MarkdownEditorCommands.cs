@@ -591,25 +591,21 @@ internal static class MarkdownEditorCommands
             return true;
         }
 
-        // Step 1: wrap in backticks (no transform) — creates undo record 1
+        // Wrap in backticks, preserving the text exactly as-is.
         var trimmed        = raw.Trim(' ');
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var step1 = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
         box.SelectedText    = step1;
-        // Select inner content (between the backticks)
-        box.SelectionStart  = selStart + leadingSpaces.Length + 1;
-        box.SelectionLength = trimmed.Length;
-
-        // Step 2: apply camelCase identifier transform — creates undo record 2 only when text changes
-        var transformed = ToCamelCaseIdentifier(box.SelectedText);
-        if (transformed != box.SelectedText)
-            box.SelectedText = transformed;
+        // Restore selection to cover the full wrapped span (including backticks).
+        box.SelectionStart  = selStart;
+        box.SelectionLength = step1.Length;
 
         return true;
     }
 
-    internal static bool ApplyInlineQuote(TextBox box)    {
+    internal static bool ApplyInlineQuote(TextBox box)
+    {
         var selLen = box.SelectionLength;
         if (selLen == 0) return false;
 
@@ -648,20 +644,15 @@ internal static class MarkdownEditorCommands
             return true;
         }
 
-        // Step 1: wrap in backticks (no transform) — creates undo record 1
+        // Wrap in backticks, preserving the text exactly as-is.
         var trimmed        = raw.Trim(' ');
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var step1 = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
         box.SelectRange(selStart, selLen);
         box.ReplaceSelection(step1);
-        // Select inner content (between the backticks)
-        box.SelectRange(selStart + leadingSpaces.Length + 1, trimmed.Length);
-
-        // Step 2: apply camelCase identifier transform — creates undo record 2 only when text changes
-        var transformed = ToCamelCaseIdentifier(box.GetSelectedText());
-        if (transformed != box.GetSelectedText())
-            box.ReplaceSelection(transformed);
+        // Restore selection to cover the full wrapped span (including backticks).
+        box.SelectRange(selStart, step1.Length);
 
         return true;
     }
