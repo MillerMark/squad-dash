@@ -325,6 +325,15 @@ internal sealed class GuidedTourController
     /// </summary>
     private void ShowTourSelector()
     {
+        // The "More Tours..." button is only visible on the last step, so arriving here
+        // from that button means the user finished the tour. Mark it completed now so
+        // the completion badge shows immediately when the selector opens.
+        var completingTourId = (IsActive && _activeTour is not null &&
+                                _currentStepIndex >= _activeTour.Steps.Count - 1)
+                               ? _activeTour.Id : null;
+        if (completingTourId is not null)
+            GuidedTourStateStore.Shared.MarkCompleted(completingTourId);
+
         CloseActiveCallout();
         var allToursSnapshot = _allTours;
         FrmGuidedTourSelector.ShowModeless(
