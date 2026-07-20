@@ -2509,6 +2509,15 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _dragInProgress = false;
         waitingForMouseUpTimer?.Stop();
         ActivateParentWindow();
+
+        // Re-assert Topmost after drag ends. ActivateParentWindow() fires Window_Activated /
+        // Window_Deactivated, and CheckTopMostWindow() inside those handlers may temporarily
+        // see the menu popup as the foreground window (not the parent), setting Topmost=false
+        // and dropping the callout behind the menu. Post at ContextIdle so this runs after
+        // all Activated/Deactivated events have settled.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ContextIdle,
+            (Action)(() => { if (IsVisible) Topmost = true; }));
+
         StartAnimatingTowardTarget();
     }
 
