@@ -15810,6 +15810,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_transcriptFullScreenEnabled)
                 SetTranscriptFullScreen(false);
         });
+
+        _tourCommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>
+        {
+            // Only peeks the prompt box if we are in full-screen AND the prompt is not
+            // already visible (i.e. the user already typed something on their own).
+            // If the prompt is already showing, the command is a no-op so the tour
+            // doesn't overwrite what the user typed.
+            //
+            // Format mirrors TypeIntoPrompt: "text to type|Mode|OnCompleteCommand"
+            // Mode: "Sim" or "Draft" (defaults to Draft)
+            if (!_transcriptFullScreenEnabled || _fullScreenPromptVisible)
+                return;
+
+            ShowFullScreenPrompt();
+
+            // Type text with the same animation path as TypeIntoPrompt.
+            var parts = arg.Split('|');
+            var text = parts[0];
+            _tourTypeItemIsSimulated = parts.Length >= 2 &&
+                string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
+            var onComplete = parts.Length >= 3 ? parts[2].Trim() : null;
+            StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
+        });
     }
 
     /// <summary>
