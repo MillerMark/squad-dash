@@ -255,6 +255,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event EventHandler? _tourCycleCaseForward;
     private event EventHandler? _tourCycleCaseReverse;
     private event EventHandler? _tourFullScreenTranscript;
+    private event EventHandler? _tourExitFullScreenTranscript;
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -14626,6 +14627,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new FullScreenTranscriptAdvanceTrigger(
                 addHandler:    h => _tourFullScreenTranscript += h,
                 removeHandler: h => _tourFullScreenTranscript -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "ExitFullScreenTranscript",
+            new ExitFullScreenTranscriptAdvanceTrigger(
+                addHandler:    h => _tourExitFullScreenTranscript += h,
+                removeHandler: h => _tourExitFullScreenTranscript -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -15789,6 +15796,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!_transcriptFullScreenEnabled)
                 SetTranscriptFullScreen(true);
         });
+
+        _tourCommandRegistry.Register("ExitFullScreenTranscript", () =>
+        {
+            // Idempotent: only exits full-screen if currently in it.
+            if (_transcriptFullScreenEnabled)
+                SetTranscriptFullScreen(false);
+        });
     }
 
     /// <summary>
@@ -16888,6 +16902,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (enabled)
             _tourFullScreenTranscript?.Invoke(this, EventArgs.Empty);
+        else
+            _tourExitFullScreenTranscript?.Invoke(this, EventArgs.Empty);
 
         if (enabled)
         {
