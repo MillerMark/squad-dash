@@ -252,6 +252,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private AgentStatusCard? _tourSimulatedAgentCard;       // non-null only if we created a synthetic card
     private readonly Dictionary<string, (AgentStatusCard Card, TranscriptThreadState Thread)> _tourNamedDemoAgents = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DispatcherTimer> _tourDemoAgentSpinnerTimers = new(StringComparer.OrdinalIgnoreCase);
+    private event EventHandler? _tourCycleCaseForward;
+    private event EventHandler? _tourCycleCaseReverse;
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -9552,6 +9554,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DocSourceTextBox.SelectRange(_docCycleSelStart, nextVariant.Length);
             }
             e.Handled = true;
+            _tourCycleCaseForward?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -9592,6 +9595,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DocSourceTextBox.SelectRange(_docCycleSelStart, prevVariant.Length);
             }
             e.Handled = true;
+            _tourCycleCaseReverse?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -9803,6 +9807,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     PromptTextBox.SelectionLength = nextVariant.Length;
                 }
                 e.Handled = true;
+                _tourCycleCaseForward?.Invoke(this, EventArgs.Empty);
                 return;
             }
 
@@ -9843,6 +9848,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     PromptTextBox.SelectionLength = prevVariant.Length;
                 }
                 e.Handled = true;
+                _tourCycleCaseReverse?.Invoke(this, EventArgs.Empty);
                 return;
             }
 
@@ -14586,6 +14592,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             "KeyboardShortcut",
             new KeyboardShortcutAdvanceTrigger(this),
             hasParameter: true);
+
+        _tourAdvanceTriggerRegistry.Register(
+            "CycleCaseForward",
+            new CycleCaseForwardAdvanceTrigger(
+                addHandler:    h => _tourCycleCaseForward += h,
+                removeHandler: h => _tourCycleCaseForward -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "CycleCaseReverse",
+            new CycleCaseReverseAdvanceTrigger(
+                addHandler:    h => _tourCycleCaseReverse += h,
+                removeHandler: h => _tourCycleCaseReverse -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

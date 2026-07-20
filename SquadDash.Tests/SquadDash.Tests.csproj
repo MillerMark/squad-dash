@@ -341,6 +341,8 @@
     <Compile Include="..\SquadDash\GuidedTours\PreferencesWindowClosedAdvanceTrigger.cs" Link="Source\GuidedTours\PreferencesWindowClosedAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\PreferencePageSelectedAdvanceTrigger.cs" Link="Source\GuidedTours\PreferencePageSelectedAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\KeyboardShortcutAdvanceTrigger.cs" Link="Source\GuidedTours\KeyboardShortcutAdvanceTrigger.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\CycleCaseForwardAdvanceTrigger.cs" Link="Source\GuidedTours\CycleCaseForwardAdvanceTrigger.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\CycleCaseReverseAdvanceTrigger.cs" Link="Source\GuidedTours\CycleCaseReverseAdvanceTrigger.cs" />
     <Compile Include="..\SquadDash\GuidedTours\TourIntelliSenseHelper.cs" Link="Source\GuidedTours\TourIntelliSenseHelper.cs" />
 
     <!-- Question Sentence Extraction (prompt navigation highlight) -->
