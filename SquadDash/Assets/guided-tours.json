@@ -6,7 +6,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "#Introduction to the UI\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.5] The basics of the SquadDash user interface.\r\n[size:1.25][right]Click **Next** to start the tour.",
+        "markdownText": "##Introduction to the UI\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.2] The basics of the SquadDash user interface.\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -234,7 +234,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "#Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.5]How to create and submit prompts (and navigate through previously sent prompts in the transcript).\r\n[size:1.25][right]Click **Next** to start the tour.",
+        "markdownText": "##Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.2]How to create and submit prompts (and navigate through previously sent prompts in the transcript).\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -406,7 +406,7 @@
       },
       {
         "title": "Edit and Pause",
-        "markdownText": "To view/edit a queued prompt, click its **tab**. \r\nQueue processing also naturally pauses when the **rightmost tab** is **active**.",
+        "markdownText": "To edit a prompt, click its **tab**. \r\nQueue processing pauses for edits when the **rightmost tab** is **active**.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -438,7 +438,7 @@
       },
       {
         "title": "Edit menu",
-        "markdownText": "The **Edit** menu includes commands for **composing prompts** and working with **markdown**.",
+        "markdownText": "**Edit** menu commands help **compose prompts** and work with **markdown**.",
         "targetControlId": "EditMenuItem_Popup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -454,7 +454,7 @@
       },
       {
         "title": "Prompts navigation",
-        "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\n[vspace:0]**Ctrl**\u002B**Alt**\u002B**PgUp** -- previous **question**\r\n\r\nYou can also hold **Alt** and click this button to navigate to the previous **question**.",
+        "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\n[vspace:0]**Ctrl**\u002B**Alt**\u002B**PgUp** -- previous **question**\r\n\r\nYou can also hold **Alt** and click this button to navigate through **questions** posed to AI.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -468,7 +468,7 @@
       },
       {
         "title": "Prompts navigation forward",
-        "markdownText": "Same shortcuts work here with **PgDn**.\r\nHover over enabled nav buttons for reminders on these shortcuts.",
+        "markdownText": "Same shortcuts work here with **PgDn**.\r\nHover over nav buttons for shortcut tooltips.",
         "targetControlId": "PromptNavDownButton",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -503,7 +503,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "#Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.5]Working with text selections in the prompt box.\r\n[size:1.25][right]Click **Next** to start the tour.",
+        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -539,8 +539,8 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
+        "commandsBefore": [],
+        "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
@@ -585,6 +585,20 @@
     "description": "Set up voice dictation and push to talk (PTT).",
     "steps": [
       {
+        "title": "Welcome",
+        "markdownText": "##Using Voice\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:2][valign:top][size:1.2]Setting up voice dictation and push to talk (PTT).\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "File options.",
         "markdownText": "To set up voice, you\u0027ll need to bring up the **Options** dialog.",
         "targetControlId": "FileMenuItem_Popup",
@@ -625,7 +639,7 @@
       },
       {
         "title": "Speech Provider",
-        "markdownText": "Choose your speech provider. **Azure** is fastest and recommended.\r\nSpecify your **API key** and any other needed settings below.",
+        "markdownText": "Choose your speech provider.\r\nAdd an **API key** and other needed settings below.",
         "targetControlId": "SpeechProvider_Azure",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -677,7 +691,7 @@
       },
       {
         "title": "Send immediately.",
-        "markdownText": "This first option is the **fastest**. \r\nYour spoken words are sent immediately when you release the **Ctrl** key.\r\nIf you want to **edit** the prompt you must tap **Shift** before you release the **Ctrl** key (to prevent the immediate send).",
+        "markdownText": "This first option is the **fastest**. \r\nDictation is sent immediately when you release the **Ctrl** key.\r\nIf you want to **edit** the prompt you must tap **Shift** before you release the **Ctrl** key (to prevent the immediate send).",
         "targetControlId": "Ptt_AutoSend",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -719,7 +733,8 @@
         "commandAfter": "",
         "commandsBefore": [
           "ShowPreferences",
-          "HighlightElement: PrefNav_Replacements"
+          "HighlightElement: PrefNav_Replacements",
+          "SelectPreferencesPage: Replacements"
         ],
         "commandsAfter": [
           "UnhighlightElements",
@@ -745,7 +760,7 @@
       },
       {
         "title": "Using PTT.",
-        "markdownText": "Voice works anywhere text is accepted in SquadDash.\r\nJust double-tap and hold the **Ctrl** key while speaking.",
+        "markdownText": "Voice works anywhere text is accepted in SquadDash.\r\nJust **double-tap** and **hold** the **Ctrl** key while speaking.",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -759,7 +774,7 @@
       },
       {
         "title": "Editing with voice.",
-        "markdownText": "In the selection below you can edit with voice and say \u0022rarely needed\u0022.",
+        "markdownText": "In the selection below you can edit with voice and say \u0022**rarely need**\u0022.",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -790,42 +805,23 @@
     ]
   },
   {
-    "id": "aac81aa5",
-    "name": "Theme and Appearance",
-    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
+    "id": "c63b910d",
+    "name": "Remote Control",
+    "description": "",
     "steps": [
       {
-        "title": "View menu.",
-        "markdownText": "Appearance controls are inside the **View** menu.",
-        "targetControlId": "ViewMenuItem_Popup",
-        "calloutPlacement": "East",
+        "title": "New Step",
+        "markdownText": "",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem"
-        ],
+        "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
-      },
-      {
-        "title": "Theme",
-        "markdownText": "Set the theme here.",
-        "targetControlId": "ViewThemeMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
-          "HighlightMenuItem: ViewThemeLightMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.4639423076923076,
-        "targetOffsetY": 0.5130448717948715
       }
     ]
   },
@@ -879,23 +875,42 @@
     ]
   },
   {
-    "id": "c63b910d",
-    "name": "Remote Control",
-    "description": "",
+    "id": "aac81aa5",
+    "name": "Theme and Appearance",
+    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
     "steps": [
       {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
+        "title": "View menu.",
+        "markdownText": "Appearance controls are inside the **View** menu.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": null,
-        "commandsAfter": null,
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      },
+      {
+        "title": "Theme",
+        "markdownText": "Set the theme here.",
+        "targetControlId": "ViewThemeMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
+          "HighlightMenuItem: ViewThemeLightMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4639423076923076,
+        "targetOffsetY": 0.5130448717948715
       }
     ]
   }
