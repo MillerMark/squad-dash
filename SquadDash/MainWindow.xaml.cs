@@ -15782,6 +15782,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _agentThreadRegistry.RemoveThreads([thread]);
             SyncAgentCardsWithThreads();
         });
+
+        _tourCommandRegistry.Register("EnterFullScreenTranscript", () =>
+        {
+            // Idempotent: only transitions to full-screen if not already there.
+            if (!_transcriptFullScreenEnabled)
+                SetTranscriptFullScreen(true);
+        });
     }
 
     /// <summary>
