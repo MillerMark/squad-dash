@@ -27021,14 +27021,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            ClearQuestionHighlightRuns();
-
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
 
             // Shift+click jumps to the very first prompt.
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
             {
+                ClearQuestionHighlightRuns();
                 thread.PromptNavIndex = 0;
                 ScrollToPromptParagraph(thread.PromptParagraphs[0].Paragraph);
                 return;
@@ -27044,6 +27043,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx
                     : thread.PromptNavIndex > 0 ? thread.PromptNavIndex - 1
                     : thread.PromptParagraphs.Count - 1;
+                SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                    $"PromptNavUp (Alt): nearestAboveIdx={nearestAboveIdx} navIndex={thread.PromptNavIndex} " +
+                    $"startIdx={startIdx} totalPrompts={thread.PromptParagraphs.Count}");
                 for (int i = startIdx; i >= 0; i--)
                 {
                     var text = new System.Windows.Documents.TextRange(
@@ -27051,15 +27053,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
                     if (text.Contains('?'))
                     {
+                        SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                            $"PromptNavUp (Alt): found '?' at index={i}, navigating");
+                        ClearQuestionHighlightRuns();
                         thread.PromptNavIndex = i;
                         ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                         ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                         return;
                     }
                 }
+                SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                    $"PromptNavUp (Alt): no '?' found scanning from startIdx={startIdx} to 0 — highlight preserved");
                 return;
             }
 
+            ClearQuestionHighlightRuns();
             GetScrollBasedNavState(out _, out _, out int nearestAboveIdx2, out _);
 
             int target;
@@ -27091,14 +27099,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            ClearQuestionHighlightRuns();
-
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
 
             // Shift+click jumps to the very last prompt.
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
             {
+                ClearQuestionHighlightRuns();
                 var last = thread.PromptParagraphs.Count - 1;
                 thread.PromptNavIndex = last;
                 ScrollToPromptParagraph(thread.PromptParagraphs[last].Paragraph);
@@ -27115,7 +27122,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var startIdxDown = nearestBelowIdx >= 0 ? nearestBelowIdx
                     : thread.PromptNavIndex >= 0 && thread.PromptNavIndex + 1 < thread.PromptParagraphs.Count
                         ? thread.PromptNavIndex + 1 : -1;
-                if (startIdxDown < 0) return;
+                SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                    $"PromptNavDown (Alt): nearestBelowIdx={nearestBelowIdx} navIndex={thread.PromptNavIndex} " +
+                    $"startIdxDown={startIdxDown} totalPrompts={thread.PromptParagraphs.Count}");
+                if (startIdxDown < 0)
+                {
+                    SquadDashTrace.Write(TraceCategory.TranscriptNav, "PromptNavDown (Alt): startIdxDown=-1, returning early — highlight preserved");
+                    return;
+                }
                 for (int i = startIdxDown; i < thread.PromptParagraphs.Count; i++)
                 {
                     var text = new System.Windows.Documents.TextRange(
@@ -27123,15 +27137,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
                     if (text.Contains('?'))
                     {
+                        SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                            $"PromptNavDown (Alt): found '?' at index={i}, navigating");
+                        ClearQuestionHighlightRuns();
                         thread.PromptNavIndex = i;
                         ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                         ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                         return;
                     }
                 }
+                SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                    $"PromptNavDown (Alt): no '?' found scanning from startIdxDown={startIdxDown} to end — highlight preserved");
                 return;
             }
 
+            ClearQuestionHighlightRuns();
             GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx2);
             if (nearestBelowIdx2 < 0) return;
 
@@ -39838,7 +39858,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            ClearQuestionHighlightRuns();
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
             GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
@@ -39848,7 +39867,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 : thread.PromptNavIndex > 0 ? thread.PromptNavIndex - 1
                 : thread.PromptParagraphs.Count - 1;
             SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                $"PrevQuestion: nearestAboveIdx={nearestAboveIdx} navIndex={thread.PromptNavIndex} " +
+                $"PrevQuestion (menu): nearestAboveIdx={nearestAboveIdx} navIndex={thread.PromptNavIndex} " +
                 $"startIdx={startIdx} totalPrompts={thread.PromptParagraphs.Count}");
             for (int i = startIdx; i >= 0; i--)
             {
@@ -39858,7 +39877,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (text.Contains('?'))
                 {
                     SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                        $"PrevQuestion: found '?' at index={i}, navigating");
+                        $"PrevQuestion (menu): found '?' at index={i}, navigating");
+                    ClearQuestionHighlightRuns();
                     thread.PromptNavIndex = i;
                     ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                     ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
@@ -39866,7 +39886,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
             SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                $"PrevQuestion: no '?' found scanning down from startIdx={startIdx}");
+                $"PrevQuestion (menu): no '?' found from startIdx={startIdx} to 0 — highlight preserved");
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptPrevQuestionMenuItem_Click), ex); }
     }
@@ -39875,7 +39895,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            ClearQuestionHighlightRuns();
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
             GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
@@ -39885,11 +39904,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 : thread.PromptNavIndex >= 0 && thread.PromptNavIndex + 1 < thread.PromptParagraphs.Count
                     ? thread.PromptNavIndex + 1 : -1;
             SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                $"NextQuestion: nearestBelowIdx={nearestBelowIdx} navIndex={thread.PromptNavIndex} " +
+                $"NextQuestion (menu): nearestBelowIdx={nearestBelowIdx} navIndex={thread.PromptNavIndex} " +
                 $"startIdxDown={startIdxDown} totalPrompts={thread.PromptParagraphs.Count}");
             if (startIdxDown < 0)
             {
-                SquadDashTrace.Write(TraceCategory.TranscriptNav, "NextQuestion: startIdxDown=-1, returning early");
+                SquadDashTrace.Write(TraceCategory.TranscriptNav, "NextQuestion (menu): startIdxDown=-1, returning early — highlight preserved");
                 return;
             }
             for (int i = startIdxDown; i < thread.PromptParagraphs.Count; i++)
@@ -39900,7 +39919,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (text.Contains('?'))
                 {
                     SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                        $"NextQuestion: found '?' at index={i}, navigating");
+                        $"NextQuestion (menu): found '?' at index={i}, navigating");
+                    ClearQuestionHighlightRuns();
                     thread.PromptNavIndex = i;
                     ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                     ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
@@ -39908,7 +39928,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
             SquadDashTrace.Write(TraceCategory.TranscriptNav,
-                $"NextQuestion: no '?' found scanning up from startIdxDown={startIdxDown}");
+                $"NextQuestion (menu): no '?' found from startIdxDown={startIdxDown} to end — highlight preserved");
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptNextQuestionMenuItem_Click), ex); }
     }
