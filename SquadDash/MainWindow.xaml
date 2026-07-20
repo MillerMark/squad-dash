@@ -758,11 +758,6 @@
                     <Separator x:Name="ToolIconGallerySeparator"
                                Style="{StaticResource ThemedMenuSeparatorStyle}"
                                Visibility="Collapsed"/>
-                    <MenuItem x:Name="ViewDocumentationMenuItem"
-                              Header="_Documentation"
-                              IsCheckable="True"
-                              Click="ViewDocumentationMenuItem_Click" />
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
                     <MenuItem x:Name="ViewRestoreLayoutMenuItem"
                               Header="_Restore Layout"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
@@ -795,14 +790,9 @@
                                   InputGestureText="Shift+F9"
                                   Click="SaveLayoutSlot3MenuItem_Click" />
                     </MenuItem>
-                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
-                    <MenuItem x:Name="ViewCommitHistoryMenuItem"
-                              Header="Commit History"
-                              IsCheckable="True"
-                              Click="ViewCommitHistoryMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="PanelsMenuItem"
-                          Header="_Panels"
+                          Header="_Tools"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
                           SubmenuOpened="PanelsMenuItem_SubmenuOpened">
@@ -834,6 +824,15 @@
                               Header="Watch Health"
                               IsCheckable="True"
                               Click="ViewWatchHealthMenuItem_Click" />
+                    <Separator Style="{StaticResource ThemedMenuSeparatorStyle}"/>
+                    <MenuItem x:Name="ToolsRepoDocumentationMenuItem"
+                              Header="_Repo Documentation"
+                              IsCheckable="True"
+                              Click="ViewDocumentationMenuItem_Click" />
+                    <MenuItem x:Name="ToolsCommitHistoryMenuItem"
+                              Header="Commit History"
+                              IsCheckable="True"
+                              Click="ViewCommitHistoryMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"

@@ -17943,12 +17943,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _commitActivityGraphWindow.Closed += (_, _) =>
             {
                 _commitActivityGraphWindow = null;
-                if (ViewCommitHistoryMenuItem is not null)
-                    ViewCommitHistoryMenuItem.IsChecked = false;
+                if (ToolsCommitHistoryMenuItem is not null)
+                    ToolsCommitHistoryMenuItem.IsChecked = false;
             };
             _commitActivityGraphWindow.Show();
-            if (ViewCommitHistoryMenuItem is not null)
-                ViewCommitHistoryMenuItem.IsChecked = true;
+            if (ToolsCommitHistoryMenuItem is not null)
+                ToolsCommitHistoryMenuItem.IsChecked = true;
         }
         else
         {
@@ -20467,8 +20467,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (ShowAgentAvatarsMenuItem is not null)
             ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars;
 
-        if (ViewDocumentationMenuItem is not null)
-            ViewDocumentationMenuItem.IsChecked = _documentationModeEnabled;
+        if (ToolsRepoDocumentationMenuItem is not null)
+            ToolsRepoDocumentationMenuItem.IsChecked = _documentationModeEnabled;
 
         if (StatusPanelBorder is not null)
             StatusPanelBorder.Visibility = (_transcriptFullScreenEnabled || _agentsPanelFocusModeEnabled)

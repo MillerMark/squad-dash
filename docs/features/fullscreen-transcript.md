@@ -15,7 +15,7 @@ A focused view mode that hides everything except the transcript — no agent car
 Press **F11**, or open the **View** menu and select **Full Screen Transcript**.
 
 ![Screenshot: View menu with "Full Screen Transcript" highlighted](images/fullscreen-view-menu.png)
-> 📸 *Screenshot needed: The View menu open, with "Full Screen Transcript" highlighted. Show the full menu so other options (Normal, View Documentation) are visible for context.*
+> 📸 *Screenshot needed: The View menu open, with "Full Screen Transcript" highlighted. Show the full menu so other options (Normal, Tools > Repo Documentation) are visible for context.*
 
 The agent cards, status panel, and prompt bar all disappear. The transcript expands to fill the entire window.
 
