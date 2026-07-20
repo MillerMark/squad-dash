@@ -194,7 +194,7 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
 
         var winner = matches[0];
         var signalList = string.Join(", ", winner.Matches.Take(3).Select(signal => $"`{signal}`"));
-        return $"This request contains direct ownership clues for {winner.Member.Name} ({signalList}). Route it to {winner.Member.Name} as the primary specialist unless the user explicitly asked the Coordinator to keep the work.";
+        return $"This request contains signals matching {winner.Member.Name}'s domain ({signalList}). Consider routing to {winner.Member.Name} — verify against `.squad/routing.md` first, as it is the authoritative source for routing decisions.";
     }
 
     private bool PromptContainsSignal(string prompt, string signal) {
@@ -248,9 +248,16 @@ internal sealed class SquadBridgePromptBuilder : ISquadBridgePromptBuilder {
                 yield return token;
         }
 
-        foreach (var rawToken in text.Split([',', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
-            if (LooksLikeOwnershipToken(rawToken, knownMemberNames))
-                yield return rawToken.Trim();
+        foreach (var line in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)) {
+            var trimmedLine = line.Trim();
+            // Skip markdown table rows (lines starting with |) to avoid treating
+            // table headers like "| Trigger | Behavior |" as ownership signals.
+            if (trimmedLine.StartsWith("|", StringComparison.Ordinal))
+                continue;
+            foreach (var rawToken in trimmedLine.Split([','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+                if (LooksLikeOwnershipToken(rawToken, knownMemberNames))
+                    yield return rawToken.Trim();
+            }
         }
     }
 

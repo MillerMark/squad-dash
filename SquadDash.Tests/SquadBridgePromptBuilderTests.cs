@@ -324,7 +324,7 @@ internal sealed class SquadBridgePromptBuilderTests {
             null,
             workspace.RootPath);
 
-        Assert.That(built.PromptText, Does.Contain("direct ownership clues for Lyra Morn"));
+        Assert.That(built.PromptText, Does.Contain("signals matching Lyra Morn"));
         Assert.That(built.PromptText, Does.Contain("`MainWindow.xaml`"));
         Assert.That(built.RoutingSummary, Does.Contain("strong-match"));
     }
@@ -465,5 +465,54 @@ internal sealed class SquadBridgePromptBuilderTests {
             workspace.RootPath);
 
         Assert.That(built.PromptText, Does.Not.Contain("direct ownership clues for Vesper Knox"));
+    }
+
+    [Test]
+    public void Build_DoesNotMatchTableHeaderCells_AsOwnershipSignals() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", """
+            # Squad Team
+
+            ## Members
+
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | Rai Reviewer | AI Reviewer | agents/rai-reviewer/charter.md | active |
+            | Lyra Morn | UI Specialist | agents/lyra-morn/charter.md | active |
+            """);
+        workspace.CreateFile(".squad/routing.md", """
+            # Work Routing
+
+            ## Routing Table
+
+            | Work Type | Route To | Examples |
+            |-----------|----------|----------|
+            | AI Review | Rai Reviewer | code review, pre-ship checks |
+            | UI | Lyra Morn | `MainWindow.xaml` |
+            """);
+        workspace.CreateFile(".squad/agents/rai-reviewer/charter.md", """
+            # Rai - RAI Reviewer
+
+            ## Activation Modes
+
+            | Trigger | Behavior |
+            |---------|----------|
+            | On-demand | Standard review |
+            | Pre-ship | Spawned before finalizing |
+            """);
+        workspace.CreateFile(".squad/agents/lyra-morn/charter.md", """
+            # Lyra Morn
+            - Own `MainWindow.xaml`
+            """);
+
+        var built = new SquadBridgePromptBuilder().Build(
+            "I want a triggering event for the guided tour advance behavior",
+            "Quick replies enabled.",
+            null,
+            null,
+            null,
+            workspace.RootPath);
+
+        Assert.That(built.PromptText, Does.Not.Contain("signals matching Rai Reviewer"));
     }
 }
