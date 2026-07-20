@@ -2522,8 +2522,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             textSource:        _targetControlBox,
             suggestionsProvider: text =>
             {
-                var filter = text.Trim();
-                var names  = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
+                var filter   = text.Trim();
+                var colonIdx = filter.IndexOf(':');
+                if (colonIdx > 0)
+                {
+                    // User has typed "SomeElement:" — offer known suffixes.
+                    var baseName = filter[..colonIdx];
+                    var suffix   = filter[(colonIdx + 1)..];
+                    var knownSuffixes = new[] { "Selection" };
+                    return knownSuffixes
+                        .Where(s => suffix.Length == 0
+                                    || s.Contains(suffix, StringComparison.OrdinalIgnoreCase))
+                        .Select(s => $"{baseName}:{s}")
+                        .ToList();
+                }
+                var names = _elementNamesProvider?.Invoke() ?? Array.Empty<string>();
                 return names
                     .Where(n => filter.Length == 0
                                 || n.Contains(filter, StringComparison.OrdinalIgnoreCase))

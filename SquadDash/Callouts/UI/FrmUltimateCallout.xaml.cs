@@ -1686,7 +1686,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         SetParentWindow(Window.GetWindow(target));
     }
 
-    private void SetParentWindow(Window window) {
+    internal void SetParentWindow(Window window) {
         // Popup children live in a separate HwndSource so Window.GetWindow() returns null.
         // Fall back to the main application window so the callout still has a valid owner.
         targetParentWindow = window ?? Application.Current.MainWindow;
@@ -1902,6 +1902,49 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
                 break;
             case CalloutPlacement.North:
                 callout.Options.AnimationOffset = new System.Windows.Vector(0, -80); // start above final, drop down to above-button position
+                break;
+            case CalloutPlacement.SouthEast:
+            case CalloutPlacement.SouthWest:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -40);
+                break;
+            case CalloutPlacement.NorthEast:
+            case CalloutPlacement.NorthWest:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -40);
+                break;
+        }
+        callout.FinalizeAndShow();
+        return callout;
+    }
+
+    /// <summary>
+    /// Creates and shows a callout beside a screen-space <paramref name="screenRect"/>
+    /// (in logical DIP coordinates).  Used when the target is a sub-region of a control
+    /// (e.g. the selected text inside a TextBox) rather than a whole element.
+    /// </summary>
+    public static FrmUltimateCallout? ShowCalloutBesideRect(
+        string markdownText,
+        Rect screenRect,
+        Window ownerWindow,
+        double width = 320,
+        double fontSize = 15,
+        CalloutPlacement placement = CalloutPlacement.Auto)
+    {
+        SquadDashTrace.Write(TraceCategory.Callouts,
+            $"ShowCalloutBesideRect: rect=({screenRect.X:F1},{screenRect.Y:F1} {screenRect.Width:F1}×{screenRect.Height:F1}), placement={placement}");
+        var callout = CreateNewCallout(markdownText, width, CalloutTheme.Light, fontSize);
+        callout.PointTo(screenRect);
+        callout.SetParentWindow(ownerWindow);
+        double angle = placement == CalloutPlacement.Auto
+            ? callout.GetBestSideAngle()
+            : PlacementToAngle(placement);
+        callout.SetAngle(angle);
+        switch (placement)
+        {
+            case CalloutPlacement.South:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -80);
+                break;
+            case CalloutPlacement.North:
+                callout.Options.AnimationOffset = new System.Windows.Vector(0, -80);
                 break;
             case CalloutPlacement.SouthEast:
             case CalloutPlacement.SouthWest:

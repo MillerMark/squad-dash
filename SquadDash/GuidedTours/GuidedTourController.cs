@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using SquadDash.GuidedTours;
 
@@ -492,7 +493,67 @@ internal sealed class GuidedTourController
             return;
         }
 
-        var target = _elementLocator(step.TargetControlId);
+        // Check for ControlName:Selection+N syntax
+        var targetId = step.TargetControlId;
+        int selectionIdx = targetId.IndexOf(":selection", StringComparison.OrdinalIgnoreCase);
+        if (selectionIdx > 0)
+        {
+            string baseName = targetId[..selectionIdx];
+            string suffix   = targetId[(selectionIdx + ":selection".Length)..].Trim();
+            int padding = 0;
+            if (suffix.StartsWith("+", StringComparison.Ordinal) &&
+                int.TryParse(suffix[1..], out int parsed))
+                padding = Math.Max(0, parsed);
+
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowStepCallout: detected :Selection syntax — baseName=\"{baseName}\", padding={padding}");
+
+            var selElement = _elementLocator(baseName);
+            if (selElement is TextBoxBase textBox)
+            {
+                var presSourceSel = System.Windows.PresentationSource.FromVisual(textBox);
+                bool isRenderedSel = textBox.IsVisible
+                                  || (textBox.ActualWidth > 0 && presSourceSel != null);
+                if (isRenderedSel)
+                {
+                    var selRect = ComputeSelectionRect(textBox, padding);
+                    if (!selRect.IsEmpty && selRect.Width > 0 && selRect.Height > 0)
+                    {
+                        SquadDashTrace.Write(TraceCategory.Callouts,
+                            $"ShowStepCallout: :Selection rect=({selRect.X:F1},{selRect.Y:F1} {selRect.Width:F1}×{selRect.Height:F1}) for \"{step.Title}\"");
+                        _activeCallout = FrmUltimateCallout.ShowCalloutBesideRect(
+                            step.MarkdownText,
+                            selRect,
+                            _ownerWindow,
+                            width:     320,
+                            fontSize:  Application.Current.Resources.Contains("FontSizeCallout")
+                                           ? (double)Application.Current.Resources["FontSizeCallout"]
+                                           : 18.0,
+                            placement: step.ParsedCalloutPlacement);
+                        WireCalloutEvents();
+                        return;
+                    }
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"ShowStepCallout: :Selection rect empty/zero-area — falling back to element targeting for \"{step.Title}\"");
+                }
+                else
+                {
+                    SquadDashTrace.Write(TraceCategory.Callouts,
+                        $"ShowStepCallout: :Selection base element not visible — falling back for \"{step.Title}\"");
+                }
+                // Fall through to normal element-based targeting using baseName
+                targetId = baseName;
+            }
+            else
+            {
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"ShowStepCallout: :Selection base \"{baseName}\" not found or not a TextBoxBase — falling back to full targetId for \"{step.Title}\"");
+                // Fall through using original targetId (whole control if it exists)
+                targetId = baseName;
+            }
+        }
+
+        var target = _elementLocator(targetId);
         if (target is null)
         {
             SquadDashTrace.Write(TraceCategory.Callouts,
@@ -530,11 +591,59 @@ internal sealed class GuidedTourController
                            : 18.0,
             placement: step.ParsedCalloutPlacement);
 
+        WireCalloutEvents();
+    }
+
+    /// <summary>
+    /// Computes the screen-space bounding rect (logical DIP) for the current selection in
+    /// <paramref name="textBox"/>, inflated by <paramref name="padding"/> pixels on all sides.
+    /// Returns <see cref="Rect.Empty"/> when no valid selection rect can be determined.
+    /// </summary>
+    private static Rect ComputeSelectionRect(TextBoxBase textBoxBase, int padding)
+    {
+        if (textBoxBase is not TextBox textBox)
+            return Rect.Empty;
+
+        int start  = textBox.SelectionStart;
+        int length = textBox.SelectionLength;
+
+        // Use the same index for both endpoints when there is no selection.
+        int endIndex = length > 0 ? start + Math.Max(0, length - 1) : start;
+
+        Rect startRect = textBox.GetRectFromCharacterIndex(start);
+        Rect endRect   = textBox.GetRectFromCharacterIndex(endIndex);
+
+        if (startRect.IsEmpty && endRect.IsEmpty)
+            return Rect.Empty;
+
+        // Union of the two rects gives the bounding box in TextBox local coords.
+        Rect localRect = startRect.IsEmpty ? endRect
+                       : endRect.IsEmpty   ? startRect
+                       : Rect.Union(startRect, endRect);
+
+        if (localRect.IsEmpty || (localRect.Width == 0 && localRect.Height == 0))
+            return Rect.Empty;
+
+        // Inflate by padding.
+        if (padding > 0)
+            localRect.Inflate(padding, padding);
+
+        // Convert from TextBox local coords to screen logical (DIP) coords.
+        var physTL = textBox.PointToScreen(new Point(localRect.X,     localRect.Y));
+        var physBR = textBox.PointToScreen(new Point(localRect.Right, localRect.Bottom));
+        var logTL  = DpiHelper.PhysicalToLogical(textBox, physTL);
+        var logBR  = DpiHelper.PhysicalToLogical(textBox, physBR);
+        return new Rect(logTL, logBR);
+    }
+
+    /// <summary>Wires the standard tour event handlers onto <see cref="_activeCallout"/>.</summary>
+    private void WireCalloutEvents()
+    {
         if (_activeCallout is not null)
         {
             _activeCallout.Settled += (_, _) => _onCalloutShown?.Invoke();
-            _activeCallout.HorizontalPercentOffset = (step.TargetOffsetX - 0.5) * 2;
-            _activeCallout.VerticalPercentOffset   = (step.TargetOffsetY - 0.5) * 2;
+            _activeCallout.HorizontalPercentOffset = (CurrentStep!.TargetOffsetX - 0.5) * 2;
+            _activeCallout.VerticalPercentOffset   = (CurrentStep!.TargetOffsetY - 0.5) * 2;
             _activeCallout.IsSticky = true;
             _activeCallout.TourNavAdvanceCountProvider = () => GuidedTourStateStore.Shared.TourNavAdvanceCount;
             _activeCallout.TourNavAdvanceRecorder = GuidedTourStateStore.Shared.RecordTourNavAdvance;
