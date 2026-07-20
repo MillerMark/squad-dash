@@ -9352,8 +9352,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var undoWasEnabled = PromptTextBox.IsUndoEnabled;
         if (undoWasEnabled)
         {
-            PromptTextBox.IsUndoEnabled = false;
-            PromptTextBox.IsUndoEnabled = true;
+            // IsUndoEnabled cannot be set inside a WPF change block (e.g. from a TextChanged handler).
+            // Defer to the next dispatcher frame so the change block has exited first.
+            Dispatcher.InvokeAsync(() =>
+            {
+                PromptTextBox.IsUndoEnabled = false;
+                PromptTextBox.IsUndoEnabled = true;
+            }, System.Windows.Threading.DispatcherPriority.Normal);
         }
         SquadDashTrace.Write(
             TraceCategory.UI,
