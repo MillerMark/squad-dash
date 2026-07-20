@@ -13860,11 +13860,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (key != Key.F12 && key != Key.F11 && key != Key.F6 && key != Key.F5) return;
 
-            // F6 and F12 require no modifiers; Ctrl+F11 is Theme Reveal
-            bool isCtrl = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
-            bool noMods  = Keyboard.Modifiers == ModifierKeys.None;
+            // F6 and F12 require no modifiers; Ctrl+F11 = Agent Avatars; Ctrl+Shift+F11 = Theme Reveal
+            bool isCtrl      = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            bool isShift     = (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift;
+            bool noMods      = Keyboard.Modifiers == ModifierKeys.None;
+            bool isCtrlOnly  = isCtrl && !isShift;
+            bool isCtrlShift = isCtrl && isShift;
 
-            if (key == Key.F11 && !isCtrl) return;  // bare F11 belongs to Full Screen Transcript
+            if (key == Key.F11 && noMods) return;  // bare F11 belongs to Full Screen Transcript
             if (key != Key.F11 && !noMods) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
@@ -13883,13 +13886,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (DeveloperMenuItem.IsVisible)
                     ToggleHintAuthoring();
             }
-            else if (key == Key.F11)
+            else if (key == Key.F11 && isCtrlShift)
             {
                 _themeRevealOverlay ??= new ThemeRevealOverlay();
                 if (_themeRevealOverlay.IsActive)
                     _themeRevealOverlay.Deactivate();
                 else
                     _themeRevealOverlay.Activate(target);
+            }
+            else if (key == Key.F11 && isCtrlOnly)
+            {
+                ShowAgentAvatarsMenuItem_Click(this, new RoutedEventArgs());
             }
             else
             {
@@ -20455,9 +20462,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ApplyViewMode()
     {
-        if (NormalViewMenuItem is not null)
-            NormalViewMenuItem.IsChecked = !_transcriptFullScreenEnabled && !_agentsPanelFocusModeEnabled;
-
         if (FullScreenTranscriptMenuItem is not null)
             FullScreenTranscriptMenuItem.IsChecked = _transcriptFullScreenEnabled;
 
