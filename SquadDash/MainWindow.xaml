@@ -543,7 +543,7 @@
                               InputGestureText="Ctrl+F"
                               Click="EditFindMenuItem_Click" />
                     <MenuItem x:Name="EditTranscriptNavigationMenuItem"
-                              Header="Transcript _Navigation"
+                              Header="Transcript _Nav"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                         <MenuItem x:Name="EditTranscriptPrevPromptMenuItem"
                                   Header="_Previous Prompt"
@@ -557,6 +557,15 @@
                                   Header="_Latest Prompt"
                                   InputGestureText="Ctrl+Shift+Page Down"
                                   Click="EditTranscriptLatestPromptMenuItem_Click" />
+                        <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                        <MenuItem x:Name="EditTranscriptPrevQuestionMenuItem"
+                                  Header="Previous _Question"
+                                  InputGestureText="Ctrl+Alt+Page Up"
+                                  Click="EditTranscriptPrevQuestionMenuItem_Click" />
+                        <MenuItem x:Name="EditTranscriptNextQuestionMenuItem"
+                                  Header="Next _Question"
+                                  InputGestureText="Ctrl+Alt+Page Down"
+                                  Click="EditTranscriptNextQuestionMenuItem_Click" />
                     </MenuItem>
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem x:Name="EditUndoMenuItem"

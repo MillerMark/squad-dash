@@ -39780,6 +39780,58 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EditTranscriptLatestPromptMenuItem_Click(object sender, RoutedEventArgs e) =>
         NavigateToLatestTranscriptPrompt();
 
+    private void EditTranscriptPrevQuestionMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ClearQuestionHighlightRuns();
+            var thread = _selectedTranscriptThread ?? CoordinatorThread;
+            if (thread.PromptParagraphs.Count == 0) return;
+            GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
+            var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
+            for (int i = startIdx; i >= 0; i--)
+            {
+                var text = new System.Windows.Documents.TextRange(
+                    thread.PromptParagraphs[i].Paragraph.ContentStart,
+                    thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                if (text.Contains('?'))
+                {
+                    thread.PromptNavIndex = i;
+                    ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                    ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptPrevQuestionMenuItem_Click), ex); }
+    }
+
+    private void EditTranscriptNextQuestionMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ClearQuestionHighlightRuns();
+            var thread = _selectedTranscriptThread ?? CoordinatorThread;
+            if (thread.PromptParagraphs.Count == 0) return;
+            GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
+            if (nearestBelowIdx < 0) return;
+            for (int i = nearestBelowIdx; i < thread.PromptParagraphs.Count; i++)
+            {
+                var text = new System.Windows.Documents.TextRange(
+                    thread.PromptParagraphs[i].Paragraph.ContentStart,
+                    thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
+                if (text.Contains('?'))
+                {
+                    thread.PromptNavIndex = i;
+                    ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
+                    ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
+                    return;
+                }
+            }
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptNextQuestionMenuItem_Click), ex); }
+    }
+
     private void NavigateToLatestTranscriptPrompt()
     {
         var thread = _selectedTranscriptThread ?? CoordinatorThread;
