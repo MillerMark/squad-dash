@@ -245,6 +245,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         TraceCategory.UI                => "General UI events — layout updates, theme changes, and visual state transitions.",
         TraceCategory.Unhandled    => "Unhandled exceptions and unexpected error paths caught by the global exception handler.",
         TraceCategory.Workspace    => "Workspace management — open/close, conversation save/load, session ID tracking.",
+        TraceCategory.TranscriptNav => "Transcript question/prompt navigation — Ctrl+Alt+PgUp/Down scroll state, nearestAbove/Below geometry, and index decisions.",
         _                          => cat.ToString(),
     };
 

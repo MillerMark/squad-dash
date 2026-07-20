@@ -26663,6 +26663,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // rect is in coordinates relative to the scroll viewer's visible area.
             // Always scroll to place this prompt at the viewport top.
             double targetOffset = sv.VerticalOffset + rect.Top;
+            SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                $"ScrollToPromptParagraph: currentOffset={sv.VerticalOffset:F1} rect.Top={rect.Top:F1} " +
+                $"targetOffset={targetOffset:F1} scrollableHeight={sv.ScrollableHeight:F1} rect.IsEmpty={rect.IsEmpty}");
             ActiveScrollController.ScrollToOffset(targetOffset);
 
             SyncPromptNavButtons();
@@ -26913,6 +26916,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         canGoUp   = nearestAboveIdx >= 0;
         canGoDown = nearestBelowIdx >= 0;
+
+        SquadDashTrace.Write(TraceCategory.TranscriptNav,
+            $"GetScrollBasedNavState: viewportTop={viewportTop:F1} scrollableMax={scrollableMax:F1} " +
+            $"prompts={thread.PromptParagraphs.Count} navIndex={thread.PromptNavIndex} " +
+            $"nearestAbove={nearestAboveIdx} (absY={bestAboveY:F1}) " +
+            $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? bestBelowY : double.NaN):F1}) " +
+            $"canGoUp={canGoUp} canGoDown={canGoDown}");
     }
 
     private void SchedulePromptNavGeometryRefresh()
@@ -39837,6 +39847,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx
                 : thread.PromptNavIndex > 0 ? thread.PromptNavIndex - 1
                 : thread.PromptParagraphs.Count - 1;
+            SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                $"PrevQuestion: nearestAboveIdx={nearestAboveIdx} navIndex={thread.PromptNavIndex} " +
+                $"startIdx={startIdx} totalPrompts={thread.PromptParagraphs.Count}");
             for (int i = startIdx; i >= 0; i--)
             {
                 var text = new System.Windows.Documents.TextRange(
@@ -39844,12 +39857,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
                 if (text.Contains('?'))
                 {
+                    SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                        $"PrevQuestion: found '?' at index={i}, navigating");
                     thread.PromptNavIndex = i;
                     ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                     ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                     return;
                 }
             }
+            SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                $"PrevQuestion: no '?' found scanning down from startIdx={startIdx}");
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptPrevQuestionMenuItem_Click), ex); }
     }
@@ -39867,7 +39884,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var startIdxDown = nearestBelowIdx >= 0 ? nearestBelowIdx
                 : thread.PromptNavIndex >= 0 && thread.PromptNavIndex + 1 < thread.PromptParagraphs.Count
                     ? thread.PromptNavIndex + 1 : -1;
-            if (startIdxDown < 0) return;
+            SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                $"NextQuestion: nearestBelowIdx={nearestBelowIdx} navIndex={thread.PromptNavIndex} " +
+                $"startIdxDown={startIdxDown} totalPrompts={thread.PromptParagraphs.Count}");
+            if (startIdxDown < 0)
+            {
+                SquadDashTrace.Write(TraceCategory.TranscriptNav, "NextQuestion: startIdxDown=-1, returning early");
+                return;
+            }
             for (int i = startIdxDown; i < thread.PromptParagraphs.Count; i++)
             {
                 var text = new System.Windows.Documents.TextRange(
@@ -39875,12 +39899,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     thread.PromptParagraphs[i].Paragraph.ContentEnd).Text;
                 if (text.Contains('?'))
                 {
+                    SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                        $"NextQuestion: found '?' at index={i}, navigating");
                     thread.PromptNavIndex = i;
                     ScrollToPromptParagraph(thread.PromptParagraphs[i].Paragraph);
                     ApplyQuestionHighlight(thread.PromptParagraphs[i].Paragraph);
                     return;
                 }
             }
+            SquadDashTrace.Write(TraceCategory.TranscriptNav,
+                $"NextQuestion: no '?' found scanning up from startIdxDown={startIdxDown}");
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(EditTranscriptNextQuestionMenuItem_Click), ex); }
     }
