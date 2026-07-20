@@ -758,22 +758,6 @@
                     <Separator x:Name="ToolIconGallerySeparator"
                                Style="{StaticResource ThemedMenuSeparatorStyle}"
                                Visibility="Collapsed"/>
-                    <MenuItem x:Name="ViewRestoreLayoutMenuItem"
-                              Header="_Restore Layout"
-                              ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
-                        <MenuItem x:Name="RestoreLayoutSlot1MenuItem"
-                                  Header="Slot _1"
-                                  InputGestureText="F7"
-                                  Click="RestoreLayoutSlot1MenuItem_Click" />
-                        <MenuItem x:Name="RestoreLayoutSlot2MenuItem"
-                                  Header="Slot _2"
-                                  InputGestureText="F8"
-                                  Click="RestoreLayoutSlot2MenuItem_Click" />
-                        <MenuItem x:Name="RestoreLayoutSlot3MenuItem"
-                                  Header="Slot _3"
-                                  InputGestureText="F9"
-                                  Click="RestoreLayoutSlot3MenuItem_Click" />
-                    </MenuItem>
                     <MenuItem x:Name="ViewSaveLayoutMenuItem"
                               Header="_Save Layout"
                               ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
@@ -789,6 +773,22 @@
                                   Header="Slot _3"
                                   InputGestureText="Shift+F9"
                                   Click="SaveLayoutSlot3MenuItem_Click" />
+                    </MenuItem>
+                    <MenuItem x:Name="ViewRestoreLayoutMenuItem"
+                              Header="_Restore Layout"
+                              ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                        <MenuItem x:Name="RestoreLayoutSlot1MenuItem"
+                                  Header="Slot _1"
+                                  InputGestureText="F7"
+                                  Click="RestoreLayoutSlot1MenuItem_Click" />
+                        <MenuItem x:Name="RestoreLayoutSlot2MenuItem"
+                                  Header="Slot _2"
+                                  InputGestureText="F8"
+                                  Click="RestoreLayoutSlot2MenuItem_Click" />
+                        <MenuItem x:Name="RestoreLayoutSlot3MenuItem"
+                                  Header="Slot _3"
+                                  InputGestureText="F9"
+                                  Click="RestoreLayoutSlot3MenuItem_Click" />
                     </MenuItem>
                 </MenuItem>
                 <MenuItem x:Name="PanelsMenuItem"
