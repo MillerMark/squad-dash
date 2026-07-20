@@ -20467,7 +20467,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             FullScreenTranscriptMenuItem.IsChecked = _transcriptFullScreenEnabled;
 
         if (FocusModeMenuItem is not null)
-            FocusModeMenuItem.IsChecked = _agentsPanelFocusModeEnabled;
+            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled;
 
         if (ShowAgentAvatarsMenuItem is not null)
             ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars;
