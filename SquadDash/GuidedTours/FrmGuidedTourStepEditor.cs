@@ -622,8 +622,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _ctxPaste.Click += (_, _) => PasteSteps();
 
         var stepContextMenu = new ContextMenu();
-        stepContextMenu.Items.Add(_ctxCopy);
         stepContextMenu.Items.Add(_ctxCut);
+        stepContextMenu.Items.Add(_ctxCopy);
+        stepContextMenu.Items.Add(new Separator());
         stepContextMenu.Items.Add(_ctxPaste);
         stepContextMenu.Opened += OnStepContextMenuOpening;
         _stepListBox.ContextMenu = stepContextMenu;
