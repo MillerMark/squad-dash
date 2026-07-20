@@ -16,7 +16,17 @@ internal sealed class CycleCaseReverseAdvanceTrigger : IGuidedTourAdvanceTrigger
     /// <inheritdoc/>
     public IDisposable? Subscribe(string parameter, Action onAdvance)
     {
-        void Handler(object? s, EventArgs e) => onAdvance();
+        int required = 1;
+        if (!string.IsNullOrWhiteSpace(parameter) &&
+            int.TryParse(parameter.Trim(), out int parsed) && parsed > 0)
+            required = parsed;
+
+        int count = 0;
+        void Handler(object? s, EventArgs e)
+        {
+            if (++count >= required)
+                onAdvance();
+        }
         _addHandler(Handler);
         return new Subscription(() => _removeHandler(Handler));
     }

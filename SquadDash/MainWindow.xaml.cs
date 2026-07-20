@@ -14597,13 +14597,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             "CycleCaseForward",
             new CycleCaseForwardAdvanceTrigger(
                 addHandler:    h => _tourCycleCaseForward += h,
-                removeHandler: h => _tourCycleCaseForward -= h));
+                removeHandler: h => _tourCycleCaseForward -= h),
+            hasParameter: true);
 
         _tourAdvanceTriggerRegistry.Register(
             "CycleCaseReverse",
             new CycleCaseReverseAdvanceTrigger(
                 addHandler:    h => _tourCycleCaseReverse += h,
-                removeHandler: h => _tourCycleCaseReverse -= h));
+                removeHandler: h => _tourCycleCaseReverse -= h),
+            hasParameter: true);
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

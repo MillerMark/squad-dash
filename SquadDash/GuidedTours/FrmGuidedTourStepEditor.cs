@@ -120,7 +120,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private static readonly HashSet<string> s_preferencePageCommands =
         new(StringComparer.OrdinalIgnoreCase) { "SelectPreferencesPage" };
     private static readonly HashSet<string> s_paramTriggerNames =
-        new(StringComparer.OrdinalIgnoreCase) { "MenuOpened", "PreferencePageSelected" };
+        new(StringComparer.OrdinalIgnoreCase) { "MenuOpened", "PreferencePageSelected", "CycleCaseForward", "CycleCaseReverse" };
 
     // Crosshair picker
     private readonly Canvas        _crosshairCanvas;
