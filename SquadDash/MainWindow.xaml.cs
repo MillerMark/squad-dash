@@ -254,6 +254,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly Dictionary<string, DispatcherTimer> _tourDemoAgentSpinnerTimers = new(StringComparer.OrdinalIgnoreCase);
     private event EventHandler? _tourCycleCaseForward;
     private event EventHandler? _tourCycleCaseReverse;
+    private event EventHandler? _tourFullScreenTranscript;
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -14619,6 +14620,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 addHandler:    h => _tourCycleCaseReverse += h,
                 removeHandler: h => _tourCycleCaseReverse -= h),
             hasParameter: true);
+
+        _tourAdvanceTriggerRegistry.Register(
+            "FullScreenTranscript",
+            new FullScreenTranscriptAdvanceTrigger(
+                addHandler:    h => _tourFullScreenTranscript += h,
+                removeHandler: h => _tourFullScreenTranscript -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -16871,6 +16878,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _transcriptFullScreenEnabled = enabled;
         _fullScreenPromptVisible = false; // reset peek state on any fullscreen transition
+
+        if (enabled)
+            _tourFullScreenTranscript?.Invoke(this, EventArgs.Empty);
 
         if (enabled)
         {
