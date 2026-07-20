@@ -14373,11 +14373,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
         int X, int Y, int cx, int cy, uint uFlags);
 
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
+
+    [DllImport("gdi32.dll")]
+    private static extern int CombineRgn(IntPtr hrgnDst, IntPtr hrgnSrc1, IntPtr hrgnSrc2, int fnCombineMode);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
+
     private static readonly IntPtr HWND_TOPMOST_VALUE  = new(-1);
     private const uint SWP_NOSIZE     = 0x0001;
     private const uint SWP_NOMOVE     = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
+    private const int  RGN_DIFF       = 4;
 
     // ── Win32 monitor-DPI helpers ─────────────────────────────────────────────
     // Keep each small overlay in the target's physical screen coordinate space. Unlike a
@@ -14398,15 +14411,63 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         const double inset = 4.5; // pad (2) + stroke thickness (2.5), in target DIPs
         int insetX = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleX));
         int insetY = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleY));
-        int left = (int)Math.Floor(screenTL.X) - insetX;
-        int top = (int)Math.Floor(screenTL.Y) - insetY;
-        int width = Math.Max(1, (int)Math.Ceiling(screenBR.X) - left + insetX);
+        int left   = (int)Math.Floor(screenTL.X) - insetX;
+        int top    = (int)Math.Floor(screenTL.Y) - insetY;
+        int width  = Math.Max(1, (int)Math.Ceiling(screenBR.X) - left + insetX);
         int height = Math.Max(1, (int)Math.Ceiling(screenBR.Y) - top + insetY);
 
         var hwnd = new WindowInteropHelper(overlay).Handle;
-        if (hwnd != IntPtr.Zero)
-            SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        if (hwnd == IntPtr.Zero) return;
+
+        SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
+        // If this is a MenuItem with an open submenu, punch out the submenu overlap
+        // so the overlay rect doesn't obscure the submenu popup.
+        if (TryGetSubmenuPopupScreenRect(el, out int pLeft, out int pTop, out int pRight, out int pBottom))
+        {
+            int ix      = Math.Max(0, pLeft - left);
+            int iy      = Math.Max(0, pTop - top);
+            int iRight  = Math.Min(width, pRight - left);
+            int iBottom = Math.Min(height, pBottom - top);
+            int iw      = iRight - ix;
+            int ih      = iBottom - iy;
+
+            if (iw > 0 && ih > 0)
+            {
+                var rgn  = CreateRectRgn(0, 0, width, height);
+                var clip = CreateRectRgn(ix, iy, iRight, iBottom);
+                CombineRgn(rgn, rgn, clip, RGN_DIFF);
+                DeleteObject(clip);
+                SetWindowRgn(hwnd, rgn, true);
+                // Note: SetWindowRgn takes ownership of rgn — do NOT call DeleteObject(rgn).
+                return;
+            }
+        }
+        // No submenu overlap — clear any previously applied clip region.
+        SetWindowRgn(hwnd, IntPtr.Zero, true);
+    }
+
+    private static bool TryGetSubmenuPopupScreenRect(FrameworkElement el,
+        out int popupLeft, out int popupTop, out int popupRight, out int popupBottom)
+    {
+        popupLeft = popupTop = popupRight = popupBottom = 0;
+        if (el is not MenuItem mi || !mi.IsSubmenuOpen) return false;
+        try
+        {
+            var popup = mi.Template?.FindName("PART_Popup", mi) as System.Windows.Controls.Primitives.Popup;
+            if (popup is not { IsOpen: true }) return false;
+            var child = popup.Child as FrameworkElement;
+            if (child is null || child.ActualWidth == 0 || child.ActualHeight == 0) return false;
+            var tl = child.PointToScreen(new Point(0, 0));
+            var br = child.PointToScreen(new Point(child.ActualWidth, child.ActualHeight));
+            popupLeft   = (int)Math.Floor(tl.X);
+            popupTop    = (int)Math.Floor(tl.Y);
+            popupRight  = (int)Math.Ceiling(br.X);
+            popupBottom = (int)Math.Ceiling(br.Y);
+            return true;
+        }
+        catch { return false; }
     }
 
     private static void BringHighlightOverlayToFront(Window overlay)
