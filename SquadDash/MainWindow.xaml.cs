@@ -17028,6 +17028,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             bool show = ShowAgentAvatarsMenuItem.IsChecked;
+            // Exit full-screen when turning avatars ON so they become visible.
+            if (show && _transcriptFullScreenEnabled)
+                SetTranscriptFullScreen(false);
             AgentStatusCard.AvatarsSettingEnabled = show;
             _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(show);
         }
@@ -17036,8 +17039,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ToggleAgentsPanelFocusMode()
     {
-        // Per spec: if in full-screen, exit it first, then toggle focus mode.
-        if (_transcriptFullScreenEnabled)
+        // Exit full-screen only when the user is about to SHOW panels (focus mode was on = panels hidden).
+        if (_transcriptFullScreenEnabled && _agentsPanelFocusModeEnabled)
             SetTranscriptFullScreen(false);
         SetAgentsPanelFocusMode(!_agentsPanelFocusModeEnabled);
     }
