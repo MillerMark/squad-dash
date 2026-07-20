@@ -53,9 +53,9 @@ internal class TextCaseHelperTests
         const string original = "to a tag and a tag filter";
         var variants = ComputeOrderedVariants(original);
         Assert.That(variants, Has.Count.EqualTo(6));
-        // Canonical order preserved (no detected case to move): Title, Sentence, Upper, Kebab, Underscore, Pascal.
+        // Canonical order preserved (no detected case to move): Title, Pascal, Sentence, Upper, Kebab, Underscore.
         Assert.That(variants[0], Is.EqualTo(ToTitleCase(original)));
-        Assert.That(variants[5], Is.EqualTo(ToPascalCase(original)));
+        Assert.That(variants[1], Is.EqualTo(ToPascalCase(original)));
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -79,11 +79,11 @@ internal class TextCaseHelperTests
         string[] expected =
         [
             "To a Tag and a Tag Filter",
+            "ToATagAndATagFilter",
             "To a tag and a tag filter",
             "TO A TAG AND A TAG FILTER",
             "to-a-tag-and-a-tag-filter",
-            "to_a_tag_and_a_tag_filter",
-            "ToATagAndATagFilter"
+            "to_a_tag_and_a_tag_filter"
         ];
 
         Assert.That(results, Is.EqualTo(expected));
@@ -232,12 +232,12 @@ internal class TextCaseHelperTests
     // ──────────────────────────────────────────────────────────────
 
     [Test]
-    public void CycleCase_PascalCase_SplitsToTitleCase()
-        => Assert.That(CycleCase("HelloWorld"), Is.EqualTo("Hello World"));
+    public void CycleCase_PascalCase_GoesToSentenceCase()
+        => Assert.That(CycleCase("HelloWorld"), Is.EqualTo("Hello world"));
 
     [Test]
-    public void CycleCase_TitleCase_GoesToSentenceCase()
-        => Assert.That(CycleCase("Hello World"), Is.EqualTo("Hello world"));
+    public void CycleCase_TitleCase_GoesToPascalCase()
+        => Assert.That(CycleCase("Hello World"), Is.EqualTo("HelloWorld"));
 
     [Test]
     public void CycleCase_SentenceCase_GoesToUpperCase()
@@ -248,8 +248,8 @@ internal class TextCaseHelperTests
         => Assert.That(CycleCase("hello-world"), Is.EqualTo("hello_world"));
 
     [Test]
-    public void CycleCase_UnderscoreCase_GoesToPascalCase()
-        => Assert.That(CycleCase("hello_world"), Is.EqualTo("HelloWorld"));
+    public void CycleCase_UnderscoreCase_GoesToTitleCase()
+        => Assert.That(CycleCase("hello_world"), Is.EqualTo("Hello World"));
 
     [Test]
     public void CycleCase_PascalCase_FullRoundTrip()
@@ -262,11 +262,11 @@ internal class TextCaseHelperTests
     }
 
     [Test]
-    public void CycleCase_KebabToUnderscoreToPascalToTitleCycle()
+    public void CycleCase_KebabToUnderscoreToTitleToPascalCycle()
     {
         Assert.That(CycleCase("hello-world"),  Is.EqualTo("hello_world"));
-        Assert.That(CycleCase("hello_world"),  Is.EqualTo("HelloWorld"));
-        Assert.That(CycleCase("HelloWorld"),   Is.EqualTo("Hello World"));
-        Assert.That(CycleCase("Hello World"),  Is.EqualTo("Hello world"));
+        Assert.That(CycleCase("hello_world"),  Is.EqualTo("Hello World"));
+        Assert.That(CycleCase("HelloWorld"),   Is.EqualTo("Hello world"));
+        Assert.That(CycleCase("Hello World"),  Is.EqualTo("HelloWorld"));
     }
 }
