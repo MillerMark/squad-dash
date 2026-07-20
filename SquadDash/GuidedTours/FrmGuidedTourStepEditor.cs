@@ -521,6 +521,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
         {
+            // If a menu (context menu or main window menu bar) is open, keyboard focus
+            // will be on a MenuItem.  The click that dismisses the menu is also delivered
+            // here by WPF, but we must NOT arm drag from it — doing so causes phantom
+            // drag-and-drop on what the user intends as a plain selection click.
+            if (Keyboard.FocusedElement is MenuItem)
+                return;
+
             // Override the window-level reset: allow drag only when the press lands
             // directly on a ListBoxItem within this list.
             // IMPORTANT: use the hit-tested item's index, not SelectedIndex — at the time
@@ -726,6 +733,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         _tourListBox.PreviewMouseLeftButtonDown += (_, e) =>
         {
+            // Same guard as _stepListBox: don't arm drag when a menu is being dismissed.
+            if (Keyboard.FocusedElement is MenuItem)
+                return;
+
             var hit = e.OriginalSource as DependencyObject;
             var lbi = hit != null ? GetListBoxItemAncestor(_tourListBox, hit) : null;
             int hitIndex = lbi != null
