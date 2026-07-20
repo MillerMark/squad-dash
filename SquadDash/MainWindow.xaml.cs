@@ -256,6 +256,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event EventHandler? _tourCycleCaseReverse;
     private event EventHandler? _tourFullScreenTranscript;
     private event EventHandler? _tourExitFullScreenTranscript;
+    private event EventHandler? _tourFullScreenPromptPeek;
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action<string>? _tourPreferencePageSelected;
@@ -14633,6 +14634,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new ExitFullScreenTranscriptAdvanceTrigger(
                 addHandler:    h => _tourExitFullScreenTranscript += h,
                 removeHandler: h => _tourExitFullScreenTranscript -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "FullScreenPromptPeek",
+            new FullScreenPromptPeekAdvanceTrigger(
+                addHandler:    h => _tourFullScreenPromptPeek += h,
+                removeHandler: h => _tourFullScreenPromptPeek -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -17143,6 +17150,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void ShowFullScreenPrompt()
     {
         _fullScreenPromptVisible = true;
+        _tourFullScreenPromptPeek?.Invoke(this, EventArgs.Empty);
         if (PromptBorder is not null)
             PromptBorder.Visibility = Visibility.Visible;
         // Focus after layout so the caret appears inside the text box.
