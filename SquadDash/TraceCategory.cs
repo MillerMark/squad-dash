@@ -22,5 +22,6 @@ internal enum TraceCategory
     Callouts,     // callout shape geometry — triangle point calculation, dangle side selection, placement angle
     ImageEditor,  // clipboard image annotation editor — zoom, scroll, layout diagnostics
     TranscriptNav, // transcript question/prompt navigation — Ctrl+Alt+PgUp/Down scroll state, index decisions
+    GuidedTour,   // guided tour command execution — highlight clip, menu open, trigger firing
     General,      // catch-all for unknown sources
 }

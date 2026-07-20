@@ -14435,6 +14435,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (iw > 0 && ih > 0)
             {
+                SquadDashTrace.Write(TraceCategory.GuidedTour,
+                    $"HighlightClip: punching out overlay region ix={ix},iy={iy},iw={iw},ih={ih}");
                 var rgn  = CreateRectRgn(0, 0, width, height);
                 var clip = CreateRectRgn(ix, iy, iRight, iBottom);
                 CombineRgn(rgn, rgn, clip, RGN_DIFF);
@@ -14448,26 +14450,56 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SetWindowRgn(hwnd, IntPtr.Zero, true);
     }
 
+    private static DateTime _tourClipLastTrace = DateTime.MinValue;
+
     private static bool TryGetSubmenuPopupScreenRect(FrameworkElement el,
         out int popupLeft, out int popupTop, out int popupRight, out int popupBottom)
     {
         popupLeft = popupTop = popupRight = popupBottom = 0;
-        if (el is not MenuItem mi || !mi.IsSubmenuOpen) return false;
+        bool trace = (DateTime.UtcNow - _tourClipLastTrace).TotalSeconds >= 2;
+        if (trace) _tourClipLastTrace = DateTime.UtcNow;
+
+        if (el is not MenuItem mi)
+        {
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: el is {el?.GetType().Name ?? "null"}, not MenuItem — no clip");
+            return false;
+        }
+        if (!mi.IsSubmenuOpen)
+        {
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: {mi.Name} IsSubmenuOpen=false — no clip");
+            return false;
+        }
         try
         {
-            var popup = mi.Template?.FindName("PART_Popup", mi) as System.Windows.Controls.Primitives.Popup;
+            // Use FindTourMenuPopup which also tries "SubMenuPopup" and visual-tree fallback.
+            var popup = FindTourMenuPopup(mi);
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: {mi.Name} IsSubmenuOpen=true; popup={popup?.GetType().Name ?? "null"}; IsOpen={popup?.IsOpen}");
             if (popup is not { IsOpen: true }) return false;
+
             var child = popup.Child as FrameworkElement;
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: popup.Child={child?.GetType().Name ?? "null"}; W={child?.ActualWidth}; H={child?.ActualHeight}");
             if (child is null || child.ActualWidth == 0 || child.ActualHeight == 0) return false;
+
             var tl = child.PointToScreen(new Point(0, 0));
             var br = child.PointToScreen(new Point(child.ActualWidth, child.ActualHeight));
             popupLeft   = (int)Math.Floor(tl.X);
             popupTop    = (int)Math.Floor(tl.Y);
             popupRight  = (int)Math.Ceiling(br.X);
             popupBottom = (int)Math.Ceiling(br.Y);
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: popup screen=({popupLeft},{popupTop})→({popupRight},{popupBottom})");
             return true;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"HighlightClip: exception: {ex.Message}");
+            return false;
+        }
     }
 
     private static void BringHighlightOverlayToFront(Window overlay)

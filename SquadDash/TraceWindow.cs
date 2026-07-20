@@ -246,6 +246,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         TraceCategory.Unhandled    => "Unhandled exceptions and unexpected error paths caught by the global exception handler.",
         TraceCategory.Workspace    => "Workspace management — open/close, conversation save/load, session ID tracking.",
         TraceCategory.TranscriptNav => "Transcript question/prompt navigation — Ctrl+Alt+PgUp/Down scroll state, nearestAbove/Below geometry, and index decisions.",
+        TraceCategory.GuidedTour   => "Guided tour command execution — highlight overlay clip region, submenu popup detection, trigger firing, and menu open/close.",
         _                          => cat.ToString(),
     };
 
