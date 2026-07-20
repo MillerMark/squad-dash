@@ -57,6 +57,13 @@
   - Dev mode: Dev menu item opens guided-tour.json in editor; step-by-step preview navigation
   - Options → Discoverability: "Start the Tour" button
 
+- [ ] **[Guided Tour] "Passive observe" mode checkbox in tour editor** *(Owner: Lyra Morn)*
+  Add a checkbox to FrmGuidedTourStepEditor: "Passive observe mode — don't steal focus on step advance".
+  When checked, SyncToActiveTourStep() should NOT call Activate() or focus the editor window when the
+  tour advances to a new step. This lets the developer test a tour as if the editor weren't stealing
+  keyboard focus / shortcuts — effectively invisible during playback while still syncing the step selection.
+  When unchecked (default), behavior is unchanged.
+
 - [ ] **[Guided Tour] Click-to-pick target in Edit Step dialog** *(Owner: Lyra Morn)*
   The "Target..." button in FrmGuidedTourStepEditor should launch a click-to-pick mode:
   the cursor becomes a crosshair/highlight overlay, user clicks any live control in the app,
