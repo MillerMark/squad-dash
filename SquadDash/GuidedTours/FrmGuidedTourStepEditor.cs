@@ -83,9 +83,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private const string ClipboardFormatMarker = "SquadDashTourSteps/v1:";
 
     // Context menu items (populated in constructor, updated in ContextMenuOpening)
-    private MenuItem _ctxCopy  = null!;
-    private MenuItem _ctxCut   = null!;
-    private MenuItem _ctxPaste = null!;
+    private MenuItem _ctxCopy      = null!;
+    private MenuItem _ctxCut       = null!;
+    private MenuItem _ctxPaste     = null!;
+    private MenuItem _ctxDuplicate = null!;
 
     // PTT voice dictation
     private readonly PttTextBoxAttachment _ptt;
@@ -613,17 +614,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         // ── Context menu on the step list ────────────────────────────────────
 
-        _ctxCopy  = new MenuItem { Header = "Copy Step" };
-        _ctxCut   = new MenuItem { Header = "Cut Step" };
-        _ctxPaste = new MenuItem { Header = "Paste Step" };
+        _ctxCopy      = new MenuItem { Header = "Copy Step" };
+        _ctxCut       = new MenuItem { Header = "Cut Step" };
+        _ctxPaste     = new MenuItem { Header = "Paste Step" };
+        _ctxDuplicate = new MenuItem { Header = "Duplicate Step" };
 
-        _ctxCopy.Click  += (_, _) => CopySelectedSteps();
-        _ctxCut.Click   += (_, _) => CutSelectedSteps();
-        _ctxPaste.Click += (_, _) => PasteSteps();
+        _ctxCopy.Click      += (_, _) => CopySelectedSteps();
+        _ctxCut.Click       += (_, _) => CutSelectedSteps();
+        _ctxPaste.Click     += (_, _) => PasteSteps();
+        _ctxDuplicate.Click += (_, _) => DuplicateSelectedStep();
 
         var stepContextMenu = new ContextMenu();
         stepContextMenu.Items.Add(_ctxCut);
         stepContextMenu.Items.Add(_ctxCopy);
+        stepContextMenu.Items.Add(_ctxDuplicate);
         stepContextMenu.Items.Add(new Separator());
         stepContextMenu.Items.Add(_ctxPaste);
         stepContextMenu.Opened += OnStepContextMenuOpening;
@@ -2710,8 +2714,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         int selectedCount = _stepListBox.SelectedItems.Count;
         bool hasSelection = selectedCount > 0;
 
-        _ctxCopy.IsEnabled = hasSelection;
-        _ctxCut.IsEnabled  = hasSelection;
+        _ctxCopy.IsEnabled      = hasSelection;
+        _ctxCut.IsEnabled       = hasSelection;
+        _ctxDuplicate.IsEnabled = _stepListBox.SelectedItems.Count == 1;
 
         _ctxCopy.Header = selectedCount > 1
             ? $"Copy Steps ({selectedCount})"
@@ -2786,6 +2791,31 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         ExitMultiSelectMode();
         RefreshAfterBulkEdit(insertAfter + steps.Count);
+    }
+
+    private void DuplicateSelectedStep()
+    {
+        int idx = _stepListBox.SelectedIndex;
+        if (idx < 0 || idx >= _activeTour.Steps.Count) return;
+
+        SaveCurrentFieldsToStep();
+        PushUndoSnapshot();
+
+        var original = _activeTour.Steps[idx];
+        var json = System.Text.Json.JsonSerializer.Serialize(original, s_clipboardJsonOptions);
+        var duplicate = System.Text.Json.JsonSerializer.Deserialize<GuidedTourStep>(json, s_clipboardJsonOptions)!;
+        _activeTour.Steps.Insert(idx + 1, duplicate);
+        PushUndoSnapshot();
+
+        var workspaceFolderPath = ResolveWorkspaceFolderPath();
+        if (workspaceFolderPath is not null)
+        {
+            try { GuidedTourSaver.Save(_allTours, workspaceFolderPath); }
+            catch { /* ignore */ }
+        }
+
+        ExitMultiSelectMode();
+        RefreshAfterBulkEdit(idx + 1);
     }
 
     private bool TryReadClipboardSteps(out List<GuidedTourStep>? steps)
