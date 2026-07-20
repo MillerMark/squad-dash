@@ -965,6 +965,45 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
         }
 
+        // ── Ctrl+Shift+F3: reverse cycle case of selected text ─────────────────
+        if (e.Key == System.Windows.Input.Key.F3
+            && System.Windows.Input.Keyboard.Modifiers == (System.Windows.Input.ModifierKeys.Shift | System.Windows.Input.ModifierKeys.Control)
+            && tb.GetSelectionLength() > 0) {
+            var selStart     = tb.GetSelectionStart();
+            var selectedText = tb.GetSelectedText();
+
+            bool continuing = _editorCycleVariants is not null
+                && ReferenceEquals(tb, _editorCycleRtb)
+                && selStart == _editorCycleSelStart
+                && selectedText == _editorCycleVariants[_editorCycleIndex];
+
+            if (!continuing) {
+                _editorCycleRtb      = tb;
+                _editorCycleOriginal = selectedText;
+                _editorCycleVariants = TextCaseHelper.ComputeVariants(selectedText);
+                _editorCycleSelStart = selStart;
+                _editorCycleIndex    = _editorCycleVariants.Count - 1;
+
+                var firstVariant = _editorCycleVariants[_editorCycleIndex];
+                tb.ReplaceSelection(firstVariant);
+                tb.SelectRange(selStart, firstVariant.Length);
+            }
+            else {
+                _editorCycleIndex = (_editorCycleIndex - 1 + _editorCycleVariants!.Count) % _editorCycleVariants.Count;
+                var prevVariant = _editorCycleVariants[_editorCycleIndex];
+
+                tb.IsUndoEnabled = false;
+                tb.SelectRange(_editorCycleSelStart, selectedText.Length);
+                tb.Selection.Text = _editorCycleOriginal!;
+                tb.IsUndoEnabled  = true;
+                tb.SelectRange(_editorCycleSelStart, _editorCycleOriginal!.Length);
+                tb.ReplaceSelection(prevVariant);
+                tb.SelectRange(_editorCycleSelStart, prevVariant.Length);
+            }
+            e.Handled = true;
+            return;
+        }
+
         // ── Selection embedding: backtick ─────────────────────────────────────────
         if (e.Key == System.Windows.Input.Key.OemTilde
             && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None

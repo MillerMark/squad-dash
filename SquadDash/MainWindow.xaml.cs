@@ -9555,6 +9555,46 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
+        // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────────
+        if (e.Key == System.Windows.Input.Key.F3
+            && Keyboard.Modifiers == (ModifierKeys.Shift | ModifierKeys.Control)
+            && DocSourceTextBox.GetSelectionLength() > 0)
+        {
+            var selStart     = DocSourceTextBox.GetSelectionStart();
+            var selectedText = DocSourceTextBox.GetSelectedText();
+
+            bool continuing = _docCycleVariants is not null
+                && selStart == _docCycleSelStart
+                && selectedText == _docCycleVariants[_docCycleIndex];
+
+            if (!continuing)
+            {
+                _docCycleOriginal = selectedText;
+                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
+                _docCycleSelStart = selStart;
+                _docCycleIndex    = _docCycleVariants.Count - 1;
+
+                var firstVariant = _docCycleVariants[_docCycleIndex];
+                DocSourceTextBox.ReplaceSelection(firstVariant);
+                DocSourceTextBox.SelectRange(selStart, firstVariant.Length);
+            }
+            else
+            {
+                _docCycleIndex = (_docCycleIndex - 1 + _docCycleVariants!.Count) % _docCycleVariants.Count;
+                var prevVariant = _docCycleVariants[_docCycleIndex];
+
+                DocSourceTextBox.IsUndoEnabled = false;
+                DocSourceTextBox.SelectRange(_docCycleSelStart, selectedText.Length);
+                DocSourceTextBox.Selection.Text = _docCycleOriginal!;
+                DocSourceTextBox.IsUndoEnabled  = true;
+                DocSourceTextBox.SelectRange(_docCycleSelStart, _docCycleOriginal!.Length);
+                DocSourceTextBox.ReplaceSelection(prevVariant);
+                DocSourceTextBox.SelectRange(_docCycleSelStart, prevVariant.Length);
+            }
+            e.Handled = true;
+            return;
+        }
+
         // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
         if (e.Key == System.Windows.Input.Key.Space
             && Keyboard.Modifiers == ModifierKeys.Shift
@@ -9761,6 +9801,46 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     PromptTextBox.SelectedText    = nextVariant;
                     PromptTextBox.SelectionStart  = _promptCycleSelStart;
                     PromptTextBox.SelectionLength = nextVariant.Length;
+                }
+                e.Handled = true;
+                return;
+            }
+
+            // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────
+            if (e.Key == Key.F3 && modifiers == (ModifierKeys.Shift | ModifierKeys.Control) && PromptTextBox.SelectionLength > 0)
+            {
+                var selStart     = PromptTextBox.SelectionStart;
+                var selectedText = PromptTextBox.SelectedText;
+
+                bool continuing = _promptCycleVariants is not null
+                    && selStart == _promptCycleSelStart
+                    && selectedText == _promptCycleVariants[_promptCycleIndex];
+
+                if (!continuing)
+                {
+                    _promptCycleOriginal  = PromptTextBox.Text;
+                    _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
+                    _promptCycleIndex     = _promptCycleVariants.Count - 1;
+                    _promptCycleSelStart  = selStart;
+                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
+
+                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
+                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
+                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+                }
+                else
+                {
+                    _promptCycleIndex = (_promptCycleIndex - 1 + _promptCycleVariants!.Count) % _promptCycleVariants.Count;
+                    var prevVariant = _promptCycleVariants[_promptCycleIndex];
+
+                    PromptTextBox.IsUndoEnabled   = false;
+                    PromptTextBox.Text            = _promptCycleOriginal!;
+                    PromptTextBox.IsUndoEnabled   = true;
+                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
+                    PromptTextBox.SelectionLength = _promptCycleSelLen;
+                    PromptTextBox.SelectedText    = prevVariant;
+                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
+                    PromptTextBox.SelectionLength = prevVariant.Length;
                 }
                 e.Handled = true;
                 return;
