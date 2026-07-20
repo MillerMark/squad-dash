@@ -13896,6 +13896,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             else if (key == Key.F11 && isCtrlOnly)
             {
+                ShowAgentAvatarsMenuItem.IsChecked = !ShowAgentAvatarsMenuItem.IsChecked;
                 ShowAgentAvatarsMenuItem_Click(this, new RoutedEventArgs());
             }
             else
