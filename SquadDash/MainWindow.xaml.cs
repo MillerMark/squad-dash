@@ -27028,7 +27028,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (IsAltHeld())
             {
                 GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
-                var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
+                // Fall back to one before the last-navigated question when nothing is
+                // geometrically above the viewport (e.g. after a scroll landed exactly
+                // on the target and it sits within the dead zone).
+                var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx
+                    : thread.PromptNavIndex > 0 ? thread.PromptNavIndex - 1
+                    : thread.PromptParagraphs.Count - 1;
                 for (int i = startIdx; i >= 0; i--)
                 {
                     var text = new System.Windows.Documents.TextRange(
@@ -27094,8 +27099,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (IsAltHeld())
             {
                 GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
-                if (nearestBelowIdx < 0) return;
-                for (int i = nearestBelowIdx; i < thread.PromptParagraphs.Count; i++)
+                // Fall back to one after the last-navigated question when nothing is
+                // geometrically below the viewport (e.g. scroll landed on the last
+                // question and it sits within the dead zone or near the document bottom).
+                var startIdxDown = nearestBelowIdx >= 0 ? nearestBelowIdx
+                    : thread.PromptNavIndex >= 0 && thread.PromptNavIndex + 1 < thread.PromptParagraphs.Count
+                        ? thread.PromptNavIndex + 1 : -1;
+                if (startIdxDown < 0) return;
+                for (int i = startIdxDown; i < thread.PromptParagraphs.Count; i++)
                 {
                     var text = new System.Windows.Documents.TextRange(
                         thread.PromptParagraphs[i].Paragraph.ContentStart,
@@ -39821,7 +39832,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
             GetScrollBasedNavState(out _, out _, out int nearestAboveIdx, out _);
-            var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx : thread.PromptParagraphs.Count - 1;
+            // Fall back to one before the last-navigated question when nothing is
+            // geometrically above the viewport (target landed within dead zone).
+            var startIdx = nearestAboveIdx >= 0 ? nearestAboveIdx
+                : thread.PromptNavIndex > 0 ? thread.PromptNavIndex - 1
+                : thread.PromptParagraphs.Count - 1;
             for (int i = startIdx; i >= 0; i--)
             {
                 var text = new System.Windows.Documents.TextRange(
@@ -39847,8 +39862,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var thread = _selectedTranscriptThread ?? CoordinatorThread;
             if (thread.PromptParagraphs.Count == 0) return;
             GetScrollBasedNavState(out _, out _, out _, out int nearestBelowIdx);
-            if (nearestBelowIdx < 0) return;
-            for (int i = nearestBelowIdx; i < thread.PromptParagraphs.Count; i++)
+            // Fall back to one after the last-navigated question when nothing is
+            // geometrically below the viewport (scroll landed near document bottom).
+            var startIdxDown = nearestBelowIdx >= 0 ? nearestBelowIdx
+                : thread.PromptNavIndex >= 0 && thread.PromptNavIndex + 1 < thread.PromptParagraphs.Count
+                    ? thread.PromptNavIndex + 1 : -1;
+            if (startIdxDown < 0) return;
+            for (int i = startIdxDown; i < thread.PromptParagraphs.Count; i++)
             {
                 var text = new System.Windows.Documents.TextRange(
                     thread.PromptParagraphs[i].Paragraph.ContentStart,
