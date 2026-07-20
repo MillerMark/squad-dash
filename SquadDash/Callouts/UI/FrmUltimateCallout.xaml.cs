@@ -670,7 +670,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     {
         if (_tourOverlay is null) return;
         _tourOverlay.EnsureLayout();
-        if (_isTourLastStep)
+        if (_isTourLastStep && !_isDangleActive)
             _tourOverlay.PositionForLastStep(GetCalloutScreenBounds());
         else
             _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
@@ -722,7 +722,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void RepositionTourOverlayNow()
     {
         if (_tourOverlay is null) return;
-        if (_isTourLastStep)
+        if (_isTourLastStep && !_isDangleActive)
             _tourOverlay.PositionForLastStep(GetCalloutScreenBounds());
         else
             _tourOverlay.PositionNear(GetCalloutScreenBounds(), _isDangleActive ? _lastDangleSide : CalloutSide.Top);
