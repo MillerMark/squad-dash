@@ -263,6 +263,22 @@
         "targetOffsetY": 0.43030945419102895
       },
       {
+        "title": "Shift\u002BEnter - multi line",
+        "markdownText": "Press **Shift**\u002B**Enter** to add a new line.",
+        "targetControlId": "PromptTextBox:Selection\u002B36",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CaretPromptText|You can also press Shift\u002BEnter to add a new line:\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
         "title": "Attachments 1",
         "markdownText": "You can attach files, text, and images to your prompts.\r\n* **Ctrl**\u002B**Shift**\u002B**V** to attach clipboard **text**\r\n* Copy and paste **images**\r\n* Drag and drop **files**",
         "targetControlId": "PromptTextBox",
@@ -595,7 +611,7 @@
       },
       {
         "title": "Backticks - single line",
-        "markdownText": "Press the **\u0060** (backtick) key to embed **single line** text selections in **backticks**.",
+        "markdownText": "Press the **\u0060** (backtick) key to embed **single line** selections in **backticks**.",
         "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -658,7 +674,7 @@
   {
     "id": "aac81aa5",
     "name": "Theme and Appearance",
-    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
+    "description": "Controlling the theme, tint, and visual layouts in SquadDash.",
     "steps": [
       {
         "title": "Welcome",
@@ -827,6 +843,20 @@
         "targetOffsetY": 0.5
       },
       {
+        "title": "Accent color.",
+        "markdownText": "You can right-click this panel to set an accent color for this workspace.",
+        "targetControlId": "ActiveAgentsPanelBorder",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "View menu - bottom",
         "markdownText": "The **lower section** Of the **View** menu saves and restores **tool docking layouts**.",
         "targetControlId": "ViewMenuItem_Popup",
@@ -844,7 +874,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Theme and Appearance**\r\nYou just learned how to use the **View** menu to:\r\n* Toggle **full screen mode** -- **F11**\r\n* Toggle **agents and top panels** -- **Shift**\u002B**F11**\r\n* Toggle **agent avatars** -- **Ctrl**\u002B**F11**\r\n* Set the **theme**, **tint**, **saturation**, and **contrast**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Theme and Appearance**\r\nYou just learned how to use the **View** menu to:\r\n* Toggle **full screen mode** -- **F11**\r\n* Toggle **agents and top panels** -- **Shift**\u002B**F11**\r\n* Toggle **agent avatars** -- **Ctrl**\u002B**F11**\r\n\r\n\r\n* Set the **theme**, **tint**, **saturation**, **contrast**, and **accent color**.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -861,11 +891,11 @@
   {
     "id": "5514ddcd",
     "name": "Using Voice",
-    "description": "Set up voice dictation and push to talk (PTT).",
+    "description": "Prompt Dictation and Push to Talk (PTT).",
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Using Voice\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:2][valign:top][size:1.2]Setting up voice dictation and push to talk (PTT).\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Using Voice\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot5.png)[lines:2][valign:top][size:1.2]Setting up voice dictation and push to talk (PTT).\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -1072,55 +1102,6 @@
         "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to create and edit prompts with voice.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "working-with-loop",
-    "name": "Loops, Tasks, and the Queue",
-    "description": "",
-    "steps": [
-      {
-        "title": "The Loop Panel",
-        "markdownText": "**The Loop** runs a set of prompts automatically on a schedule or file-watch trigger.\n\nConfigure your loop in \u0060loop.md\u0060 \u2014 the Loop panel shows iteration status and lets you start, stop, or monitor progress.",
-        "targetControlId": "LoopPanelBorder",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Pausing the Queue",
-        "markdownText": "**Pause the queue** to temporarily hold all pending prompts.\n\nThis is useful when you want to review the current agent\u0027s work before allowing the next queued item to run.",
-        "targetControlId": "QueuePlayPauseButton",
-        "calloutPlacement": "South",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "The Code Health Panel",
-        "markdownText": "**The Code Health panel** runs configured checks against your codebase and reports results.\n\nUse \u0060code-health.md\u0060 to define which checks to run. Green = passing, red = action needed.",
-        "targetControlId": "CodeHealthPanelBorder",
-        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
