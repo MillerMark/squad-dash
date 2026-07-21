@@ -26817,24 +26817,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (string.IsNullOrWhiteSpace(draftText))
             return;
 
-        var rawText = draftText.Trim();
-
-        // If the text contains <caret>, strip it and position the cursor there.
-        // Otherwise fall back to end-of-text.
-        const string caretMarker = "<caret>";
-        int caretPos;
-        string text;
-        int markerIndex = rawText.IndexOf(caretMarker, StringComparison.OrdinalIgnoreCase);
-        if (markerIndex >= 0)
-        {
-            text     = rawText.Remove(markerIndex, caretMarker.Length);
-            caretPos = markerIndex;
-        }
-        else
-        {
-            text     = rawText;
-            caretPos = text.Length;
-        }
+        var text = draftText.Trim();
 
         if (entry is not null)
         {
@@ -26845,7 +26828,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // If the active draft box is empty, fill it directly.
         if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.Text))
         {
-            SetPromptTextBoxLogicalBuffer(text, caretPos, reason: "draft-quick-reply");
+            SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "draft-quick-reply");
             PromptTextBox.Focus();
             return;
         }
@@ -26856,7 +26839,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             Text = text,
             SequenceNumber = ++_promptQueueSeq,
-            CaretIndex = caretPos,
+            CaretIndex = text.Length,
             IsEditing = true
         };
         item.QueueNumber = NextQueueNumber();
