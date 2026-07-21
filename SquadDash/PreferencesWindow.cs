@@ -2677,12 +2677,14 @@ internal sealed class PreferencesWindow : Window {
         ComboBox MakeHourComboBox(int selectedIndex)
         {
             var cb = new ComboBox { Width = 110, HorizontalAlignment = HorizontalAlignment.Left };
+            cb.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
             foreach (var label in hourLabels)
-                cb.Items.Add(new ComboBoxItem { Content = label });
+            {
+                var item = new ComboBoxItem { Content = label };
+                item.SetResourceReference(ComboBoxItem.ForegroundProperty, "LabelText");
+                cb.Items.Add(item);
+            }
             cb.SelectedIndex = Math.Clamp(selectedIndex, 0, 23);
-            cb.SetResourceReference(ComboBox.ForegroundProperty,   "LabelText");
-            cb.SetResourceReference(ComboBox.BackgroundProperty,   "AppSurface");
-            cb.SetResourceReference(ComboBox.FontSizeProperty,     "FontSizeBody");
             cb.SelectionChanged += OnSelectionChanged;
             return cb;
         }
