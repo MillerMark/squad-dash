@@ -1243,6 +1243,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 .ToList();
         }
 
+        // Hide feature groups that have no commits (and no pending commits) within
+        // the current date range.  When the user zooms back out, commits reappear
+        // in CommitsByDay / PendingDays and the rows become visible again.
+        displayRows = displayRows
+            .Where(r => r.CommitsByDay.Count > 0 || r.PendingDays.Count > 0)
+            .ToList();
+
         _canvas.SetData(displayRows, startDt, endDt, _isDark);
 
         // Set slider MinDate to the global oldest date across the full dataset so
