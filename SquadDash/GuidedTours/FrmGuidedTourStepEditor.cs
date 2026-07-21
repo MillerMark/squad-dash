@@ -511,12 +511,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // state; _stepListBox.PreviewMouseLeftButtonDown then re-sets it for list clicks.
         PreviewMouseLeftButtonDown += (_, _) =>
         {
-            _listDragStart       = new Point(double.NaN, double.NaN);
-            _listDragInProgress  = false;
-            _listDragSourceIndex = -1;
-            _tourDragStart       = new Point(double.NaN, double.NaN);
-            _tourDragInProgress  = false;
-            _tourDragSourceIndex = -1;
+            ResetStepDragState();
+            ResetTourDragState();
+        };
+        PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            // A native OLE drag normally consumes mouse-up.  If it does not start (or
+            // returns between routed input events), make sure a subsequent MouseMove
+            // cannot reuse the old source index and enter DoDragDrop again.
+            ResetStepDragState();
+            ResetTourDragState();
         };
 
         _stepListBox.PreviewMouseLeftButtonDown += (_, e) =>
@@ -576,8 +580,26 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 }
                 _listDragInProgress = true;
                 var item = _stepListBox.Items[_listDragSourceIndex];
-                DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);
-                _listDragInProgress = false;
+                try
+                {
+                    DragDrop.DoDragDrop(_stepListBox, item, DragDropEffects.Move);
+                }
+                finally
+                {
+                    // DoDragDrop runs a nested OLE message loop.  Always disarm the
+                    // source when it exits, including Escape, capture loss, and errors.
+                    ResetStepDragState();
+                    HideDragInsertLine();
+                }
+            }
+        };
+
+        _stepListBox.QueryContinueDrag += (_, e) =>
+        {
+            if (NativeDragContinuationPolicy.ShouldCancel(e.EscapePressed, e.KeyStates))
+            {
+                e.Action  = DragAction.Cancel;
+                e.Handled = true;
             }
         };
 
@@ -595,17 +617,22 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepListBox.Drop += (_, e) =>
         {
             HideDragInsertLine();
-            if (_listDragSourceIndex < 0) return;
+            int sourceIndex = _listDragSourceIndex;
+            // Disarm before rebuilding the list.  RefreshAfterBulkEdit can pump layout
+            // and mouse events while DoDragDrop still reports the left button pressed;
+            // retaining the source index there can immediately start a second drag.
+            ResetStepDragState();
+            if (sourceIndex < 0) return;
             var pos = e.GetPosition(_stepListBox);
             int destIndex = GetDropInsertIndex(_stepListBox, pos);
             destIndex = Math.Clamp(destIndex, 0, _activeTour.Steps.Count - 1);
-            if (destIndex == _listDragSourceIndex) return;
+            if (destIndex == sourceIndex) { e.Handled = true; return; }
 
             SaveCurrentFieldsToStep();
             PushUndoSnapshot();
 
-            var step = _activeTour.Steps[_listDragSourceIndex];
-            _activeTour.Steps.RemoveAt(_listDragSourceIndex);
+            var step = _activeTour.Steps[sourceIndex];
+            _activeTour.Steps.RemoveAt(sourceIndex);
             _activeTour.Steps.Insert(destIndex, step);
             PushUndoSnapshot();
 
@@ -617,6 +644,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
 
             RefreshAfterBulkEdit(destIndex);
+            e.Handled = true;
         };
 
         // ── Context menu on the step list ────────────────────────────────────
@@ -771,8 +799,24 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 }
                 _tourDragInProgress = true;
                 var item = _tourListBox.Items[_tourDragSourceIndex];
-                DragDrop.DoDragDrop(_tourListBox, item, DragDropEffects.Move);
-                _tourDragInProgress = false;
+                try
+                {
+                    DragDrop.DoDragDrop(_tourListBox, item, DragDropEffects.Move);
+                }
+                finally
+                {
+                    ResetTourDragState();
+                    HideTourDragInsertLine();
+                }
+            }
+        };
+
+        _tourListBox.QueryContinueDrag += (_, e) =>
+        {
+            if (NativeDragContinuationPolicy.ShouldCancel(e.EscapePressed, e.KeyStates))
+            {
+                e.Action  = DragAction.Cancel;
+                e.Handled = true;
             }
         };
 
@@ -790,14 +834,16 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _tourListBox.Drop += (_, e) =>
         {
             HideTourDragInsertLine();
-            if (_tourDragSourceIndex < 0) return;
+            int sourceIndex = _tourDragSourceIndex;
+            ResetTourDragState();
+            if (sourceIndex < 0) return;
             var pos = e.GetPosition(_tourListBox);
             int destIndex = GetDropInsertIndex(_tourListBox, pos);
             destIndex = Math.Clamp(destIndex, 0, _allTours.Count - 1);
-            if (destIndex == _tourDragSourceIndex) return;
+            if (destIndex == sourceIndex) { e.Handled = true; return; }
 
-            var tour = _allTours[_tourDragSourceIndex];
-            _allTours.RemoveAt(_tourDragSourceIndex);
+            var tour = _allTours[sourceIndex];
+            _allTours.RemoveAt(sourceIndex);
             _allTours.Insert(destIndex, tour);
 
             var workspaceFolderPath = ResolveWorkspaceFolderPath();
@@ -808,6 +854,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             }
 
             RefreshTourList(destIndex);
+            e.Handled = true;
         };
 
         var addTourBtn= MakeIconButton("+", new SolidColorBrush(Color.FromRgb(0x33, 0x99, 0xFF)), fontSize: 30, glyphVerticalOffset: -3);
@@ -1412,6 +1459,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
                 return i;
         }
         return listBox.Items.Count;
+    }
+
+    private void ResetStepDragState()
+    {
+        _listDragStart       = new Point(double.NaN, double.NaN);
+        _listDragInProgress  = false;
+        _listDragSourceIndex = -1;
+    }
+
+    private void ResetTourDragState()
+    {
+        _tourDragStart       = new Point(double.NaN, double.NaN);
+        _tourDragInProgress  = false;
+        _tourDragSourceIndex = -1;
     }
 
     private void ShowDragInsertLine(int insertIndex)
