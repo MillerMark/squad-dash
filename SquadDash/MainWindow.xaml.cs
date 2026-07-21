@@ -15014,6 +15014,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
         });
 
+        _tourCommandRegistry.RegisterParameterized("CaretPromptText", arg =>
+        {
+            // Sets the prompt box text immediately (no animation), placing the caret at <caret>.
+            // Format: "text to set<caret>" — caret lands at the marker; marker is stripped from the text.
+            // If no <caret> marker, the caret goes to the end of the text.
+            // Supports \n escape sequences (same as SelectPromptText).
+            var text = arg.Replace(@"\n", "\n");
+            var markerIndex = text.IndexOf("<caret>", StringComparison.OrdinalIgnoreCase);
+            int caretPos;
+            if (markerIndex >= 0)
+            {
+                text = text.Remove(markerIndex, "<caret>".Length);
+                caretPos = markerIndex;
+            }
+            else
+            {
+                caretPos = text.Length;
+            }
+            StopTypeIntoPromptAnimation(); // cancel any in-progress animation + remove prior tour-type item
+            var item = new PromptQueueItem
+            {
+                Text           = text,
+                IsEditing      = true,
+                CaretIndex     = caretPos,
+                SequenceNumber = ++_promptQueueSeq,
+                QueueNumber    = NextQueueNumber(),
+                SourceTag      = TourTypeTag
+            };
+            _promptQueue.EnqueueItemAtFront(item);
+            SyncQueuePanel();
+            OnQueueTabClicked(item.Id);
+        });
+
         _tourCommandRegistry.Register("ShowSlashIntelliSense", () =>
         {
             var current = PromptTextBox.Text;
