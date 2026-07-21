@@ -53,6 +53,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private readonly ICommitStatService          _statService;
     private List<CommitApprovalItem>             _allItems;
     private readonly string?                     _workspaceFolderPath;
+    private readonly ApplicationSettingsStore?   _settingsStore;
     private bool                                 _isDark;
     private DateOnly                             _startDate;
     private DateOnly                             _endDate;
@@ -180,13 +181,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         string?                         workspaceStateDirectory = null,
         Func<IReadOnlyList<string>>?    getFeatureGroups    = null,
         Action<IReadOnlyList<(string Sha, string Group)>>? onCategoriesAssigned = null,
-        Action<IReadOnlyList<(string Source, string Target)>>? onCategoriesMerged = null)
+        Action<IReadOnlyList<(string Source, string Target)>>? onCategoriesMerged = null,
+        ApplicationSettingsStore?       settingsStore       = null)
         : base(captionHeight: ChromedWindow.CloseButtonHeight)
     {
         _statService         = statService ?? throw new ArgumentNullException(nameof(statService));
         _allItems            = items.ToList();
         _isDark              = isDark;
         _workspaceFolderPath = workspaceFolderPath;
+        _settingsStore       = settingsStore;
         _onCategoriesAssigned = onCategoriesAssigned;
         _onCategoriesMerged   = onCategoriesMerged;
         _getFeatureGroups     = getFeatureGroups;
@@ -201,8 +204,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _startDate = _endDate.AddDays(-30);
 
         Title         = "Commit History";
-        Width         = 1100;
-        Height        = 600;
+        Width         = 1650;
+        Height        = 900;
         MinWidth      = 1024;
         MinHeight     = 300;
         ShowInTaskbar = false;
@@ -362,7 +365,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         contentBorder.Child = layout;
 
         Loaded += (_, _) => StartLoadingData();
-        Closed += (_, _) => { _cts?.Cancel(); _debounceTimer.Stop(); };
+        Closed += (_, _) =>
+        {
+            _cts?.Cancel();
+            _debounceTimer.Stop();
+            SavePlacement();
+        };
+
+        ApplyPersistedPlacement();
 
         // ── Ctrl+scroll zoom (date-range narrowing) ───────────────────────────
         // Zooming in = fewer days visible; the canvas auto-adjusts pixels-per-day.
@@ -595,6 +605,48 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _onCategoriesMerged?.Invoke([(sourceGroup, targetGroup)]);
 
         StartLoadingData();
+    }
+
+    // ── Window placement persistence ─────────────────────────────────────────
+
+    private string BuildPlacementKey()
+    {
+        if (_workspaceFolderPath is null) return "::CommitHistoryVisualizer";
+        var normalized = Path.GetFullPath(_workspaceFolderPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return normalized + "::CommitHistoryVisualizer";
+    }
+
+    private void ApplyPersistedPlacement()
+    {
+        if (_settingsStore is null) return;
+        var saved = _settingsStore.TryGetNamedWindowPlacement(BuildPlacementKey());
+        if (saved is null || !IsOnAvailableMonitor(saved)) return;
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left   = saved.Left;
+        Top    = saved.Top;
+        Width  = saved.Width;
+        Height = saved.Height;
+        if (saved.IsMaximized) WindowState = WindowState.Maximized;
+    }
+
+    private void SavePlacement()
+    {
+        if (_settingsStore is null) return;
+        var placement = new WorkspaceWindowPlacement(Left, Top, Width, Height,
+            IsMaximized: WindowState == WindowState.Maximized);
+        _settingsStore.SaveNamedWindowPlacement(BuildPlacementKey(), placement);
+    }
+
+    private static bool IsOnAvailableMonitor(WorkspaceWindowPlacement p)
+    {
+        double cx = p.Left + p.Width  / 2;
+        double cy = p.Top  + p.Height / 2;
+        var wa = NativeMethods.GetWorkAreaForPhysicalPoint((int)cx, (int)cy);
+        // GetWorkAreaForPhysicalPoint falls back to the nearest monitor when the point is off-screen,
+        // so we verify the centre actually lands inside the returned work area.
+        return wa.Contains(new Point(cx, cy));
     }
 
     // ── Zoom / pan helpers ────────────────────────────────────────────────────

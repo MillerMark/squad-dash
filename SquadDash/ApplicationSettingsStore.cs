@@ -103,6 +103,22 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveNamedWindowPlacement(string key, WorkspaceWindowPlacement placement) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var placements = current.WindowPlacementByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        placements[key] = placement.Normalize();
+        var updated = current with { WindowPlacementByWorkspace = placements };
+        SaveCore(updated);
+        return updated;
+    }
+
+    public WorkspaceWindowPlacement? TryGetNamedWindowPlacement(string key) {
+        var snapshot = LoadCore();
+        return snapshot.WindowPlacementByWorkspace.TryGetValue(key, out var p) && p.IsUsable ? p : null;
+    }
+
     public ApplicationSettingsSnapshot SavePromptFontSize(double promptFontSize) {
         using var mutex = AcquireMutex();
 

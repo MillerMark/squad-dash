@@ -18393,7 +18393,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 getFeatureGroups:    () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList()).AsReadOnly(),
                 workspaceStateDirectory: _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath),
                 onCategoriesAssigned: assignments => Dispatcher.Invoke(() => ApplyCommitCategories(assignments)),
-                onCategoriesMerged:   merges      => Dispatcher.Invoke(() => ApplyFeatureCategoryMerges(merges)));
+                onCategoriesMerged:   merges      => Dispatcher.Invoke(() => ApplyFeatureCategoryMerges(merges)),
+                settingsStore:        _settingsStore);
             if (CanShowOwnedWindow())
                 _commitActivityGraphWindow.Owner = this;
             _commitActivityGraphWindow.Closed += (_, _) =>
