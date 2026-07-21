@@ -596,7 +596,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         _tourOverlay.DeleteClicked         += (_, _) => TourDeleteRequested?.Invoke(this, EventArgs.Empty);
 
         if (_closeButton is not null)
-            _closeButton.ToolTip = "Closes this callout and ends the guided tour.";
+            _closeButton.ToolTip = "Stop the tour.";
 
         if (initializationComplete)
             RefreshLayout();
