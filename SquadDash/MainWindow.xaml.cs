@@ -14409,6 +14409,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // ── Win32 monitor-DPI helpers ─────────────────────────────────────────────
     // Keep each small overlay in the target's physical screen coordinate space. Unlike a
     // virtual-screen-sized HWND, its DPI ownership cannot change when a callout appears.
+
+    /// <summary>
+    /// Resolves a named element for the tour highlight system.  Searches _tourNamedElements,
+    /// the main window visual tree, any registered popup roots, and the Preferences window.
+    /// </summary>
+    private FrameworkElement? ResolveTourHighlightElement(string name)
+    {
+        if (_tourNamedElements.TryGetValue(name, out var namedEl))
+            return namedEl;
+        var el = VisualTreeSearch.FindByName(this, name) as FrameworkElement;
+        if (el is null)
+        {
+            foreach (var root in _tourNamedElements.Values)
+            {
+                el = VisualTreeSearch.FindByName(root, name) as FrameworkElement;
+                if (el is not null) break;
+            }
+        }
+        if (el is null && _preferencesWindow is { IsVisible: true })
+            el = VisualTreeSearch.FindByName(_preferencesWindow, name) as FrameworkElement;
+        return el;
+    }
+
     private static void PositionTourHighlightOverlay(FrameworkElement el, Window overlay)
     {
         Point screenTL;
@@ -14461,6 +14484,33 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         }
         // No submenu overlap — clear any previously applied clip region.
+        SetWindowRgn(hwnd, IntPtr.Zero, true);
+    }
+
+    /// <summary>
+    /// Positions a highlight overlay using explicit screen pixel coordinates rather than
+    /// deriving them from a single element.  Used for range highlights that span multiple
+    /// elements.  DPI scale is taken from <paramref name="anchor"/>.
+    /// </summary>
+    private static void PositionTourHighlightOverlayAtScreenRect(
+        FrameworkElement anchor, Window overlay,
+        double screenLeft, double screenTop, double screenRight, double screenBottom)
+    {
+        DpiScale dpi;
+        try { dpi = VisualTreeHelper.GetDpi(anchor); }
+        catch { return; }
+
+        const double inset = 4.5;
+        int insetX = Math.Max(1, (int)Math.Ceiling(inset * dpi.DpiScaleX));
+        int insetY = Math.Max(1, (int)Math.Ceiling(inset * dpi.DpiScaleY));
+        int left   = (int)Math.Floor(screenLeft)  - insetX;
+        int top    = (int)Math.Floor(screenTop)   - insetY;
+        int width  = Math.Max(1, (int)Math.Ceiling(screenRight)  - left + insetX);
+        int height = Math.Max(1, (int)Math.Ceiling(screenBottom) - top  + insetY);
+
+        var hwnd = new WindowInteropHelper(overlay).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         SetWindowRgn(hwnd, IntPtr.Zero, true);
     }
 
@@ -15038,29 +15088,103 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
         {
-            // arg: x:Name of any FrameworkElement (MenuItem, Button, etc.) to outline with
-            // a themed "guided tour" rectangle border overlay.
-            // Colors: dark theme → light red (#FF8080 ish), light theme → dark red (#8B0000 ish)
-            // Look in _tourNamedElements first (handles runtime-registered elements), then
-            // the main window visual tree, then any popup visual trees that OpenMenu registered
-            // (menu items inside open submenus live in separate HWND popup trees).
-            FrameworkElement? el = null;
-            if (_tourNamedElements.TryGetValue(arg, out var namedEl))
-                el = namedEl;
-            if (el is null)
-                el = VisualTreeSearch.FindByName(this, arg) as FrameworkElement;
-            if (el is null)
+            // arg formats:
+            //   "ElementName"              — single element highlight (original behaviour)
+            //   "FirstElement-LastElement" — range highlight: draws one rect spanning both elements
+            //
+            // Colors: dark theme → light red, light theme → dark red.
+
+            var dashIdx = arg.IndexOf('-');
+            if (dashIdx > 0)
             {
-                foreach (var root in _tourNamedElements.Values)
+                // Range highlight — resolve both endpoints and union their screen rects.
+                var firstName = arg[..dashIdx].Trim();
+                var lastName  = arg[(dashIdx + 1)..].Trim();
+                var el1 = ResolveTourHighlightElement(firstName);
+                var el2 = ResolveTourHighlightElement(lastName);
+                if (el1 is null || el2 is null) return;
+
+                await Task.Delay(80);
+
+                bool rendered1 = el1.IsVisible || (el1.ActualWidth > 0 && el1.ActualHeight > 0 && PresentationSource.FromVisual(el1) is not null);
+                bool rendered2 = el2.IsVisible || (el2.ActualWidth > 0 && el2.ActualHeight > 0 && PresentationSource.FromVisual(el2) is not null);
+                if (!rendered1 || !rendered2) return;
+
+                Point tl1, br1, tl2, br2;
+                try
                 {
-                    el = VisualTreeSearch.FindByName(root, arg) as FrameworkElement;
-                    if (el is not null) break;
+                    tl1 = el1.PointToScreen(new Point(0, 0));
+                    br1 = el1.PointToScreen(new Point(el1.ActualWidth, el1.ActualHeight));
+                    tl2 = el2.PointToScreen(new Point(0, 0));
+                    br2 = el2.PointToScreen(new Point(el2.ActualWidth, el2.ActualHeight));
                 }
+                catch { return; }
+
+                double unionLeft   = Math.Min(tl1.X, tl2.X);
+                double unionTop    = Math.Min(tl1.Y, tl2.Y);
+                double unionRight  = Math.Max(br1.X, br2.X);
+                double unionBottom = Math.Max(br1.Y, br2.Y);
+
+                var isDarkRange = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
+                var rectColorRange = isDarkRange
+                    ? Color.FromRgb(0xFF, 0xA0, 0xA0)
+                    : Color.FromRgb(0x8B, 0x00, 0x00);
+
+                var rectShape = new System.Windows.Shapes.Rectangle
+                {
+                    Stroke           = new SolidColorBrush(Color.FromArgb(128, rectColorRange.R, rectColorRange.G, rectColorRange.B)),
+                    StrokeThickness  = 2.5,
+                    Fill             = Brushes.Transparent,
+                    IsHitTestVisible = false,
+                    Margin           = new Thickness(1),
+                    RadiusX          = 3,
+                    RadiusY          = 3,
+                };
+                var rangeOverlay = new Window
+                {
+                    Owner                 = Window.GetWindow(el1) ?? this,
+                    WindowStyle           = WindowStyle.None,
+                    ResizeMode            = ResizeMode.NoResize,
+                    AllowsTransparency    = true,
+                    Background            = Brushes.Transparent,
+                    Topmost               = true,
+                    ShowInTaskbar         = false,
+                    ShowActivated         = false,
+                    Focusable             = false,
+                    IsHitTestVisible      = false,
+                    Opacity               = 0,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Width                 = Math.Max(1, unionRight  - unionLeft + 9),
+                    Height                = Math.Max(1, unionBottom - unionTop  + 9),
+                    Content               = rectShape,
+                };
+                // Anchor tracking to el1 for visibility and location events.
+                _tourHighlightOverlays.Add((el1, rangeOverlay));
+                rangeOverlay.Show();
+                PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay, unionLeft, unionTop, unionRight, unionBottom);
+                rangeOverlay.Opacity = 1;
+                // Re-position on DPI change.
+                rangeOverlay.DpiChanged += (_, _) =>
+                    _ = Dispatcher.InvokeAsync(() =>
+                        PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay, unionLeft, unionTop, unionRight, unionBottom),
+                        DispatcherPriority.Loaded);
+
+                if (_tourHighlightZTimer is null)
+                {
+                    _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                    _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
+                    _tourHighlightZTimer.Start();
+                }
+
+                el1.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
+                var parentWinRange = Window.GetWindow(el1);
+                if (parentWinRange is not null && _tourHighlightTrackedWindows.Add(parentWinRange))
+                    parentWinRange.LocationChanged += OnTourHighlightWindowMoved;
+                return;
             }
-            // Also search the Preferences window visual tree when it is open
-            // (PrefNav_* TreeViewItems live there, not in MainWindow).
-            if (el is null && _preferencesWindow is { IsVisible: true })
-                el = VisualTreeSearch.FindByName(_preferencesWindow, arg) as FrameworkElement;
+
+            // ── Single-element highlight (original behaviour) ────────────────────
+            var el = ResolveTourHighlightElement(arg);
             if (el is null) return;
 
             // Wait a tick so the element has had a chance to render (important for menu items
