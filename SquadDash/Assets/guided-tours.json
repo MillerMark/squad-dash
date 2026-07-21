@@ -271,7 +271,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "CaretPromptText|You can also press Shift\u002BEnter to add a new line:\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
+          "CaretPromptText|Numbered bullets are continued when you press Shift\u002BEnter\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
