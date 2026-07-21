@@ -454,8 +454,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             var pos = e.GetPosition(_canvas);
             if (Math.Abs(pos.X - _selectionDragStartX) < 4)
             {
-                _canvas.ClearSelection();
-                UpdateSelectionPanel();
+                // Plain click (no drag): clear the selection only if the click landed
+                // outside the current selection bounds.
+                if (!_canvas.HasSelection ||
+                    pos.X < _canvas.SelectionXMin || pos.X > _canvas.SelectionXMax)
+                {
+                    _canvas.ClearSelection();
+                    UpdateSelectionPanel();
+                }
                 return;
             }
             UpdateSelectionPanel();
