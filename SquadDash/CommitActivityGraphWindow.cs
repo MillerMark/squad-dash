@@ -78,6 +78,37 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private DateTimeOffset EffectiveEnd =>
         new DateTimeOffset(_endDate.ToDateTime(_endTime), DateTimeOffset.Now.Offset);
 
+    // ── Active range for summaries ────────────────────────────────────────────
+    // When a selection exists, the active range is the selection.
+    // When there is no selection, the entire visible range is the active range.
+    private DateTimeOffset ActiveRangeStart
+    {
+        get
+        {
+            if (_canvas.HasSelection)
+            {
+                var a = CanvasXToDateTime(_canvas.SelectionXMin);
+                var b = CanvasXToDateTime(_canvas.SelectionXMax);
+                if (a.HasValue && b.HasValue) return a.Value < b.Value ? a.Value : b.Value;
+            }
+            return EffectiveStart;
+        }
+    }
+
+    private DateTimeOffset ActiveRangeEnd
+    {
+        get
+        {
+            if (_canvas.HasSelection)
+            {
+                var a = CanvasXToDateTime(_canvas.SelectionXMin);
+                var b = CanvasXToDateTime(_canvas.SelectionXMax);
+                if (a.HasValue && b.HasValue) return a.Value < b.Value ? b.Value : a.Value;
+            }
+            return EffectiveEnd;
+        }
+    }
+
     // ── UI ────────────────────────────────────────────────────────────────────
     private readonly CommitActivityCanvas _canvas;
     private readonly RangeSliderControl   _rangeSlider;
@@ -887,14 +918,25 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             return;
         }
 
-        int totalCommits = rows.Sum(r => r.CommitsByDay.Values.Sum(l => l.Count));
+        // Use the active range: selection if one exists, full view range otherwise.
+        var rangeStart = ActiveRangeStart;
+        var rangeEnd   = ActiveRangeEnd;
+
+        // Count only commits within the active range.
+        int totalCommits = rows.Sum(r => r.CommitsByDay
+            .Where(kvp => kvp.Key >= DateOnly.FromDateTime(rangeStart.LocalDateTime)
+                       && kvp.Key <= DateOnly.FromDateTime(rangeEnd.LocalDateTime))
+            .Sum(kvp => kvp.Value.Count));
         int featureCount = rows.Count;
 
-        var startStr = EffectiveStart.LocalDateTime.ToString("MMM d");
-        var endStr   = EffectiveEnd.LocalDateTime.ToString("MMM d, yyyy");
+        var startStr = rangeStart.LocalDateTime.ToString("MMM d");
+        var endStr   = rangeEnd.LocalDateTime.ToString("MMM d, yyyy");
 
         var breakdown = rows
-            .Select(r => (r.DisplayName, Count: r.CommitsByDay.Values.Sum(l => l.Count)))
+            .Select(r => (r.DisplayName, Count: r.CommitsByDay
+                .Where(kvp => kvp.Key >= DateOnly.FromDateTime(rangeStart.LocalDateTime)
+                           && kvp.Key <= DateOnly.FromDateTime(rangeEnd.LocalDateTime))
+                .Sum(kvp => kvp.Value.Count)))
             .Where(x => x.Count > 0)
             .OrderByDescending(x => x.Count)
             .Take(6)
