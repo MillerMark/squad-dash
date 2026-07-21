@@ -1252,7 +1252,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         {
             List<(string sha, DateTimeOffset time)>? diskCommits = null;
             if (cachePath is not null)
+            {
+                SquadDashTrace.Write("GitLogCache", $"Checking disk cache: {cachePath} for {startDate}–{endDate}");
                 diskCommits = await TryLoadFromDiskCacheAsync(cachePath, startDate, endDate).ConfigureAwait(false);
+                if (diskCommits is not null)
+                    SquadDashTrace.Write("GitLogCache", $"Disk cache hit: {diskCommits.Count} commits");
+                else
+                    SquadDashTrace.Write("GitLogCache", "Disk cache miss");
+            }
 
             if (diskCommits is not null)
             {
@@ -1264,6 +1271,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 {
                     try
                     {
+                        SquadDashTrace.Write("GitLogCache", "Background refresh: running git log");
                         var freshCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
 
                         var cachedShas = new HashSet<string>(diskCommits.Select(c => c.sha), StringComparer.OrdinalIgnoreCase);
@@ -1271,6 +1279,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
                         if (!cachedShas.SetEquals(freshShas))
                         {
+                            SquadDashTrace.Write("GitLogCache", $"Background refresh: data changed ({cachedShas.Count} cached → {freshShas.Count} fresh), updating");
                             s_gitLogCache[cacheKey] = freshCommits;
                             if (cachePath is not null)
                                 await SaveToDiskCacheAsync(cachePath, startDate, endDate, freshCommits).ConfigureAwait(false);
@@ -1278,19 +1287,34 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                             if (!ct.IsCancellationRequested)
                                 await Dispatcher.InvokeAsync(StartLoadingData);
                         }
+                        else
+                        {
+                            SquadDashTrace.Write("GitLogCache", $"Background refresh: no change ({freshShas.Count} commits)");
+                        }
                     }
                     catch (OperationCanceledException) { /* expected */ }
-                    catch { /* ignore all other errors in background refresh */ }
+                    catch (Exception ex) { SquadDashTrace.Write("GitLogCache", $"Background refresh error: {ex.Message}"); }
                 }, ct);
             }
             else
             {
-                // No disk cache — fetch fresh from git.
+                // No disk cache — fetch fresh from git, then await the save so it completes
+                // before the process can exit (fire-and-forget would race with app shutdown).
+                SquadDashTrace.Write("GitLogCache", "Fetching from git log");
                 gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+                SquadDashTrace.Write("GitLogCache", $"git log returned {gitCommits.Count} commits");
                 s_gitLogCache.TryAdd(cacheKey, gitCommits);
                 if (cachePath is not null)
-                    _ = SaveToDiskCacheAsync(cachePath, startDate, endDate, gitCommits);
+                {
+                    SquadDashTrace.Write("GitLogCache", $"Saving {gitCommits.Count} commits to disk: {cachePath}");
+                    await SaveToDiskCacheAsync(cachePath, startDate, endDate, gitCommits).ConfigureAwait(false);
+                    SquadDashTrace.Write("GitLogCache", "Disk save complete");
+                }
             }
+        }
+        else
+        {
+            SquadDashTrace.Write("GitLogCache", $"In-memory cache hit: {gitCommits.Count} commits for {startDate}–{endDate}");
         }
 
         return gitCommits
@@ -1320,18 +1344,28 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         try
         {
-            if (!File.Exists(cachePath)) return null;
+            if (!File.Exists(cachePath))
+            {
+                SquadDashTrace.Write("GitLogCache", $"Cache file not found: {cachePath}");
+                return null;
+            }
             await using var fs    = File.OpenRead(cachePath);
             var             cache = await JsonSerializer.DeserializeAsync<GitLogDiskCache>(fs, s_jsonOptions).ConfigureAwait(false);
-            if (cache is null) return null;
+            if (cache is null) { SquadDashTrace.Write("GitLogCache", "Cache file deserialized to null"); return null; }
             var startStr = start.ToString("yyyy-MM-dd");
             var endStr   = end.ToString("yyyy-MM-dd");
             var range    = cache.Ranges.FirstOrDefault(r => r.Start == startStr && r.End == endStr);
-            if (range is null) return null;
+            if (range is null)
+            {
+                var available = string.Join(", ", cache.Ranges.Select(r => $"{r.Start}–{r.End}"));
+                SquadDashTrace.Write("GitLogCache", $"No range match for {startStr}–{endStr}. Available: [{available}]");
+                return null;
+            }
             return range.Commits.Select(c => (c.Sha, c.Time)).ToList();
         }
-        catch
+        catch (Exception ex)
         {
+            SquadDashTrace.Write("GitLogCache", $"TryLoadFromDiskCache error: {ex.Message}");
             return null;
         }
     }
@@ -1374,7 +1408,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             await using var wfs = File.Create(cachePath);
             await JsonSerializer.SerializeAsync(wfs, cache, s_jsonOptions).ConfigureAwait(false);
         }
-        catch { /* ignore — disk cache is best-effort */ }
+        catch (Exception ex) { SquadDashTrace.Write("GitLogCache", $"SaveToDiskCache error: {ex.Message}"); /* ignore — disk cache is best-effort */ }
     }
 
     private async Task<List<(string sha, DateTimeOffset time)>> RunGitLogAsync(
