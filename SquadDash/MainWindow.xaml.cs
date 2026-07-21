@@ -15089,8 +15089,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
         {
             // arg formats:
-            //   "ElementName"              — single element highlight (original behaviour)
-            //   "FirstElement-LastElement" — range highlight: draws one rect spanning both elements
+            //   "ElementName"                     — single element highlight (original behaviour)
+            //   "FirstElement-LastElement"         — range highlight: draws one rect spanning both elements
+            //   "TextBoxName:Selection+offsetPx"   — selection/caret highlight on a TextBox
             //
             // Colors: dark theme → light red, light theme → dark red.
 
@@ -15196,6 +15197,104 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var parentWinRange = Window.GetWindow(el1);
                 if (parentWinRange is not null && _tourHighlightTrackedWindows.Add(parentWinRange))
                     parentWinRange.LocationChanged += OnTourHighlightWindowMoved;
+                return;
+            }
+
+            // ── TextBox selection/caret highlight: "TextBoxName:Selection+offsetPx" ──
+            const string selectionTag = ":Selection+";
+            int selTagIdx = arg.IndexOf(selectionTag, StringComparison.OrdinalIgnoreCase);
+            if (selTagIdx > 0)
+            {
+                var textBoxName = arg[..selTagIdx].Trim();
+                var offsetStr   = arg[(selTagIdx + selectionTag.Length)..].Trim();
+                if (!int.TryParse(offsetStr, out int offsetPx)) offsetPx = 0;
+
+                if (ResolveTourHighlightElement(textBoxName) is not TextBox textBox) return;
+
+                await Task.Delay(80);
+
+                bool tbRendered = textBox.IsVisible
+                               || (textBox.ActualWidth > 0 && textBox.ActualHeight > 0
+                                   && PresentationSource.FromVisual(textBox) is not null);
+                if (!tbRendered) return;
+
+                var isDarkSel = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
+                var rectColorSel = isDarkSel
+                    ? Color.FromRgb(0xFF, 0xA0, 0xA0)
+                    : Color.FromRgb(0x8B, 0x00, 0x00);
+
+                var selRectShape = new System.Windows.Shapes.Rectangle
+                {
+                    Stroke           = new SolidColorBrush(Color.FromArgb(128, rectColorSel.R, rectColorSel.G, rectColorSel.B)),
+                    StrokeThickness  = 2.5,
+                    Fill             = Brushes.Transparent,
+                    IsHitTestVisible = false,
+                    Margin           = new Thickness(1),
+                    RadiusX          = 3,
+                    RadiusY          = 3,
+                };
+                var selOverlay = new Window
+                {
+                    Owner                 = Window.GetWindow(textBox) ?? this,
+                    WindowStyle           = WindowStyle.None,
+                    ResizeMode            = ResizeMode.NoResize,
+                    AllowsTransparency    = true,
+                    Background            = Brushes.Transparent,
+                    Topmost               = true,
+                    ShowInTaskbar         = false,
+                    ShowActivated         = false,
+                    Focusable             = false,
+                    IsHitTestVisible      = false,
+                    Opacity               = 0,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Width                 = 1,
+                    Height                = 1,
+                    Content               = selRectShape,
+                };
+
+                void RepositionSelectionTarget()
+                {
+                    try
+                    {
+                        Point sTL, sBR;
+                        if (textBox.SelectionLength > 0)
+                        {
+                            var startR = textBox.GetRectFromCharacterIndex(textBox.SelectionStart);
+                            var endR   = textBox.GetRectFromCharacterIndex(textBox.SelectionStart + textBox.SelectionLength - 1);
+                            sTL = textBox.PointToScreen(new Point(startR.Left, startR.Top));
+                            sBR = textBox.PointToScreen(new Point(endR.Right, endR.Bottom));
+                        }
+                        else
+                        {
+                            var caretR = textBox.GetRectFromCharacterIndex(textBox.CaretIndex);
+                            sTL = textBox.PointToScreen(new Point(caretR.Left, caretR.Top));
+                            sBR = textBox.PointToScreen(new Point(caretR.Right, caretR.Bottom));
+                        }
+                        PositionTourHighlightOverlayAtScreenRect(textBox, selOverlay,
+                            sTL.X - offsetPx, sTL.Y - offsetPx,
+                            sBR.X + offsetPx, sBR.Y + offsetPx);
+                    }
+                    catch { }
+                }
+
+                _tourHighlightOverlays.Add((textBox, selOverlay, RepositionSelectionTarget));
+                selOverlay.Show();
+                RepositionSelectionTarget();
+                selOverlay.Opacity = 1;
+                selOverlay.DpiChanged += (_, _) =>
+                    _ = Dispatcher.InvokeAsync(RepositionSelectionTarget, DispatcherPriority.Loaded);
+
+                if (_tourHighlightZTimer is null)
+                {
+                    _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                    _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
+                    _tourHighlightZTimer.Start();
+                }
+
+                textBox.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
+                var parentWinSel = Window.GetWindow(textBox);
+                if (parentWinSel is not null && _tourHighlightTrackedWindows.Add(parentWinSel))
+                    parentWinSel.LocationChanged += OnTourHighlightWindowMoved;
                 return;
             }
 
