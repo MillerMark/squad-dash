@@ -155,7 +155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
-    private readonly List<(FrameworkElement El, Window Overlay)> _tourHighlightOverlays = new();
+    private readonly List<(FrameworkElement El, Window Overlay, Action Reposition)> _tourHighlightOverlays = new();
     private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
     private DispatcherTimer? _tourHighlightZTimer;
     private readonly List<MenuItem> _tourKeptOpenMenuItems = new();
@@ -14315,10 +14315,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _tourHighlightZTimer?.Stop();
         _tourHighlightZTimer = null;
-        foreach (var (_, overlay) in _tourHighlightOverlays)
+        foreach (var (_, overlay, _) in _tourHighlightOverlays)
             overlay.Close();
         // Unsubscribe visibility handlers before clearing the list
-        foreach (var (el, _) in _tourHighlightOverlays)
+        foreach (var (el, _, _) in _tourHighlightOverlays)
             el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
         _tourHighlightOverlays.Clear();
         foreach (var w in _tourHighlightTrackedWindows)
@@ -14346,7 +14346,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
             var toRemove = _tourHighlightOverlays.Where(r => ReferenceEquals(r.El, el)).ToList();
-            foreach (var (_, overlay) in toRemove)
+            foreach (var (_, overlay, _) in toRemove)
                 overlay.Close();
             _tourHighlightOverlays.RemoveAll(r => ReferenceEquals(r.El, el));
 
@@ -14363,8 +14363,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void RefreshTourHighlightRects()
     {
-        foreach (var (el, overlay) in _tourHighlightOverlays)
-            PositionTourHighlightOverlay(el, overlay);
+        foreach (var (_, _, reposition) in _tourHighlightOverlays)
+            reposition();
     }
 
     private void ReassertTourHighlightOverlays()
@@ -14374,7 +14374,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_tourKeptOpenIntelliSenseTrigger is not null && !IntelliSensePopup.IsOpen)
             RecoverKeptOpenTourIntelliSense();
         RefreshTourHighlightRects();
-        foreach (var (_, overlay) in _tourHighlightOverlays)
+        foreach (var (_, overlay, _) in _tourHighlightOverlays)
             BringHighlightOverlayToFront(overlay);
     }
 
@@ -15161,15 +15161,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     Content               = rectShape,
                 };
                 // Anchor tracking to el1 for visibility and location events.
-                _tourHighlightOverlays.Add((el1, rangeOverlay));
+                // Reposition action re-derives coords from el1/el2 on every call so it stays
+                // correct after window moves, DPI changes, and timer re-asserts.
+                void RepositionRange()
+                {
+                    try
+                    {
+                        var rtl1 = el1.PointToScreen(new Point(0, 0));
+                        var rbr1 = el1.PointToScreen(new Point(el1.ActualWidth, el1.ActualHeight));
+                        var rtl2 = el2.PointToScreen(new Point(0, 0));
+                        var rbr2 = el2.PointToScreen(new Point(el2.ActualWidth, el2.ActualHeight));
+                        PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay,
+                            Math.Min(rtl1.X, rtl2.X), rtl1.Y,
+                            Math.Max(rbr1.X, rbr2.X), rbr2.Y);
+                    }
+                    catch { }
+                }
+                _tourHighlightOverlays.Add((el1, rangeOverlay, RepositionRange));
                 rangeOverlay.Show();
-                PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay, unionLeft, unionTop, unionRight, unionBottom);
+                RepositionRange();
                 rangeOverlay.Opacity = 1;
                 // Re-position on DPI change.
                 rangeOverlay.DpiChanged += (_, _) =>
-                    _ = Dispatcher.InvokeAsync(() =>
-                        PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay, unionLeft, unionTop, unionRight, unionBottom),
-                        DispatcherPriority.Loaded);
+                    _ = Dispatcher.InvokeAsync(RepositionRange, DispatcherPriority.Loaded);
 
                 if (_tourHighlightZTimer is null)
                 {
@@ -15231,7 +15245,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Height                = Math.Max(1, el.ActualHeight + 9),
                 Content               = rect,
             };
-            _tourHighlightOverlays.Add((el, overlay));
+            _tourHighlightOverlays.Add((el, overlay, () => PositionTourHighlightOverlay(el, overlay)));
             overlay.Show();
             PositionTourHighlightOverlay(el, overlay);
             overlay.Opacity = 1;
@@ -15277,7 +15291,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write(TraceCategory.Callouts, "[HighlightDiag] overlay not created yet.");
                 return;
             }
-            var (el, overlay) = _tourHighlightOverlays[0];
+            var (el, overlay, _) = _tourHighlightOverlays[0];
             try
             {
                 var elTL = el.PointToScreen(new Point(0, 0));
