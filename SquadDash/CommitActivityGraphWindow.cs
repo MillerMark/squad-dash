@@ -2792,7 +2792,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
                 var label = cur.LocalDateTime.ToString("h:mm tt");
                 var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY - ft.Baseline - 2));
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY + 8));
             }
         }
         else
@@ -2811,7 +2811,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
                 var label = cursor.ToString("MMM d");
                 var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY - ft.Baseline - 2));
+                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY + 8));
 
                 cursor = cursor.AddDays(intervalDays);
             }
@@ -2845,24 +2845,21 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             if (gap < minGap) minGap = gap;
         }
 
-        // Same-row labels are 2S candidates apart; require spacing ≥ maxLabelWidth + 6.
+        // All labels go below the graph; require spacing ≥ maxLabelWidth + 6.
         int stepS = 1;
         if (candidates.Count > 1 && minGap > 0)
         {
-            stepS = (int)Math.Ceiling((maxLabelWidth + 6.0) / (2.0 * minGap));
+            stepS = (int)Math.Ceiling((maxLabelWidth + 6.0) / minGap);
             stepS = Math.Max(1, Math.Min(stepS, candidates.Count));
         }
 
-        int drawnCount = 0;
         for (int ci = 0; ci < candidates.Count; ci++)
         {
             if (ci % stepS != 0) continue;
             var (gx, ft) = candidates[ci];
-            bool topRow = drawnCount % 2 == 0;
-            double y = topRow ? -ft.Baseline - 4 : gridHeight + 4;
+            double y = gridHeight + 8;
             double x = Math.Max(LabelColumnWidth + 2, Math.Min(gx - ft.Width / 2.0, ActualWidth - ft.Width - 2));
             dc.DrawText(ft, new Point(x, y));
-            drawnCount++;
         }
     }
 
