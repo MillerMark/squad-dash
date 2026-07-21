@@ -90,6 +90,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private bool   _isSelecting;
     private double _selectionDragStartX;
 
+    // ── View summary (no-selection state) ────────────────────────────────────
+    private TextBlock?              _viewSummaryText;
+    private List<CommitActivityRow>? _displayRows;
+
     // ── Selection analysis panel ───────────────────────────────────────────────
     private Border?         _selectionPanel;
     private GridSplitter?   _selectionSplitter;
@@ -284,12 +288,24 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         Grid.SetRow(_scrollViewer,      1);
         Grid.SetRow(_selectionSplitter, 2);
         Grid.SetRow(_selectionPanel,    3);
+        _viewSummaryText = new TextBlock
+        {
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Margin              = new Thickness(8, 0, 8, 0),
+            TextTrimming        = TextTrimming.CharacterEllipsis,
+        };
+        _viewSummaryText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _viewSummaryText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        Grid.SetRow(_viewSummaryText, 0);
+
         canvasGrid.Children.Add(filterWidget);
+        canvasGrid.Children.Add(_viewSummaryText);
         canvasGrid.Children.Add(_scrollViewer);
         canvasGrid.Children.Add(_selectionSplitter);
         canvasGrid.Children.Add(_selectionPanel);
 
-        var layout = new DockPanel { LastChildFill = true };
+        var layout = new DockPanel{ LastChildFill = true };
         DockPanel.SetDock(topBar, Dock.Top);
         layout.Children.Add(topBar);
         layout.Children.Add(canvasGrid);
@@ -731,8 +747,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         if (!_canvas.HasSelection)
         {
-            _selectionPanel.Visibility   = Visibility.Collapsed;
+            _selectionPanel.Visibility     = Visibility.Collapsed;
             _selectionSplitter!.Visibility = Visibility.Collapsed;
+            if (_viewSummaryText is not null) _viewSummaryText.Visibility = Visibility.Visible;
             return;
         }
 
@@ -740,8 +757,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         var rangeEndDt   = CanvasXToDateTime(_canvas.SelectionXMax);
         if (rangeStartDt is null || rangeEndDt is null)
         {
-            _selectionPanel.Visibility   = Visibility.Collapsed;
+            _selectionPanel.Visibility     = Visibility.Collapsed;
             _selectionSplitter!.Visibility = Visibility.Collapsed;
+            if (_viewSummaryText is not null) _viewSummaryText.Visibility = Visibility.Visible;
             return;
         }
 
@@ -831,8 +849,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 _selectionCommitListPanel.Children.Add(BuildSelectionCommitRow(commit, displayName));
         }
 
-        _selectionPanel.Visibility   = Visibility.Visible;
+        _selectionPanel.Visibility     = Visibility.Visible;
         _selectionSplitter!.Visibility = Visibility.Visible;
+        if (_viewSummaryText is not null) _viewSummaryText.Visibility = Visibility.Collapsed;
     }
 
     private static string FormatSelectionDuration(TimeSpan ts)
@@ -842,6 +861,44 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         if (ts.TotalMinutes >= 1)
             return $"{(int)ts.TotalMinutes}m";
         return $"{(int)ts.TotalSeconds}s";
+    }
+
+    private void UpdateViewSummary()
+    {
+        if (_viewSummaryText is null) return;
+
+        var rows = _displayRows;
+        if (rows is null || rows.Count == 0)
+        {
+            _viewSummaryText.Text = string.Empty;
+            return;
+        }
+
+        int totalCommits = rows.Sum(r => r.CommitsByDay.Values.Sum(l => l.Count));
+        int featureCount = rows.Count;
+
+        var startStr = EffectiveStart.LocalDateTime.ToString("MMM d");
+        var endStr   = EffectiveEnd.LocalDateTime.ToString("MMM d, yyyy");
+
+        var breakdown = rows
+            .Select(r => (r.DisplayName, Count: r.CommitsByDay.Values.Sum(l => l.Count)))
+            .Where(x => x.Count > 0)
+            .OrderByDescending(x => x.Count)
+            .Take(6)
+            .ToList();
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{totalCommits} commit{(totalCommits == 1 ? "" : "s")}  ·  ");
+        sb.Append($"{featureCount} group{(featureCount == 1 ? "" : "s")}  ·  ");
+        sb.Append($"{startStr} – {endStr}");
+
+        if (breakdown.Count > 0)
+        {
+            sb.Append("  ·  ");
+            sb.Append(string.Join(", ", breakdown.Select(x => $"{x.DisplayName}: {x.Count}")));
+        }
+
+        _viewSummaryText.Text = sb.ToString();
     }
 
     private static FrameworkElement BuildSelectionCommitRow(CommitStatResult commit, string displayName)
@@ -1295,6 +1352,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 .Max();
             _featureFilterBox.MaxWidth = Math.Max(80, Math.Min(maxNameWidth + 16, CommitActivityCanvas.LabelColumnWidth));
         }
+
+        _displayRows = displayRows;
+        UpdateViewSummary();
     }
 
     private Panel BuildFeatureFilterWidget()
