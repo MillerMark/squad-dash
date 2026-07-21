@@ -16859,6 +16859,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             RestoreLayoutSlot2MenuItem.IsEnabled = _layoutPresetManager.HasPreset(1);
         if (RestoreLayoutSlot3MenuItem is not null)
             RestoreLayoutSlot3MenuItem.IsEnabled = _layoutPresetManager.HasPreset(2);
+
+        // In full-screen mode these two items reflect unchecked regardless of backing state.
+        if (FocusModeMenuItem is not null)
+            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
+        if (ShowAgentAvatarsMenuItem is not null)
+            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars && !_transcriptFullScreenEnabled;
     }
 
     private void PanelsMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
@@ -20632,10 +20638,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             FullScreenTranscriptMenuItem.IsChecked = _transcriptFullScreenEnabled;
 
         if (FocusModeMenuItem is not null)
-            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled;
+            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
 
         if (ShowAgentAvatarsMenuItem is not null)
-            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars;
+            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars && !_transcriptFullScreenEnabled;
 
         if (ToolsRepoDocumentationMenuItem is not null)
             ToolsRepoDocumentationMenuItem.IsChecked = _documentationModeEnabled;
