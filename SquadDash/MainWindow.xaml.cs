@@ -16868,10 +16868,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             RestoreLayoutSlot3MenuItem.IsEnabled = _layoutPresetManager.HasPreset(2);
 
         // In full-screen mode these two items reflect unchecked regardless of backing state.
+        // Avatars also show unchecked when panels are hidden (focus mode on) since they aren't visible.
         if (FocusModeMenuItem is not null)
             FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
         if (ShowAgentAvatarsMenuItem is not null)
-            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars && !_transcriptFullScreenEnabled;
+            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars
+                                                 && !_transcriptFullScreenEnabled
+                                                 && !_agentsPanelFocusModeEnabled;
     }
 
     private void PanelsMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
@@ -20666,7 +20669,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
 
         if (ShowAgentAvatarsMenuItem is not null)
-            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars && !_transcriptFullScreenEnabled;
+            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars
+                                                 && !_transcriptFullScreenEnabled
+                                                 && !_agentsPanelFocusModeEnabled;
 
         if (ToolsRepoDocumentationMenuItem is not null)
             ToolsRepoDocumentationMenuItem.IsChecked = _documentationModeEnabled;
