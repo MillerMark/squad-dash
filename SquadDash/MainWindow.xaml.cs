@@ -13868,14 +13868,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (key != Key.F12 && key != Key.F11 && key != Key.F6 && key != Key.F5) return;
 
-            // F6 and F12 require no modifiers; Ctrl+F11 = Agent Avatars; Ctrl+Shift+F11 = Theme Reveal
+            // F6 and F12 require no modifiers; F11 variants handle full-screen and other toggles.
             bool isCtrl      = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
             bool isShift     = (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift;
             bool noMods      = Keyboard.Modifiers == ModifierKeys.None;
             bool isCtrlOnly  = isCtrl && !isShift;
             bool isCtrlShift = isCtrl && isShift;
 
-            if (key == Key.F11 && noMods) return;  // bare F11 belongs to Full Screen Transcript
+            // Bare F11 is handled here (not deferred to Window_PreviewKeyDown) so it works
+            // even when a menu popup has focus and Window_PreviewKeyDown never fires.
+            if (key == Key.F11 && noMods)
+            {
+                SetTranscriptFullScreen(!_transcriptFullScreenEnabled);
+                keyArgs.Handled = true;
+                return;
+            }
             if (key != Key.F11 && !noMods) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
