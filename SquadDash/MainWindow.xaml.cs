@@ -13914,7 +13914,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ShowAgentAvatarsMenuItem.IsChecked = !ShowAgentAvatarsMenuItem.IsChecked;
                 ShowAgentAvatarsMenuItem_Click(this, new RoutedEventArgs());
             }
-            else
+            else if (key == Key.F12)
             {
                 ToggleUiReveal(target);
             }
