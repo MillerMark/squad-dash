@@ -14459,30 +14459,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         bool trace = (DateTime.UtcNow - _tourClipLastTrace).TotalSeconds >= 2;
         if (trace) _tourClipLastTrace = DateTime.UtcNow;
 
-        if (el is not MenuItem mi)
-        {
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: el is {el?.GetType().Name ?? "null"}, not MenuItem — no clip");
-            return false;
-        }
-        if (!mi.IsSubmenuOpen)
-        {
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: {mi.Name} IsSubmenuOpen=false — no clip");
-            return false;
-        }
+        if (el is not MenuItem mi || !mi.IsSubmenuOpen) return false;
         try
         {
             // Use FindTourMenuPopup which also tries "SubMenuPopup" and visual-tree fallback.
             var popup = FindTourMenuPopup(mi);
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: {mi.Name} IsSubmenuOpen=true; popup={popup?.GetType().Name ?? "null"}; IsOpen={popup?.IsOpen}");
-            if (popup is not { IsOpen: true }) return false;
+            if (popup is not { IsOpen: true })
+            {
+                if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                    $"HighlightClip: {mi.Name} IsSubmenuOpen=true but popup not found/open (popup={popup?.GetType().Name ?? "null"})");
+                return false;
+            }
 
             var child = popup.Child as FrameworkElement;
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: popup.Child={child?.GetType().Name ?? "null"}; W={child?.ActualWidth}; H={child?.ActualHeight}");
-            if (child is null || child.ActualWidth == 0 || child.ActualHeight == 0) return false;
+            if (child is null || child.ActualWidth == 0 || child.ActualHeight == 0)
+            {
+                if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
+                    $"HighlightClip: {mi.Name} popup open but child not rendered (child={child?.GetType().Name ?? "null"} W={child?.ActualWidth} H={child?.ActualHeight})");
+                return false;
+            }
 
             var tl = child.PointToScreen(new Point(0, 0));
             var br = child.PointToScreen(new Point(child.ActualWidth, child.ActualHeight));
@@ -14490,14 +14485,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             popupTop    = (int)Math.Floor(tl.Y);
             popupRight  = (int)Math.Ceiling(br.X);
             popupBottom = (int)Math.Ceiling(br.Y);
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: popup screen=({popupLeft},{popupTop})→({popupRight},{popupBottom})");
             return true;
         }
         catch (Exception ex)
         {
             if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: exception: {ex.Message}");
+                $"HighlightClip: exception for {mi?.Name}: {ex.Message}");
             return false;
         }
     }
