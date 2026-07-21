@@ -17189,6 +17189,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            if (_transcriptFullScreenEnabled)
+            {
+                // In full-screen: just exit. If panels were also hidden (focus mode on),
+                // turn focus mode off so panels become visible. Don't toggle if already off.
+                SetTranscriptFullScreen(false);
+                if (_agentsPanelFocusModeEnabled)
+                    SetAgentsPanelFocusMode(false);
+                return;
+            }
             ToggleAgentsPanelFocusMode();
         }
         catch (Exception ex)
@@ -17201,10 +17210,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            bool show = ShowAgentAvatarsMenuItem.IsChecked;
-            // Exit full-screen when turning avatars ON so they become visible.
-            if (show && _transcriptFullScreenEnabled)
+            if (_transcriptFullScreenEnabled)
+            {
+                // In full-screen: just exit. If avatars were off, turn them on so they
+                // become visible. Don't toggle if already on (would hide them).
                 SetTranscriptFullScreen(false);
+                if (!_settingsSnapshot.ShowAgentAvatars)
+                {
+                    AgentStatusCard.AvatarsSettingEnabled = true;
+                    _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(true);
+                }
+                return;
+            }
+            bool show = ShowAgentAvatarsMenuItem.IsChecked;
             AgentStatusCard.AvatarsSettingEnabled = show;
             _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(show);
         }
