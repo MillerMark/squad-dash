@@ -489,7 +489,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 if (otherGroups is null || otherGroups.Count == 0) return;
 
                 var menu      = new ContextMenu();
-                var mergeItem = new MenuItem { Header = "Merge with ▶" };
+                var mergeItem = new MenuItem { Header = "Merge with  ▶" };
                 foreach (var targetGroup in otherGroups)
                 {
                     var target    = targetGroup; // capture for closure
