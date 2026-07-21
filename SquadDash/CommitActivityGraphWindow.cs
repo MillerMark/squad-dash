@@ -89,6 +89,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     // ── Selection ─────────────────────────────────────────────────────────────
     private bool   _isSelecting;
     private double _selectionDragStartX;
+    private bool   _clickWasOutsideSelection;
 
     // ── Selection analysis panel ───────────────────────────────────────────────
     private Border?         _selectionPanel;
@@ -407,6 +408,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             var pos = e.GetPosition(_canvas);
             if (pos.X < CommitActivityCanvas.LabelColumnWidth) return;
             _selectionDragStartX = pos.X;
+            _clickWasOutsideSelection = _canvas.HasSelection &&
+                                        (pos.X < _canvas.SelectionXMin || pos.X > _canvas.SelectionXMax);
             _canvas.SetSelection(pos.X, pos.X);
             _scrollViewer.CaptureMouse();
             _isSelecting = true;
@@ -435,6 +438,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (!_isSelecting) return;
             _isSelecting = false;
             _scrollViewer.ReleaseMouseCapture();
+            var pos = e.GetPosition(_canvas);
+            if (_clickWasOutsideSelection && Math.Abs(pos.X - _selectionDragStartX) < 4)
+            {
+                _canvas.ClearSelection();
+                _clickWasOutsideSelection = false;
+                UpdateSelectionPanel();
+                return;
+            }
+            _clickWasOutsideSelection = false;
             UpdateSelectionPanel();
         };
 
