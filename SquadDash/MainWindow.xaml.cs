@@ -13883,6 +13883,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 keyArgs.Handled = true;
                 return;
             }
+            // Shift+F11 also handled here for the same reason (menu popup focus).
+            if (key == Key.F11 && isShift && !isCtrl)
+            {
+                ToggleAgentsPanelFocusMode();
+                keyArgs.Handled = true;
+                return;
+            }
             if (key != Key.F11 && !noMods) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
