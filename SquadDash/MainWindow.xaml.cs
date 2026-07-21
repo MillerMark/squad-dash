@@ -15580,6 +15580,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncQueuePanel();
         });
 
+        _tourCommandRegistry.RegisterParameterized("AttachImageAsset", arg =>
+        {
+            // Resolves relative to the application directory, not the workspace.
+            // Format: "relative/path/to/image.png" or "label|relative/path/to/image.png"
+            var sep   = arg.IndexOf('|');
+            var label = sep >= 0 ? arg[..sep].Trim() : "Image";
+            var rel   = (sep >= 0 ? arg[(sep + 1)..] : arg).Trim();
+            var path  = System.IO.Path.IsPathRooted(rel)
+                ? rel
+                : System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, rel));
+            if (!File.Exists(path))
+            {
+                SquadDashTrace.Write("Tour", $"AttachImageAsset: file not found — {path}");
+                return;
+            }
+            var list = GetOrCreateFollowUpList("");
+            if (list.Any(a => a.ImagePath == path)) return;
+            list.Add(new FollowUpAttachment("", label, null, ImagePath: path));
+            UpdateFollowUpStrip();
+            SyncQueuePanel();
+        });
+
         _tourCommandRegistry.Register("ClearAttachments", () =>
         {
             if (_followUpAttachments.TryGetValue("", out var list))
