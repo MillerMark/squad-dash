@@ -15537,10 +15537,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterized("AttachText", arg =>
         {
-            var text = arg.Replace(@"\n", "\n");
-            var list = GetOrCreateFollowUpList("");
+            // Format: "content" or "label|content"
+            var sep   = arg.IndexOf('|');
+            var label = sep >= 0 ? arg[..sep].Replace(@"\n", "\n") : "Attachment";
+            var text  = (sep >= 0 ? arg[(sep + 1)..] : arg).Replace(@"\n", "\n");
+            var list  = GetOrCreateFollowUpList("");
             if (list.Any(a => a.ContentBlock == text)) return;
-            list.Add(new FollowUpAttachment("", "Attachment", null, ContentBlock: text));
+            list.Add(new FollowUpAttachment("", label, null, ContentBlock: text));
             UpdateFollowUpStrip();
             SyncQueuePanel();
         });
@@ -15549,10 +15552,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // (demo/dummy queue item OR the draft), rather than always targeting the draft.
         _tourCommandRegistry.RegisterParameterized("AttachTextToActive", arg =>
         {
-            var text = arg.Replace(@"\n", "\n");
-            var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+            // Format: "content" or "label|content"
+            var sep   = arg.IndexOf('|');
+            var label = sep >= 0 ? arg[..sep].Replace(@"\n", "\n") : "Attachment";
+            var text  = (sep >= 0 ? arg[(sep + 1)..] : arg).Replace(@"\n", "\n");
+            var list  = GetOrCreateFollowUpList(_activeTabId ?? "");
             if (list.Any(a => a.ContentBlock == text)) return;
-            list.Add(new FollowUpAttachment("", "Attachment", null, ContentBlock: text));
+            list.Add(new FollowUpAttachment("", label, null, ContentBlock: text));
             UpdateFollowUpStrip();
             SyncQueuePanel();
         });
