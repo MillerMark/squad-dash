@@ -15120,10 +15120,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
                 catch { return; }
 
+                // Top is the first element's top; bottom is the last element's bottom.
+                // Width spans both elements horizontally.
                 double unionLeft   = Math.Min(tl1.X, tl2.X);
-                double unionTop    = Math.Min(tl1.Y, tl2.Y);
+                double unionTop    = tl1.Y;
                 double unionRight  = Math.Max(br1.X, br2.X);
-                double unionBottom = Math.Max(br1.Y, br2.Y);
+                double unionBottom = br2.Y;
 
                 var isDarkRange = string.Equals(_activeThemeName, "Dark", StringComparison.OrdinalIgnoreCase);
                 var rectColorRange = isDarkRange
