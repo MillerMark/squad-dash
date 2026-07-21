@@ -35908,7 +35908,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onCategorizeUncategorized: items => EnqueueOrganizeUncategorizedPrompt(items),
                 categorizeRow: ApprovalCategorizeRow,
                 needsApprovalHeader: ApprovalNeedsHeader,
-                emptyStateText: ApprovalEmptyStateText);
+                emptyStateText: ApprovalEmptyStateText,
+                onCategoriesMerged: merges => Dispatcher.Invoke(() => ApplyFeatureCategoryMerges(merges)));
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width

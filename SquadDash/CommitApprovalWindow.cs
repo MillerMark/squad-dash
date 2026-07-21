@@ -22,6 +22,7 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<CommitApprovalItem>?                _addToNotes;
     private readonly Func<IReadOnlyList<string>>?               _getGroups;
     private readonly Action<IReadOnlyList<CommitApprovalItem>>? _onCategorizeUncategorized;
+    private readonly Action<IReadOnlyList<(string Source, string Target)>>? _onCategoriesMerged;
 
     private readonly StackPanel _needsApprovalPanel;
     private readonly StackPanel _approvedPanel;
@@ -72,7 +73,8 @@ internal sealed class CommitApprovalPanel {
         Action<IReadOnlyList<CommitApprovalItem>>? onCategorizeUncategorized = null,
         UIElement?                               categorizeRow = null,
         UIElement?                               needsApprovalHeader = null,
-        UIElement?                               emptyStateText = null) {
+        UIElement?                               emptyStateText = null,
+        Action<IReadOnlyList<(string Source, string Target)>>? onCategoriesMerged = null) {
         _needsApprovalPanel        = needsApprovalPanel;
         _approvedPanel             = approvedPanel;
         _rejectedPanel             = rejectedPanel;
@@ -95,6 +97,7 @@ internal sealed class CommitApprovalPanel {
         _onGroupedViewChanged      = onGroupedViewChanged;
         _getGroups                 = getGroups;
         _onCategorizeUncategorized = onCategorizeUncategorized;
+        _onCategoriesMerged        = onCategoriesMerged;
         _categorizeRow             = categorizeRow;
         _needsApprovalHeader       = needsApprovalHeader;
         _emptyStateText            = emptyStateText;
@@ -197,6 +200,37 @@ internal sealed class CommitApprovalPanel {
                 ctxMenu.Items.Add(categorizeItem);
                 header.ContextMenu = ctxMenu;
                 header.Cursor = Cursors.Hand;
+            } else if (group.Key != "Uncategorized" && _onCategoriesMerged is not null) {
+                var sourceGroup = group.Key;
+                var ctxMenu = MakeMenu();
+                var mergeItem = MakeItem("Merge with  ▶");
+                mergeItem.Items.Add(new MenuItem { Header = "..." }); // placeholder so WPF renders submenu arrow
+                mergeItem.SubmenuOpened += (_, _) => {
+                    mergeItem.Items.Clear();
+                    var allGroups = _mutableItems
+                        .Where(i => !string.IsNullOrEmpty(i.FeatureGroup) &&
+                                    !string.Equals(i.FeatureGroup, sourceGroup, StringComparison.OrdinalIgnoreCase))
+                        .Select(i => i.FeatureGroup!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    foreach (var targetGroup in allGroups) {
+                        var target = targetGroup;
+                        var subItem = MakeItem(target);
+                        subItem.Click += (_, _) => {
+                            var result = MessageBox.Show(
+                                $"Merge \"{sourceGroup}\" into \"{target}\"?\n\nAll commits in \"{sourceGroup}\" will be reassigned to \"{target}\". This cannot be undone.",
+                                "Merge Categories",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+                            if (result != MessageBoxResult.Yes) return;
+                            _onCategoriesMerged([(sourceGroup, target)]);
+                        };
+                        mergeItem.Items.Add(subItem);
+                    }
+                };
+                ctxMenu.Items.Add(mergeItem);
+                header.ContextMenu = ctxMenu;
             }
 
             _needsApprovalPanel.Children.Add(header);
@@ -249,6 +283,40 @@ internal sealed class CommitApprovalPanel {
             groupLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             groupLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             header.Children.Add(groupLabel);
+
+            if (group.Key != "Uncategorized" && _onCategoriesMerged is not null) {
+                var sourceGroup = group.Key;
+                var ctxMenu = MakeMenu();
+                var mergeItem = MakeItem("Merge with  ▶");
+                mergeItem.Items.Add(new MenuItem { Header = "..." }); // placeholder so WPF renders submenu arrow
+                mergeItem.SubmenuOpened += (_, _) => {
+                    mergeItem.Items.Clear();
+                    var allGroups = _mutableItems
+                        .Where(i => !string.IsNullOrEmpty(i.FeatureGroup) &&
+                                    !string.Equals(i.FeatureGroup, sourceGroup, StringComparison.OrdinalIgnoreCase))
+                        .Select(i => i.FeatureGroup!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    foreach (var targetGroup in allGroups) {
+                        var target = targetGroup;
+                        var subItem = MakeItem(target);
+                        subItem.Click += (_, _) => {
+                            var result = MessageBox.Show(
+                                $"Merge \"{sourceGroup}\" into \"{target}\"?\n\nAll commits in \"{sourceGroup}\" will be reassigned to \"{target}\". This cannot be undone.",
+                                "Merge Categories",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+                            if (result != MessageBoxResult.Yes) return;
+                            _onCategoriesMerged([(sourceGroup, target)]);
+                        };
+                        mergeItem.Items.Add(subItem);
+                    }
+                };
+                ctxMenu.Items.Add(mergeItem);
+                header.ContextMenu = ctxMenu;
+            }
+
             _approvedPanel.Children.Add(header);
 
             foreach (var item in group.OrderByDescending(i => i.TurnStartedAt)) {
