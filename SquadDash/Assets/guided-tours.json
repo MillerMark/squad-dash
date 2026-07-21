@@ -271,7 +271,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "CaretPromptText|Numbered bullets are continued when you press Shift\u002BEnter\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
+          "CaretPromptText|Bullets are continued when you add lines with Shift\u002BEnter\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -279,8 +279,8 @@
         "targetOffsetY": 0.6153685840181015
       },
       {
-        "title": "Attachments 1",
-        "markdownText": "You can attach files, text, and images to your prompts.\r\n* **Ctrl**\u002B**Shift**\u002B**V** to attach clipboard **text**\r\n* Copy and paste **images**\r\n* Drag and drop **files**",
+        "title": "Attachments  -- files, text and images.",
+        "markdownText": "Attach files, text, and images to your prompts.\r\n* **Ctrl**\u002B**Shift**\u002B**V** to attach clipboard **text**\r\n* Paste **images**\r\n* Drag and drop **files**",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -293,8 +293,45 @@
         "targetOffsetY": 0.5500522508038566
       },
       {
-        "title": "Attachments 2",
-        "markdownText": "You can also **right-click** and select \u0022**Add to Chat**\u0022 on most items:\r\n* transcript selections\r\n* tasks\r\n* inbox messages\r\n* notes\r\nAnd more.\r\n",
+        "title": "Attachments  -- are here",
+        "markdownText": "Attachments appear here.\r\nYou can click the attachment to see its contents.",
+        "targetControlId": "FollowUpStrip",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a little attachment icon in the transcript rather than many large lines of text.\\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV.",
+          "AttachImageAsset: Screenshot|Assets/GuidedTours/CompletedBadgeRealistic.png"
+        ],
+        "commandsAfter": [
+          "ClearAttachments"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.02197213290460879,
+        "targetOffsetY": 0.15349999999999187
+      },
+      {
+        "title": "Attachments  -- remove",
+        "markdownText": "You can remove an attachment by clicking this **X** button.",
+        "targetControlId": "FollowUpAttachmentDismiss0",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a little attachment icon in the transcript rather than many large lines of text.\\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV."
+        ],
+        "commandsAfter": [
+          "ClearAttachments"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4999999999999999,
+        "targetOffsetY": 0.5470192307692301
+      },
+      {
+        "title": "Attachments - add to chat",
+        "markdownText": "You can also **right-click** and select \u0022**Add to Chat**\u0022 on most items:\r\n* Transcript Selections\r\n* Tasks\r\n* Inbox Selections\r\n* Notes\r\nAnd more.\r\n",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -308,7 +345,7 @@
       },
       {
         "title": "Slash Commands",
-        "markdownText": "You can invoke commands with the slash key (\u0022**/**\u0022) in an empty prompt.",
+        "markdownText": "Invoke **Squad commands** in an **empty prompt** with the slash key (\u0022**/**\u0022).",
         "targetControlId": "IntelliSensePopup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -325,7 +362,7 @@
       },
       {
         "title": "Intellisense",
-        "markdownText": "You can invoke agent name intellisense by pressing the **@** symbol.",
+        "markdownText": "Invoke **agent name** suggestions with the **@** symbol.",
         "targetControlId": "IntelliSensePopup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -341,7 +378,7 @@
       },
       {
         "title": "The Send button.",
-        "markdownText": "Press **Enter** or click this button to send your prompt to Squad.",
+        "markdownText": "Press **Enter** to **send** your prompt to Squad.",
         "targetControlId": "RunButton",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -357,7 +394,7 @@
       },
       {
         "title": "The Queue Tab Strip",
-        "markdownText": "This is the **Queue**.\r\nWhen Squad is busy, new prompts enter this queue.",
+        "markdownText": "This is the **Queue**.\r\nWhen Squad is busy, new prompts enter here.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -374,7 +411,7 @@
       },
       {
         "title": "The Rightmost Tab",
-        "markdownText": "The **rightmost** prompt goes **first** when Squad finishes its turn.\r\nDrag tabs to **reorder**.",
+        "markdownText": "The **rightmost** prompt sends when Squad finishes its turn.\r\nDrag tabs to **reorder**.",
         "targetControlId": "QueueTabStrip[12]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -422,7 +459,7 @@
       },
       {
         "title": "Edit and Pause",
-        "markdownText": "To edit a prompt, click its **tab**. \r\nQueue processing pauses for edits when the **rightmost tab** is **active**.",
+        "markdownText": "To **edit** a prompt, click its **tab**. \r\nQueue processing pauses for edits when the **rightmost tab** is **active**.",
         "targetControlId": "QueueTabStrip[3]",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -476,7 +513,9 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "InjectTranscriptTurn|Can I send you prompts while you are working?|This is the guided tour (so AI responses are simulated).\\nYes\u00B8 you can send prompts even while the team is busy working on earlier prompts."
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
