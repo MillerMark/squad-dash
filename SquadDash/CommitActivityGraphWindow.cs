@@ -58,6 +58,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private CancellationTokenSource?             _cts;
     private readonly DispatcherTimer             _debounceTimer;
 
+    // ── Static git-log cache (survives window close/reopen within same session) ─
+    // Key: (workspacePath, startDate, endDate) → raw SHA+timestamp list from git log.
+    // SHA-level diff stats are separately cached in CommitStatService.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<
+        (string workspace, DateOnly start, DateOnly end),
+        List<(string sha, DateTimeOffset time)>> s_gitLogCache = new();
+
     // ── Cached data for filter-only refreshes ─────────────────────────────────
     private List<CommitActivityRow>?  _cachedRows;
     private List<CommitStatRequest>?  _cachedRequests;
@@ -437,7 +444,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 var dt1 = CanvasXToDateTime(_selectionDragStartX);
                 var dt2 = CanvasXToDateTime(pos.X);
                 _canvas.SetSelectionWithTimes(_selectionDragStartX, pos.X, dt1, dt2);
-                UpdateSelectionPanel();
+                // UpdateSelectionPanel is deferred to MouseUp — only visual rubber-band updates here.
             }
             else if (!_isPanMode && !_isPanning)
             {
@@ -1186,7 +1193,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                      .Concat(existingRequests.Select(r => r.Sha)),
             StringComparer.OrdinalIgnoreCase);
 
-        var gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+        var cacheKey = (_workspaceFolderPath!, startDate, endDate);
+        if (!s_gitLogCache.TryGetValue(cacheKey, out var gitCommits))
+        {
+            gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+            s_gitLogCache.TryAdd(cacheKey, gitCommits);
+        }
 
         return gitCommits
             .Where(c => !existingShas.Contains(c.sha))
