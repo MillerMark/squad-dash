@@ -2985,10 +2985,10 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         dc.Pop(); // end graph-area clip
         dc.Pop(); // end VerticalPadding translate
-        RenderXAxis(dc, subtleBrush, borderBrush);
+        RenderXAxis(dc, borderBrush);
     }
 
-    private void RenderXAxis(DrawingContext dc, Brush textBrush, Brush tickBrush)
+    private void RenderXAxis(DrawingContext dc, Brush tickBrush)
     {
         var axisY = VerticalPadding + _rows.Count * RowHeight;
 
@@ -3000,8 +3000,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         if (_dayCount < 2.0)
         {
-            // Sub-day axis: hour or half-hour ticks with time labels
-            bool halfHourTicks  = (_effectivePixelsPerDay / 48.0) >= 50.0;
+            // Sub-day axis: hour or half-hour ticks only (labels come from DrawAlternatingGridLabels)
+            bool halfHourTicks   = (_effectivePixelsPerDay / 48.0) >= 50.0;
             var  intervalMinutes = halfHourTicks ? 30 : 60;
 
             var startMins    = _viewStart.Hour * 60 + _viewStart.Minute;
@@ -3015,14 +3015,12 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 var x     = LabelColumnWidth + (cur - _viewStart).TotalDays * _effectivePixelsPerDay;
                 var tickY = axisY + 4;
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
-                var label = cur.LocalDateTime.ToString("h:mm tt");
-                var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY + 8));
             }
         }
         else
         {
             // Day/week/month axis — align to multiples of intervalDays from DayNumber epoch
+            // Labels are drawn by DrawAlternatingGridLabels; only tick marks are drawn here.
             var intervalDays = _dayCount <= 90 ? 7 : 30;
             var cursor = _startDate;
             while (cursor.DayNumber % intervalDays != 0)
@@ -3033,10 +3031,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
                 var x     = LabelColumnWidth + DayToX(cursor);
                 var tickY = axisY + 4;
                 dc.DrawLine(new Pen(tickBrush, 1), new Point(x, axisY), new Point(x, tickY));
-
-                var label = cursor.ToString("MMM d");
-                var ft    = MakeText(label, textBrush, FontSizeSmall);
-                dc.DrawText(ft, new Point(x - ft.Width / 2.0, axisY + 8));
 
                 cursor = cursor.AddDays(intervalDays);
             }
