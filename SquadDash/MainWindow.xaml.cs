@@ -17226,6 +17226,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
             bool show = ShowAgentAvatarsMenuItem.IsChecked;
+            // If panels are hidden (focus mode on), the item appeared unchecked regardless of
+            // backing state. Clicking it means "show avatars" → restore panels first, then
+            // ensure avatars are on.
+            if (_agentsPanelFocusModeEnabled)
+            {
+                SetAgentsPanelFocusMode(false);
+                AgentStatusCard.AvatarsSettingEnabled = true;
+                _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(true);
+                return;
+            }
             AgentStatusCard.AvatarsSettingEnabled = show;
             _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(show);
         }
