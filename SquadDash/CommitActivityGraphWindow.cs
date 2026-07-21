@@ -2374,7 +2374,6 @@ internal sealed class CommitActivityCanvas : FrameworkElement
         var palette     = _isDark ? CommitActivityGraphWindow.DarkPalette : CommitActivityGraphWindow.LightPalette;
         var textBrush          = TryFindBrush("LabelText")     ?? Brushes.Black;
         var subtleBrush        = TryFindBrush("SubtleText")    ?? Brushes.Gray;
-        var importantTextBrush = TryFindBrush("ImportantText") ?? Brushes.White;
         var borderBrush        = TryFindBrush("PanelBorder")   ?? Brushes.LightGray;
 
         // Background
@@ -2593,49 +2592,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             dc.DrawLine(linePen, new Point(selXMax, selectionTop), new Point(selXMax, graphHeight));
 
             // ── DateTime labels above selection boundaries ────────────────────
-            if (_selectionStartDateTime.HasValue || _selectionEndDateTime.HasValue)
-            {
-                const double labelY = -VerticalPadding + 2;
-                var startIsMin = (_selectionStartX ?? 0) <= (_selectionEndX ?? 0);
-                var minDt = startIsMin ? _selectionStartDateTime : _selectionEndDateTime;
-                var maxDt = startIsMin ? _selectionEndDateTime   : _selectionStartDateTime;
-
-                if (selXMax - selXMin < 80)
-                {
-                    // Lines are close — show one merged label at the midpoint
-                    var dt = minDt ?? maxDt;
-                    if (dt.HasValue)
-                    {
-                        var ft = MakeText(dt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall);
-                        var lx = (selXMin + selXMax) / 2.0 - ft.Width / 2.0;
-                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ft.Width - 2));
-                        dc.DrawText(ft, new Point(lx, labelY));
-                    }
-                }
-                else
-                {
-                    var ftMin = minDt.HasValue ? MakeText(minDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall) : null;
-                    var ftMax = maxDt.HasValue ? MakeText(maxDt.Value.ToString("MMM d  h:mm tt"), importantTextBrush, FontSizeSmall) : null;
-
-                    // When both labels centered over their endpoints would overlap, anchor them
-                    // outward: start label right-aligns to selXMin, end label left-aligns to selXMax.
-                    bool wouldOverlap = ftMin != null && ftMax != null
-                        && (selXMin + ftMin.Width / 2.0 + 4 > selXMax - ftMax.Width / 2.0);
-
-                    if (ftMin != null)
-                    {
-                        var lx = wouldOverlap ? selXMin - ftMin.Width : selXMin - ftMin.Width / 2.0;
-                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ftMin.Width - 2));
-                        dc.DrawText(ftMin, new Point(lx, labelY));
-                    }
-                    if (ftMax != null)
-                    {
-                        var lx = wouldOverlap ? selXMax : selXMax - ftMax.Width / 2.0;
-                        lx = Math.Max(LabelColumnWidth + 2, Math.Min(lx, ActualWidth - ftMax.Width - 2));
-                        dc.DrawText(ftMax, new Point(lx, labelY));
-                    }
-                }
-            }
+            // (removed — column labels already identify dates; boundary date labels
+            //  were redundant and visually noisy)
         }
 
         for (int i = 0; i < _rows.Count; i++)
