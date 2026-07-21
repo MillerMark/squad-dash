@@ -503,7 +503,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -517,8 +517,8 @@
       },
       {
         "title": "Ctrl\u002BB for Bold",
-        "markdownText": "You can use shortcuts to wrap selections inside the prompt text box.",
-        "targetControlId": "PromptTextBox",
+        "markdownText": "Shortcuts wrap selections here.\r\nPress **Ctrl**\u002B**B** to **bold** important selections.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
@@ -528,27 +528,13 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.11093247588424437,
-        "targetOffsetY": 0.6432803382160294
-      },
-      {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
+        "targetOffsetX": 0.6298076923076922,
+        "targetOffsetY": 0.5261538461538453
       },
       {
         "title": "Quotes",
-        "markdownText": "You can wrap a selection in quotes by pressing the **\u0022** key.",
-        "targetControlId": "PromptTextBox",
+        "markdownText": "The **double quotes** key (**\u0022**) wraps a selection in **quotes**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
@@ -562,10 +548,72 @@
         "targetOffsetY": 0.6153685840181015
       },
       {
-        "title": "Backticks",
-        "markdownText": "You can wrap one or more lines of text in backtick fences by pressing the **\u0060** (backtick) key.",
-        "targetControlId": "PromptTextBox",
+        "title": "Parens",
+        "markdownText": "Press a **paren** key - **(** or **)** - to wrap a selection in **parentheses**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| The clipboard items the ones in the **Edit** menu should be reordered.|the ones in the **Edit** menu"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Cycle case",
+        "markdownText": "**Shift**\u002B**F3** to **cycle case**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Can we create test cases for test cases for the pascal case navigator class .|pascal case navigator"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "CycleCaseForward: 6",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Cycle case - reverse",
+        "markdownText": "Pressing **Shift**\u002B**F3** continues to cycle case.\r\n**Ctrl**\u002B**Shift**\u002B**F3** **reverses** the cycle.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "CycleCaseReverse: 6",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Backticks - single line",
+        "markdownText": "Press the **\u0060** (backtick) key to embed **single line** text selections in **backticks**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Can I get a code review on the Navigator class?|Navigator"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5360576923076922,
+        "targetOffsetY": 0.6364743589743583
+      },
+      {
+        "title": "Backticks - multi line",
+        "markdownText": "Press the **\u0060** (**backtick**) key to wrap a **multi-line** selection in **backtick fences**.",
+        "targetControlId": "PromptTextBox:Selection\u002B36",
+        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -576,6 +624,237 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.2909967845659164,
         "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "CamelCase Nav",
+        "markdownText": "Please hold her for camel case NAV instructions.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[lines:2][vspace:0]You just learned how to **cycle case** and embed selections in **bold**, **quotes**, **backticks**, and **parens**.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
+    "id": "aac81aa5",
+    "name": "Theme and Appearance",
+    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
+    "steps": [
+      {
+        "title": "Welcome",
+        "markdownText": "##Theme and Appearance\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.2]Learn how to configure the SquadDash interface to your liking.\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "View menu - top",
+        "markdownText": "The **View** menu is divided into three sections. \r\nThe **top section** determines visibility of key elements.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5576923076923076,
+        "targetOffsetY": 0.18455128205128146
+      },
+      {
+        "title": "Full screen transcript mode.",
+        "markdownText": "Press **F11** to **maximize** the **transcript** to **full screen**, hiding agents, tool panels, and the prompt box.",
+        "targetControlId": "FullScreenTranscriptMenuItem",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "FullScreenTranscript",
+        "targetOffsetX": 0.29807692307692296,
+        "targetOffsetY": 0.43455128205128146
+      },
+      {
+        "title": "Full screen any key to prompt",
+        "markdownText": "\r\nIn **full screen mode**, both typing and **Push to Talk** (PTT) still add text to the prompt box.\r\nPress any **alpha numeric key** to see the prompt box appear.",
+        "targetControlId": "OutputTextBox",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "EnterFullScreenTranscript"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "FullScreenPromptPeek",
+        "targetOffsetX": 0,
+        "targetOffsetY": 0.9537820512820507
+      },
+      {
+        "title": "Confirm editing in full screen mode",
+        "markdownText": "In **full screen mode** the **prompt box** appears when needed and hides when empty.\r\nPress **F11** at any time to enter or exit **full screen mode**.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "PeekPromptIfEmpty|Ask me anything|Sim"
+        ],
+        "commandsAfter": [
+          "ExitFullScreenTranscript"
+        ],
+        "advanceTrigger": "ExitFullScreenTranscript",
+        "targetOffsetX": 0.05091103965702037,
+        "targetOffsetY": 0.5335447183517903
+      },
+      {
+        "title": "Toggle Avatars",
+        "markdownText": "You can press **Ctrl**\u002B**F11** to hide or show agent avatar images.",
+        "targetControlId": "ShowAgentAvatarsMenuItem",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem",
+          "HighlightMenuItem: ShowAgentAvatarsMenuItem"
+        ],
+        "commandsAfter": [
+          "UnhighlightMenuItems"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "View menu - middle",
+        "markdownText": "The **View** menu\u0027s center section determines the overall **look** of SquadDash.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.564903846153846,
+        "targetOffsetY": 0.5114743589743583
+      },
+      {
+        "title": "Theme",
+        "markdownText": "Set the preferred **theme** here.\r\nThe setting is stored globally on this machine.",
+        "targetControlId": "ViewThemeMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem|ViewThemeMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4639423076923076,
+        "targetOffsetY": 0.5130448717948715
+      },
+      {
+        "title": "Tint",
+        "markdownText": "Select a tint for this workspace.\r\nTip: Assign a **unique tint** for each workspace managed.",
+        "targetControlId": "TintMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem|TintMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.4639423076923076,
+        "targetOffsetY": 0.5130448717948715
+      },
+      {
+        "title": "Saturation and contrast.",
+        "markdownText": "You can also uniquely adjust **saturation** and **contrast** for each workspace.",
+        "targetControlId": "SaturationMenuItem",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem",
+          "HighlightMenuItem: SaturationMenuItem-ContrastMenuItem"
+        ],
+        "commandsAfter": [
+          "UnhighlightMenuItems"
+        ],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "View menu - bottom",
+        "markdownText": "The **lower section** Of the **View** menu saves and restores **tool docking layouts**.",
+        "targetControlId": "ViewMenuItem_Popup",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: ViewMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5937499999999999,
+        "targetOffsetY": 0.8287820512820507
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Theme and Appearance**\r\nYou just learned how to use the **View** menu to:\r\n* Toggle **full screen mode** -- **F11**\r\n* Toggle **agents and top panels** -- **Shift**\u002B**F11**\r\n* Toggle **agent avatars** -- **Ctrl**\u002B**F11**\r\n* Set the **theme**, **tint**, **saturation**, and **contrast**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
       }
     ]
   },
@@ -805,27 +1084,6 @@
     ]
   },
   {
-    "id": "c63b910d",
-    "name": "Remote Control",
-    "description": "",
-    "steps": [
-      {
-        "title": "New Step",
-        "markdownText": "",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
     "id": "working-with-loop",
     "name": "Loops, Tasks, and the Queue",
     "description": "",
@@ -871,46 +1129,6 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "aac81aa5",
-    "name": "Theme and Appearance",
-    "description": "Set the theme globally, and change tint, saturation and contrast per workspace.",
-    "steps": [
-      {
-        "title": "View menu.",
-        "markdownText": "Appearance controls are inside the **View** menu.",
-        "targetControlId": "ViewMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Theme",
-        "markdownText": "Set the theme here.",
-        "targetControlId": "ViewThemeMenuItem_Popup",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "OpenMenu: ViewMenuItem|ViewThemeMenuItem",
-          "HighlightMenuItem: ViewThemeLightMenuItem"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.4639423076923076,
-        "targetOffsetY": 0.5130448717948715
       }
     ]
   }
