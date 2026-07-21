@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -64,6 +67,13 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<
         (string workspace, DateOnly start, DateOnly end),
         List<(string sha, DateTimeOffset time)>> s_gitLogCache = new();
+
+    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    {
+        PropertyNamingPolicy        = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition      = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented               = true,
+    };
 
     // ── Cached data for filter-only refreshes ─────────────────────────────────
     private List<CommitActivityRow>?  _cachedRows;
@@ -1235,11 +1245,52 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                      .Concat(existingRequests.Select(r => r.Sha)),
             StringComparer.OrdinalIgnoreCase);
 
-        var cacheKey = (_workspaceFolderPath!, startDate, endDate);
+        var cacheKey  = (_workspaceFolderPath!, startDate, endDate);
+        var cachePath = GetGitLogCacheFilePath();
+
         if (!s_gitLogCache.TryGetValue(cacheKey, out var gitCommits))
         {
-            gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
-            s_gitLogCache.TryAdd(cacheKey, gitCommits);
+            List<(string sha, DateTimeOffset time)>? diskCommits = null;
+            if (cachePath is not null)
+                diskCommits = await TryLoadFromDiskCacheAsync(cachePath, startDate, endDate).ConfigureAwait(false);
+
+            if (diskCommits is not null)
+            {
+                // Serve from disk immediately (stale), then refresh in background.
+                gitCommits = diskCommits;
+                s_gitLogCache.TryAdd(cacheKey, gitCommits);
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var freshCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+
+                        var cachedShas = new HashSet<string>(diskCommits.Select(c => c.sha), StringComparer.OrdinalIgnoreCase);
+                        var freshShas  = new HashSet<string>(freshCommits.Select(c => c.sha), StringComparer.OrdinalIgnoreCase);
+
+                        if (!cachedShas.SetEquals(freshShas))
+                        {
+                            s_gitLogCache[cacheKey] = freshCommits;
+                            if (cachePath is not null)
+                                await SaveToDiskCacheAsync(cachePath, startDate, endDate, freshCommits).ConfigureAwait(false);
+
+                            if (!ct.IsCancellationRequested)
+                                await Dispatcher.InvokeAsync(StartLoadingData);
+                        }
+                    }
+                    catch (OperationCanceledException) { /* expected */ }
+                    catch { /* ignore all other errors in background refresh */ }
+                }, ct);
+            }
+            else
+            {
+                // No disk cache — fetch fresh from git.
+                gitCommits = await RunGitLogAsync(startDate, endDate, ct).ConfigureAwait(false);
+                s_gitLogCache.TryAdd(cacheKey, gitCommits);
+                if (cachePath is not null)
+                    _ = SaveToDiskCacheAsync(cachePath, startDate, endDate, gitCommits);
+            }
         }
 
         return gitCommits
@@ -1254,6 +1305,76 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                     CommitTime: c.time);
             })
             .ToList();
+    }
+
+    private string? GetGitLogCacheFilePath()
+    {
+        if (_workspaceFolderPath is null) return null;
+        var gitDir = Path.Combine(_workspaceFolderPath, ".git");
+        if (!Directory.Exists(gitDir)) return null;
+        return Path.Combine(gitDir, "squad-gitlog-cache.json");
+    }
+
+    private static async Task<List<(string sha, DateTimeOffset time)>?> TryLoadFromDiskCacheAsync(
+        string cachePath, DateOnly start, DateOnly end)
+    {
+        try
+        {
+            if (!File.Exists(cachePath)) return null;
+            await using var fs    = File.OpenRead(cachePath);
+            var             cache = await JsonSerializer.DeserializeAsync<GitLogDiskCache>(fs, s_jsonOptions).ConfigureAwait(false);
+            if (cache is null) return null;
+            var startStr = start.ToString("yyyy-MM-dd");
+            var endStr   = end.ToString("yyyy-MM-dd");
+            var range    = cache.Ranges.FirstOrDefault(r => r.Start == startStr && r.End == endStr);
+            if (range is null) return null;
+            return range.Commits.Select(c => (c.Sha, c.Time)).ToList();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task SaveToDiskCacheAsync(
+        string cachePath, DateOnly start, DateOnly end,
+        List<(string sha, DateTimeOffset time)> commits)
+    {
+        try
+        {
+            GitLogDiskCache cache;
+            if (File.Exists(cachePath))
+            {
+                try
+                {
+                    await using var rfs = File.OpenRead(cachePath);
+                    cache = await JsonSerializer.DeserializeAsync<GitLogDiskCache>(rfs, s_jsonOptions).ConfigureAwait(false) ?? new();
+                }
+                catch { cache = new(); }
+            }
+            else
+            {
+                cache = new();
+            }
+
+            var startStr = start.ToString("yyyy-MM-dd");
+            var endStr   = end.ToString("yyyy-MM-dd");
+            var existing = cache.Ranges.FirstOrDefault(r => r.Start == startStr && r.End == endStr);
+            if (existing is not null)
+                cache.Ranges.Remove(existing);
+
+            cache.Ranges.Add(new GitLogCacheRange
+            {
+                Start   = startStr,
+                End     = endStr,
+                SavedAt = DateTimeOffset.UtcNow,
+                Commits = commits.Select(c => new GitLogCacheCommit { Sha = c.sha, Time = c.time }).ToList(),
+            });
+
+            await using var wfs = File.Create(cachePath);
+            await JsonSerializer.SerializeAsync(wfs, cache, s_jsonOptions).ConfigureAwait(false);
+        }
+        catch { /* ignore — disk cache is best-effort */ }
     }
 
     private async Task<List<(string sha, DateTimeOffset time)>> RunGitLogAsync(
@@ -3186,4 +3307,25 @@ internal sealed class CommitActivityCanvas : FrameworkElement
             fontSize,
             foreground,
             _pixelsPerDip == 0 ? 1.0 : _pixelsPerDip);
+}
+
+// ── Disk-cache model types (file-scoped to avoid polluting the namespace) ─────
+
+file sealed class GitLogDiskCache
+{
+    public List<GitLogCacheRange> Ranges { get; set; } = [];
+}
+
+file sealed class GitLogCacheRange
+{
+    public string                  Start   { get; set; } = "";
+    public string                  End     { get; set; } = "";
+    public DateTimeOffset          SavedAt { get; set; }
+    public List<GitLogCacheCommit> Commits { get; set; } = [];
+}
+
+file sealed class GitLogCacheCommit
+{
+    public string         Sha  { get; set; } = "";
+    public DateTimeOffset Time { get; set; }
 }
