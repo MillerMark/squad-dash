@@ -57,6 +57,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private ListBox                    _stepListBox = null!;
     private StackPanel                 _formPanel = null!;
     private TextBlock                  _multiSelectLabel = null!;
+    private CheckBox                   _passiveObserveCheckBox = null!;
+
+    /// <summary>
+    /// When true, step advances during tour playback will not bring this editor window to the front.
+    /// </summary>
+    public bool IsPassiveObserveMode => _passiveObserveCheckBox?.IsChecked == true;
 
     // Drag-to-reorder state
     private Point  _listDragStart;
@@ -453,9 +459,20 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var closeButton = MakeButton("Close");
         closeButton.Click += (_, _) => TryClose();
 
+        _passiveObserveCheckBox = new CheckBox
+        {
+            Content           = "Passive observe",
+            IsChecked         = false,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(8, 0, 0, 0),
+            ToolTip           = "When checked, step advances won't bring this editor to the front",
+        };
+        _passiveObserveCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "PrimaryText");
+
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         leftButtons.Children.Add(_prevButton);
         leftButtons.Children.Add(_nextButton);
+        leftButtons.Children.Add(_passiveObserveCheckBox);
 
         var rightButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         rightButtons.Children.Add(closeButton);
@@ -1259,6 +1276,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (stepIndex < 0 || stepIndex >= _stepListBox.Items.Count) return;
         if (stepIndex != _stepIndex && !FlushPendingChanges()) return;
         LoadStep(stepIndex);    // sets _stepListBox.SelectedIndex and scrolls into view internally
+        if (!IsPassiveObserveMode)
+            Activate();
     }
 
     /// <summary>
@@ -1303,6 +1322,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         finally { _isLoadingStep = false; }
         RefreshStepList(selectStepIndex);
         _lastUndoSnapshot = SnapshotTourJson();
+        if (!IsPassiveObserveMode)
+            Activate();
     }
 
     private static string BuildEditorTitle(string tourName, int stepIndex, string stepTitle) =>
