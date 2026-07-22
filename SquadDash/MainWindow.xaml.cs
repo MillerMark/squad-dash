@@ -2787,6 +2787,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _ = _bridge.BroadcastRcPromptAsync(item.Text);
             _pec.PendingQueueItemCount = _promptQueue.Count;
             _pec.CurrentDispatchedItem = item;
+            AutoActivateCoordinatorTranscriptOnPromptSubmit();
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
