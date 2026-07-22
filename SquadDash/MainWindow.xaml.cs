@@ -15573,7 +15573,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write("Tour", $"AttachImage: file not found — {path}");
                 return;
             }
-            var list = GetOrCreateFollowUpList("");
+            var list = GetOrCreateFollowUpList(_activeTabId ?? "");
             if (list.Any(a => a.ImagePath == path)) return;
             list.Add(new FollowUpAttachment("", "Image", null, ImagePath: path));
             UpdateFollowUpStrip();
@@ -15595,7 +15595,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SquadDashTrace.Write("Tour", $"AttachImageAsset: file not found — {path}");
                 return;
             }
-            var list = GetOrCreateFollowUpList("");
+            var list = GetOrCreateFollowUpList(_activeTabId ?? "");
             if (list.Any(a => a.ImagePath == path)) return;
             list.Add(new FollowUpAttachment("", label, null, ImagePath: path));
             UpdateFollowUpStrip();
