@@ -2686,22 +2686,37 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private object MakeStepListItem(int index, GuidedTourStep step)
     {
         var label = $"{index + 1}. {step.Title}";
-        if (string.IsNullOrWhiteSpace(step.RequiredContext))
-            return label;
+        var bodyFontSize = Application.Current.Resources.Contains("FontSizeBody")
+            ? Convert.ToDouble(Application.Current.Resources["FontSizeBody"])
+            : 13.0;
+        var iconFontSize = bodyFontSize * 1.5;
 
-        var sp   = new StackPanel { Orientation = Orientation.Horizontal };
-        var icon = new TextBlock
+        // All items share the same leading icon-slot so text is always indented uniformly.
+        var sp = new StackPanel { Orientation = Orientation.Horizontal };
+
+        if (!string.IsNullOrWhiteSpace(step.RequiredContext))
         {
-            Text              = "⑂",
-            Margin            = new Thickness(0, 0, 4, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize          = 11,
-            ToolTip           = $"Conditional: shows when '{step.RequiredContext}' is {step.RequiredContextValue}",
-        };
-        icon.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+            var icon = new TextBlock
+            {
+                Text              = "⑂",
+                FontSize          = iconFontSize,
+                Width             = iconFontSize + 4,
+                TextAlignment     = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(0, 0, 2, 0),
+                ToolTip           = $"Conditional: shows when '{step.RequiredContext}' is {step.RequiredContextValue}",
+            };
+            icon.SetResourceReference(TextBlock.ForegroundProperty, "ActionLinkText");
+            sp.Children.Add(icon);
+        }
+        else
+        {
+            // Spacer matching the icon slot width so text aligns with conditional items.
+            sp.Children.Add(new Border { Width = iconFontSize + 6 });
+        }
+
         var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
         text.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        sp.Children.Add(icon);
         sp.Children.Add(text);
         return sp;
     }
