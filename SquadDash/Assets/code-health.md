@@ -889,4 +889,126 @@ tasks:
         label: Only archive messages that are older than (days)
         tooltip: Messages newer than this many days will never be archived.
         value: 7
+
+  - id: event-handler-logic-extraction
+    enabled: true
+    frequency: weekly-Wednesday
+    safety: report-only
+    has_safety_options: true
+    title: Event Handler Logic Extraction
+    instructions: |
+      Scan all GUI window and form classes in the codebase. These are classes whose
+      names end in Window, Form, Dialog, Panel, Page, View, Screen, or Activity, or
+      classes that inherit from a recognized UI base class (Window, Form, UserControl,
+      Page, Activity, ViewController, Widget, or framework-equivalent).
+
+      For each class, inspect its event handler methods. An "event handler" is any
+      method wired to a UI event — by convention (e.g. _Click, _Changed, _Selected,
+      _KeyDown suffix), by explicit event subscription, or by framework attribute
+      (e.g. @onclick, [EventHandler], override of OnXxx for a UI lifecycle event).
+
+      An event handler "contains business logic" when it does any of the following
+      DIRECTLY in the handler body (not via a delegate call to a separate service,
+      controller, presenter, or domain class):
+        • Performs data transformation, calculation, or domain validation
+        • Reads from or writes to a data store, file system, database, or network
+        • Makes decisions governed by a business rule (not purely UI state — toggling
+          a button, showing/hiding a control, or navigating to a view do NOT count)
+        • Constructs or mutates domain model objects
+        • Orchestrates a multi-step workflow across domain concerns
+
+      Use AI judgment to assess whether the logic is genuinely domain/business logic
+      versus glue code. Glue code (reading a text field value, enabling a button,
+      calling a single service method) is NOT a finding. Inline business rules,
+      validation logic, persistence calls, and domain calculations are findings.
+
+      Severity tiers:
+        Critical — logic touches data persistence, external I/O, or security decisions
+        High     — domain validation, business rule calculations, or multi-step orchestration
+        Medium   — non-trivial data transformations or domain object construction
+        Low      — minor logic that could be extracted but presents low coupling risk
+
+      Apply the severity floor from options ({{minSeverity}}): skip any findings
+      below that tier.
+
+      For each finding, record:
+        - File path and class name
+        - Handler method name and the event it handles
+        - A concise description of the embedded logic
+        - Severity (Critical / High / Medium / Low)
+        - Recommended extraction target: look first for an existing appropriate
+          service, controller, or presenter class that already owns logic for this
+          domain; if one exists, name it as the target. Only propose creating a new
+          class when no suitable existing class is found.
+
+      {{#if safety == "report-only"}}
+      Do not change any code. Write a structured report grouped by file, listing
+      each handler, the embedded logic description, severity, and recommended
+      extraction target. Send the report to the user's Inbox (from: "argus-weld").
+
+      Set the inbox priority:
+        - "critical" if any Critical-severity findings exist
+        - "high"     if the highest finding is High severity
+        - "mid"      if only Medium/Low findings exist
+        - "low"      if no embedded business logic was identified
+      {{/if}}
+
+      {{#if safety == "branch"}}
+      Create a maintenance branch named: {{branchName}}
+
+      For each Critical and High severity finding:
+        1. Identify the best extraction target: search the codebase for an existing
+           service, controller, or presenter class that already owns logic for this
+           domain. If one exists, add the extracted logic there. If none exists,
+           create a new class named after the domain concern (e.g. DocumentSaveService,
+           CustomerFormPresenter).
+        2. Extract the business logic into a well-named method on that class.
+        3. Replace the inline handler body with a single delegation call.
+        4. Keep the handler signature and event wiring unchanged.
+        5. Verify the build is green after each extraction before moving on.
+
+      For Medium and Low findings, include them in the Inbox report (from: "argus-weld")
+      but do not refactor them automatically.
+
+      Commit changes to {{branchName}} with clear per-extraction commit messages
+      (e.g. "Extract SaveButton business logic to DocumentSaveService").
+
+      If > 5 files are affected OR changes have ordering dependencies, emit a
+      TASKS_JSON decomposition instead of making changes directly. Each step must
+      leave the build green.
+      {{/if}}
+
+      {{#if safety == "direct"}}
+      For each Critical and High severity finding:
+        1. Identify the best extraction target: search the codebase for an existing
+           service, controller, or presenter class that already owns logic for this
+           domain. If one exists, add the extracted logic there. If none exists,
+           create a new class named after the domain concern.
+        2. Extract the business logic into a well-named method on that class.
+        3. Replace the inline handler body with a single delegation call.
+        4. Keep the handler signature and event wiring unchanged.
+        5. Verify the build is green after each extraction before moving on.
+
+      For Medium and Low findings, report them in the Inbox (from: "argus-weld")
+      but do not refactor them in this pass.
+
+      Commit directly to the current branch with clear per-extraction commit messages.
+      If > 5 files are affected, emit a TASKS_JSON decomposition first.
+      {{/if}}
+    options:
+      minSeverity:
+        type: select
+        label: Minimum severity to report
+        tooltip: >
+          Findings below this severity are ignored entirely.
+          Critical = data persistence / I/O / security.
+          High = domain validation / business rules.
+          Medium = data transformations / domain construction.
+          Low = minor extractable logic.
+        value: Medium
+        choices:
+          - Low
+          - Medium
+          - High
+          - Critical
 ---
