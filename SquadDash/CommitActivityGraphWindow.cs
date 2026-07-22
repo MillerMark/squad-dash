@@ -138,6 +138,9 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     // ── Selection ─────────────────────────────────────────────────────────────
     private bool   _isSelecting;
     private double _selectionDragStartX;
+    // Snapshot of the selection that existed before the current drag started,
+    // used to decide whether a plain click should clear the selection.
+    private (bool Had, double XMin, double XMax) _selectionBeforeDrag;
 
     // ── View summary (no-selection state) ────────────────────────────────────
     private TextBlock?              _viewSummaryText;
@@ -480,6 +483,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             if (IsScrollBarSource(e.OriginalSource as DependencyObject)) return;
             var pos = e.GetPosition(_canvas);
             if (pos.X < CommitActivityCanvas.LabelColumnWidth) return;
+            // Snapshot the pre-existing selection before we overwrite it.
+            _selectionBeforeDrag = _canvas.HasSelection
+                ? (true, _canvas.SelectionXMin, _canvas.SelectionXMax)
+                : (false, 0, 0);
             _selectionDragStartX = pos.X;
             _canvas.SetSelection(pos.X, pos.X);
             _scrollViewer.CaptureMouse();
@@ -512,10 +519,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             var pos = e.GetPosition(_canvas);
             if (Math.Abs(pos.X - _selectionDragStartX) < 4)
             {
-                // Plain click (no drag): clear the selection only if the click landed
-                // outside the current selection bounds.
-                if (!_canvas.HasSelection ||
-                    pos.X < _canvas.SelectionXMin || pos.X > _canvas.SelectionXMax)
+                // Plain click (no meaningful drag): clear the selection unless the
+                // click landed inside the selection that existed *before* this click.
+                bool insidePrior = _selectionBeforeDrag.Had
+                    && pos.X >= _selectionBeforeDrag.XMin
+                    && pos.X <= _selectionBeforeDrag.XMax;
+                if (!insidePrior)
                 {
                     _canvas.ClearSelection();
                     UpdateSelectionPanel();
