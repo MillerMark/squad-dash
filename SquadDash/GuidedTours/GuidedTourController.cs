@@ -44,6 +44,7 @@ internal sealed class GuidedTourController
     private readonly Func<int>?                           _getLastEditorStepIndex;
     private readonly Action<int>?                         _saveLastEditorStepIndex;
     private CancellationTokenSource?                      _readingNudgeCts;
+    private readonly GuidedTourContextRegistry?           _contextRegistry;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -76,7 +77,8 @@ internal sealed class GuidedTourController
         Func<string?>?                  getLastEditorTourName  = null,
         Action<string>?                 saveLastEditorTourName = null,
         Func<int>?                      getLastEditorStepIndex  = null,
-        Action<int>?                    saveLastEditorStepIndex = null)
+        Action<int>?                    saveLastEditorStepIndex = null,
+        GuidedTourContextRegistry?      contextRegistry         = null)
     {
         _ownerWindow             = ownerWindow;
         _elementLocator          = elementLocator;
@@ -95,6 +97,7 @@ internal sealed class GuidedTourController
         _saveLastEditorTourName  = saveLastEditorTourName;
         _getLastEditorStepIndex  = getLastEditorStepIndex;
         _saveLastEditorStepIndex = saveLastEditorStepIndex;
+        _contextRegistry         = contextRegistry;
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -127,6 +130,9 @@ internal sealed class GuidedTourController
 
     /// <summary>The command registry used by this controller.</summary>
     public GuidedTourCommandRegistry? CommandRegistry => _commandRegistry;
+
+    /// <summary>The context registry used by this controller.</summary>
+    public GuidedTourContextRegistry? ContextRegistry => _contextRegistry;
 
     /// <summary>Read-only list of thread IDs created by <c>InjectTranscriptText</c> tour commands.</summary>
     public IReadOnlyList<string> InjectedThreadIds => _tourInjectedThreadIds;
@@ -224,6 +230,7 @@ internal sealed class GuidedTourController
             jumpToStepCallback:  IsActive ? JumpToStep : null,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry,
+            contextRegistry:     _contextRegistry,
             onClosed:            _ => { _activeEditor = null; },
             addStepAfterCallback: HandleNewStepAfterFromEditor,
             deleteStepCallback:   HandleDeleteStepFromEditor,
@@ -403,6 +410,7 @@ internal sealed class GuidedTourController
             jumpToStepCallback:  JumpToStep,
             commandRegistry:     _commandRegistry,
             triggerRegistry:     _triggerRegistry,
+            contextRegistry:     _contextRegistry,
             onClosed:            wasSaved => { _activeEditor = null; if (wasSaved) NotifyStepEdited(); },
             addStepAfterCallback: HandleNewStepAfterFromEditor,
             deleteStepCallback:   HandleDeleteStepFromEditor,
@@ -418,6 +426,10 @@ internal sealed class GuidedTourController
 
     private GuidedTourStep CurrentStep =>
         _activeTour!.Steps[_currentStepIndex];
+
+    /// <summary>The currently active tour step, or null if no tour is running.</summary>
+    public GuidedTourStep? PublicCurrentStep =>
+        IsActive ? _activeTour!.Steps[_currentStepIndex] : null;
 
     private static string TourStepCounts(IEnumerable<GuidedTour> tours) =>
         string.Join(",", tours.Select(t => t.Steps.Count));
@@ -436,6 +448,29 @@ internal sealed class GuidedTourController
             await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
         RunPreAction(CurrentStep);
         var step = CurrentStep;
+
+        // Evaluate context condition — skip step silently if not satisfied.
+        // Do NOT run before/after commands on a skipped step.
+        if (!string.IsNullOrWhiteSpace(step.RequiredContext) && _contextRegistry is not null)
+        {
+            var ctxResult = _contextRegistry.Evaluate(step.RequiredContext);
+            if (ctxResult.HasValue && ctxResult.Value != step.RequiredContextValue)
+            {
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"ShowCurrentStep: skipping step \"{step.Title}\" — context \"{step.RequiredContext}\"={ctxResult.Value}, required={step.RequiredContextValue}");
+                if (_currentStepIndex < _activeTour!.Steps.Count - 1)
+                {
+                    _currentStepIndex++;
+                    ShowCurrentStep(prevCommandsAfter: null);
+                }
+                else
+                {
+                    StopTour();
+                }
+                return;
+            }
+        }
+
         foreach (var cmd in step.EffectiveCommandsBefore)
             await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
         // Defer by one layout pass so that any UI changes made by RunPreAction or

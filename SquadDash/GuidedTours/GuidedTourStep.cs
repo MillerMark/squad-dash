@@ -71,6 +71,20 @@ internal sealed class GuidedTourStep
     public string AdvanceTrigger { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional name of a registered context that must be satisfied for this step to be shown.
+    /// Empty means no condition — the step always shows.
+    /// </summary>
+    [JsonPropertyName("requiredContext")]
+    public string RequiredContext { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The expected value of <see cref="RequiredContext"/> for this step to be shown.
+    /// Defaults to <see langword="true"/>. Ignored when <see cref="RequiredContext"/> is empty.
+    /// </summary>
+    [JsonPropertyName("requiredContextValue")]
+    public bool RequiredContextValue { get; set; } = true;
+
+    /// <summary>
     /// Horizontal offset of the callout arrow attachment point within the target control,
     /// in 0.0–1.0 space where 0.5 = center (no shift).
     /// </summary>

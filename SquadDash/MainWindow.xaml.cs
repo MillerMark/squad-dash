@@ -153,6 +153,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private GuidedTourController? _guidedTourController;
     private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
     private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
+    private readonly GuidedTourContextRegistry _tourContextRegistry = new();
     private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
     private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
     private readonly List<(FrameworkElement El, Window Overlay, Action Reposition)> _tourHighlightOverlays = new();
@@ -14192,6 +14193,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_guidedTourController is not null) return;
         RegisterTourCommands();
         RegisterTourAdvanceTriggers();
+        RegisterTourContexts();
         _guidedTourController = new GuidedTourController(
             ownerWindow:             this,
             elementLocator:          name =>
@@ -14311,7 +14313,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             getLastEditorTourName:  () => _settingsSnapshot.LastGuidedTourEditorTourName,
             saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name),
             getLastEditorStepIndex: () => _settingsSnapshot.LastGuidedTourEditorStepIndex,
-            saveLastEditorStepIndex: idx => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorStepIndex(idx));
+            saveLastEditorStepIndex: idx => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorStepIndex(idx),
+            contextRegistry:         _tourContextRegistry);
     }
 
     private void UnhighlightAllMenuItems()
@@ -14799,6 +14802,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new NewQueueSlotAdvanceTrigger(
                 addHandler:    h => _tourNewQueueSlotAtFront += h,
                 removeHandler: h => _tourNewQueueSlotAtFront -= h));
+    }
+
+    private void RegisterTourContexts()
+    {
+        // TargetIsVisible: true if the step's TargetControlId resolves to a visible element.
+        _tourContextRegistry.Register("TargetIsVisible", () =>
+        {
+            var step = _guidedTourController?.PublicCurrentStep;
+            if (step is null || string.IsNullOrWhiteSpace(step.TargetControlId)) return false;
+            var el = _guidedTourController?.ElementLocator(step.TargetControlId);
+            return el is { IsVisible: true };
+        });
+
+        // WorkspaceHasRepository: true if the current workspace folder contains a git repository.
+        _tourContextRegistry.Register("WorkspaceHasRepository", () =>
+        {
+            var folder = _currentWorkspace?.FolderPath;
+            if (string.IsNullOrEmpty(folder)) return false;
+            return !string.IsNullOrEmpty(ReadGitBranch(folder));
+        });
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

@@ -106,6 +106,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private readonly TextBlock     _statusLabel;
     private readonly ComboBox      _advanceTriggerBox;
 
+    // Context condition controls
+    private ComboBox               _contextNameBox    = null!;
+    private RadioButton            _contextTrueRadio  = null!;
+    private RadioButton            _contextFalseRadio = null!;
+    private string                 _snapRequiredContext      = string.Empty;
+    private bool                   _snapRequiredContextValue = true;
+
     // Multi-line command TextBoxes
     private TextBox                    _commandBeforeBox = null!;
     private TextBox                    _commandAfterBox  = null!;
@@ -171,6 +178,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         Action<int>?     jumpToStepCallback   = null,
         GuidedTourCommandRegistry? commandRegistry = null,
         GuidedTourAdvanceTriggerRegistry? triggerRegistry = null,
+        GuidedTourContextRegistry? contextRegistry = null,
         Action<bool>?    onClosed             = null,
         Action?          addStepAfterCallback = null,
         Action?          deleteStepCallback   = null,
@@ -427,6 +435,50 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _formPanel = formPanel;
         formPanel.Children.Add(MakeLabel("Title"));
         formPanel.Children.Add(_titleBox);
+
+        // ── Context condition row ─────────────────────────────────────────────
+
+        var contextNames = contextRegistry?.ContextNames ?? [];
+        _contextNameBox = new ComboBox { IsEditable = false, Height = 26 };
+        _contextNameBox.SetResourceReference(ComboBox.StyleProperty,    "ThemedComboBoxStyle");
+        _contextNameBox.SetResourceReference(ComboBox.FontSizeProperty, "FontSizeBody");
+        _contextNameBox.Items.Add("(none)");
+        foreach (var name in contextNames)
+            _contextNameBox.Items.Add(name);
+        var initContextName = string.IsNullOrWhiteSpace(step.RequiredContext) ? "(none)" : step.RequiredContext;
+        _contextNameBox.SelectedItem = _contextNameBox.Items.Cast<string>()
+            .FirstOrDefault(i => string.Equals(i, initContextName, StringComparison.OrdinalIgnoreCase)) ?? "(none)";
+        _contextNameBox.ToolTip = "Optional: only show this step when the selected context matches the chosen value";
+
+        var ctxGroupName = Guid.NewGuid().ToString("N");
+        _contextTrueRadio = new RadioButton
+        {
+            Content           = "is true",
+            GroupName         = ctxGroupName,
+            IsChecked         = step.RequiredContextValue,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(8, 0, 0, 0),
+        };
+        _contextFalseRadio = new RadioButton
+        {
+            Content           = "is false",
+            GroupName         = ctxGroupName,
+            IsChecked         = !step.RequiredContextValue,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(6, 0, 0, 0),
+        };
+        _contextTrueRadio.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
+        _contextFalseRadio.SetResourceReference(RadioButton.StyleProperty,     "ThemedRadioButtonStyle");
+        _contextTrueRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+        _contextFalseRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+
+        var contextValuePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        contextValuePanel.Children.Add(_contextNameBox);
+        contextValuePanel.Children.Add(_contextTrueRadio);
+        contextValuePanel.Children.Add(_contextFalseRadio);
+
+        formPanel.Children.Add(MakeLabel("Context Condition"));
+        formPanel.Children.Add(contextValuePanel);
         formPanel.Children.Add(MakeLabel("Callout Text (Markdown)"));
         formPanel.Children.Add(_markdownBox);
         formPanel.Children.Add(MakeLabel("Callout Placement"));
@@ -496,7 +548,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _stepListBox.SetResourceReference(ListBox.FontSizeProperty,    "FontSizeBody");
 
         for (int i = 0; i < activeTour.Steps.Count; i++)
-            _stepListBox.Items.Add($"{i + 1}. {activeTour.Steps[i].Title}");
+            _stepListBox.Items.Add(MakeStepListItem(i, activeTour.Steps[i]));
 
         _stepListBox.SelectedIndex = stepIndex;
         _stepListBox.SelectionChanged += OnStepListSelectionChanged;
@@ -954,14 +1006,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _titleBox.TextChanged += (_, _) =>
         {
             if (_isLoadingStep) return;
-            var newLabel = $"{_stepIndex + 1}. {_titleBox.Text.Trim()}";
-            // Use _stepIndex directly — assigning Items[i] causes WPF to briefly
-            // set SelectedIndex to -1, which would skip updates on subsequent keystrokes.
             if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
-                _stepListBox.Items[_stepIndex] = newLabel;
+                _stepListBox.Items[_stepIndex] = MakeStepListItem(_stepIndex, _activeTour.Steps[_stepIndex]);
             Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
             QueueAutoSave();
         };
+
+        _contextNameBox.SelectionChanged += (_, _) =>
+        {
+            if (_isLoadingStep) return;
+            if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
+                _stepListBox.Items[_stepIndex] = MakeStepListItem(_stepIndex, _activeTour.Steps[_stepIndex]);
+            QueueAutoSave();
+        };
+        _contextTrueRadio.Checked  += (_, _) => { if (!_isLoadingStep) QueueAutoSave(); };
+        _contextFalseRadio.Checked += (_, _) => { if (!_isLoadingStep) QueueAutoSave(); };
 
         // Push an undo snapshot the moment focus leaves either text box so the
         // snapshot reflects in-flight edits rather than waiting for the auto-save timer.
@@ -1056,6 +1115,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.CalloutPlacement = GetSelectedPlacement();
         _step.TargetControlId  = _targetControlBox.Text.Trim();
         _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
+
+        _step.RequiredContext      = _contextNameBox.SelectedItem is string ctx && ctx != "(none)" ? ctx : string.Empty;
+        _step.RequiredContextValue = _contextTrueRadio.IsChecked == true;
 
         _step.CommandsBefore = _commandBeforeBox.Text
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -1288,7 +1350,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     {
         _stepListBox.Items.Clear();
         for (int i = 0; i < _activeTour.Steps.Count; i++)
-            _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
+            _stepListBox.Items.Add(MakeStepListItem(i, _activeTour.Steps[i]));
         LoadStep(selectIndex);
     }
 
@@ -1621,6 +1683,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _commandAfterBox.Text  = string.Join("\n", step.EffectiveCommandsAfter);
         _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
 
+        var ctxName = string.IsNullOrWhiteSpace(step.RequiredContext) ? "(none)" : step.RequiredContext;
+        _contextNameBox.SelectedItem = _contextNameBox.Items.Cast<string>()
+            .FirstOrDefault(i => string.Equals(i, ctxName, StringComparison.OrdinalIgnoreCase)) ?? "(none)";
+        _contextTrueRadio.IsChecked  = step.RequiredContextValue;
+        _contextFalseRadio.IsChecked = !step.RequiredContextValue;
+
         var hasTarget = !string.IsNullOrWhiteSpace(step.TargetControlId);
         _crosshairCanvas.Visibility      = hasTarget ? Visibility.Visible : Visibility.Collapsed;
         _crosshairCoordsLabel.Visibility = _crosshairCanvas.Visibility;
@@ -1714,6 +1782,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _snapAdvanceTrigger  = _advanceTriggerBox.Text;
         _snapCommandsBefore  = _commandBeforeBox.Text;
         _snapCommandsAfter   = _commandAfterBox.Text;
+        _snapRequiredContext      = _contextNameBox.SelectedItem is string ctx && ctx != "(none)" ? ctx : string.Empty;
+        _snapRequiredContextValue = _contextTrueRadio.IsChecked == true;
         _originalTargetOffsetX = _step.TargetOffsetX;
         _originalTargetOffsetY = _step.TargetOffsetY;
     }
@@ -1729,6 +1799,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (_step.TargetOffsetY       != _originalTargetOffsetY) return true;
         if (_commandBeforeBox.Text != _snapCommandsBefore) return true;
         if (_commandAfterBox.Text  != _snapCommandsAfter)  return true;
+        var currentCtx = _contextNameBox.SelectedItem is string s && s != "(none)" ? s : string.Empty;
+        if (currentCtx != _snapRequiredContext) return true;
+        if ((_contextTrueRadio.IsChecked == true) != _snapRequiredContextValue) return true;
         return false;
     }
 
@@ -2579,6 +2652,29 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private static string GetSelectedCommand(ComboBox cb) =>
         !string.IsNullOrWhiteSpace(cb.Text) && cb.Text != "(none)" ? cb.Text.Trim() : string.Empty;
 
+    private object MakeStepListItem(int index, GuidedTourStep step)
+    {
+        var label = $"{index + 1}. {step.Title}";
+        if (string.IsNullOrWhiteSpace(step.RequiredContext))
+            return label;
+
+        var sp   = new StackPanel { Orientation = Orientation.Horizontal };
+        var icon = new TextBlock
+        {
+            Text              = "⑂",
+            Margin            = new Thickness(0, 0, 4, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize          = 11,
+            ToolTip           = $"Conditional: shows when '{step.RequiredContext}' is {step.RequiredContextValue}",
+        };
+        icon.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        sp.Children.Add(icon);
+        sp.Children.Add(text);
+        return sp;
+    }
+
     // ── Multi-line command TextBox helpers ────────────────────────────────────
 
     private void AttachIntelliSenseToCommandBox(TextBox tb)
@@ -2954,7 +3050,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _isLoadingStep = true;
         _stepListBox.Items.Clear();
         for (int i = 0; i < _activeTour.Steps.Count; i++)
-            _stepListBox.Items.Add($"{i + 1}. {_activeTour.Steps[i].Title}");
+            _stepListBox.Items.Add(MakeStepListItem(i, _activeTour.Steps[i]));
         int idx = selectIndex >= 0
             ? Math.Clamp(selectIndex, 0, Math.Max(0, _activeTour.Steps.Count - 1))
             : Math.Min(_stepIndex, Math.Max(0, _activeTour.Steps.Count - 1));
