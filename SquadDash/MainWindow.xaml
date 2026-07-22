@@ -867,7 +867,7 @@
                               Click="ClearPastedImagesMenuItem_Click" />
                 </MenuItem>
                 <MenuItem x:Name="DeveloperMenuItem"
-                          Header="Developer _Tools..."
+                          Header="_Developer"
                           Style="{StaticResource TopLevelMenuItemStyle}"
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
                           Visibility="Collapsed">
