@@ -2,6 +2,8 @@ namespace SquadDash;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
 
 /// <summary>
 /// Delegate that executes a single <c>git</c> command in the workspace directory and returns stdout.
@@ -27,20 +29,36 @@ internal sealed class CommitStatService : ICommitStatService
     internal const int MaxParallelism = 8;
 
     private readonly GitCommandRunner _git;
+    private readonly string?          _diskCachePath;
     private readonly ConcurrentDictionary<string, CommitStatResult> _cache
         = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly JsonSerializerOptions s_jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented        = false,
+    };
 
     /// <param name="workspaceFolderPath">
     ///   Absolute path to the workspace repo root.  Passed to git as its working directory.
     ///   Scoped at construction — no per-call override.
     /// </param>
     public CommitStatService(string workspaceFolderPath)
-        : this(MakeRealRunner(workspaceFolderPath)) { }
+        : this(MakeRealRunner(workspaceFolderPath), GetDiskCachePath(workspaceFolderPath)) { }
+
+    private static string? GetDiskCachePath(string workspaceFolderPath)
+    {
+        var gitDir = Path.Combine(workspaceFolderPath, ".git");
+        return Directory.Exists(gitDir) ? Path.Combine(gitDir, "squad-commitstats-cache.json") : null;
+    }
 
     /// <summary>Internal constructor for unit tests that supply a fake git runner.</summary>
-    internal CommitStatService(GitCommandRunner gitRunner)
+    internal CommitStatService(GitCommandRunner gitRunner, string? diskCachePath = null)
     {
-        _git = gitRunner ?? throw new ArgumentNullException(nameof(gitRunner));
+        _git           = gitRunner ?? throw new ArgumentNullException(nameof(gitRunner));
+        _diskCachePath = diskCachePath;
+        if (diskCachePath is not null)
+            LoadFromDisk(diskCachePath);
     }
 
     // ── ICommitStatService ────────────────────────────────────────────────────
@@ -78,6 +96,44 @@ internal sealed class CommitStatService : ICommitStatService
         return results;
     }
 
+    // ── Disk cache ────────────────────────────────────────────────────────────
+
+    private void LoadFromDisk(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var json    = File.ReadAllText(path);
+            var entries = JsonSerializer.Deserialize<List<CommitStatResult>>(json, s_jsonOptions);
+            if (entries is null) return;
+            foreach (var entry in entries)
+                _cache.TryAdd(entry.Sha, entry);
+            SquadDashTrace.Write("CommitStatCache", $"Loaded {entries.Count} cached stat entries from disk");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("CommitStatCache", $"LoadFromDisk error: {ex.Message}");
+        }
+    }
+
+    private async Task SaveToDiskAsync()
+    {
+        if (_diskCachePath is null) return;
+        try
+        {
+            var entries = _cache.Values.ToList();
+            var tmp     = _diskCachePath + ".tmp";
+            await using (var fs = File.Create(tmp))
+                await JsonSerializer.SerializeAsync(fs, entries, s_jsonOptions).ConfigureAwait(false);
+            File.Move(tmp, _diskCachePath, overwrite: true);
+            SquadDashTrace.Write("CommitStatCache", $"Saved {entries.Count} stat entries to disk");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("CommitStatCache", $"SaveToDisk error: {ex.Message}");
+        }
+    }
+
     // ── Batch orchestration ───────────────────────────────────────────────────
 
     private async Task FetchUncachedAsync(
@@ -110,6 +166,7 @@ internal sealed class CommitStatService : ICommitStatService
         }, cancellationToken)).ToList();
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
+        _ = SaveToDiskAsync(); // fire-and-forget; best-effort
     }
 
     // ── Single-batch git call ─────────────────────────────────────────────────
