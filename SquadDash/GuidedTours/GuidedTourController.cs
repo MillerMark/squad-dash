@@ -900,6 +900,7 @@ internal sealed class GuidedTourController
         if (_activeTour is null || _activeTour.Steps.Count == 0 || _activeEditor is null) return;
 
         var result = MessageBox.Show(
+            _activeEditor,
             $"Delete step {_currentStepIndex + 1} of {_activeTour.Steps.Count}?\n\n\"{CurrentStep.Title}\"",
             "Delete Step",
             MessageBoxButton.YesNo,
@@ -917,6 +918,7 @@ internal sealed class GuidedTourController
             catch (Exception ex)
             {
                 MessageBox.Show(
+                    _activeEditor,
                     $"Step deleted from memory but could not be saved to disk:\n{ex.Message}",
                     "Save Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
@@ -1091,11 +1093,12 @@ internal sealed class GuidedTourController
     {
         if (_activeTour is null || _allTours.Count <= 1)
         {
-            MessageBox.Show("Cannot delete the only tour.", "Delete Tour", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(_activeEditor, "Cannot delete the only tour.", "Delete Tour", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
         var result = MessageBox.Show(
+            _activeEditor,
             $"Delete tour \"{_activeTour.Name}\"? This will remove all {_activeTour.Steps.Count} step(s).",
             "Delete Tour",
             MessageBoxButton.YesNo,
@@ -1113,6 +1116,7 @@ internal sealed class GuidedTourController
             catch (Exception ex)
             {
                 MessageBox.Show(
+                    _activeEditor,
                     $"Tour deleted from memory but could not be saved to disk:\n{ex.Message}",
                     "Save Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
