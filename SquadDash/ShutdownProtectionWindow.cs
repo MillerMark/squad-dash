@@ -65,11 +65,12 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
                 ? "After this loop iteration completes"
                 : "After this turn completes";
             afterTurnRadio = new RadioButton {
-                Content   = afterTurnText,
-                GroupName = "DeferredMode",
-                FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
-                Margin    = new Thickness(4, 0, 0, 6),
-                IsChecked = true,
+                Content                  = afterTurnText,
+                GroupName                = "DeferredMode",
+                FontSize                 = (double)Application.Current.Resources["FontSizeNormal"],
+                Margin                   = new Thickness(4, 0, 0, 6),
+                IsChecked                = true,
+                VerticalContentAlignment = VerticalAlignment.Center,
             };
             afterTurnRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
             root.Children.Add(afterTurnRadio);
@@ -77,22 +78,24 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         if (hasQueue) {
             afterQueuedRadio = new RadioButton {
-                Content   = "After the Queue is empty",
-                GroupName = "DeferredMode",
-                FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
-                Margin    = new Thickness(4, 0, 0, 6),
-                IsChecked = afterTurnRadio is null,
+                Content                  = "After the Queue is empty",
+                GroupName                = "DeferredMode",
+                FontSize                 = (double)Application.Current.Resources["FontSizeNormal"],
+                Margin                   = new Thickness(4, 0, 0, 6),
+                IsChecked                = afterTurnRadio is null,
+                VerticalContentAlignment = VerticalAlignment.Center,
             };
             afterQueuedRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
             root.Children.Add(afterQueuedRadio);
         }
 
         var rightNowRadio = new RadioButton {
-            Content   = "Right now",
-            GroupName = "DeferredMode",
-            FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
-            Margin    = new Thickness(4, 0, 0, 6),
-            IsChecked = afterTurnRadio is null && afterQueuedRadio is null,
+            Content                  = "Right now",
+            GroupName                = "DeferredMode",
+            FontSize                 = (double)Application.Current.Resources["FontSizeNormal"],
+            Margin                   = new Thickness(4, 0, 0, 6),
+            IsChecked                = afterTurnRadio is null && afterQueuedRadio is null,
+            VerticalContentAlignment = VerticalAlignment.Center,
         };
         rightNowRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
         root.Children.Add(rightNowRadio);
@@ -109,7 +112,8 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
         root.Children.Add(buttonRow);
 
         // Cancel
-        var cancelBtn = new Button { Content = "Cancel", Width = 80, Height = 30 };
+        var cancelBtn = new Button { Content = "Cancel", Width = 80, Height = 30,
+            FontSize = (double)Application.Current.Resources["FontSizeNormal"] };
         cancelBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => { Choice = ShutdownChoice.None; DialogResult = false; };
         Grid.SetColumn(cancelBtn, 0);
@@ -117,9 +121,10 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         // Schedule Shutdown — hidden when "Right now" is selected
         var scheduleBtn = new Button {
-            Content = "Schedule Shutdown",
-            Height  = 30,
-            Padding = new Thickness(12, 0, 12, 0),
+            Content  = "Schedule Shutdown",
+            Height   = 30,
+            Padding  = new Thickness(12, 0, 12, 0),
+            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
         };
         scheduleBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         scheduleBtn.Click += (_, _) => {
@@ -133,9 +138,10 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         // ⚠ Close Now (danger) — shown only when "Right now" is selected
         var closeNowBtn = new Button {
-            Content    = BuildCloseNowContent(),
+            Content    = BuildCloseNowContent((double)Application.Current.Resources["FontSizeNormal"]),
             Height     = 30,
             Padding    = new Thickness(10, 0, 12, 0),
+            FontSize   = (double)Application.Current.Resources["FontSizeNormal"],
             Visibility = Visibility.Collapsed,
         };
         closeNowBtn.SetResourceReference(Control.StyleProperty, "DangerButtonStyle");
@@ -173,7 +179,7 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
     }
 
     /// <summary>Builds the content panel for the Close Now button: red circle with white ! + label.</summary>
-    private static StackPanel BuildCloseNowContent() {
+    private static StackPanel BuildCloseNowContent(double fontSize) {
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
 
         // Red circle with white exclamation mark
@@ -195,6 +201,7 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         panel.Children.Add(new TextBlock {
             Text = "Close Now",
+            FontSize = fontSize,
             VerticalAlignment = VerticalAlignment.Center,
         });
 
