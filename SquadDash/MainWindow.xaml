@@ -2749,16 +2749,21 @@
 
                     <!-- Search highlight overlay — rectangles drawn here; never touches FlowDocument -->
 
-                    <!-- Loading overlay. Visible at startup while history is being loaded; hidden once EndLoad() fires. -->
-                    <TextBlock x:Name="LoadingTranscriptOverlay"
-                               Text="Loading transcript..."
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center"
-                               Visibility="Visible"
-                               FontSize="{DynamicResource FontSizeNormal}"
-                               Foreground="{DynamicResource SubtleText}"
-                               IsHitTestVisible="False"
-                               Panel.ZIndex="5" />
+                    <!-- Loading overlay. Visible at startup while history is being loaded; hidden once EndLoad() fires.
+                         Opaque background hides transcript content (including report buttons) during load. -->
+                    <Border x:Name="LoadingTranscriptOverlay"
+                            Background="{DynamicResource AppSurface}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            Visibility="Visible"
+                            IsHitTestVisible="False"
+                            Panel.ZIndex="5">
+                        <TextBlock Text="Loading transcript..."
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="{DynamicResource FontSizeNormal}"
+                                   Foreground="{DynamicResource SubtleText}" />
+                    </Border>
 
                     <!-- No-workspace overlay. Visible when no folder is open; hidden once a workspace is loaded. -->
                     <StackPanel x:Name="NoWorkspaceHintOverlay"
