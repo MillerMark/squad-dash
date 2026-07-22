@@ -15604,7 +15604,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.Register("ClearAttachments", () =>
         {
-            if (_followUpAttachments.TryGetValue("", out var list))
+            foreach (var list in _followUpAttachments.Values)
                 list.Clear();
             UpdateFollowUpStrip();
             SyncQueuePanel();
