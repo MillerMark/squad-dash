@@ -326,7 +326,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _commandAfterBox.Loaded      += (_, _) => AttachIntelliSenseToCommandBox(_commandAfterBox);
 
         var triggerNames = triggerRegistry?.TriggerNames ?? Array.Empty<string>();
-        _triggerItems = new[] { "" }.Concat(triggerNames).ToArray();
+        _triggerItems = new[] { "" }.Concat(triggerNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)).ToArray();
         _advanceTriggerBox = MakeCommandCombo(_triggerItems, step.AdvanceTrigger);
         _advanceTriggerBox.Loaded += (_, _) =>
         {

@@ -259,6 +259,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event EventHandler? _tourFullScreenPromptPeek;
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
+    private event Action? _tourNewQueueSlotAtFront;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
@@ -2564,6 +2565,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncQueuePanel();
         OnQueueTabClicked(item.Id);
         PromptTextBox.Focus();
+        _tourNewQueueSlotAtFront?.Invoke();
     }
 
     // Appends to the TAIL of the internal list, which SyncQueuePanel renders as the leftmost tab.
@@ -14790,6 +14792,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new FullScreenPromptPeekAdvanceTrigger(
                 addHandler:    h => _tourFullScreenPromptPeek += h,
                 removeHandler: h => _tourFullScreenPromptPeek -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "NewQueueSlotAtFront",
+            new NewQueueSlotAdvanceTrigger(
+                addHandler:    h => _tourNewQueueSlotAtFront += h,
+                removeHandler: h => _tourNewQueueSlotAtFront -= h));
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
