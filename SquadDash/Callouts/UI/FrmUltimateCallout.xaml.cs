@@ -178,7 +178,9 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         callout = null!;
         _openCallouts.RemoveAll(r => !r.TryGetTarget(out var c) || !c.IsVisible);
 
-        var cursor = NativeMethods.GetCursorScreenPos();
+        var cursor    = NativeMethods.GetCursorScreenPos();
+        var hwndAtCursor = NativeMethods.WindowFromPoint(cursor);
+
         for (int i = _openCallouts.Count - 1; i >= 0; i--)
         {
             if (!_openCallouts[i].TryGetTarget(out var c) || !c.IsVisible)
@@ -186,6 +188,14 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
 
             var local = c.PointFromScreen(cursor);
             if (local.X < 0 || local.Y < 0 || local.X > c.ActualWidth || local.Y > c.ActualHeight)
+                continue;
+
+            // Only claim this callout if its HWND is actually the top-most window at the cursor.
+            // If another window (e.g. a context-menu popup) is layered above the callout at this
+            // position, WindowFromPoint returns that popup's HWND instead — skip the callout so
+            // clicks on the popup are not intercepted as callout drag starts.
+            var calloutHwnd = new System.Windows.Interop.WindowInteropHelper(c).Handle;
+            if (hwndAtCursor != calloutHwnd)
                 continue;
 
             callout = c;

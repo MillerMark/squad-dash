@@ -77,6 +77,16 @@ internal static class NativeMethods {
     private static extern bool GetCursorPos(out POINT lpPoint);
 
     [DllImport("user32.dll")]
+    private static extern nint WindowFromPoint(POINT pt);
+
+    /// <summary>
+    /// Returns the HWND of the topmost window at the given physical screen coordinates,
+    /// or <see cref="IntPtr.Zero"/> if none.
+    /// </summary>
+    public static nint WindowFromPoint(Point physicalScreenPoint) =>
+        WindowFromPoint(new POINT { x = (int)physicalScreenPoint.X, y = (int)physicalScreenPoint.Y });
+
+    [DllImport("user32.dll")]
     private static extern bool IsIconic(nint hWnd);
 
     [DllImport("user32.dll")]
