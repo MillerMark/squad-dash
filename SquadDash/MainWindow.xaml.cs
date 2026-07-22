@@ -23057,17 +23057,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         else if (Measure(baseText, nominalSize) <= availableWidth)
         {
-            TranscriptTitleTextBlock.Text = baseText;
+            // Full text doesn't fit at 70% — keep full text with ellipsis so time
+            // is still visible (truncated) rather than completely dropped.
+            TranscriptTitleTextBlock.Text = fullText;
             TranscriptTitleTextBlock.FontSize = nominalSize;
+            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
         else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
         {
-            TranscriptTitleTextBlock.Text = baseText;
+            TranscriptTitleTextBlock.Text = fullText;
             TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
+            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
         else
         {
-            TranscriptTitleTextBlock.Text = baseText;
+            TranscriptTitleTextBlock.Text = fullText;
             TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
             TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
@@ -24172,17 +24176,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         else if (Measure(baseText, nominalSize) <= availableWidth)
         {
-            entry.TitleBlock.Text = baseText;
+            // Full text doesn't fit at 70% — keep full text with ellipsis so time
+            // is still visible (truncated) rather than completely dropped.
+            entry.TitleBlock.Text = fullText;
             entry.TitleBlock.FontSize = nominalSize;
+            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
         else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
         {
-            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.Text = fullText;
             entry.TitleBlock.FontSize = nominalSize * 0.70;
+            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
         else
         {
-            entry.TitleBlock.Text = baseText;
+            entry.TitleBlock.Text = fullText;
             entry.TitleBlock.FontSize = nominalSize * 0.70;
             entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
