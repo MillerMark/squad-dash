@@ -284,6 +284,13 @@ internal sealed class PromptExecutionController {
     /// with a retraction notice so the AI ignores the aborted turn.
     /// </summary>
     private bool             _nextPromptShouldRetractAborted;
+
+    /// <summary>
+    /// Set when the user force-stops running work via the stop button. Causes the next
+    /// prompt to be prefixed with a notice so the AI knows the previous run was forcibly
+    /// terminated and the new prompt may be entirely unrelated to it.
+    /// </summary>
+    private bool             _nextPromptShouldNoticeForceStop;
     private SquadSdkEvent?   _lastSessionReadyEvent;
     private PromptContextDiagnostics? _currentPromptContextDiagnostics;
 
@@ -2139,6 +2146,8 @@ internal sealed class PromptExecutionController {
                     $"[interrupted] {message}\n\n[{ResendLastPromptQuickReply}] [{CheckGitDiffQuickReply}]",
                     ThemeBrush("SystemInfoText"));
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
+                if (IsForceStopByUser(ex))
+                    _nextPromptShouldNoticeForceStop = true;
             }
         }
         catch (Exception ex) {
@@ -2227,6 +2236,9 @@ internal sealed class PromptExecutionController {
     private static bool IsUserRequestedAbort(OperationCanceledException ex) =>
         string.Equals(ex.Message, "Prompt aborted by user.", StringComparison.Ordinal);
 
+    private static bool IsForceStopByUser(OperationCanceledException ex) =>
+        ex.Message.Contains("force-stopped by the user", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Disables quick-reply buttons on a response entry and re-renders it.
     /// Called internally and from MainWindow's QuickReplyButton_Click.
@@ -2253,6 +2265,16 @@ internal sealed class PromptExecutionController {
                 "[System note: The previous user message in this conversation was cancelled mid-stream by the user. " +
                 "Disregard it entirely — do not act on it, refer to it, or treat it as a pending task. " +
                 "The user's actual request follows below.]\n\n" +
+                prompt;
+        }
+
+        if (_nextPromptShouldNoticeForceStop) {
+            _nextPromptShouldNoticeForceStop = false;
+            SquadDashTrace.Write("UI", "Injecting force-stop notice prefix for next prompt.");
+            prompt =
+                "[System note: The previous run was force-stopped by the user before it completed. " +
+                "The user's new message below may be entirely unrelated to that interrupted work — " +
+                "do not assume it is a continuation, correction, or follow-up to anything from the stopped run.]\n\n" +
                 prompt;
         }
 
