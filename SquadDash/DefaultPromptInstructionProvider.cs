@@ -51,7 +51,8 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "An optional `actions` array adds deferred quick-reply buttons to the message. " +
             "Action buttons are useful when the user should choose a later follow-up without typing, especially during maintenance when the user is away.\n" +
             "Inbox actions are deferred user choices, not immediate delegation. If you decide that a named agent should start now, launch that agent with the native delegation/tool path instead of writing an inbox action that promises the handoff. Do not say an agent is starting or being routed unless the launch actually happens.\n" +
-            "Each action:\n" +
+            "**When an inbox message contains a proposal, architectural design, or any concrete plan that could be implemented**, always include at least one `start_named_agent` or `start_coordinator` action so the user can trigger implementation directly from the inbox. The action prompt must be fully self-contained with all relevant context (file paths, design decisions, open questions answered with the proposed defaults). Label it clearly, e.g. \"Implement this\" or \"Implement on a branch\".\n" +
+            "Each action:\n"+
             "- `\"label\"` — button text shown to the user\n" +
             "- `\"routeMode\"` — `\"start_named_agent\"`, `\"start_coordinator\"`, `\"draft\"`, or `\"done\"`\n" +
             "- `\"targetAgent\"` — agent handle (required when routeMode is `\"start_named_agent\"`)\n" +
