@@ -519,6 +519,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             // A native OLE drag normally consumes mouse-up.  If it does not start (or
             // returns between routed input events), make sure a subsequent MouseMove
             // cannot reuse the old source index and enter DoDragDrop again.
+            // Skip the reset while a drag is in flight: WPF can fire PreviewMouseLeftButtonUp
+            // inside the OLE message loop before Drop fires, which would clear _listDragSourceIndex
+            // and cause the Drop handler to bail out (insert line shows but nothing moves).
+            if (_listDragInProgress || _tourDragInProgress) return;
             ResetStepDragState();
             ResetTourDragState();
         };
