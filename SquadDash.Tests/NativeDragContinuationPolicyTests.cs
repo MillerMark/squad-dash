@@ -14,11 +14,13 @@ internal sealed class NativeDragContinuationPolicyTests
             Is.True);
     }
 
+    // Releasing the left button is the normal "drop" signal — WPF sets
+    // Action = Drop by default.  We must NOT cancel here.
     [TestCase(DragDropKeyStates.None)]
     [TestCase(DragDropKeyStates.ControlKey)]
-    public void ShouldCancel_WhenLeftButtonReleased_ReturnsTrue(DragDropKeyStates keyStates)
+    public void ShouldCancel_WhenLeftButtonReleased_ReturnsFalse(DragDropKeyStates keyStates)
     {
-        Assert.That(NativeDragContinuationPolicy.ShouldCancel(false, keyStates), Is.True);
+        Assert.That(NativeDragContinuationPolicy.ShouldCancel(false, keyStates), Is.False);
     }
 
     [Test]
