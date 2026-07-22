@@ -433,8 +433,21 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
         var formPanel = new StackPanel { Margin = new Thickness(14, 10, 14, 8) };
         _formPanel = formPanel;
-        formPanel.Children.Add(MakeLabel("Title"));
-        formPanel.Children.Add(_titleBox);
+
+        // ── Title row (inline) ────────────────────────────────────────────────
+        var titleLabel = new TextBlock
+        {
+            Text              = "Title: ",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 6, 0, 4),
+        };
+        titleLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        var titleRow = new DockPanel { Margin = new Thickness(0, 6, 0, 4), LastChildFill = true };
+        DockPanel.SetDock(titleLabel, Dock.Left);
+        titleRow.Children.Add(titleLabel);
+        titleRow.Children.Add(_titleBox);
+        formPanel.Children.Add(titleRow);
 
         // ── Context condition row ─────────────────────────────────────────────
 
@@ -453,31 +466,46 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         var ctxGroupName = Guid.NewGuid().ToString("N");
         _contextTrueRadio = new RadioButton
         {
-            Content           = "is true",
-            GroupName         = ctxGroupName,
-            IsChecked         = step.RequiredContextValue,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin            = new Thickness(8, 0, 0, 0),
+            Content                  = "is true",
+            GroupName                = ctxGroupName,
+            IsChecked                = step.RequiredContextValue,
+            VerticalAlignment        = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin                   = new Thickness(8, 0, 0, 0),
         };
         _contextFalseRadio = new RadioButton
         {
-            Content           = "is false",
-            GroupName         = ctxGroupName,
-            IsChecked         = !step.RequiredContextValue,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin            = new Thickness(6, 0, 0, 0),
+            Content                  = "is false",
+            GroupName                = ctxGroupName,
+            IsChecked                = !step.RequiredContextValue,
+            VerticalAlignment        = VerticalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin                   = new Thickness(6, 0, 0, 0),
         };
         _contextTrueRadio.SetResourceReference(RadioButton.ForegroundProperty,  "LabelText");
         _contextTrueRadio.SetResourceReference(RadioButton.FontSizeProperty,    "FontSizeBody");
         _contextFalseRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
         _contextFalseRadio.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
 
-        var contextValuePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        var ctxLabel = new TextBlock
+        {
+            Text              = "Context: ",
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ctxLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        ctxLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        var contextValuePanel = new StackPanel
+        {
+            Orientation       = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(0, 4, 0, 4),
+        };
+        contextValuePanel.Children.Add(ctxLabel);
         contextValuePanel.Children.Add(_contextNameBox);
         contextValuePanel.Children.Add(_contextTrueRadio);
         contextValuePanel.Children.Add(_contextFalseRadio);
 
-        formPanel.Children.Add(MakeLabel("Context Condition"));
         formPanel.Children.Add(contextValuePanel);
         formPanel.Children.Add(MakeLabel("Callout Text (Markdown)"));
         formPanel.Children.Add(_markdownBox);
