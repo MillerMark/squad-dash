@@ -16560,24 +16560,67 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         OnQueueTabClicked(item.Id);
 
         var charIndex = 0;
-        _typeIntoPromptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
-        _typeIntoPromptTimer.Tick += (_, _) =>
+        var rng = new Random();
+
+        // Pre-compute per-character delays for natural human-like typing.
+        // Within a word: fast with small jitter (25–55 ms).
+        // At a word boundary (space/punctuation before next word): longer pause
+        // scaled by next-word length — short words get ~80 ms, long words up to ~200 ms,
+        // with added random variance so no two pauses feel identical.
+        var delays = new int[text.Length];
+        for (int i = 0; i < text.Length; i++)
         {
-            if (charIndex < text.Length)
+            char c = text[i];
+            bool isWordBoundary = c == ' ' || c == '\n' || c == '\t' ||
+                                  c == ',' || c == '.' || c == '?' || c == '!';
+            if (isWordBoundary)
             {
-                item.Text = text[..++charIndex];
-                SetPromptTextBoxLogicalBuffer(item.Text, item.Text.Length, reason: "tour-type");
-                SyncQueuePanel();
+                // Measure length of the next word to scale the pause.
+                int nextWordLen = 0;
+                for (int j = i + 1; j < text.Length; j++)
+                {
+                    char nc = text[j];
+                    if (nc == ' ' || nc == '\n' || nc == '\t') break;
+                    nextWordLen++;
+                }
+                // Short words (1-3 chars) → ~80 ms pause; long words (8+) → ~200 ms.
+                int basePause = 70 + Math.Min(nextWordLen, 8) * 16;
+                delays[i] = basePause + rng.Next(-25, 60);
             }
             else
             {
+                // Within a word: fast with light jitter.
+                delays[i] = 28 + rng.Next(0, 30);
+            }
+        }
+
+        int delayIndex = 0;
+        void ScheduleNext()
+        {
+            if (delayIndex >= delays.Length) return;
+            var ms = delays[delayIndex++];
+            _typeIntoPromptTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+            _typeIntoPromptTimer.Tick += (_, _) =>
+            {
                 _typeIntoPromptTimer?.Stop();
                 _typeIntoPromptTimer = null;
-                if (!string.IsNullOrWhiteSpace(onCompleteCommand))
-                    _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
-            }
-        };
-        _typeIntoPromptTimer.Start();
+                if (charIndex < text.Length)
+                {
+                    item.Text = text[..++charIndex];
+                    SetPromptTextBoxLogicalBuffer(item.Text, item.Text.Length, reason: "tour-type");
+                    SyncQueuePanel();
+                    ScheduleNext();
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(onCompleteCommand))
+                        _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
+                }
+            };
+            _typeIntoPromptTimer.Start();
+        }
+
+        ScheduleNext();
     }
 
     private void OfferGuidedTourOnFirstRun()
