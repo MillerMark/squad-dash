@@ -1004,8 +1004,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
         }
 
-        // ── Selection embedding: backtick ─────────────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.OemTilde
+        // ── Selection embedding: backtick or apostrophe ───────────────────────────
+        if ((e.Key == System.Windows.Input.Key.OemTilde || e.Key == System.Windows.Input.Key.OemQuotes)
             && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None
             && tb.GetSelectionLength() > 0) {
             if (MarkdownEditorCommands.ApplyInlineCodeOrFence(tb)) {

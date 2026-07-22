@@ -9620,8 +9620,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        // ── Selection embedding: backtick wraps inline code or fence ─────────────
-        if (e.Key == System.Windows.Input.Key.OemTilde
+        // ── Selection embedding: backtick or apostrophe wraps inline code or fence ─
+        if ((e.Key == System.Windows.Input.Key.OemTilde || e.Key == System.Windows.Input.Key.OemQuotes)
             && Keyboard.Modifiers == ModifierKeys.None
             && DocSourceTextBox.GetSelectionLength() > 0)
         {
@@ -9703,7 +9703,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
-                && !(e.Key == Key.OemTilde && PromptTextBox.SelectionLength > 0))
+                && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.SelectionLength > 0))
             {
                 return;
             }
@@ -9871,8 +9871,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            // ── Selection embedding: backtick ─────────────────────────────────────────
-            if (e.Key == Key.OemTilde && modifiers == ModifierKeys.None
+            // ── Selection embedding: backtick or apostrophe ───────────────────────────
+            if ((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && modifiers == ModifierKeys.None
                 && PromptTextBox.SelectionLength > 0)
             {
                 if (MarkdownEditorCommands.ApplyInlineCodeOrFence(PromptTextBox))

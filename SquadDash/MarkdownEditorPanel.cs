@@ -145,8 +145,8 @@ internal sealed class MarkdownEditorPanel : DockPanel
             return;
         }
 
-        // Backtick with selection: inline code or fence
-        if (e.Key == Key.OemTilde && modifiers == ModifierKeys.None && !EditorBox.Selection.IsEmpty)
+        // Backtick or apostrophe with selection: inline code or fence
+        if ((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && modifiers == ModifierKeys.None && !EditorBox.Selection.IsEmpty)
         {
             if (MarkdownEditorCommands.ApplyInlineCodeOrFence(EditorBox))
             {
