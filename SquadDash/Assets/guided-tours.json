@@ -234,7 +234,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.2]How to create and submit prompts (and navigate through previously sent prompts in the transcript).\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.2]How to create and submit prompts (and navigate through prompts in the transcript).\r\n[size:1.1][right]Click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -255,53 +255,39 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "TypeIntoPrompt|I want to build a new feature...|Sim"
+          "TypeIntoPrompt|Let\u0027s build a new feature...|Sim"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.0594541910331384,
-        "targetOffsetY": 0.43030945419102895
-      },
-      {
-        "title": "Shift\u002BEnter - multi line",
-        "markdownText": "Press **Shift**\u002B**Enter** to add a new line.",
-        "targetControlId": "PromptTextBox:Selection\u002B36",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "CaretPromptText|Bullets are continued when you add lines with Shift\u002BEnter\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
+        "targetOffsetX": 0.04983922829581994,
+        "targetOffsetY": 0.49742709449803346
       },
       {
         "title": "Attachments  -- files, text and images.",
-        "markdownText": "Attach files, text, and images to your prompts.\r\n* **Ctrl**\u002B**Shift**\u002B**V** to attach clipboard **text**\r\n* Paste **images**\r\n* Drag and drop **files**",
+        "markdownText": "You can send **rich context** to AI.\r\n* Paste **images**\r\n* Drag and drop **files**\r\n* **Ctrl**\u002B**Shift**\u002B**V** adds clipboard **text**\r\n",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ClearAttachments"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "targetOffsetX": 0.06806002143622722,
-        "targetOffsetY": 0.5500522508038566
+        "targetOffsetX": 0.04983922829581994,
+        "targetOffsetY": 0.614377344587351
       },
       {
         "title": "Attachments  -- are here",
-        "markdownText": "Attachments appear here.\r\nYou can click the attachment to see its contents.",
+        "markdownText": "Attachments appear here.\r\nClick the attachment to see its contents.",
         "targetControlId": "FollowUpStrip",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a little attachment icon in the transcript rather than many large lines of text.\\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV.",
+          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a single line with an attachment icon in the transcript rather than many large lines of text.\\n\\nText attachments are great for call stacks, error messages, or text data in any other form that you want to analyze. \\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV.",
           "AttachImageAsset: Screenshot|Assets/GuidedTours/CompletedBadgeRealistic.png"
         ],
         "commandsAfter": [
@@ -320,7 +306,8 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a little attachment icon in the transcript rather than many large lines of text.\\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV."
+          "AttachTextToActive: Clipboard Text|This is a multi-line text attachment.\\n\\nText attachments keep the transcript clean -- when you send them you see just a little attachment icon in the transcript rather than many large lines of text.\\n\\nYou can click the attachment icon in the transcript to see the attachments.\\n\\nYou can attach any size block of text to a prompt by pressing Ctrl\u002BShift\u002BV.",
+          "AttachImageAsset: Screenshot|Assets/GuidedTours/CompletedBadgeRealistic.png"
         ],
         "commandsAfter": [
           "ClearAttachments"
@@ -375,6 +362,22 @@
         "advanceTrigger": "",
         "targetOffsetX": 0.03376205787781351,
         "targetOffsetY": 0.6378989147909951
+      },
+      {
+        "title": "Shift\u002BEnter - multi line",
+        "markdownText": "Press **Shift**\u002B**Enter** to add a new line.",
+        "targetControlId": "PromptTextBox:Selection\u002B36",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CaretPromptText|Bullets are continued when you add lines with Shift\u002BEnter\\n\\n1. This is my first point\\n2. This is my second point.\u003Ccaret\u003E"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
       },
       {
         "title": "The Send button.",
@@ -507,7 +510,7 @@
       },
       {
         "title": "Prompts navigation",
-        "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\n[vspace:0]**Ctrl**\u002B**Alt**\u002B**PgUp** -- previous **question**\r\n\r\nYou can also hold **Alt** and click this button to navigate through **questions** posed to AI.",
+        "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\nAdd the **Alt** key to jump to the **previous question** posed.",
         "targetControlId": "PromptNavUpButton",
         "calloutPlacement": "North",
         "preAction": "None",
