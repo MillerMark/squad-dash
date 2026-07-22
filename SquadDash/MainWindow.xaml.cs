@@ -16609,18 +16609,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     item.Text = text[..++charIndex];
                     SetPromptTextBoxLogicalBuffer(item.Text, item.Text.Length, reason: "tour-type");
                     SyncQueuePanel();
-                    ScheduleNext();
-                }
-                else
-                {
-                    if (!string.IsNullOrWhiteSpace(onCompleteCommand))
+                    if (charIndex == text.Length && !string.IsNullOrWhiteSpace(onCompleteCommand))
                         _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
+                    else
+                        ScheduleNext();
                 }
             };
             _typeIntoPromptTimer.Start();
         }
 
-        ScheduleNext();
+        if (text.Length == 0 && !string.IsNullOrWhiteSpace(onCompleteCommand))
+            _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
+        else
+            ScheduleNext();
     }
 
     private void OfferGuidedTourOnFirstRun()
