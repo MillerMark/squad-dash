@@ -3158,7 +3158,8 @@
                             Background="{DynamicResource InputSurface}"
                             Cursor="Hand"
                             MouseLeftButtonUp="NoRepoPromptStrip_MouseLeftButtonUp">
-                        <TextBlock FontSize="{DynamicResource FontSizeSmall}"
+                        <TextBlock x:Name="InitializeRepositoryLabel"
+                                   FontSize="{DynamicResource FontSizeSmall}"
                                    VerticalAlignment="Center"
                                    Foreground="{DynamicResource SubtleText}"
                                    Text="⊕ Initialize repository" />
