@@ -467,10 +467,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 0, 0),
         };
-        _contextTrueRadio.SetResourceReference(RadioButton.StyleProperty,      "ThemedRadioButtonStyle");
-        _contextFalseRadio.SetResourceReference(RadioButton.StyleProperty,     "ThemedRadioButtonStyle");
-        _contextTrueRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+        _contextTrueRadio.SetResourceReference(RadioButton.ForegroundProperty,  "LabelText");
+        _contextTrueRadio.SetResourceReference(RadioButton.FontSizeProperty,    "FontSizeBody");
         _contextFalseRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+        _contextFalseRadio.SetResourceReference(RadioButton.FontSizeProperty,   "FontSizeBody");
 
         var contextValuePanel = new StackPanel { Orientation = Orientation.Horizontal };
         contextValuePanel.Children.Add(_contextNameBox);
@@ -1015,6 +1015,9 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _contextNameBox.SelectionChanged += (_, _) =>
         {
             if (_isLoadingStep) return;
+            // Auto-select "is true" whenever a context is chosen (or reset when "(none)" picked)
+            if (_contextNameBox.SelectedItem is string s && s != "(none)")
+                _contextTrueRadio.IsChecked = true;
             if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
                 _stepListBox.Items[_stepIndex] = MakeStepListItem(_stepIndex, _activeTour.Steps[_stepIndex]);
             QueueAutoSave();
