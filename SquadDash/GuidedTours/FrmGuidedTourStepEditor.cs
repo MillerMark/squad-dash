@@ -1745,8 +1745,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             _debounceTimer.Stop();
             _autoSaveTimer.Stop();
         }
-        // Move focus to the markdown box so the user can start editing immediately.
-        Dispatcher.InvokeAsync(() => _markdownBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+        // Move focus to the markdown box so the user can start editing immediately,
+        // unless passive observe mode is on (focusing would steal focus from the main window).
+        if (!IsPassiveObserveMode)
+            Dispatcher.InvokeAsync(() => _markdownBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void UpdateNavigationState()
