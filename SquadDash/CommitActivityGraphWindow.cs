@@ -1703,6 +1703,18 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                           _cachedStartDate, _cachedEndDate);
     }
 
+    /// <summary>
+    /// Called by MainWindow when the system font-size scale changes live.
+    /// Re-runs the canvas layout (which uses FontSizeNormal for label column width)
+    /// and redraws both the activity canvas and the range slider.
+    /// </summary>
+    internal void NotifyFontSizeChanged()
+    {
+        ApplyFeatureFilter();
+        _canvas.InvalidateVisual();
+        _rangeSlider.InvalidateVisual();
+    }
+
     private static double MeasureTextWidth(string? text, double fontSize)
     {
         if (string.IsNullOrEmpty(text)) return 0;

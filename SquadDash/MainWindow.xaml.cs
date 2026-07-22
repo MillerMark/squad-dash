@@ -8931,6 +8931,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Apply visual change first so WPF can render the new sizes this frame
         // before the file save occupies the UI thread.
         ApplyFontSizeScale();
+        _commitActivityGraphWindow?.NotifyFontSizeChanged();
         // Persist asynchronously; update the snapshot on the UI thread when done.
         var level = _fontScaleLevel;
         _ = Task.Run(() =>
