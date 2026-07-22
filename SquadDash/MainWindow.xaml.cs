@@ -705,7 +705,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly Stopwatch _pttVolumeTraceStopwatch = Stopwatch.StartNew();
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
-    private DispatcherTimer? _promptNavHintTimer;
     private DispatcherTimer? _transcriptGlowHoldTimer;
     private Border?          _transcriptGlowFadeBorder;
     private InteractiveControlState? _lastInteractiveControlState;
@@ -22919,15 +22918,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!useSnapshotFastPath && _conversationManager.HasPendingRender(thread))
             _ = _conversationManager.EnsureAgentThreadRenderedAsync(thread);
 
-        // When switching to a thread with no focused prompt, briefly flash the
-        // thread's start time in the same hint label so the user knows when
-        // this conversation began.
-        if (thread.PromptNavIndex == -1)
-        {
-            PromptNavHintTextBlock.Text = FormatRelativeTime(thread.StartedAt);
-            ShowPromptNavHintWithFadeOut();
-        }
-
         if (useSnapshotFastPath)
         {
             QueueDeferredLiveTranscriptSwitch(thread, scrollToStart);
@@ -27503,55 +27493,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         PromptNavUpButton.IsEnabled   = canGoUp;
         PromptNavDownButton.IsEnabled = canGoDown;
-
-        if (idx == -1)
-        {
-            HidePromptNavHint();
-        }
-        else
-        {
-            PromptNavHintTextBlock.Text = FormatRelativeTime(thread.PromptParagraphs[idx].Timestamp);
-            ShowPromptNavHintWithFadeOut();
-        }
     }
 
     private static string FormatRelativeTime(DateTimeOffset timestamp)
     {
         return StatusTimingPresentation.FormatRelativeTimestamp(timestamp);
-    }
-
-    private void ShowPromptNavHintWithFadeOut()
-    {
-        // Cancel any in-flight fade and restart the hold timer
-        PromptNavHintTextBlock.BeginAnimation(OpacityProperty, null);
-        PromptNavHintTextBlock.Opacity = 1;
-        PromptNavHintTextBlock.Visibility = Visibility.Visible;
-
-        if (_promptNavHintTimer is null)
-        {
-            _promptNavHintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(7) };
-            _promptNavHintTimer.Tick += (_, _) =>
-            {
-                _promptNavHintTimer.Stop();
-                var fade = new DoubleAnimation(1.0, 0.0, new Duration(TimeSpan.FromSeconds(2)))
-                {
-                    FillBehavior = FillBehavior.Stop
-                };
-                fade.Completed += (_, _) => HidePromptNavHint();
-                PromptNavHintTextBlock.BeginAnimation(OpacityProperty, fade);
-            };
-        }
-
-        _promptNavHintTimer.Stop();
-        _promptNavHintTimer.Start();
-    }
-
-    private void HidePromptNavHint()
-    {
-        _promptNavHintTimer?.Stop();
-        PromptNavHintTextBlock.BeginAnimation(OpacityProperty, null);
-        PromptNavHintTextBlock.Opacity = 1;
-        PromptNavHintTextBlock.Visibility = Visibility.Collapsed;
     }
 
     private static bool IsAltHeld()

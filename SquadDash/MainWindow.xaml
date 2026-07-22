@@ -2707,11 +2707,6 @@
                                Visibility="Collapsed"
                                Foreground="{DynamicResource BodyText}" />
                 </DockPanel>
-                <TextBlock x:Name="PromptNavHintTextBlock"
-                           HorizontalAlignment="Right"
-                           FontSize="{DynamicResource FontSizeSmall}"
-                           Foreground="{DynamicResource SubtleText}"
-                           Visibility="Collapsed" />
                 </StackPanel>
 
                 <!-- Grid wrapper lets the scroll-to-bottom button float over the transcript -->
