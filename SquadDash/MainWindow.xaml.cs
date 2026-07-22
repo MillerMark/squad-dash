@@ -15661,7 +15661,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var agentText  = (parts.Length > 1 ? parts[1] : string.Empty).Replace(@"\n", "\n");
             var agentName  = parts.Length > 2 ? parts[2].Trim() : null;
 
-            var idleDeadline = Environment.TickCount64 + 10_000;
+            var idleDeadline = Environment.TickCount64 + 1_500;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
                 await Task.Delay(100);
 
@@ -16253,6 +16253,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var specs = arg.Split(';', StringSplitOptions.RemoveEmptyEntries);
         if (specs.Length == 0) return;
+
+        var idleDeadline = Environment.TickCount64 + 1_500;
+        while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
+            await Task.Delay(100);
 
         int blocksBefore = CoordinatorThread.Document.Blocks.Count;
         var rng = new Random();
