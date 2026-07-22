@@ -10015,6 +10015,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_tourShortcutTarget is not null && !_tourShortcutTarget.IsKeyboardFocusWithin)
                 _tourShortcutTarget.Focus();
 
+            // ── Enter advances guided tour when editor does not have focus ────────
+            // Allows the user to step through a running tour by pressing Enter while
+            // interacting with SquadDash normally.  Swallowed so it doesn't reach
+            // the prompt box, buttons, or any other control.
+            if (e.Key == Key.Enter
+                && Keyboard.Modifiers == ModifierKeys.None
+                && _guidedTourController is { IsActive: true }
+                && !_guidedTourController.IsEditorFocused)
+            {
+                _guidedTourController.Next();
+                e.Handled = true;
+                return;
+            }
+
             // ── Ctrl+O: open Options ─────────────────────────────────────────────
             if (e.Key == Key.O
                 && (Keyboard.Modifiers & ModifierKeys.Control) != 0

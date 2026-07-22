@@ -110,6 +110,9 @@ internal sealed class GuidedTourController
     /// <summary>True when the standalone guided tour editor is currently open.</summary>
     public bool IsEditorOpen => _activeEditor is { IsLoaded: true };
 
+    /// <summary>True when the editor is open and contains keyboard focus.</summary>
+    public bool IsEditorFocused => _activeEditor is { IsLoaded: true, IsKeyboardFocusWithin: true };
+
     /// <summary>Synchronously persists fields currently visible in the editor.</summary>
     public bool FlushEditorChanges() => _activeEditor?.FlushPendingChanges() ?? true;
 
