@@ -467,7 +467,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             Margin            = new Thickness(8, 0, 0, 0),
             ToolTip           = "When checked, step advances won't bring this editor to the front",
         };
-        _passiveObserveCheckBox.SetResourceReference(CheckBox.ForegroundProperty, "PrimaryText");
+        _passiveObserveCheckBox.SetResourceReference(CheckBox.StyleProperty, "ThemedCheckBoxStyle");
 
         var leftButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         leftButtons.Children.Add(_prevButton);
