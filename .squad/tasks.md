@@ -57,12 +57,6 @@
   - Dev mode: Dev menu item opens guided-tour.json in editor; step-by-step preview navigation
   - Options → Discoverability: "Start the Tour" button
 
-- [ ] **[Guided Tour] "Passive observe" mode checkbox in tour editor** *(Owner: Lyra Morn)*
-  Add a checkbox to FrmGuidedTourStepEditor: "Passive observe mode — don't steal focus on step advance".
-  When checked, SyncToActiveTourStep() should NOT call Activate() or focus the editor window when the
-  tour advances to a new step. This lets the developer test a tour as if the editor weren't stealing
-  keyboard focus / shortcuts — effectively invisible during playback while still syncing the step selection.
-  When unchecked (default), behavior is unchanged.
 
 - [ ] **[Guided Tour] Click-to-pick target in Edit Step dialog** *(Owner: Lyra Morn)*
   The "Target..." button in FrmGuidedTourStepEditor should launch a click-to-pick mode:
@@ -427,3 +421,4 @@
 - [x] **[UI] Window open glow-fade animation — Phase 2: Theme tokens** *(Owner: Orion Vale)* — commit f14cd03
 - [x] **[UI] Window open glow-fade animation — Phase 3: Hook into ChromedWindow** *(Owner: Lyra Morn)* — commit 4e3b71f
 - [x] **[Commit Viewer] AI-assisted categorization of uncategorized commits** *(Owner: Lyra Morn)* ✅ Completed 2026-07-09 — commit c40ae85
+- [x] **[Guided Tour] "Passive observe" mode checkbox in tour editor** *(Owner: Lyra Morn)* ✅ Completed — commit 19ff630
