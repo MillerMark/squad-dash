@@ -41,102 +41,118 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         // Status lines
         if (isLoopRunning)
-            AddStatus(root, "A loop is currently running");
+            AddStatus(root, "A loop is currently running.");
         else if (isRunning)
-            AddStatus(root, "The coordinator is working on a turn");
+            AddStatus(root, "The Coordinator is working on a turn.");
         if (hasQueue)
-            AddStatus(root, $"There are items waiting in the prompt queue");
+            AddStatus(root, "There are queued prompts waiting to run.");
 
         root.Children.Add(new Border { Height = 16 });
 
-        // "Wait and close automatically" section (only when relevant)
-        bool canDefer = isRunning || isLoopRunning || hasQueue;
-        RadioButton? afterTurnRadio = null;
+        // Shutdown options — always shown (at minimum "Right now" is available)
+        root.Children.Add(new TextBlock {
+            Text = "Shutdown SquadDash:",
+            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+
+        RadioButton? afterTurnRadio   = null;
         RadioButton? afterQueuedRadio = null;
 
-        if (canDefer) {
-            root.Children.Add(new TextBlock {
-                Text = "Or schedule shutdown after:",
-                FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 8),
-            });
-
-            if (isRunning || isLoopRunning) {
-                string afterTurnText = isLoopRunning
-                    ? "This loop iteration finishes"
-                    : "This turn completes";
-                afterTurnRadio = new RadioButton {
-                    Content = afterTurnText,
-                    GroupName = "DeferredMode",
-                    FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-                    Margin = new Thickness(4, 0, 0, 6),
-                    IsChecked = true,
-                };
-                afterTurnRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
-                root.Children.Add(afterTurnRadio);
-            }
-
-            if (hasQueue) {
-                afterQueuedRadio = new RadioButton {
-                    Content = "All queued items complete",
-                    GroupName = "DeferredMode",
-                    FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-                    Margin = new Thickness(4, 0, 0, 6),
-                    IsChecked = afterTurnRadio is null, // default if no turn option
-                };
-                afterQueuedRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
-                root.Children.Add(afterQueuedRadio);
-            }
-
-            root.Children.Add(new Border { Height = 16 });
+        if (isRunning || isLoopRunning) {
+            string afterTurnText = isLoopRunning
+                ? "After this loop iteration completes"
+                : "After this turn completes";
+            afterTurnRadio = new RadioButton {
+                Content   = afterTurnText,
+                GroupName = "DeferredMode",
+                FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
+                Margin    = new Thickness(4, 0, 0, 6),
+                IsChecked = true,
+            };
+            afterTurnRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+            root.Children.Add(afterTurnRadio);
         }
 
-        // Button row: [Cancel] ... [Schedule Shutdown] [⚠ Close Now]
+        if (hasQueue) {
+            afterQueuedRadio = new RadioButton {
+                Content   = "After the Queue is empty",
+                GroupName = "DeferredMode",
+                FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
+                Margin    = new Thickness(4, 0, 0, 6),
+                IsChecked = afterTurnRadio is null,
+            };
+            afterQueuedRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+            root.Children.Add(afterQueuedRadio);
+        }
+
+        var rightNowRadio = new RadioButton {
+            Content   = "Right now",
+            GroupName = "DeferredMode",
+            FontSize  = (double)Application.Current.Resources["FontSizeNormal"],
+            Margin    = new Thickness(4, 0, 0, 6),
+            IsChecked = afterTurnRadio is null && afterQueuedRadio is null,
+        };
+        rightNowRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        root.Children.Add(rightNowRadio);
+
+        root.Children.Add(new Border { Height = 16 });
+
+        // Button row: [Cancel] ... [Schedule Shutdown -or- ⚠ Close Now]
+        // Schedule Shutdown is shown when a deferred option is selected;
+        // ⚠ Close Now is shown when "Right now" is selected.
         var buttonRow = new Grid();
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });       // Cancel
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // spacer
-        if (canDefer)
-            buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // Schedule
-        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });     // Close Now
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.Children.Add(buttonRow);
 
         // Cancel
-        var cancelBtn = new Button { Content = "Cancel", Width = 80, Height = 30, Margin = new Thickness(0, 0, 0, 0) };
+        var cancelBtn = new Button { Content = "Cancel", Width = 80, Height = 30 };
         cancelBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         cancelBtn.Click += (_, _) => { Choice = ShutdownChoice.None; DialogResult = false; };
         Grid.SetColumn(cancelBtn, 0);
         buttonRow.Children.Add(cancelBtn);
 
-        // Schedule Shutdown (only when deferred options exist)
-        if (canDefer) {
-            var scheduleBtn = new Button {
-                Content = "Schedule Shutdown",
-                Height = 30,
-                Padding = new Thickness(12, 0, 12, 0),
-                Margin = new Thickness(0, 0, 8, 0),
-            };
-            scheduleBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-            scheduleBtn.Click += (_, _) => {
-                Choice = (afterQueuedRadio?.IsChecked == true)
-                    ? ShutdownChoice.AfterAllQueued
-                    : ShutdownChoice.AfterCurrentTurn;
-                DialogResult = true;
-            };
-            Grid.SetColumn(scheduleBtn, 2);
-            buttonRow.Children.Add(scheduleBtn);
-        }
+        // Schedule Shutdown — hidden when "Right now" is selected
+        var scheduleBtn = new Button {
+            Content = "Schedule Shutdown",
+            Height  = 30,
+            Padding = new Thickness(12, 0, 12, 0),
+        };
+        scheduleBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        scheduleBtn.Click += (_, _) => {
+            Choice = (afterQueuedRadio?.IsChecked == true)
+                ? ShutdownChoice.AfterAllQueued
+                : ShutdownChoice.AfterCurrentTurn;
+            DialogResult = true;
+        };
+        Grid.SetColumn(scheduleBtn, 2);
+        buttonRow.Children.Add(scheduleBtn);
 
-        // ⚠ Close Now (danger)
+        // ⚠ Close Now (danger) — shown only when "Right now" is selected
         var closeNowBtn = new Button {
-            Content = BuildCloseNowContent(),
-            Height = 30,
-            Padding = new Thickness(10, 0, 12, 0),
+            Content    = BuildCloseNowContent(),
+            Height     = 30,
+            Padding    = new Thickness(10, 0, 12, 0),
+            Visibility = Visibility.Collapsed,
         };
         closeNowBtn.SetResourceReference(Control.StyleProperty, "DangerButtonStyle");
         closeNowBtn.Click += (_, _) => { Choice = ShutdownChoice.CloseNow; DialogResult = true; };
-        Grid.SetColumn(closeNowBtn, canDefer ? 3 : 2);
+        Grid.SetColumn(closeNowBtn, 2);
         buttonRow.Children.Add(closeNowBtn);
+
+        // Swap action button based on radio selection
+        void UpdateActionButton() {
+            bool rightNow = rightNowRadio.IsChecked == true;
+            scheduleBtn.Visibility  = rightNow ? Visibility.Collapsed : Visibility.Visible;
+            closeNowBtn.Visibility  = rightNow ? Visibility.Visible   : Visibility.Collapsed;
+        }
+        rightNowRadio.Checked                                          += (_, _) => UpdateActionButton();
+        if (afterTurnRadio   is not null) afterTurnRadio.Checked       += (_, _) => UpdateActionButton();
+        if (afterQueuedRadio is not null) afterQueuedRadio.Checked     += (_, _) => UpdateActionButton();
+        UpdateActionButton();
 
         // Escape = cancel
         PreviewKeyDown += (_, e) => {
