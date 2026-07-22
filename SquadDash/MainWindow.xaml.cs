@@ -23003,7 +23003,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? FormatRelativeTime(thread.PromptParagraphs[0].Timestamp)
             : string.Empty;
         var fullText = !string.IsNullOrWhiteSpace(relativeTime)
-            ? $"{baseText}  ·  {relativeTime}"
+            ? $"{baseText} - {relativeTime}"
             : baseText;
 
         var availableWidth = TranscriptTitleDockPanel.ActualWidth
@@ -24057,6 +24057,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _transcriptTitleRefreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(60), DispatcherPriority.Background,
                 (_, _) =>
                 {
+                    ScanAndUpdateCoordinatorIntent();
                     foreach (var e in _secondaryTranscripts.ToList())
                         RefreshSecondaryTranscriptTitle(e.Thread);
                 },
@@ -24115,7 +24116,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             (baseText, relativeTime) = BuildSecondaryTranscriptTitleParts(entry.Agent, entry.Thread);
         }
         var fullText = !string.IsNullOrWhiteSpace(relativeTime)
-            ? $"{baseText}  ·  {relativeTime}"
+            ? $"{baseText} - {relativeTime}"
             : baseText;
 
         var tooltipText = !string.IsNullOrWhiteSpace(relativeTime)
@@ -24238,8 +24239,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // top reference used by the old approach.
             string? foundIntent    = null;
             double  bestY          = double.MinValue;
+            DateTimeOffset? foundTimestamp = null;
             string? aboveIntent    = null;   // fallback: best entry above viewport
             double  bestAboveBottom = double.MinValue; // largest entryBottom ≤ 0
+            DateTimeOffset? aboveTimestamp = null;
 
             foreach (var toolEntry in _agentThreadRegistry.ToolEntries.Values)
             {
@@ -24276,8 +24279,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     {
                         if (pos.Y > bestY)
                         {
-                            bestY = pos.Y;
-                            foundIntent = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                            bestY           = pos.Y;
+                            foundIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                            foundTimestamp  = toolEntry.StartedAt;
                         }
                     }
                     else if (entryBottom <= 0 && entryBottom > bestAboveBottom)
@@ -24286,15 +24290,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         // as a fallback for when nothing is visible.
                         bestAboveBottom = entryBottom;
                         aboveIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
+                        aboveTimestamp  = toolEntry.StartedAt;
                     }
                 }
                 catch { }
             }
 
-            var displayIntent = foundIntent ?? aboveIntent;
+            var displayIntent    = foundIntent    ?? aboveIntent;
+            var displayTimestamp = foundTimestamp ?? aboveTimestamp;
             if (!string.IsNullOrWhiteSpace(displayIntent))
             {
-                TranscriptTitleTextBlock.Text    = $"Coordinator - {displayIntent}";
+                var relTime = displayTimestamp.HasValue ? FormatRelativeTime(displayTimestamp.Value) : null;
+                var title   = string.IsNullOrWhiteSpace(relTime)
+                    ? $"Coordinator - {displayIntent}"
+                    : $"Coordinator - {displayIntent} - {relTime}";
+                TranscriptTitleTextBlock.Text    = title;
                 TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(displayIntent);
             }
             else
