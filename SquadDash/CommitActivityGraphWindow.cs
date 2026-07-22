@@ -308,7 +308,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         // ── Selection analysis panel ──────────────────────────────────────────
         _selectionPanel            = BuildSelectionPanel();
-        _selectionPanel.Visibility = Visibility.Collapsed;
+        _selectionPanel.Visibility = Visibility.Visible;
 
         // ── Feature filter widget ─────────────────────────────────────────────
         var filterWidget = BuildFeatureFilterWidget();
@@ -321,7 +321,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
             VerticalAlignment   = VerticalAlignment.Center,
             ResizeDirection     = GridResizeDirection.Rows,
             ResizeBehavior      = GridResizeBehavior.PreviousAndNext,
-            Visibility          = Visibility.Collapsed,
+            Visibility          = Visibility.Visible,
             Cursor              = Cursors.SizeNS,
         };
         _selectionSplitter.SetResourceReference(GridSplitter.BackgroundProperty, "PanelBorder");
@@ -851,26 +851,30 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         if (_selectionPanel is null) return;
 
-        if (!_canvas.HasSelection)
-        {
-            _selectionPanel.Visibility     = Visibility.Collapsed;
-            _selectionSplitter!.Visibility = Visibility.Collapsed;
-            if (_viewSummaryText is not null) _viewSummaryText.Visibility = Visibility.Visible;
-            return;
-        }
+        DateTimeOffset selStart, selEnd;
 
-        var rangeStartDt = CanvasXToDateTime(_canvas.SelectionXMin);
-        var rangeEndDt   = CanvasXToDateTime(_canvas.SelectionXMax);
-        if (rangeStartDt is null || rangeEndDt is null)
+        if (_canvas.HasSelection)
         {
-            _selectionPanel.Visibility     = Visibility.Collapsed;
-            _selectionSplitter!.Visibility = Visibility.Collapsed;
-            if (_viewSummaryText is not null) _viewSummaryText.Visibility = Visibility.Visible;
-            return;
+            var rangeStartDt = CanvasXToDateTime(_canvas.SelectionXMin);
+            var rangeEndDt   = CanvasXToDateTime(_canvas.SelectionXMax);
+            if (rangeStartDt is null || rangeEndDt is null)
+            {
+                // Fallback to full view range if conversion fails.
+                selStart = EffectiveStart;
+                selEnd   = EffectiveEnd;
+            }
+            else
+            {
+                selStart = rangeStartDt.Value < rangeEndDt.Value ? rangeStartDt.Value : rangeEndDt.Value;
+                selEnd   = rangeStartDt.Value < rangeEndDt.Value ? rangeEndDt.Value   : rangeStartDt.Value;
+            }
         }
-
-        var selStart = rangeStartDt.Value < rangeEndDt.Value ? rangeStartDt.Value : rangeEndDt.Value;
-        var selEnd   = rangeStartDt.Value < rangeEndDt.Value ? rangeEndDt.Value   : rangeStartDt.Value;
+        else
+        {
+            // No explicit selection — summarise everything in the current view.
+            selStart = EffectiveStart;
+            selEnd   = EffectiveEnd;
+        }
 
         // Determine which rows to analyse based on selection/filter scope
         IEnumerable<CommitActivityRow> analysisRows;
@@ -1622,6 +1626,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
 
         _displayRows = displayRows;
         UpdateViewSummary();
+        UpdateSelectionPanel();
     }
 
     private Panel BuildFeatureFilterWidget()
