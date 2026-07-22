@@ -26,6 +26,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly Action? _onMarkedRead;
     private readonly Action? _onMarkedUnread;
+    private readonly Action? _onRepliedInChat;
     private readonly Action<double>? _onFontSizeChanged;
     private double _bodyFontSize;
     private bool _markedRead;
@@ -38,6 +39,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<string, InboxMessage>? attachSelectedTextToNewChat = null,
         Action? onMarkedRead = null,
         Action? onMarkedUnread = null,
+        Action? onRepliedInChat = null,
         double initialFontSize = 14,
         Action<double>? onFontSizeChanged = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
@@ -48,6 +50,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _message                = message;
         _onMarkedRead           = onMarkedRead;
         _onMarkedUnread         = onMarkedUnread;
+        _onRepliedInChat        = onRepliedInChat;
         _onFontSizeChanged      = onFontSizeChanged;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
@@ -96,6 +99,21 @@ internal sealed class InboxMessageWindow : ChromedWindow
         closeUnreadBtn.Click += (_, _) => { _onMarkedUnread?.Invoke(); Close(); };
         DockPanel.SetDock(closeUnreadBtn, Dock.Right);
         headerDock.Children.Add(closeUnreadBtn);
+
+        var replyInChatBtn = new Button
+        {
+            Content           = "Reply in Chat",
+            Padding           = new Thickness(6, 2, 6, 2),
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin            = new Thickness(0, 0, 8, 0),
+            ToolTip           = "Attach this message to your next chat prompt",
+        };
+        replyInChatBtn.SetResourceReference(Button.StyleProperty,    "FlatButtonStyle");
+        replyInChatBtn.SetResourceReference(Button.FontSizeProperty, "FontSizeSmall");
+        WindowChrome.SetIsHitTestVisibleInChrome(replyInChatBtn, true);
+        replyInChatBtn.Click += (_, _) => { _onRepliedInChat?.Invoke(); Close(); };
+        DockPanel.SetDock(replyInChatBtn, Dock.Right);
+        headerDock.Children.Add(replyInChatBtn);
 
         var headerPanel = new StackPanel
         {

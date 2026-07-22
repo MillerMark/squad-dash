@@ -34950,6 +34950,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
                             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
                             onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
+                            onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
                             initialFontSize:   _inboxFontSize,
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
                         win.Owner = this;
@@ -36420,6 +36421,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void AttachInboxMessageFollowUp(InboxMessage msg)
         => AttachInboxMessageFollowUp(msg, _activeTabId ?? "");
 
+    private void ReplyInChatFromInboxMessage(InboxMessage msg)
+    {
+        var draftKey = _activeTabId ?? "";
+        var hasDraftText = !string.IsNullOrWhiteSpace(PromptTextBox.Text);
+        var hasDraftAttachments = _followUpAttachments.TryGetValue(draftKey, out var draftList) && draftList.Count > 0;
+
+        if (hasDraftText || hasDraftAttachments)
+            AddEmptyQueueSlot();
+
+        AttachInboxMessageFollowUp(msg, _activeTabId ?? "");
+    }
+
     private void AttachInboxMessageFollowUp(InboxMessage msg, string tabId)
     {
         var list = GetOrCreateFollowUpList(tabId);
@@ -36500,6 +36513,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
             onMarkedRead: onMarkedRead,
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
+            onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -36539,6 +36553,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
             attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
+            onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
         win.Owner = CanShowOwnedWindow() ? this : null;
