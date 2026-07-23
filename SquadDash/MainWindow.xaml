@@ -972,7 +972,7 @@
                               Header="_Start Guided Tour..."
                               Click="StartGuidedTourMenuItem_Click" />
                     <MenuItem x:Name="MoreGuidedToursMenuItem"
-                              Header="_More Guided Tours..."
+                              Header="_Guided Tours..."
                               Click="MoreGuidedToursMenuItem_Click" />
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                     <MenuItem x:Name="HelpDocumentationMenuItem"
