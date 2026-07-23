@@ -15,6 +15,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -29,6 +31,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -43,6 +47,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.038011695906432746,
         "targetOffsetY": 0.47674528156498536
       },
@@ -59,11 +65,13 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.0594541910331384,
         "targetOffsetY": 0.43030945419102895
       },
       {
-        "title": "Transcript.",
+        "title": "Transcript",
         "markdownText": "The Coordinator\u0027s **transcript** shows your prompts and the agent\u0027s responses.",
         "targetControlId": "MainTranscriptBorder",
         "calloutPlacement": "North",
@@ -76,6 +84,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.043859649122807015,
         "targetOffsetY": 0.27675198235539844
       },
@@ -93,12 +103,14 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.05969357043819941,
         "targetOffsetY": 0.05499999999999917
       },
       {
         "title": "Edits and Diffs",
-        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a file change. \r\nOn the right you can see the count of lines added (**\u002B1**) or removed (**-1**).\r\nHover over file edits to see before/after diffs.",
+        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a **file change** (simulated for the tour).\r\nOn the right you can see the count of lines added (**\u002B1**) and removed (**-1**).\r\n**Hover** over **edits** to see before/after **diffs**.",
         "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -107,6 +119,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.07451923076923064,
         "targetOffsetY": 0.47807692307692223
       },
@@ -124,6 +138,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "QuickReplySelected",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.7846003898635477,
         "targetOffsetY": 0.4717917649167319
       },
@@ -138,6 +154,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -157,6 +175,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -174,6 +194,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -191,8 +213,58 @@
           "RemoveDemoAgent|MaxSmart"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
+      },
+      {
+        "title": "Active workspace indicator",
+        "markdownText": "The **active workspace**.\r\nClick it to open in **Explorer**.",
+        "targetControlId": "WorkspaceTitleText",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Branch indicator - has repo.",
+        "markdownText": "This shows what **branch** you\u0027re working with.",
+        "targetControlId": "BranchIndicatorStrip",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "WorkspaceHasRepository",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.027331189710610933,
+        "targetOffsetY": 0.5294984302662824
+      },
+      {
+        "title": "Branch indicator - no repo",
+        "markdownText": "This shows what **branch** you\u0027re working with.\r\nClick it to initialize a **new repository** for this workspace.",
+        "targetControlId": "InitializeRepositoryLabel",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "WorkspaceHasRepository",
+        "requiredContextValue": false,
+        "targetOffsetX": 0.027331189710610933,
+        "targetOffsetY": 0.5294984302662824
       },
       {
         "title": "The Help Menu",
@@ -208,6 +280,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -222,6 +296,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
@@ -243,6 +319,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -259,6 +337,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.04983922829581994,
         "targetOffsetY": 0.49742709449803346
       },
@@ -266,7 +346,7 @@
         "title": "Attachments  -- files, text and images.",
         "markdownText": "You can send **rich context** to AI.\r\n* Paste **images**\r\n* Drag and drop **files**\r\n* **Ctrl**\u002B**Shift**\u002B**V** adds clipboard **text**\r\n",
         "targetControlId": "PromptTextBox",
-        "calloutPlacement": "Auto",
+        "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -275,12 +355,14 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.04983922829581994,
         "targetOffsetY": 0.614377344587351
       },
       {
         "title": "Attachments  -- are here",
-        "markdownText": "Attachments appear here.\r\nClick the attachment to see its contents.",
+        "markdownText": "Attachments appear up here.\r\nClick the attachment to see its contents.",
         "targetControlId": "FollowUpStrip",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -294,6 +376,8 @@
           "ClearAttachments"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.02197213290460879,
         "targetOffsetY": 0.15349999999999187
       },
@@ -313,13 +397,15 @@
           "ClearAttachments"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.4999999999999999,
         "targetOffsetY": 0.5470192307692301
       },
       {
         "title": "Attachments - add to chat",
-        "markdownText": "You can also **right-click** and select \u0022**Add to Chat**\u0022 on most items:\r\n* Transcript Selections\r\n* Tasks\r\n* Inbox Selections\r\n* Notes\r\nAnd more.\r\n",
-        "targetControlId": "PromptTextBox",
+        "markdownText": "You can also **right-click** and select \u0022**Add to Chat**\u0022 on most items in SquadDash, including:\r\n* Transcript Selections\r\n* Tasks\r\n* Inbox Selections\r\n* Notes",
+        "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
         "commandBefore": "",
@@ -327,6 +413,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.06806002143622722,
         "targetOffsetY": 0.5500522508038566
       },
@@ -344,6 +432,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.2277599142550911,
         "targetOffsetY": 0.310125602893889
       },
@@ -360,6 +450,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.03376205787781351,
         "targetOffsetY": 0.6378989147909951
       },
@@ -376,6 +468,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.2909967845659164,
         "targetOffsetY": 0.6153685840181015
       },
@@ -392,6 +486,8 @@
           "Remove Dummy Queue Items"
         ],
         "advanceTrigger": "SimulatedSend",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -409,6 +505,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 1,
         "targetOffsetY": 0.46410256410256395
       },
@@ -426,6 +524,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 1,
         "targetOffsetY": 0.46410256410256395
       },
@@ -442,7 +542,9 @@
           "Add Dummy Queue Items:6"
         ],
         "commandsAfter": [],
-        "advanceTrigger": "",
+        "advanceTrigger": "NewQueueSlotAtFront",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 1,
         "targetOffsetY": 0.46410256410256395
       },
@@ -457,6 +559,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -473,6 +577,8 @@
           "Remove Dummy Queue Items"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 1,
         "targetOffsetY": 0.410000000000001
       },
@@ -489,6 +595,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 1,
         "targetOffsetY": 0.46410256410256395
       },
@@ -505,6 +613,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.8749999999999999,
         "targetOffsetY": 0.8138461538461548
       },
@@ -521,6 +631,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -535,6 +647,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -549,6 +663,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
@@ -570,6 +686,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -586,6 +704,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.6298076923076922,
         "targetOffsetY": 0.5261538461538453
       },
@@ -602,6 +722,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.2909967845659164,
         "targetOffsetY": 0.6153685840181015
       },
@@ -618,6 +740,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.2909967845659164,
         "targetOffsetY": 0.6153685840181015
       },
@@ -634,6 +758,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "CycleCaseForward: 6",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -648,12 +774,14 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "CycleCaseReverse: 6",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
       {
         "title": "Backticks - single line",
-        "markdownText": "Press the **\u0060** (backtick) key to embed **single line** selections in **backticks**.",
+        "markdownText": "Press the **\u0060** (backtick) or the **apostrophe** key to embed **single line** selections in **backticks**.",
         "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -664,12 +792,14 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5360576923076922,
         "targetOffsetY": 0.6364743589743583
       },
       {
         "title": "Backticks - multi line",
-        "markdownText": "Press the **\u0060** (**backtick**) key to wrap a **multi-line** selection in **backtick fences**.",
+        "markdownText": "Press the **backtick** key (or **apostrophe**) to wrap a **multi-line** selection in **backtick fences**.",
         "targetControlId": "PromptTextBox:Selection\u002B36",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -680,6 +810,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.2909967845659164,
         "targetOffsetY": 0.6153685840181015
       },
@@ -694,6 +826,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -708,6 +842,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
@@ -729,6 +865,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -745,6 +883,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5576923076923076,
         "targetOffsetY": 0.18455128205128146
       },
@@ -761,6 +901,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "FullScreenTranscript",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.29807692307692296,
         "targetOffsetY": 0.43455128205128146
       },
@@ -777,6 +919,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "FullScreenPromptPeek",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0,
         "targetOffsetY": 0.9537820512820507
       },
@@ -795,6 +939,8 @@
           "ExitFullScreenTranscript"
         ],
         "advanceTrigger": "ExitFullScreenTranscript",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.05091103965702037,
         "targetOffsetY": 0.5335447183517903
       },
@@ -814,6 +960,8 @@
           "UnhighlightMenuItems"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -830,6 +978,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.564903846153846,
         "targetOffsetY": 0.5114743589743583
       },
@@ -846,12 +996,14 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.4639423076923076,
         "targetOffsetY": 0.5130448717948715
       },
       {
         "title": "Tint",
-        "markdownText": "Select a tint for this workspace.\r\nTip: Assign a **unique tint** for each workspace managed.",
+        "markdownText": "Select a **tint** for this workspace.\r\nTip: Assign a **unique tint** for each workspace managed.",
         "targetControlId": "TintMenuItem_Popup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -862,12 +1014,14 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.4639423076923076,
         "targetOffsetY": 0.5130448717948715
       },
       {
         "title": "Saturation and contrast.",
-        "markdownText": "You can also uniquely adjust **saturation** and **contrast** for each workspace.",
+        "markdownText": "Adjust **saturation** and **contrast** as needed (per workspace).",
         "targetControlId": "SaturationMenuItem",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -881,20 +1035,24 @@
           "UnhighlightMenuItems"
         ],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
       {
-        "title": "Accent color.",
-        "markdownText": "You can right-click this panel to set an accent color for this workspace.",
+        "title": "Accent color",
+        "markdownText": "Right-click this panel to set an **accent color** for this workspace.",
         "targetControlId": "ActiveAgentsPanelBorder",
-        "calloutPlacement": "Auto",
+        "calloutPlacement": "East",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -911,6 +1069,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5937499999999999,
         "targetOffsetY": 0.8287820512820507
       },
@@ -925,6 +1085,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
@@ -946,6 +1108,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -965,6 +1129,8 @@
           "UnhighlightElements"
         ],
         "advanceTrigger": "PreferencesShown",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -985,6 +1151,8 @@
           "SelectPreferencesPage: Provider"
         ],
         "advanceTrigger": "PreferencePageSelected: Provider",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0,
         "targetOffsetY": 0.5509615384615381
       },
@@ -1001,6 +1169,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.07451923076923064,
         "targetOffsetY": 0.17596153846153803
       },
@@ -1021,6 +1191,8 @@
           "SelectPreferencesPage: Push to Talk"
         ],
         "advanceTrigger": "PreferencePageSelected: Push to Talk",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.22596153846153835,
         "targetOffsetY": 0.4451923076923073
       },
@@ -1037,6 +1209,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.14663461538461525,
         "targetOffsetY": 0.7817307692307688
       },
@@ -1054,6 +1228,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.08894230769230756,
         "targetOffsetY": 0.4740384615384611
       },
@@ -1071,6 +1247,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.08894230769230756,
         "targetOffsetY": 0.4740384615384611
       },
@@ -1092,6 +1270,8 @@
           "Add Dummy Queue Items"
         ],
         "advanceTrigger": "PreferencePageSelected: Push to Talk",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.22596153846153835,
         "targetOffsetY": 0.4451923076923073
       },
@@ -1106,6 +1286,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "PreferencesClosed",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -1120,6 +1302,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.09056806002143623,
         "targetOffsetY": 0.49846485351911296
       },
@@ -1136,6 +1320,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -1150,6 +1336,8 @@
         "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       }
