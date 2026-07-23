@@ -79,6 +79,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ["FontSizeHero"]     = 52,
             ["FontSizeDisplay"]  = 180,
         };
+
+    // Pre-multiplied font sizes for every (level, key) pair so ApplyFontSizeScale
+    // does nothing but N dictionary writes — no floating-point math at scroll time.
+    private static readonly IReadOnlyList<IReadOnlyDictionary<string, double>> PrecomputedFontSizesByLevel =
+        BuildPrecomputedFontSizes();
+
+    private static IReadOnlyList<IReadOnlyDictionary<string, double>> BuildPrecomputedFontSizes()
+    {
+        var result = new IReadOnlyDictionary<string, double>[FontScaleFactors.Length];
+        for (var i = 0; i < FontScaleFactors.Length; i++)
+        {
+            var factor = FontScaleFactors[i];
+            var dict   = new Dictionary<string, double>(FontSizeBaseValues.Count);
+            foreach (var (key, baseSize) in FontSizeBaseValues)
+                dict[key] = Math.Round(baseSize * factor, 1);
+            result[i] = dict;
+        }
+        return result;
+    }
     private const DispatcherPriority PostVisualUpdatePriority = DispatcherPriority.Loaded;
     private const int UiDispatchQueueLagTraceMs = 250;
     private const int UiDispatchWorkTraceMs = 50;
@@ -8893,9 +8912,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ApplyFontSizeScale()
     {
-        var factor = FontScaleFactors[_fontScaleLevel];
-        foreach (var (key, baseSize) in FontSizeBaseValues)
-            Application.Current.Resources[key] = Math.Round(baseSize * factor, 1);
+        var sw    = System.Diagnostics.Stopwatch.StartNew();
+        var sizes = PrecomputedFontSizesByLevel[_fontScaleLevel];
+        foreach (var (key, value) in sizes)
+            Application.Current.Resources[key] = value;
+        sw.Stop();
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"ApplyFontSizeScale level={_fontScaleLevel} keys={sizes.Count} elapsed={sw.ElapsedMilliseconds}ms");
     }
 
     private void SetFontSizeScale(int levelIndex)
@@ -8905,16 +8928,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         _fontScaleLevel = clamped;
 
-        // Show a live indicator in the title bar so the user sees the selected level
-        // immediately without waiting for the full layout pass.
+        // Show a live indicator in the title bar.
         var pct = (int)Math.Round(FontScaleFactors[_fontScaleLevel] * 100);
         FontScaleIndicator.Text       = $"Font {pct}%";
         FontScaleIndicator.Visibility = Visibility.Visible;
 
-        // Debounce: defer the expensive apply + save until scrolling pauses
+        // Apply font sizes immediately so the UI updates on this scroll tick.
+        // The activity graph also needs to know straight away.
+        ApplyFontSizeScale();
+        var notifySw = System.Diagnostics.Stopwatch.StartNew();
+        _commitActivityGraphWindow?.NotifyFontSizeChanged();
+        notifySw.Stop();
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"SetFontSizeScale NotifyFontSizeChanged elapsed={notifySw.ElapsedMilliseconds}ms");
+
+        // Debounce only the disk save so repeated ticks don't thrash storage.
         if (_fontScaleCommitTimer is null)
         {
-            _fontScaleCommitTimer       = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            _fontScaleCommitTimer       = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
             _fontScaleCommitTimer.Tick += (_, _) => CommitFontSizeScale();
         }
         _fontScaleCommitTimer.Stop();
@@ -8922,24 +8953,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Applies the current <see cref="_fontScaleLevel"/> to all resource tokens and saves it.
-    /// Called once scrolling has paused (debounce timer) or when Ctrl is released.
+    /// Persists the current <see cref="_fontScaleLevel"/> to disk and hides the indicator.
+    /// The visual apply has already happened in <see cref="SetFontSizeScale"/>;
+    /// this method is debounced so it runs once scrolling pauses.
     /// </summary>
     private void CommitFontSizeScale()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         _fontScaleCommitTimer?.Stop();
         FontScaleIndicator.Visibility = Visibility.Collapsed;
-        // Apply visual change first so WPF can render the new sizes this frame
-        // before the file save occupies the UI thread.
-        ApplyFontSizeScale();
-        _commitActivityGraphWindow?.NotifyFontSizeChanged();
-        // Persist asynchronously; update the snapshot on the UI thread when done.
+        // Visual already applied in SetFontSizeScale; only persist to disk here.
         var level = _fontScaleLevel;
         _ = Task.Run(() =>
         {
             var snapshot = _settingsStore.SaveFontSizeScaleLevel(level);
             Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
         });
+        sw.Stop();
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"CommitFontSizeScale level={level} elapsed={sw.ElapsedMilliseconds}ms");
     }
 
     private bool IsInExcludedScrollArea(DependencyObject element)
