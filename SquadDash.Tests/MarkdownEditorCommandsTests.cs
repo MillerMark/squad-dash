@@ -361,10 +361,10 @@ internal sealed class MarkdownEditorCommandsTests {
         var tb = MakeBox("hello great world");
         Select(tb, 6, 6); // "great "
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        // After step 1, inner content (between backticks) is selected; step 2 skipped for single word.
+        // Selection covers the full wrapped span including backticks and preserved trailing space.
         Assert.Multiple(() => {
-            Assert.That(tb.SelectionStart,  Is.EqualTo(7));
-            Assert.That(tb.SelectionLength, Is.EqualTo(5)); // "great"
+            Assert.That(tb.SelectionStart,  Is.EqualTo(6));
+            Assert.That(tb.SelectionLength, Is.EqualTo(8)); // "`great` "
         });
     }
 
@@ -381,10 +381,10 @@ internal sealed class MarkdownEditorCommandsTests {
         var tb = MakeBox(" great");
         Select(tb, 0, 6);
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        // After step 1, inner content is selected; step 2 skipped for single word.
+        // Selection covers the full wrapped span including preserved leading space and backticks.
         Assert.Multiple(() => {
-            Assert.That(tb.SelectionStart,  Is.EqualTo(2));
-            Assert.That(tb.SelectionLength, Is.EqualTo(5)); // "great"
+            Assert.That(tb.SelectionStart,  Is.EqualTo(0));
+            Assert.That(tb.SelectionLength, Is.EqualTo(8)); // " `great`"
         });
     }
 
@@ -393,11 +393,11 @@ internal sealed class MarkdownEditorCommandsTests {
         var tb = MakeBox("world");
         Select(tb, 0, 5);
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        // After step 1, inner content is selected; step 2 skipped for single word.
+        // Selection covers the full wrapped span including backticks.
         Assert.Multiple(() => {
             Assert.That(tb.Text,            Is.EqualTo("`world`"));
-            Assert.That(tb.SelectionStart,  Is.EqualTo(1));
-            Assert.That(tb.SelectionLength, Is.EqualTo(5)); // "world"
+            Assert.That(tb.SelectionStart,  Is.EqualTo(0));
+            Assert.That(tb.SelectionLength, Is.EqualTo(7)); // "`world`"
         });
     }
 
@@ -406,21 +406,21 @@ internal sealed class MarkdownEditorCommandsTests {
         var tb = MakeBox("  hello  ");
         Select(tb, 0, 9); // "  hello  "
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        // After step 1, inner content is selected; step 2 skipped for single word.
+        // Selection covers the full wrapped span including preserved leading/trailing spaces.
         Assert.Multiple(() => {
             Assert.That(tb.Text,            Is.EqualTo("  `hello`  "));
-            Assert.That(tb.SelectionStart,  Is.EqualTo(3));
-            Assert.That(tb.SelectionLength, Is.EqualTo(5)); // "hello"
+            Assert.That(tb.SelectionStart,  Is.EqualTo(0));
+            Assert.That(tb.SelectionLength, Is.EqualTo(11)); // "  `hello`  "
         });
     }
 
     [Test]
-    public void ApplyInlineCodeOrFence_MultiWordSingleLine_ConvertsToCamelCase() {
+    public void ApplyInlineCodeOrFence_MultiWordSingleLine_WrapsWithoutTransform() {
+        // camelCase transform was removed (83e201c) — multi-word text is wrapped as-is.
         var tb = MakeBox("my method");
         Select(tb, 0, 9);
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        // Step 2 fires (multi-word → camelCase transform), leaving caret after transformed text.
-        Assert.That(tb.Text, Is.EqualTo("`myMethod`"));
+        Assert.That(tb.Text, Is.EqualTo("`my method`"));
     }
 
     [Test]
@@ -560,25 +560,18 @@ internal sealed class MarkdownEditorCommandsTests {
         });
     }
 
-    // ── ApplyInlineCodeOrFence two-step undo ─────────────────────────────────
+    // ── ApplyInlineCodeOrFence undo ──────────────────────────────────────────
 
     [Test]
-    public void ApplyInlineCodeOrFence_MultiWord_TwoUndoRecords_IntermediateStateIsBacktickWrapped() {
+    public void ApplyInlineCodeOrFence_MultiWord_SingleUndoRecord_WrapsWithoutTransform() {
+        // camelCase transform was removed (83e201c) — multi-word wrapping is now a single undo step.
         RunWithUndoBox("my variable", tb => {
             Select(tb, 0, 11);
             MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-            Assert.That(tb.Text, Is.EqualTo("`myVariable`"));
+            Assert.That(tb.Text, Is.EqualTo("`my variable`"));
             Assert.That(tb.CanUndo, Is.True);
 
-            // Undo step 2: reverts camelCase → inner content selected
-            tb.Undo();
-            Assert.Multiple(() => {
-                Assert.That(tb.Text,            Is.EqualTo("`my variable`"));
-                Assert.That(tb.SelectionStart,  Is.EqualTo(1));
-                Assert.That(tb.SelectionLength, Is.EqualTo(11)); // "my variable"
-            });
-
-            // Undo step 1: reverts backtick wrap → original text
+            // Single undo reverts the backtick wrap → original text
             tb.Undo();
             Assert.That(tb.Text, Is.EqualTo("my variable"));
         });
@@ -600,11 +593,12 @@ internal sealed class MarkdownEditorCommandsTests {
     }
 
     [Test]
-    public void ApplyInlineCodeOrFence_FilenamePhraseWithDotWord_CorrectExtensionHandling() {
+    public void ApplyInlineCodeOrFence_FilenamePhraseWithDotWord_WrapsWithoutTransform() {
+        // camelCase + dot-extension transform was removed (83e201c) — text is wrapped as-is.
         var tb = MakeBox("my config dot yaml");
         Select(tb, 0, 18);
         MarkdownEditorCommands.ApplyInlineCodeOrFence(tb);
-        Assert.That(tb.Text, Is.EqualTo("`myConfig.yaml`"));
+        Assert.That(tb.Text, Is.EqualTo("`my config dot yaml`"));
     }
 
     // ── ApplyInlineParens ─────────────────────────────────────────────────────
