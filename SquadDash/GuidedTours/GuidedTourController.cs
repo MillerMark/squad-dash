@@ -1020,7 +1020,7 @@ internal sealed class GuidedTourController
         if (helpMenuItem is not null && helpMenuItem.IsVisible)
         {
             FrmUltimateCallout.ShowCalloutBesideTarget(
-                "You can start guided tours from inside the **Help** menu.",
+                "Start guided tours from the **Help** menu.",
                 helpMenuItem,
                 width:     280,
                 fontSize:  Application.Current.Resources.Contains("FontSizeCallout")
