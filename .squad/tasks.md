@@ -422,3 +422,4 @@
 - [x] **[UI] Window open glow-fade animation — Phase 3: Hook into ChromedWindow** *(Owner: Lyra Morn)* — commit 4e3b71f
 - [x] **[Commit Viewer] AI-assisted categorization of uncategorized commits** *(Owner: Lyra Morn)* ✅ Completed 2026-07-09 — commit c40ae85
 - [x] **[Guided Tour] "Passive observe" mode checkbox in tour editor** *(Owner: Lyra Morn)* ✅ Completed — commit 19ff630
+- [x] [Guided Tour] Context condition registry for conditional step skipping
