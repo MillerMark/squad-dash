@@ -591,23 +591,15 @@ internal static class MarkdownEditorCommands
             return true;
         }
 
+        // Wrap in backticks, preserving the text exactly as-is.
         var trimmed        = raw.Trim(' ');
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var step1 = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
-
-        // Step 1: wrap in backticks; selection covers inner content only.
         box.SelectedText    = step1;
-        box.SelectionStart  = selStart + leadingSpaces.Length + 1;
-        box.SelectionLength = trimmed.Length;
-
-        // Step 2 (multi-word only): camelCase-transform the inner content.
-        // Runs as a second undo record so Ctrl+Z steps back through both changes.
-        if (trimmed.Contains(' '))
-        {
-            var camel = ToCamelCaseIdentifier(trimmed);
-            box.SelectedText = camel;
-        }
+        // Restore selection to cover the full wrapped span (including backticks).
+        box.SelectionStart  = selStart;
+        box.SelectionLength = step1.Length;
 
         return true;
     }
@@ -652,22 +644,15 @@ internal static class MarkdownEditorCommands
             return true;
         }
 
+        // Wrap in backticks, preserving the text exactly as-is.
         var trimmed        = raw.Trim(' ');
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var step1 = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
-
-        // Step 1: wrap in backticks; selection covers inner content only.
         box.SelectRange(selStart, selLen);
         box.ReplaceSelection(step1);
-        box.SelectRange(selStart + leadingSpaces.Length + 1, trimmed.Length);
-
-        // Step 2 (multi-word only): camelCase-transform the inner content.
-        if (trimmed.Contains(' '))
-        {
-            var camel = ToCamelCaseIdentifier(trimmed);
-            box.ReplaceSelection(camel);
-        }
+        // Restore selection to cover the full wrapped span (including backticks).
+        box.SelectRange(selStart, step1.Length);
 
         return true;
     }
