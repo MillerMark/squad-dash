@@ -98,6 +98,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         return result;
     }
+
+    // One WPF ResourceDictionary per scale level. Swapping a single MergedDictionaries slot
+    // fires one ResourcesChanged event instead of 14 individual key writes, cutting the
+    // WPF visual-tree invalidation cost by ~14×.
+    private static readonly ResourceDictionary[] PrecomputedResourceDictsByLevel =
+        BuildPrecomputedResourceDicts();
+
+    private static ResourceDictionary[] BuildPrecomputedResourceDicts()
+    {
+        var result = new ResourceDictionary[FontScaleFactors.Length];
+        for (var i = 0; i < FontScaleFactors.Length; i++)
+        {
+            var dict  = new ResourceDictionary();
+            var sizes = PrecomputedFontSizesByLevel[i];
+            foreach (var (key, value) in sizes)
+                dict[key] = value;
+            result[i] = dict;
+        }
+        return result;
+    }
     private const DispatcherPriority PostVisualUpdatePriority = DispatcherPriority.Loaded;
     private const int UiDispatchQueueLagTraceMs = 250;
     private const int UiDispatchWorkTraceMs = 50;
@@ -439,12 +459,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _inactiveAgentLaneNudgeScheduled;
     private bool _agentPanelLayoutRefreshScheduled;
     private int _toolSpinnerFrame;
-    private double _transcriptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
-    private double _promptFontSize = (double)Application.Current.Resources["FontSizeMedium"];
-    private double _docSourceFontSize = (double)Application.Current.Resources["FontSizeBody"];
+    private double _transcriptFontSize = FontSizeBaseValues["FontSizeMedium"];
+    private double _promptFontSize = FontSizeBaseValues["FontSizeMedium"];
+    private double _docSourceFontSize = FontSizeBaseValues["FontSizeBody"];
     private double _inboxFontSize = 14;
     private int _fontScaleLevel = 2; // Normal (1.0×)
     private DispatcherTimer? _fontScaleCommitTimer;
+    private ResourceDictionary? _activeFontSizeDict;
     private double _docPreviewScrollY;
     private readonly List<Image> _toolIconImages = [];
     private readonly HashSet<TranscriptResponseEntry> _pendingResponseEntryRenders = [];
@@ -8912,13 +8933,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ApplyFontSizeScale()
     {
-        var sw    = System.Diagnostics.Stopwatch.StartNew();
-        var sizes = PrecomputedFontSizesByLevel[_fontScaleLevel];
-        foreach (var (key, value) in sizes)
-            Application.Current.Resources[key] = value;
+        var sw      = System.Diagnostics.Stopwatch.StartNew();
+        var newDict = PrecomputedResourceDictsByLevel[_fontScaleLevel];
+        if (ReferenceEquals(newDict, _activeFontSizeDict))
+        {
+            sw.Stop();
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"ApplyFontSizeScale level={_fontScaleLevel} no-op (same dict) elapsed={sw.ElapsedMilliseconds}ms");
+            return;
+        }
+        var mergedDicts = Application.Current.Resources.MergedDictionaries;
+        var idx = mergedDicts.IndexOf(_activeFontSizeDict);
+        if (idx >= 0)
+            mergedDicts[idx] = newDict;   // single ResourcesChanged event instead of 14
+        else
+            mergedDicts.Add(newDict);
+        _activeFontSizeDict = newDict;
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
-            $"ApplyFontSizeScale level={_fontScaleLevel} keys={sizes.Count} elapsed={sw.ElapsedMilliseconds}ms");
+            $"ApplyFontSizeScale level={_fontScaleLevel} keys={newDict.Count} elapsed={sw.ElapsedMilliseconds}ms");
     }
 
     private void SetFontSizeScale(int levelIndex)
@@ -8934,13 +8967,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         FontScaleIndicator.Visibility = Visibility.Visible;
 
         // Apply font sizes immediately so the UI updates on this scroll tick.
-        // The activity graph also needs to know straight away.
         ApplyFontSizeScale();
-        var notifySw = System.Diagnostics.Stopwatch.StartNew();
-        _commitActivityGraphWindow?.NotifyFontSizeChanged();
-        notifySw.Stop();
+        // Defer the graph window update — it can wait until after the frame renders.
+        Dispatcher.BeginInvoke(DispatcherPriority.Background,
+            () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
         SquadDashTrace.Write(TraceCategory.Performance,
-            $"SetFontSizeScale NotifyFontSizeChanged elapsed={notifySw.ElapsedMilliseconds}ms");
+            $"SetFontSizeScale level={_fontScaleLevel} NotifyFontSizeChanged deferred to Background priority");
 
         // Debounce only the disk save so repeated ticks don't thrash storage.
         if (_fontScaleCommitTimer is null)
