@@ -14831,6 +14831,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private void CleanUpTourQueueItems()
     {
+        // The active tab's live text lives in PromptTextBox and has not been flushed to item.Text
+        // yet (see comment at line ~4051).  Sync it now so that HasSubstantialTourWork sees the
+        // real current text rather than the stale initial text stored in the item.
+        if (_activeTabId is not null)
+        {
+            var liveItem = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
+            if (liveItem is not null)
+                liveItem.Text = PromptTextBox.Text;
+        }
+
         // If the user clicked into a demo tab that will be removed, restore the pre-edit draft
         // so their real text is not lost.  Only restore if the active dummy item is being removed
         // (i.e., does not have substantial work that would cause it to be preserved).
