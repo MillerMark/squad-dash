@@ -23754,11 +23754,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SquadDashTrace.Write(TraceCategory.Performance, $"PANEL_CLOSE DetachDoc={sw.ElapsedMilliseconds}ms thread={entry.Thread.ThreadId}");
         SquadDashTrace.Write(TraceCategory.TranscriptPanels,
             $"CloseSecondaryPanel closing thread={entry.Thread.ThreadId} agent={entry.Agent.Name} seq={entry.Thread.SequenceNumber} title=\"{entry.TitleBlock.Text}\"");
+        int prevVisibleTotal = _secondaryTranscripts.Count + (_mainTranscriptVisible ? 1 : 0);
         _secondaryTranscripts.Remove(entry);
         _ownershipMap.UnregisterSecondaryPanel(entry.PanelBorder);
         entry.Thread.IsSecondaryPanelOpen = false;
         SyncThreadChip(entry.Thread);
-        if (_secondaryTranscripts.Count == 1)
+        int newVisibleTotal = _secondaryTranscripts.Count + (_mainTranscriptVisible ? 1 : 0);
+        if (prevVisibleTotal >= 2 && newVisibleTotal == 1)
             _tourSecondaryTranscriptCollapsedToOne?.Invoke();
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
