@@ -537,7 +537,13 @@ internal sealed class GuidedTourController
             _ = StartReadingNudgeAsync(step, _readingNudgeCts.Token);
             _activeTriggerSubscription?.Dispose();
             _activeTriggerSubscription = _triggerRegistry?.Subscribe(step.AdvanceTrigger, () =>
-                _ownerWindow.Dispatcher.InvokeAsync(Next));
+            {
+                SquadDashTrace.Write(TraceCategory.Callouts,
+                    $"ShowCurrentStep: advance trigger fired for \"{step.Title}\" (trigger=\"{step.AdvanceTrigger}\"), invoking Next()");
+                _ownerWindow.Dispatcher.InvokeAsync(Next);
+            });
+            SquadDashTrace.Write(TraceCategory.Callouts,
+                $"ShowCurrentStep: trigger subscription for \"{step.AdvanceTrigger}\" — {(_activeTriggerSubscription is null ? "NULL (not subscribed)" : "active")} for step \"{step.Title}\"");
         }
         else
         {

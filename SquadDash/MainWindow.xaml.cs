@@ -30027,11 +30027,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
                 {
                     Process.Start("explorer.exe", folder);
+                    SquadDashTrace.Write(TraceCategory.GuidedTour,
+                        $"WorkspaceTitleText_MouseLeftButtonUp: opened folder in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={_tourWorkspaceOpenedInExplorer is not null})");
                     _tourWorkspaceOpenedInExplorer?.Invoke();
                 }
                 return;
             }
             Process.Start("explorer.exe", $"/select,\"{path}\"");
+            SquadDashTrace.Write(TraceCategory.GuidedTour,
+                $"WorkspaceTitleText_MouseLeftButtonUp: opened solution in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={_tourWorkspaceOpenedInExplorer is not null})");
             _tourWorkspaceOpenedInExplorer?.Invoke();
             e.Handled = true;
         }
