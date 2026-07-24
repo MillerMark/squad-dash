@@ -303,6 +303,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourEnvironmentFontZoomed;
     private event Action? _tourWorkspaceOpenedInExplorer;
     private event Action? _tourAllAttachmentsRemoved;
+    private event Action? _tourSecondaryTranscriptCollapsedToOne;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private bool _tourPrefsWindowEnterLetThrough;
@@ -15047,6 +15048,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new AllAttachmentsRemovedAdvanceTrigger(
                 addHandler:    h => _tourAllAttachmentsRemoved += h,
                 removeHandler: h => _tourAllAttachmentsRemoved -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "SecondaryTranscriptCollapsedToOne",
+            new SecondaryTranscriptCollapsedToOneAdvanceTrigger(
+                addHandler:    h => _tourSecondaryTranscriptCollapsedToOne += h,
+                removeHandler: h => _tourSecondaryTranscriptCollapsedToOne -= h));
     }
 
     private void RegisterTourContexts()
@@ -23751,6 +23758,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _ownershipMap.UnregisterSecondaryPanel(entry.PanelBorder);
         entry.Thread.IsSecondaryPanelOpen = false;
         SyncThreadChip(entry.Thread);
+        if (_secondaryTranscripts.Count == 1)
+            _tourSecondaryTranscriptCollapsedToOne?.Invoke();
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
         sw.Restart();
