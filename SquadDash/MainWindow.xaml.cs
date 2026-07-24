@@ -14730,10 +14730,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
-    private void CleanUpTourInjectedThreads()
+    private void CleanUpTourInjectedThreads(IEnumerable<string>? injectedThreadIds = null)
     {
         if (_guidedTourController is null) return;
-        var injectedIds = _guidedTourController.InjectedThreadIds.ToArray();
+        var injectedIds = (injectedThreadIds ?? _guidedTourController.InjectedThreadIds).ToArray();
         if (injectedIds.Length == 0) return;
 
         var threadsToRemove = _agentThreadRegistry.ThreadOrder
@@ -15938,18 +15938,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             int blocksBefore = ReferenceEquals(targetThread, CoordinatorThread)
                 ? CoordinatorThread.Document.Blocks.Count : -1;
 
-            BeginTranscriptTurn(targetThread, userText);
+            if (!TryBeginTourTranscriptTurn(targetThread, userText, out var simulatedTurn))
+                return;
             SelectTranscriptThread(targetThread);
 
             var rng = new Random();
             foreach (var chunk in SplitIntoWordChunks(agentText))
             {
-                if (_isPromptRunning) break;
+                if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn)) break;
                 await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn)) break;
                 AppendText(targetThread, chunk);
                 await Task.Delay(rng.Next(70, 111));
             }
 
+            if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn))
+                return;
             targetThread.CurrentTurn = null;
 
             if (blocksBefore >= 0)
@@ -16005,18 +16009,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             int blocksBefore = ReferenceEquals(targetThread, CoordinatorThread)
                 ? CoordinatorThread.Document.Blocks.Count : -1;
 
-            BeginTranscriptTurn(targetThread, string.Empty);
+            if (!TryBeginTourTranscriptTurn(targetThread, string.Empty, out var simulatedTurn))
+                return;
             SelectTranscriptThread(targetThread);
 
             var rng = new Random();
             foreach (var chunk in SplitIntoWordChunks(agentText))
             {
-                if (_isPromptRunning) break;
+                if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn)) break;
                 await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn)) break;
                 AppendText(targetThread, chunk);
                 await Task.Delay(rng.Next(70, 111));
             }
 
+            if (!ReferenceEquals(targetThread.CurrentTurn, simulatedTurn))
+                return;
             targetThread.CurrentTurn = null;
 
             if (blocksBefore >= 0)
@@ -16483,6 +16491,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
+    /// Starts a tour-owned transcript turn only when doing so cannot replace a real turn.
+    /// The returned view is also the ownership token callers must check before clearing CurrentTurn.
+    /// </summary>
+    private bool TryBeginTourTranscriptTurn(
+        TranscriptThreadState thread,
+        string prompt,
+        out TranscriptTurnView simulatedTurn)
+    {
+        var coordinatorIsBusy = ReferenceEquals(thread, CoordinatorThread) &&
+            (_isPromptRunning || IsLoopRunning);
+        if (coordinatorIsBusy || thread.CurrentTurn is not null)
+        {
+            SquadDashTrace.Write(
+                "Tour",
+                $"Skipped simulated transcript injection because target thread is busy. " +
+                $"thread={thread.ThreadId} coordinatorBusy={coordinatorIsBusy} hasCurrentTurn={thread.CurrentTurn is not null}");
+            simulatedTurn = null!;
+            return false;
+        }
+
+        simulatedTurn = BeginTranscriptTurn(thread, prompt);
+        return true;
+    }
+
+    /// <summary>
     /// Injects simulated tool call blocks into the coordinator transcript for a guided tour step.
     /// Each tool runs with an animated delay, then completes. The "Tooling..." expander is
     /// registered as <c>TourInjectedToolingBlock</c> for callout targeting.
@@ -16499,8 +16532,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         int blocksBefore = CoordinatorThread.Document.Blocks.Count;
         var rng = new Random();
 
-        BeginTranscriptTurn(CoordinatorThread, string.Empty);
-        var turn = CoordinatorThread.CurrentTurn!;
+        if (!TryBeginTourTranscriptTurn(CoordinatorThread, string.Empty, out var turn))
+            return;
 
         var thinkingBlock = CreateThinkingBlock(turn, isExpanded: true);
         thinkingBlock.Expander.Name                = "TourInjectedToolingBlock";
@@ -16551,6 +16584,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tourNamedElements[key] = toolEntry.Expander;
         }
 
+        if (!ReferenceEquals(CoordinatorThread.CurrentTurn, turn))
+            return;
         CoordinatorThread.CurrentTurn = null;
         TrackNewCoordinatorBlocks(blocksBefore);
         SelectTranscriptThread(CoordinatorThread);
@@ -16664,7 +16699,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         int blocksBefore = CoordinatorThread.Document.Blocks.Count;
 
         // Create a streaming turn that mimics a real agent response.
-        BeginTranscriptTurn(CoordinatorThread, string.Empty);
+        if (!TryBeginTourTranscriptTurn(CoordinatorThread, string.Empty, out var simulatedTurn))
+            return;
         SelectTranscriptThread(CoordinatorThread);
 
         // Inject the badge prefix immediately (static label).
@@ -16674,13 +16710,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var rng = new Random();
         foreach (var chunk in SplitIntoWordChunks(messageText))
         {
-            if (_isPromptRunning) break; // real run started — bail out gracefully
+            if (!ReferenceEquals(CoordinatorThread.CurrentTurn, simulatedTurn)) break;
             await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+            if (!ReferenceEquals(CoordinatorThread.CurrentTurn, simulatedTurn)) break;
             AppendText(CoordinatorThread, chunk);
             await Task.Delay(rng.Next(70, 111));
         }
 
         // Finalise the turn in place (no persistence needed for tour simulation).
+        if (!ReferenceEquals(CoordinatorThread.CurrentTurn, simulatedTurn))
+            return;
         CoordinatorThread.CurrentTurn = null;
 
         var panel = new System.Windows.Controls.WrapPanel
@@ -30660,8 +30699,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_guidedTourController?.IsActive == true)
             {
                 SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: guided tour active — stopping tour and purging tour artifacts before save.");
+                // StopTourForShutdown clears the controller's tracking list. Preserve the IDs so
+                // cleanup can still remove the exact synthetic threads created by this tour.
+                var injectedThreadIds = _guidedTourController.InjectedThreadIds.ToArray();
                 _guidedTourController.StopTourForShutdown();
-                CleanUpTourInjectedThreads();
+                CleanUpTourInjectedThreads(injectedThreadIds);
                 CleanUpTourQueueItems();
                 SquadDashTrace.Write(TraceCategory.Shutdown, "MainWindow_Closing: tour artifacts purged.");
             }
