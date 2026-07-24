@@ -306,6 +306,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private bool _tourPrefsWindowEnterLetThrough;
+    private bool _tourQuickReplyIntelliSenseEnterLetThrough;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -10159,7 +10160,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (e.Key == Key.Enter
                 && Keyboard.Modifiers == ModifierKeys.None
                 && _guidedTourController is { IsActive: true }
-                && !_guidedTourController.IsEditorFocused)
+                && !_guidedTourController.IsEditorFocused
+                && !(_tourQuickReplyIntelliSenseEnterLetThrough && _intelliSenseState?.TriggerChar == '['))
             {
                 _guidedTourController.Next();
                 e.Handled = true;
@@ -14482,6 +14484,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 StopKeepingTourMenusOpen();
                 StopKeepingTourIntelliSenseOpen();
                 _tourPrefsWindowEnterLetThrough = false;
+                _tourQuickReplyIntelliSenseEnterLetThrough = false;
             },
             onCalloutShown:           ReassertTourHighlightOverlays,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
@@ -16517,6 +16520,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // window is open will close it (normal WPF behaviour) instead of advancing the tour.
             // The flag is automatically cleared when the step changes or the tour stops.
             _tourPrefsWindowEnterLetThrough = true;
+        });
+
+        _tourCommandRegistry.Register("QuickReplyIntelliSenseEnterHasPriority", () =>
+        {
+            // When this command is active for a step, pressing Enter while the quick-reply
+            // intellisense popup is open ([ trigger) will accept the selected item instead
+            // of advancing the tour. The flag is cleared when the step changes or tour stops.
+            _tourQuickReplyIntelliSenseEnterLetThrough = true;
         });
 
         _tourCommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>

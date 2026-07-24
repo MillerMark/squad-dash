@@ -28,7 +28,9 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ExitFullScreenTranscript"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",
@@ -44,7 +46,9 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ExitFullScreenTranscript"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",
@@ -61,6 +65,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
+          "ExitFullScreenTranscript",
           "TypeIntoPrompt|What is your model?|Sim"
         ],
         "commandsAfter": [],
@@ -184,6 +189,8 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
+          "ExitFullScreenTranscript",
+          "ShowAgentsAndTopPanels",
           "CreateDemoAgent|MaxSmart",
           "ActivateDemoAgent|MaxSmart",
           "InjectDemoAgentTools|MaxSmart|powershell:Scanning source files:Found 347 .cs files\\npowershell:Reading architecture docs:README.md, DECISIONS.md",
@@ -200,11 +207,13 @@
         "title": "Transcripts in parallel.",
         "markdownText": "**Active agent transcripts** appear in parallel.\r\nHover over a transcript to see its corresponding agent **glow** (and vice versa).",
         "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
-        "calloutPlacement": "Auto",
+        "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
+          "ShowAgentsAndTopPanels",
+          "ExitFullScreenTranscript",
           "InjectDemoAgentTools|MaxSmart|report_intent:Exploring codebase:Intent logged;grep:Search for more guided tours:MainWindow.xaml.cs",
           "InjectDemoAgentTools|MaxSmart|powershell:Reading :README.md, DECISIONS.md"
         ],
@@ -223,7 +232,10 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ShowAgentsAndTopPanels",
+          "ExitFullScreenTranscript"
+        ],
         "commandsAfter": [
           "DeactivateDemoAgent|MaxSmart",
           "RemoveDemoAgent|MaxSmart"
@@ -252,9 +264,9 @@
       },
       {
         "title": "Branch indicator - has repo.",
-        "markdownText": "This shows the **branch** you\u0027re working with.\r\nClick for branch options.",
+        "markdownText": "This is the **branch** you\u0027re working in.\r\nWhen you\u0027re in a branch that is not your home branch, the circle will glow red.\r\nClick for options.",
         "targetControlId": "BranchIndicatorStrip",
-        "calloutPlacement": "South",
+        "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -268,7 +280,7 @@
       },
       {
         "title": "Branch indicator - no repo",
-        "markdownText": "This shows the **branch** you\u0027re working with.\r\nClick to initialize a **new repository** for this workspace.",
+        "markdownText": "This will show what **branch** you\u0027re in.\r\nClick to initialize a **new repository** for this workspace.",
         "targetControlId": "InitializeRepositoryLabel",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -303,7 +315,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][lines:2][vspace:0]You just learned the basics of the SquadDash UI.\r\nTry sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][vspace:0]You just learned the basics of the SquadDash UI.\r\nTry sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -378,7 +390,7 @@
       },
       {
         "title": "Attachments  -- are here",
-        "markdownText": "Attachments appear up here.\r\nClick the attachment to see its contents.",
+        "markdownText": "Attachments are here.\r\nClick to see contents.",
         "targetControlId": "FollowUpStrip",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -399,7 +411,7 @@
       },
       {
         "title": "Attachments  -- remove",
-        "markdownText": "You can remove an attachment by clicking this **X** button.",
+        "markdownText": "Remove attachments by clicking the **X** buttons.",
         "targetControlId": "FollowUpAttachmentDismiss0",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -412,7 +424,7 @@
         "commandsAfter": [
           "ClearAttachments"
         ],
-        "advanceTrigger": "",
+        "advanceTrigger": "AllAttachmentsRemoved",
         "requiredContext": "",
         "requiredContextValue": true,
         "targetOffsetX": 0.4999999999999999,
@@ -689,11 +701,11 @@
   {
     "id": "bfaa6492",
     "name": "Selection Embedding",
-    "description": "Quickly modify text selections with useful shortcuts.",
+    "description": "Quickly modify text selections \u002B navigation tips",
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
+        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box plus camel case navigation.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -832,14 +844,34 @@
         "targetOffsetY": 0.6153685840181015
       },
       {
-        "title": "CamelCase Nav",
-        "markdownText": "Please hold her for camel case NAV instructions.",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
+        "title": "Combine Shortcuts",
+        "markdownText": "If you want to **title case** and **quote** a selection, use **Shift**\u002B**F3** and the **quote** key (in any order).",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "SelectPromptText|The button text should be clear filter.|clear filter"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "CamelCase Nav",
+        "markdownText": "**Alt**\u002B**Left** and **Alt**\u002B**Right** arrows navigates across camel case transitions. \r\nAdd the **Shift** key to **select** camel case ranges.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CaretPromptText|I want to name the new class \u003Ccaret\u003EValidateShoppingCartContents."
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",
@@ -849,7 +881,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[lines:2][vspace:0]You just learned how to **cycle case** and embed selections in **bold**, **quotes**, **backticks**, and **parens**.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[vspace:0.75]You just learned how to:\r\n* **Cycle case** with **Shift**\u002B**F3**\r\n* **Bold**, **quote**, **paren** and **fence** selections\r\n* **Navigate** and **select camel case ranges**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -868,7 +900,7 @@
   {
     "id": "aac81aa5",
     "name": "Theme and Appearance",
-    "description": "Controlling the theme, tint, and visual layouts in SquadDash.",
+    "description": "Control font size, theme, tint, and tool panel layouts",
     "steps": [
       {
         "title": "Welcome",
@@ -915,7 +947,8 @@
           "CaretPromptText|Ctrl\u002Bzoom here to change this font size. \u003Ccaret\u003E"
         ],
         "commandsAfter": [
-          "Remove Dummy Queue Items"
+          "Remove Dummy Queue Items",
+          "ClearInjectedTranscriptText"
         ],
         "advanceTrigger": "",
         "requiredContext": "",
@@ -1106,6 +1139,22 @@
         "advanceTrigger": "",
         "requiredContext": "",
         "requiredContextValue": true,
+        "targetOffsetX": 0.49999999999999983,
+        "targetOffsetY": 0.01134615384615282
+      },
+      {
+        "title": "Agent Accent",
+        "markdownText": "Right-click the card to set an **Accent Color** for that agent.",
+        "targetControlId": "FirstInactiveAgentCard",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -1189,7 +1238,7 @@
       },
       {
         "title": "Speech Page",
-        "markdownText": "In the **Voice \u0026 Speech** section, we\u0027ll set up our speech services provider.",
+        "markdownText": "In the **Voice \u0026 Speech** section, click the **Provider** page to set up our speech services provider.",
         "targetControlId": "PrefNav_Provider",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -1200,8 +1249,7 @@
           "HighlightElement: PrefNav_Provider"
         ],
         "commandsAfter": [
-          "UnhighlightElements",
-          "SelectPreferencesPage: Provider"
+          "UnhighlightElements"
         ],
         "advanceTrigger": "PreferencePageSelected: Provider",
         "requiredContext": "",
@@ -1211,14 +1259,15 @@
       },
       {
         "title": "Speech Provider",
-        "markdownText": "Choose your speech provider.\r\nAdd an **API key** and other needed settings below.",
+        "markdownText": "Choose your **speech provider**.",
         "targetControlId": "SpeechProvider_Azure",
-        "calloutPlacement": "East",
+        "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "ShowPreferences"
+          "ShowPreferences",
+          "SelectPreferencesPage: Provider"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -1228,8 +1277,46 @@
         "targetOffsetY": 0.17596153846153803
       },
       {
+        "title": "API Key",
+        "markdownText": "Add an **API key**.",
+        "targetControlId": "SpeechProvider_AzureApiKey",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "SelectPreferencesPage: Provider"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.4999999999999999,
+        "targetOffsetY": 0.32865384615384513
+      },
+      {
+        "title": "Region",
+        "markdownText": "Specify a **region**.",
+        "targetControlId": "SpeechProvider_AzureRegion",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowPreferences",
+          "SelectPreferencesPage: Provider"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "AzureSpeechProviderSelected",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.09615384615384602,
+        "targetOffsetY": 0.3190384615384605
+      },
+      {
         "title": "PTT Options",
-        "markdownText": "This page allows you to set your push to talk (PTT) options.",
+        "markdownText": "Click this page to set your push to talk (PTT) options.",
         "targetControlId": "PrefNav_PushToTalk",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -1251,9 +1338,9 @@
       },
       {
         "title": "Send immediately or confirm before send.",
-        "markdownText": "These options impact how Push to Talk (PTT) behaves when you **release** the **Ctrl** key.",
+        "markdownText": "Decide how Push to Talk (PTT) behaves when you **release** the **Ctrl** key.",
         "targetControlId": "Ptt_BehaviorGroup",
-        "calloutPlacement": "South",
+        "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -1264,12 +1351,12 @@
         "advanceTrigger": "",
         "requiredContext": "",
         "requiredContextValue": true,
-        "targetOffsetX": 0.14663461538461525,
-        "targetOffsetY": 0.7817307692307688
+        "targetOffsetX": 0.04567307692307679,
+        "targetOffsetY": 0.0594230769230759
       },
       {
         "title": "Send immediately.",
-        "markdownText": "This first option is the **fastest**. \r\nDictation is sent immediately when you release the **Ctrl** key.\r\nIf you want to **edit** the prompt you must tap **Shift** before you release the **Ctrl** key (to prevent the immediate send).",
+        "markdownText": "This first option is the **fastest**. \r\nDictation is sent immediately when you release the **Ctrl** key.\r\nTo **edit** your words, **tap Shift** once while speaking. This prevents the immediate send.",
         "targetControlId": "Ptt_AutoSend",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -1288,7 +1375,7 @@
       },
       {
         "title": "Do Nothing",
-        "markdownText": "This second option is the **safest**.\r\nHowever, you must press **Enter** after dictating to send your prompt.",
+        "markdownText": "This second option is the **safest**.\r\nHowever, you must press **Enter** after speaking to send your prompt.",
         "targetControlId": "Ptt_DoNothing",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -1307,7 +1394,7 @@
       },
       {
         "title": "Replacements",
-        "markdownText": "This page allows you to set up automatic replacements for your spoken words.",
+        "markdownText": "Set up automatic replacements for your spoken words here.",
         "targetControlId": "PrefNav_Replacements",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -1336,7 +1423,10 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "ShowPreferences",
+          "OptionsPageCloseHasPriorityOnEnter"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "PreferencesClosed",
         "requiredContext": "",
@@ -1345,24 +1435,8 @@
         "targetOffsetY": 0.5
       },
       {
-        "title": "Using PTT.",
-        "markdownText": "Voice works anywhere text is accepted in SquadDash.\r\nJust **double-tap** and **hold** the **Ctrl** key while speaking.",
-        "targetControlId": "PromptTextBox",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.09056806002143623,
-        "targetOffsetY": 0.49846485351911296
-      },
-      {
         "title": "Editing with voice.",
-        "markdownText": "In the selection below you can edit with voice and say \u0022**rarely need**\u0022.",
+        "markdownText": "Voice works really well for **editing** text.\r\nIn the selection below invoke PTT and say \u0022**rarely need**\u0022.",
         "targetControlId": "PromptTextBox",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -1379,8 +1453,24 @@
         "targetOffsetY": 0.5
       },
       {
+        "title": "Using PTT.",
+        "markdownText": "[lines:2][vspace:1]Voice works anywhere text is accepted in SquadDash.\r\n[lines:2][vspace:1]Just **double-tap** and **hold** the **Ctrl** key while speaking.",
+        "targetControlId": "SearchBox",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.4708440170940171,
+        "targetOffsetY": 0.5113461538461528
+      },
+      {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to create and edit prompts with voice.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to **create** and **edit** prompts with voice.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
