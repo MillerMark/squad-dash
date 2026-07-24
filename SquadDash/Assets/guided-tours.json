@@ -22,7 +22,7 @@
       },
       {
         "title": "Agent Section",
-        "markdownText": "Active agents are here.\r\nClick **Next** or press **Enter**.",
+        "markdownText": "The **Coordinator** is here.\r\nClick **Next** or press **Enter**.",
         "targetControlId": "ActiveAgentItemsControl",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -77,7 +77,7 @@
       },
       {
         "title": "Transcript",
-        "markdownText": "The Coordinator\u0027s **transcript** shows your **prompts** and the agent\u0027s **responses**.",
+        "markdownText": "The **transcript** shows your **prompts** and the agent\u0027s **responses**.",
         "targetControlId": "MainTranscriptBorder",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -154,6 +154,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
+          "QuickReplyIntelliSenseEnterHasPriority",
           "InjectTranscriptText: Done.\\nThe simulated bugs are fixed.\\n",
           "InjectTranscriptTextWithReplies|What would you like to do next (simulated)?|Add Test Cases|Commit Changes"
         ],
@@ -182,7 +183,7 @@
       },
       {
         "title": "Agents in Parallel",
-        "markdownText": "**Newly spawned agents** appear with the **Coordinator** while active.",
+        "markdownText": "**Newly spawned agents** appear with the **Coordinator**.",
         "targetControlId": "TourDemoAgent_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -191,7 +192,7 @@
         "commandsBefore": [
           "ExitFullScreenTranscript",
           "ShowAgentsAndTopPanels",
-          "CreateDemoAgent|MaxSmart",
+          "CreateDemoAgent|MaxSmart|#C0392B",
           "ActivateDemoAgent|MaxSmart",
           "InjectDemoAgentTools|MaxSmart|powershell:Scanning source files:Found 347 .cs files\\npowershell:Reading architecture docs:README.md, DECISIONS.md",
           "InjectDemoAgentTurn|MaxSmart||Scanning the codebase..."
@@ -205,7 +206,7 @@
       },
       {
         "title": "Transcripts in parallel.",
-        "markdownText": "**Active agent transcripts** appear in parallel.\r\nHover over a transcript to see its corresponding agent **glow** (and vice versa).",
+        "markdownText": "**Active transcripts** appear in parallel.\r\nHover over a transcript to see its corresponding agent **glow** (and vice versa).",
         "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -218,7 +219,23 @@
           "InjectDemoAgentTools|MaxSmart|powershell:Reading :README.md, DECISIONS.md"
         ],
         "commandsAfter": [],
-        "advanceTrigger": "",
+        "advanceTrigger": "SecondaryTranscriptCollapsedToOne",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Select only one",
+        "markdownText": "If you want to see only one agent\u0027s transcript, click the **agent card**.",
+        "targetControlId": "ActiveAgentItemsControl",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "SecondaryTranscriptCollapsedToOne",
         "requiredContext": "",
         "requiredContextValue": true,
         "targetOffsetX": 0.5,
