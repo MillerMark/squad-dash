@@ -16219,7 +16219,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _tourCommandRegistry.RegisterParameterizedAsync("CreateDemoAgent", async arg =>
         {
-            var name = arg.Trim();
+            // Format: "AgentName" or "AgentName|#RRGGBB"
+            var parts = arg.Split('|', 2);
+            var name = parts[0].Trim();
+            var accentHex = parts.Length > 1 ? parts[1].Trim() : null;
             if (string.IsNullOrEmpty(name)) return;
             if (_tourNamedDemoAgents.ContainsKey(name)) return;
 
@@ -16247,6 +16250,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 .Concat(_inactiveAgentCards)
                 .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
             if (card is null) return;
+
+            if (!string.IsNullOrWhiteSpace(accentHex))
+                ApplyAgentAccent(card, accentHex, persist: false);
 
             _tourNamedDemoAgents[name] = (card, thread);
 
