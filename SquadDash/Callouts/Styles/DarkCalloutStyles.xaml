@@ -40,24 +40,24 @@
     </Style>
     <Style TargetType="{x:Type Paragraph}" x:Key="{x:Static local:Styles.Heading1StyleKey}">
         <Setter Property="FontSize" Value="{DynamicResource Heading1FontSize}" />
-        <Setter Property="Foreground" Value="#FF8CD9FF" />
+        <Setter Property="Foreground" Value="{DynamicResource CalloutHeading}" />
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Margin" Value="0" />
     </Style>
     <Style TargetType="{x:Type Paragraph}" x:Key="{x:Static local:Styles.Heading2StyleKey}">
         <Setter Property="FontSize" Value="{DynamicResource Heading2FontSize}" />
-        <Setter Property="Foreground" Value="#FF8CD9FF" />
+        <Setter Property="Foreground" Value="{DynamicResource CalloutHeading}" />
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Margin" Value="0" />
     </Style>
     <Style TargetType="{x:Type Paragraph}" x:Key="{x:Static local:Styles.Heading3StyleKey}">
         <Setter Property="FontSize" Value="{DynamicResource Heading3FontSize}" />
-        <Setter Property="Foreground" Value="#FF8CD9FF" />
+        <Setter Property="Foreground" Value="{DynamicResource CalloutHeading}" />
         <Setter Property="FontWeight" Value="Bold" />
     </Style>
     <Style TargetType="{x:Type Paragraph}" x:Key="{x:Static local:Styles.Heading4StyleKey}">
         <Setter Property="FontSize" Value="{DynamicResource Heading4FontSize}" />
-        <Setter Property="Foreground" Value="#FF8CD9FF" />
+        <Setter Property="Foreground" Value="{DynamicResource CalloutHeading}" />
         <Setter Property="FontWeight" Value="Light" />
         <Setter Property="TextDecorations" Value="Underline" />
     </Style>
