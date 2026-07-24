@@ -75,7 +75,7 @@
     <SolidColorBrush x:Key="CalloutBorder"     Color="#9A7F55"/><!-- CardSurface #2E2920 shifted 30% toward white -->
     <SolidColorBrush x:Key="CalloutBackground" Color="#D8CDB6"/><!-- CardSurface #2E2920 shifted 15% toward medium gray -->
     <SolidColorBrush x:Key="CalloutText"          Color="#000000"/><!-- matches LabelText dark -->
-    <SolidColorBrush x:Key="CalloutHeading"       Color="#FF8CD9FF"/><!-- sky blue — readable on light-tan callout background #D8CDB6 -->
+    <SolidColorBrush x:Key="CalloutHeading"       Color="#1D698F"/><!-- dark steel blue — readable on light-tan callout background #D8CDB6 -->
     <SolidColorBrush x:Key="CalloutButtonHover"   Color="#B8B2AD"/><!-- hover on callout surface: darker than CalloutBackground -->
     <SolidColorBrush x:Key="CalloutButtonBackground" Color="#E8E0D4"/><!-- rest background for buttons on the callout surface -->
     <SolidColorBrush x:Key="TableRule" Color="#3A3530"/>
