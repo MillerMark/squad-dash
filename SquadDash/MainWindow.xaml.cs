@@ -464,6 +464,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private double _docSourceFontSize = FontSizeBaseValues["FontSizeBody"];
     private double _inboxFontSize = 14;
     private int _fontScaleLevel = 2; // Normal (1.0×)
+    private bool _fontSizeApplyPending;
     private DispatcherTimer? _fontScaleCommitTimer;
     private ResourceDictionary? _activeFontSizeDict;
     private double _docPreviewScrollY;
@@ -8961,18 +8962,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         _fontScaleLevel = clamped;
 
-        // Show a live indicator in the title bar.
+        // Show a live indicator in the title bar (cheap — no layout pass).
         var pct = (int)Math.Round(FontScaleFactors[_fontScaleLevel] * 100);
         FontScaleIndicator.Text       = $"Font {pct}%";
         FontScaleIndicator.Visibility = Visibility.Visible;
 
-        // Apply font sizes immediately so the UI updates on this scroll tick.
-        ApplyFontSizeScale();
-        // Defer the graph window update — it can wait until after the frame renders.
-        Dispatcher.BeginInvoke(DispatcherPriority.Background,
-            () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
-        SquadDashTrace.Write(TraceCategory.Performance,
-            $"SetFontSizeScale level={_fontScaleLevel} NotifyFontSizeChanged deferred to Background priority");
+        // Coalesce: if multiple wheel events arrive before the next render frame,
+        // only one ResourceDictionary swap happens (at the final level).
+        if (_fontSizeApplyPending)
+        {
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"SetFontSizeScale coalesced, level={_fontScaleLevel}");
+        }
+        else
+        {
+            _fontSizeApplyPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+            {
+                _fontSizeApplyPending = false;
+                ApplyFontSizeScale();
+                // Defer the graph window update — it can wait until after the frame renders.
+                Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                    () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
+                SquadDashTrace.Write(TraceCategory.Performance,
+                    $"SetFontSizeScale applied level={_fontScaleLevel} NotifyFontSizeChanged deferred to Background priority");
+            });
+        }
 
         // Debounce only the disk save so repeated ticks don't thrash storage.
         if (_fontScaleCommitTimer is null)
