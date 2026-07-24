@@ -12286,22 +12286,30 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 var visualSw = Stopwatch.StartNew();
                 SyncSelectionControllerWithUiState("AgentCardBorder_MouseLeftButtonUp.Shift");
-                // If one of this agent's threads is the current main transcript selection and there
-                // are no secondary panels, shift-click should dismiss it and revert to the
-                // coordinator rather than opening a redundant secondary panel.
-                bool isCurrentMain = _mainTranscriptVisible &&
-                                     agentCard.Threads.Any(t => ReferenceEquals(t, _selectedTranscriptThread)) &&
-                                     _secondaryTranscripts.Count == 0;
-                if (isCurrentMain)
+
+                if (agentCard.IsLeadAgent)
                 {
-                    SelectTranscriptThread(CoordinatorThread);
-                    SyncTranscriptTargetIndicators();
+                    HandleLeadAgentShiftClick(visualSw);
                 }
                 else
                 {
-                    _selectionController.HandleCardClick(agentCard, shiftHeld: true);
-                    SyncImmediatePanelToggleVisuals(agentCard, "card-shift-click", visualSw);
-                    Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(agentCard));
+                    // If one of this agent's threads is the current main transcript selection and there
+                    // are no secondary panels, shift-click should dismiss it and revert to the
+                    // coordinator rather than opening a redundant secondary panel.
+                    bool isCurrentMain = _mainTranscriptVisible &&
+                                         agentCard.Threads.Any(t => ReferenceEquals(t, _selectedTranscriptThread)) &&
+                                         _secondaryTranscripts.Count == 0;
+                    if (isCurrentMain)
+                    {
+                        SelectTranscriptThread(CoordinatorThread);
+                        SyncTranscriptTargetIndicators();
+                    }
+                    else
+                    {
+                        _selectionController.HandleCardClick(agentCard, shiftHeld: true);
+                        SyncImmediatePanelToggleVisuals(agentCard, "card-shift-click", visualSw);
+                        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => ApplyGlowIfMouseOver(agentCard));
+                    }
                 }
             }
             else
@@ -12314,6 +12322,46 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(AgentCardBorder_MouseLeftButtonUp), ex);
         }
+    }
+
+    /// <summary>
+    /// Handles shift-click on the lead/coordinator card.
+    /// Semantics: toggle coordinator visibility.
+    /// - Coordinator visible in main + it's the only panel → do nothing (don't close last panel).
+    /// - Coordinator visible in main + other panels exist → hide main.
+    /// - Coordinator NOT visible, main shows Agent A → move Agent A to secondary, coordinator takes main.
+    /// - Main not visible (only secondaries) → show main with coordinator.
+    /// </summary>
+    private void HandleLeadAgentShiftClick(Stopwatch visualSw)
+    {
+        bool coordinatorIsInMain = _mainTranscriptVisible &&
+            (_selectedTranscriptThread == null || ReferenceEquals(_selectedTranscriptThread, CoordinatorThread));
+
+        if (coordinatorIsInMain)
+        {
+            // Toggle off: only hide if other panels are open so we don't blank the screen
+            if (_secondaryTranscripts.Count > 0)
+                HideMainTranscript();
+            return;
+        }
+
+        if (_mainTranscriptVisible && _selectedTranscriptThread != null
+            && !ReferenceEquals(_selectedTranscriptThread, CoordinatorThread))
+        {
+            // Main is showing a non-coordinator agent. Move that agent to secondary,
+            // then put coordinator in main.
+            var formerMainCard = FindAgentCardForThread(_selectedTranscriptThread);
+            if (formerMainCard != null)
+                OpenSecondaryPanel(formerMainCard, _selectedTranscriptThread, isAutoOpenedInMultiMode: false);
+            SelectTranscriptThread(CoordinatorThread);
+            SyncTranscriptTargetIndicators();
+            return;
+        }
+
+        // Main not visible — show it with coordinator
+        ShowMainTranscript();
+        SelectTranscriptThread(CoordinatorThread);
+        SyncTranscriptTargetIndicators();
     }
 
     // The ScrollContentPresenter (SCP) inside the default ScrollViewer template sets
