@@ -54,7 +54,11 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         _openInboxMessage = openInboxMessage;
-        Title         = attachments.Count == 1 ? "Text Attachment" : "Text Attachments";
+        Title         = attachments.Count == 1
+            ? (attachments[0].ImagePath is not null ? "Image Attachment" : "Text Attachment")
+            : (attachments.All(a => a.ImagePath is not null) ? "Image Attachments"
+               : attachments.Any(a => a.ImagePath is not null) ? "Attachments"
+               : "Text Attachments");
         MinWidth      = 320;
         MinHeight     = 200;
         ShowInTaskbar = false;
