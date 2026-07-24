@@ -1701,7 +1701,13 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _onStepChanged?.Invoke(index);
 
         _titleBox.Text         = step.Title;
+        _titleBox.IsUndoEnabled    = false;
+        _titleBox.IsUndoEnabled    = true;
+
         _markdownBox.Text      = step.MarkdownText;
+        _markdownBox.IsUndoEnabled = false;
+        _markdownBox.IsUndoEnabled = true;
+
         _targetControlBox.Text = step.TargetControlId;
 
         var placements = new[] { "Auto", "North", "South", "East", "West" };
