@@ -223,7 +223,7 @@ internal sealed class PreferencesWindow : Window {
         _workHoursWorkspaceDir = workHoursWorkspaceDir;
         _onWorkHoursSaved     = onWorkHoursSaved;
 
-        Title = "Preferences";
+        Title = "Options";
         Width = 640;
         Height = 1000;
         MinWidth = 540;
