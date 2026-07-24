@@ -302,6 +302,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourNewQueueSlotAtFront;
     private event Action? _tourEnvironmentFontZoomed;
     private event Action? _tourWorkspaceOpenedInExplorer;
+    private event Action? _tourAllAttachmentsRemoved;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
@@ -15009,6 +15010,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new WorkspaceOpenedInExplorerAdvanceTrigger(
                 addHandler:    h => _tourWorkspaceOpenedInExplorer += h,
                 removeHandler: h => _tourWorkspaceOpenedInExplorer -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "AllAttachmentsRemoved",
+            new AllAttachmentsRemovedAdvanceTrigger(
+                addHandler:    h => _tourAllAttachmentsRemoved += h,
+                removeHandler: h => _tourAllAttachmentsRemoved -= h));
     }
 
     private void RegisterTourContexts()
@@ -36946,6 +36953,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     e.Handled = true;
                     var l = GetOrCreateFollowUpList(_activeTabId ?? "");
                     l.Remove(capturedAtt);
+                    if (l.Count == 0) _tourAllAttachmentsRemoved?.Invoke();
                     UpdateFollowUpStrip();
                     SyncQueuePanel();
                     if (_activeTabId is null) PersistDraftFollowUp();
@@ -37506,7 +37514,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
     {
+        var hadAttachments = _followUpAttachments.TryGetValue(_activeTabId ?? "", out var existing) && existing.Count > 0;
         _followUpAttachments.Remove(_activeTabId ?? "");
+        if (hadAttachments) _tourAllAttachmentsRemoved?.Invoke();
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
