@@ -15,9 +15,13 @@ internal static class CamelCaseNavigator {
         // Skip leading whitespace to land at the start of the next word
         while (pos < text.Length && char.IsWhiteSpace(text[pos]))
             pos++;
-        // Scan forward for a lowercase→uppercase transition or end-of-word
+        // Scan forward for a lowercase→uppercase transition or end-of-word.
+        // Non-letter/digit characters (punctuation, symbols) are treated as word
+        // boundaries so the caret stops before them rather than overshooting.
         for (int i = pos + 1; i < text.Length; i++) {
             if (char.IsWhiteSpace(text[i]))
+                return i;
+            if (!char.IsLetterOrDigit(text[i]))
                 return i;
             if (char.IsLower(text[i - 1]) && char.IsUpper(text[i]))
                 return i;

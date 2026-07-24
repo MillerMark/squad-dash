@@ -121,6 +121,30 @@ internal sealed class CamelCaseNavigatorTests {
         Assert.That(CamelCaseNavigator.MoveRight("foo helloWorld", 4), Is.EqualTo(9));
     }
 
+    [Test]
+    public void MoveRight_PunctuationSuffix_StopsBeforePunctuation() {
+        // "ValidateShoppingCartContents." — no l→u inside "Contents", stops at '.' (28)
+        Assert.That(CamelCaseNavigator.MoveRight("ValidateShoppingCartContents.", 20), Is.EqualTo(28));
+    }
+
+    [Test]
+    public void MoveRight_PunctuationSuffix_FromMidWord_StopsBeforePunctuation() {
+        // "ValidateShoppingCartContents." caret=24 (inside "Contents") — stops at '.' (28)
+        Assert.That(CamelCaseNavigator.MoveRight("ValidateShoppingCartContents.", 24), Is.EqualTo(28));
+    }
+
+    [Test]
+    public void MoveRight_DotSeparatedWord_StopsAtDot() {
+        // "foo.bar" caret=0 — no camelCase in "foo", stops at '.' (3)
+        Assert.That(CamelCaseNavigator.MoveRight("foo.bar", 0), Is.EqualTo(3));
+    }
+
+    [Test]
+    public void MoveRight_FromDot_ScansNextSegmentToEnd() {
+        // "foo.bar" caret=3 (on '.') — '.' is not whitespace, scan "bar": no l→u, moves to end (7)
+        Assert.That(CamelCaseNavigator.MoveRight("foo.bar", 3), Is.EqualTo(7));
+    }
+
     // ── MoveLeft ─────────────────────────────────────────────────────────────
 
     [Test]
