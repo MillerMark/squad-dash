@@ -124,8 +124,10 @@
         </Style>
 
         <DataTemplate x:Key="AgentCardTemplate">
+            <!-- TextElement.FontSize set once here; child TextBlocks that need FontSizeBody inherit rather than binding individually. -->
             <Grid Margin="0,0,12,12"
                   Width="170"
+                  TextElement.FontSize="{DynamicResource FontSizeBody}"
                   Visibility="{Binding CardVisibility}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -183,7 +185,6 @@
                                         HorizontalAlignment="Center">
                                 <TextBlock x:Name="AgentNameText"
                                            Text="{Binding DisplayName}"
-                                           FontSize="{DynamicResource FontSizeBody}"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource LabelText}"
                                            TextWrapping="Wrap"
@@ -214,12 +215,10 @@
                                     Orientation="Horizontal"
                                     Visibility="{Binding StatusVisibility}">
                             <local:ActivitySpinner Margin="0,0,4,0"
-                                                   VerticalAlignment="Center"
-                                                   FontSize="{DynamicResource FontSizeBody}" />
+                                                   VerticalAlignment="Center" />
                             <TextBlock x:Name="StatusTextBlock"
                                        Text="{Binding StatusText}"
                                        ToolTip="{Binding StatusText}"
-                                       FontSize="{DynamicResource FontSizeBody}"
                                        FontWeight="SemiBold"
                                        TextWrapping="NoWrap"
                                        TextTrimming="CharacterEllipsis"
@@ -232,7 +231,6 @@
                                    Margin="0,6,0,0"
                                    Text="{Binding DetailText}"
                                    Visibility="{Binding DetailVisibility}"
-                                   FontSize="{DynamicResource FontSizeBody}"
                                    TextWrapping="NoWrap"
                                    TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource AgentDetailText}" />

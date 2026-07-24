@@ -8945,14 +8945,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         var mergedDicts = Application.Current.Resources.MergedDictionaries;
         var idx = mergedDicts.IndexOf(_activeFontSizeDict);
+        var swapSw = System.Diagnostics.Stopwatch.StartNew();
         if (idx >= 0)
             mergedDicts[idx] = newDict;   // single ResourcesChanged event instead of 14
         else
             mergedDicts.Add(newDict);
+        swapSw.Stop();
         _activeFontSizeDict = newDict;
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
-            $"ApplyFontSizeScale level={_fontScaleLevel} keys={newDict.Count} elapsed={sw.ElapsedMilliseconds}ms");
+            $"ApplyFontSizeScale level={_fontScaleLevel} keys={newDict.Count} swap={swapSw.ElapsedMilliseconds}ms total={sw.ElapsedMilliseconds}ms");
     }
 
     private void SetFontSizeScale(int levelIndex)
@@ -8977,11 +8979,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         else
         {
             _fontSizeApplyPending = true;
-            Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+            // Use Background priority so Input and Render frames can drain first.
+            // Rapid wheel ticks arriving before this fires all coalesce into one
+            // layout pass, and the title-bar indicator (updated synchronously above)
+            // stays responsive throughout.
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             {
                 _fontSizeApplyPending = false;
                 ApplyFontSizeScale();
-                // Defer the graph window update — it can wait until after the frame renders.
+                // Graph window can wait until after the font layout pass settles.
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
                     () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
                 SquadDashTrace.Write(TraceCategory.Performance,
