@@ -301,6 +301,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourPreferencesWindowClosed;
     private event Action? _tourNewQueueSlotAtFront;
     private event Action? _tourEnvironmentFontZoomed;
+    private event Action? _tourWorkspaceOpenedInExplorer;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
@@ -14955,6 +14956,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new EnvironmentFontZoomedAdvanceTrigger(
                 addHandler:    h => _tourEnvironmentFontZoomed += h,
                 removeHandler: h => _tourEnvironmentFontZoomed -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "WorkspaceOpenedInExplorer",
+            new WorkspaceOpenedInExplorerAdvanceTrigger(
+                addHandler:    h => _tourWorkspaceOpenedInExplorer += h,
+                removeHandler: h => _tourWorkspaceOpenedInExplorer -= h));
     }
 
     private void RegisterTourContexts()
@@ -29917,10 +29924,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 // Fall back to folder if no solution file
                 var folder = _currentWorkspace?.FolderPath;
                 if (!string.IsNullOrEmpty(folder) && Directory.Exists(folder))
+                {
                     Process.Start("explorer.exe", folder);
+                    _tourWorkspaceOpenedInExplorer?.Invoke();
+                }
                 return;
             }
             Process.Start("explorer.exe", $"/select,\"{path}\"");
+            _tourWorkspaceOpenedInExplorer?.Invoke();
             e.Handled = true;
         }
         catch (Exception ex)
