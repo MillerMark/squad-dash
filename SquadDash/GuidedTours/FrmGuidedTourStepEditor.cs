@@ -1035,7 +1035,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             if (_isLoadingStep) return;
             if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
+            {
+                SaveCurrentFieldsToStep();
                 _stepListBox.Items[_stepIndex] = MakeStepListItem(_stepIndex, _activeTour.Steps[_stepIndex]);
+            }
             Title = BuildEditorTitle(_activeTour.Name, _stepIndex, _titleBox.Text.Trim());
             QueueAutoSave();
         };
@@ -1047,7 +1050,10 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
             if (_contextNameBox.SelectedItem is string s && s != "(none)")
                 _contextTrueRadio.IsChecked = true;
             if (_stepIndex >= 0 && _stepIndex < _stepListBox.Items.Count)
+            {
+                SaveCurrentFieldsToStep();
                 _stepListBox.Items[_stepIndex] = MakeStepListItem(_stepIndex, _activeTour.Steps[_stepIndex]);
+            }
             QueueAutoSave();
         };
         _contextTrueRadio.Checked  += (_, _) => { if (!_isLoadingStep) QueueAutoSave(); };
