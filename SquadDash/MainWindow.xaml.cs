@@ -16466,6 +16466,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SetTranscriptFullScreen(false);
         });
 
+        _tourCommandRegistry.Register("ShowAgentsAndTopPanels", () =>
+        {
+            // Idempotent: exits focus mode only when it is currently hiding the status panel.
+            if (_agentsPanelFocusModeEnabled)
+                SetAgentsPanelFocusMode(false);
+        });
+
         _tourCommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>
         {
             // Only peeks the prompt box if we are in full-screen AND the prompt is not
