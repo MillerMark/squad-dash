@@ -14359,6 +14359,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 if (_tourNamedElements.TryGetValue(name, out var namedEl)) return namedEl;
 
+                // Lazy-resolve FirstInactiveAgentCard / FirstActiveAgentCard — positional,
+                // team-agnostic targets useful for generic guided tours.
+                if (name == "FirstInactiveAgentCard")
+                {
+                    var card = _inactiveAgentCards.FirstOrDefault();
+                    if (card is not null)
+                    {
+                        var border = FindAgentCardBorderForCard(card);
+                        if (border is not null) return border;
+                    }
+                }
+                if (name == "FirstActiveAgentCard")
+                {
+                    var card = _activeAgentCards.FirstOrDefault();
+                    if (card is not null)
+                    {
+                        var border = FindAgentCardBorderForCard(card);
+                        if (border is not null) return border;
+                    }
+                }
+
                 // Lazy-resolve TourDemoAgent_{name} at lookup time in case the border wasn't
                 // registered yet (e.g. visual tree not rendered when CreateDemoAgent ran).
                 if (name.StartsWith("TourDemoAgent_", StringComparison.Ordinal))
