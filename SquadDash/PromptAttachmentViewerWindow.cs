@@ -18,28 +18,45 @@ namespace SquadDash;
 /// </summary>
 internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 {
-    // Tracks the last-opened viewer so repeated clicks bring it to front rather than
-    // stacking duplicate windows.
-    private static WeakReference<PromptAttachmentViewerWindow>? s_lastViewer;
+    // Tracks open viewers by their attachment-list identity so repeated clicks on the
+    // same attachment bring its window to front rather than stacking duplicate windows,
+    // while clicks on different attachments correctly open separate windows.
+    private static readonly List<WeakReference<PromptAttachmentViewerWindow>> s_openViewers = [];
+
+    private readonly IReadOnlyList<FollowUpAttachment> _attachments;
 
     internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null)
     {
         if (attachments.Count == 0) return;
 
-        // If a viewer is already open, activate it instead of opening a duplicate.
-        if (s_lastViewer is not null && s_lastViewer.TryGetTarget(out var existing) && existing.IsVisible)
+        // Prune dead references and check if a window already showing exactly these
+        // attachment objects is still open — if so, bring it to front.
+        s_openViewers.RemoveAll(wr => !wr.TryGetTarget(out var w) || !w.IsVisible);
+        foreach (var wr in s_openViewers)
         {
-            if (existing.WindowState == WindowState.Minimized)
-                existing.WindowState = WindowState.Normal;
-            existing.Activate();
-            return;
+            if (!wr.TryGetTarget(out var existing)) continue;
+            if (SameAttachments(existing._attachments, attachments))
+            {
+                if (existing.WindowState == WindowState.Minimized)
+                    existing.WindowState = WindowState.Normal;
+                existing.Activate();
+                return;
+            }
         }
 
         var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage);
         if (owner is not null)
             win.Owner = owner;
-        s_lastViewer = new WeakReference<PromptAttachmentViewerWindow>(win);
+        s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
         win.Show();
+    }
+
+    private static bool SameAttachments(IReadOnlyList<FollowUpAttachment> a, IReadOnlyList<FollowUpAttachment> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+            if (!ReferenceEquals(a[i], b[i])) return false;
+        return true;
     }
 
     internal static void ShowRaw(string rawHeaderText, Window? owner)
@@ -53,6 +70,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private PromptAttachmentViewerWindow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
+        _attachments      = attachments;
         _openInboxMessage = openInboxMessage;
         Title         = attachments.Count == 1
             ? (attachments[0].ImagePath is not null ? "Image Attachment" : "Text Attachment")
