@@ -15816,6 +15816,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         });
         _tourCommandRegistry.Register("ClearShortcutTarget", () => _tourShortcutTarget = null);
 
+        _tourCommandRegistry.Register("ClearInjectedTranscriptText", () =>
+        {
+            CleanUpTourInjectedCoordinatorBlocks();
+            CleanUpTourInjectedThreads();
+        });
+
         _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
         {
             // Format: "markdown text" or "markdown text|agentName"
