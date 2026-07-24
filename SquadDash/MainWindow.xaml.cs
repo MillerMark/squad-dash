@@ -12348,13 +12348,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_mainTranscriptVisible && _selectedTranscriptThread != null
             && !ReferenceEquals(_selectedTranscriptThread, CoordinatorThread))
         {
-            // Main is showing a non-coordinator agent. Move that agent to secondary,
-            // then put coordinator in main.
-            var formerMainCard = FindAgentCardForThread(_selectedTranscriptThread);
-            if (formerMainCard != null)
-                OpenSecondaryPanel(formerMainCard, _selectedTranscriptThread, isAutoOpenedInMultiMode: false);
+            // Main is showing Agent A. Switch main to coordinator first (releases Agent A's
+            // document from the primary transcript box), then open Agent A as secondary.
+            // Order matters: OpenSecondaryPanel guards against opening a panel for the thread
+            // that is currently _selectedTranscriptThread, so coordinator must be selected first.
+            var formerMainThread = _selectedTranscriptThread;
+            var formerMainCard = FindAgentCardForThread(formerMainThread);
             SelectTranscriptThread(CoordinatorThread);
             SyncTranscriptTargetIndicators();
+            if (formerMainCard != null)
+                OpenSecondaryPanel(formerMainCard, formerMainThread, isAutoOpenedInMultiMode: false);
             return;
         }
 
