@@ -6,7 +6,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Introduction to the UI\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.2] The basics of the SquadDash user interface.\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Introduction to the UI\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.2] The basics of the SquadDash user interface.\r\n[size:1.1][right] Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -22,7 +22,7 @@
       },
       {
         "title": "Agent Section",
-        "markdownText": "Active agents are here.",
+        "markdownText": "Active agents are here.\r\nClick **Next** or press **Enter**.",
         "targetControlId": "ActiveAgentItemsControl",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -72,7 +72,7 @@
       },
       {
         "title": "Transcript",
-        "markdownText": "The Coordinator\u0027s **transcript** shows your prompts and the agent\u0027s responses.",
+        "markdownText": "The Coordinator\u0027s **transcript** shows your **prompts** and the agent\u0027s **responses**.",
         "targetControlId": "MainTranscriptBorder",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -109,8 +109,8 @@
         "targetOffsetY": 0.05499999999999917
       },
       {
-        "title": "Edits and Diffs",
-        "markdownText": "![30:edit](res:ToolIcon_edit) This icon indicates a **file change** (simulated for the tour).\r\nOn the right you can see the count of lines added (**\u002B1**) and removed (**-1**).\r\n**Hover** over **edits** to see before/after **diffs**.",
+        "title": "Edits",
+        "markdownText": "![30:edit](res:ToolIcon_edit)[lines:2]This icon indicates a **file change** (simulated for the tour).",
         "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -125,8 +125,24 @@
         "targetOffsetY": 0.47807692307692223
       },
       {
+        "title": "Diffs",
+        "markdownText": "On the right you can see **lines added** (**\u002B1**) and **removed** (**-1**).\r\nHover over **edits** to see **diffs**.",
+        "targetControlId": "TourInjectedLastToolEntry_edit",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.3629807692307691,
+        "targetOffsetY": 0.5013461538461532
+      },
+      {
         "title": "Quick reply buttons",
-        "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\n**Tip for keyboard users**: press \u0022**[**\u0022 in an empty prompt for **quick reply** intellisense.",
+        "markdownText": "A response may include helpful **Quick Reply Buttons**.\r\n**Keyboard users**: press \u0022**[**\u0022 in an empty prompt for **quick reply** intellisense.",
         "targetControlId": "TourQuickReplyPanel",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -182,7 +198,7 @@
       },
       {
         "title": "Transcripts in parallel.",
-        "markdownText": "And all **active agent transcripts** appear **in parallel** with the **Coordinator**\u0027s transcript (to the left).",
+        "markdownText": "**Active agent transcripts** appear in parallel.\r\nHover over a transcript to see its corresponding agent **glow** (and vice versa).",
         "targetControlId": "TourDemoAgentTranscriptTitle_MaxSmart",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -201,7 +217,7 @@
       },
       {
         "title": "Spinner 1",
-        "markdownText": "The **spinner** gives you a sense of how hard each agent works.\r\nThe faster it spins, the more active the agent.",
+        "markdownText": "The **spinner** gives a sense of how hard an agent works.\r\nThe faster it spins, the more active the agent.",
         "targetControlId": "TourDemoAgentSpinner_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -220,7 +236,7 @@
       },
       {
         "title": "Active workspace indicator",
-        "markdownText": "The **active workspace**.\r\nClick it to open in **Explorer**.",
+        "markdownText": "The **active workspace**.\r\nClick to open in **Explorer**.",
         "targetControlId": "WorkspaceTitleText",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -228,7 +244,7 @@
         "commandAfter": "",
         "commandsBefore": [],
         "commandsAfter": [],
-        "advanceTrigger": "",
+        "advanceTrigger": "WorkspaceOpenedInExplorer",
         "requiredContext": "",
         "requiredContextValue": true,
         "targetOffsetX": 0.5,
@@ -236,9 +252,9 @@
       },
       {
         "title": "Branch indicator - has repo.",
-        "markdownText": "This shows what **branch** you\u0027re working with.",
+        "markdownText": "This shows the **branch** you\u0027re working with.\r\nClick for branch options.",
         "targetControlId": "BranchIndicatorStrip",
-        "calloutPlacement": "North",
+        "calloutPlacement": "South",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -247,12 +263,12 @@
         "advanceTrigger": "",
         "requiredContext": "WorkspaceHasRepository",
         "requiredContextValue": true,
-        "targetOffsetX": 0.027331189710610933,
-        "targetOffsetY": 0.5294984302662824
+        "targetOffsetX": 0.011254019292604502,
+        "targetOffsetY": 0.3996220454673593
       },
       {
         "title": "Branch indicator - no repo",
-        "markdownText": "This shows what **branch** you\u0027re working with.\r\nClick it to initialize a **new repository** for this workspace.",
+        "markdownText": "This shows the **branch** you\u0027re working with.\r\nClick to initialize a **new repository** for this workspace.",
         "targetControlId": "InitializeRepositoryLabel",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -268,7 +284,7 @@
       },
       {
         "title": "The Help Menu",
-        "markdownText": "You can find more guided tours in the **Help** menu.\r\n",
+        "markdownText": "More guided tours in the **Help** menu.\r\n",
         "targetControlId": "MoreGuidedToursMenuItem",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -287,7 +303,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][lines:2][vspace:0]You just learned the basics of the SquadDash UI. Try sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][lines:2][vspace:0]You just learned the basics of the SquadDash UI.\r\nTry sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -310,7 +326,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.2]How to create and submit prompts (and navigate through prompts in the transcript).\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Prompts and the Queue\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot2.png)[lines:3][valign:top][size:1.2]How to create and submit prompts (and navigate through prompts in the transcript).\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -677,7 +693,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -856,7 +872,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Theme and Appearance\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.2]Learn how to configure the SquadDash interface to your liking.\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Theme and Appearance\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot3.png)[lines:2][valign:top][size:1.2]Learn how to configure the SquadDash interface to your liking.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
@@ -871,8 +887,45 @@
         "targetOffsetY": 0.5
       },
       {
+        "title": "Environment font size",
+        "markdownText": "To set the environment **font size**, **Ctrl**\u002B**zoom** the mouse wheel over the **title bar**.",
+        "targetControlId": "TitlebarGrid",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "EnvironmentFontZoomed",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.09485530546623794,
+        "targetOffsetY": 1
+      },
+      {
+        "title": "Transcript and prompt font size",
+        "markdownText": "**Ctrl**\u002B**zoom** the **Transcript** and **Prompt** box to set their font sizes.",
+        "targetControlId": "MainTranscriptBorder",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "InjectTranscriptText|Ctrl\u002Bzoom here to change this font size.",
+          "CaretPromptText|Ctrl\u002Bzoom here to change this font size. \u003Ccaret\u003E"
+        ],
+        "commandsAfter": [
+          "Remove Dummy Queue Items"
+        ],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
         "title": "View menu - top",
-        "markdownText": "The **View** menu is divided into three sections. \r\nThe **top section** determines visibility of key elements.",
+        "markdownText": "The **View** menu has three sections. \r\nThe **top section** determines key element **visibility**.",
         "targetControlId": "ViewMenuItem_Popup",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -908,7 +961,7 @@
       },
       {
         "title": "Full screen any key to prompt",
-        "markdownText": "\r\nIn **full screen mode**, both typing and **Push to Talk** (PTT) still add text to the prompt box.\r\nPress any **alpha numeric key** to see the prompt box appear.",
+        "markdownText": "In **full screen mode**, both typing and **Push to Talk** (PTT) still add text to the prompt box.\r\nPress any **alpha numeric key** to see the prompt box appear.",
         "targetControlId": "OutputTextBox",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -1099,7 +1152,7 @@
     "steps": [
       {
         "title": "Welcome",
-        "markdownText": "##Using Voice\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot5.png)[lines:2][valign:top][size:1.2]Setting up voice dictation and push to talk (PTT).\r\n[size:1.1][right]Click **Next** to start the tour.",
+        "markdownText": "##Using Voice\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot5.png)[lines:2][valign:top][size:1.2]Setting up voice dictation and push to talk (PTT).\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
         "targetControlId": "",
         "calloutPlacement": "Auto",
         "preAction": "None",
