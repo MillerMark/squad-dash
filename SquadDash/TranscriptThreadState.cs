@@ -86,6 +86,11 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public bool IsCurrentBackgroundRun { get; set; }
     /// <summary>True for simulated tour demo agent threads created by the guided-tour system.</summary>
     public bool IsTourDemoThread { get; set; }
+    /// <summary>
+    /// When set by a <c>CreateDemoAgent</c> tour command, this hex overrides the default
+    /// dynamic-agent accent color whenever the card is rebuilt by <c>EnsureDynamicAgentCards</c>.
+    /// </summary>
+    public string? TourDemoAccentHex { get; set; }
     /// <summary>Timestamp of the most recent turn start; used to suppress redundant headers in tour demo threads.</summary>
     public DateTimeOffset? LastTurnStartedAt { get; set; }
     public bool LaunchedFromInbox { get; set; }

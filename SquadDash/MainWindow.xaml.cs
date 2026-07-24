@@ -7855,6 +7855,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 accentStorageKey: "dynamic:" + thread.Title,
                 isDynamicAgent: true);
             ApplyAgentAccent(card, ResolveAgentAccentHex(card, isLeadAgent: false), persist: false);
+            // Tour demo agents with a command-specified color always win over the default and user-set colors.
+            if (thread.IsTourDemoThread && !string.IsNullOrWhiteSpace(thread.TourDemoAccentHex))
+                ApplyAgentAccent(card, thread.TourDemoAccentHex, persist: false);
             ApplyAgentImage(card, ResolveAgentImagePath(card), persist: false);
             _agents.Add(card);
         }
@@ -16240,6 +16243,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             thread.WasObservedAsBackgroundTask = true;
             thread.IsTourDemoThread          = true;
             thread.LastObservedActivityAt    = DateTimeOffset.UtcNow;
+            if (!string.IsNullOrWhiteSpace(accentHex))
+                thread.TourDemoAccentHex = accentHex;  // remembered so EnsureDynamicAgentCards re-applies it on rebuild
             _guidedTourController?.TrackInjectedThread(thread.ThreadId);
 
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
@@ -16251,6 +16256,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 .FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
             if (card is null) return;
 
+            // Apply the tour-specified color (already done by EnsureDynamicAgentCards via TourDemoAccentHex,
+            // but guard here for the initial creation pass in case the card was just built).
             if (!string.IsNullOrWhiteSpace(accentHex))
                 ApplyAgentAccent(card, accentHex, persist: false);
 
