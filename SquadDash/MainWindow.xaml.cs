@@ -8956,6 +8956,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // when their DynamicResource FontSize bindings update, shrinking the transcript
         // row (Row 4, Height="*") and triggering a full RTB remeasure → 117-block
         // FlowDocument reformat.  Detaching prevents that cascade.
+
+        // Save scroll position before detaching so we can restore it after reattach.
+        // Without this, WPF resets the ScrollViewer to offset 0 when the RTB is removed
+        // and re-inserted, causing a visible flash to the top of the transcript.
+        double savedScrollOffset = _coordinatorScrollController.GetVerticalOffset();
+        bool wasAtBottom = !_coordinatorScrollController.IsUserScrolledAway;
+
         var transcriptGrid = OutputTextBox.Parent as Grid;
         var rtbIdx = transcriptGrid?.Children.IndexOf(OutputTextBox) ?? -1;
         if (rtbIdx >= 0)
@@ -8980,6 +8987,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Reattach the RTB: it is now measured exactly once at the settled post-swap size.
         if (transcriptGrid != null && rtbIdx >= 0)
             transcriptGrid.Children.Insert(rtbIdx, OutputTextBox);
+
+        // Force a synchronous layout pass so the ScrollViewer has its final extent before
+        // we restore the saved offset.  Without UpdateLayout() the ScrollableHeight is
+        // still 0 (the RTB just re-entered the tree) and ScrollToVerticalOffset would
+        // clamp to 0, leaving the viewport at the top.
+        OutputTextBox.UpdateLayout();
+        if (wasAtBottom)
+            _coordinatorScrollController.ScrollToBottom();
+        else
+            _coordinatorScrollController.ScrollToAbsoluteOffset(savedScrollOffset);
 
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
