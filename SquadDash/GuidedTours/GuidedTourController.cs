@@ -153,6 +153,18 @@ internal sealed class GuidedTourController
         var replacement = allTours ?? new List<GuidedTour> { tour };
         SquadDashTrace.Write(TraceCategory.Callouts,
             $"GuidedTourController.StartTour: replacing _allTours, oldSteps=[{oldCounts}], newSteps=[{TourStepCounts(replacement)}], tour=\"{tour.Name}\", workspacePath=\"{WorkspaceFolderPath ?? "(none)"}\"");
+
+        // If the editor is open it holds a reference to the old _allTours list.
+        // Flush any pending edits first (using the old, still-valid references),
+        // then rebind the editor so its _allTours and _activeTour point into the
+        // replacement list.  Without this the editor's EnsureActiveTourIsAttached
+        // check fails for every subsequent click, silently blocking all interaction.
+        if (_activeEditor is { IsLoaded: true })
+        {
+            _activeEditor.FlushPendingChanges();
+            _activeEditor.RebindTourList(replacement);
+        }
+
         _activeTour        = tour;
         _allTours          = replacement;
         _currentStepIndex  = 0;

@@ -22,7 +22,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
     private GuidedTourStep             _step;
     private int                        _stepIndex;
     private GuidedTour                 _activeTour;
-    private readonly List<GuidedTour>  _allTours;
+    private List<GuidedTour>           _allTours;
     private readonly string?           _workspaceFolderPath;
     private readonly Func<string?>?    _workspaceFolderProvider;
 
@@ -1260,6 +1260,25 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private string? ResolveWorkspaceFolderPath() =>
         GuidedTourWorkspacePathResolver.Resolve(_workspaceFolderPath, _workspaceFolderProvider);
+
+    /// <summary>
+    /// Updates the editor's tour list and active-tour references to a replacement list
+    /// loaded from disk by the controller.  Called from <c>GuidedTourController.StartTour</c>
+    /// before the controller replaces its own <c>_allTours</c> reference, so that
+    /// <see cref="EnsureActiveTourIsAttached"/> continues to pass and the editor stays
+    /// interactive.  Matches the current active tour by ID so any in-progress edits
+    /// remain anchored to the correct tour object.
+    /// </summary>
+    internal void RebindTourList(List<GuidedTour> newAllTours)
+    {
+        _allTours = newAllTours;
+        if (_activeTour is not null)
+        {
+            var rebound = newAllTours.FirstOrDefault(t => t.Id == _activeTour.Id);
+            if (rebound is not null)
+                _activeTour = rebound;
+        }
+    }
 
     /// <summary>
     /// Synchronously commits the visible fields and persists the complete tour file.
