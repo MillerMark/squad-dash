@@ -10414,9 +10414,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
             }
 
-            // Also guard the transcript search box and the doc find text box
-            if (SearchBox?.IsFocused == true) return;
-            if (_docSourceFindTextBox?.IsFocused == true) return;
+            // Also guard the transcript search box and the doc find text box —
+            // but let bare Ctrl key events fall through so the PTT state machine can track them.
+            if (SearchBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
+            if (_docSourceFindTextBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
 
             if (_pttState == PttState.Idle
                 && PromptTextBox?.IsKeyboardFocusWithin == true
