@@ -15060,6 +15060,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (string.IsNullOrEmpty(folder)) return false;
             return !string.IsNullOrEmpty(ReadGitBranch(folder));
         });
+
+        // AzureSpeechProviderSelected: true when the Preferences window is open and the
+        // Azure Cognitive Services radio button on the Provider page is selected.
+        _tourContextRegistry.Register("AzureSpeechProviderSelected", () =>
+            _preferencesWindow is { IsVisible: true } &&
+            _preferencesWindow.IsAzureSpeechProviderSelected);
     }
 
     private const string TourDummyTag = "guided-tour-dummy";

@@ -183,6 +183,9 @@ internal sealed class PreferencesWindow : Window {
     /// <summary>Fired when the user (or a tour command) navigates to a page. Arg = page label.</summary>
     internal event Action<string>? PageSelected;
 
+    /// <summary>True when the Azure Cognitive Services speech provider radio button is currently selected.</summary>
+    internal bool IsAzureSpeechProviderSelected => _azureSpeechRadio.IsChecked == true;
+
     // ── Push-to-talk support ──────────────────────────────────────────────
     private readonly Action<TextBox>? _startPtt;
     private readonly Action?          _stopPtt;
