@@ -23,6 +23,13 @@ internal sealed class PromptQueueItem {
     public int     SimDelaySeconds  { get; set; }
     /// <summary>Optional tag identifying the feature that queued this item (e.g. "branch-indicator").</summary>
     public string? SourceTag        { get; set; }
+    /// <summary>Text the item was created with; used to detect substantial user edits during a guided tour.</summary>
+    public string? InitialText      { get; set; }
+    /// <summary>
+    /// True if push-to-talk was used on this item and appended more than 2 words.
+    /// Set externally by MainWindow when a PTT result is applied to a TourDummy item.
+    /// </summary>
+    public bool HasSubstantialVoiceWork { get; set; }
 }
 
 internal sealed class PromptQueue {
@@ -130,6 +137,13 @@ internal sealed class PromptQueue {
             _items.Remove(item);
             ItemRemoved?.Invoke(item);
         }
+    }
+
+    /// <summary>Removes a specific item instance from the queue.</summary>
+    public void RemoveItem(PromptQueueItem item)
+    {
+        if (_items.Remove(item))
+            ItemRemoved?.Invoke(item);
     }
 
     public bool HasReadyItems => _items.Any(i => !i.IsEditing);

@@ -11388,6 +11388,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _promptHasVoiceInput = true;
 
+        // If this PTT result has more than 2 words and is landing on an active dummy tab, mark it.
+        if (_activeTabId is not null && CountWords(text) > 2)
+        {
+            var activeItem = _promptQueue.Items.FirstOrDefault(
+                i => i.Id == _activeTabId && i.SourceTag == TourDummyTag);
+            if (activeItem is not null)
+                activeItem.HasSubstantialVoiceWork = true;
+        }
+
         if (_pttTargetRichTextBox != null)
         {
             AppendSpeechToRichTextBox(_pttTargetRichTextBox, text);
@@ -14822,26 +14831,54 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private void CleanUpTourQueueItems()
     {
-        // If the user clicked into a demo tab, _activeTabId points at a dummy item.
-        // Restore the real pre-edit draft before deleting the demo items so the
-        // user's text is not lost (same logic as OnQueueTabRemove for the active tab).
+        // If the user clicked into a demo tab that will be removed, restore the pre-edit draft
+        // so their real text is not lost.  Only restore if the active dummy item is being removed
+        // (i.e., does not have substantial work that would cause it to be preserved).
         if (_activeTabId is not null &&
             _promptQueue.Items.Any(i => i.Id == _activeTabId && IsTourOrSimTag(i.SourceTag)))
         {
-            _activeTabId = null;
-            SetPromptTextBoxLogicalBuffer(
-                _queuePreEditDraft ?? string.Empty,
-                _queuePreEditDraftCaretIndex,
-                _queuePreEditDraftSelectionStart,
-                _queuePreEditDraftSelectionLength,
-                "tour-cleanup-restore-draft");
-            _queuePreEditDraft = null;
+            var activeItem = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
+            bool activeWillBeRemoved = activeItem is null || !HasSubstantialTourWork(activeItem);
+            if (activeWillBeRemoved)
+            {
+                _activeTabId = null;
+                SetPromptTextBoxLogicalBuffer(
+                    _queuePreEditDraft ?? string.Empty,
+                    _queuePreEditDraftCaretIndex,
+                    _queuePreEditDraftSelectionStart,
+                    _queuePreEditDraftSelectionLength,
+                    "tour-cleanup-restore-draft");
+                _queuePreEditDraft = null;
+            }
+            else
+            {
+                // The active dummy item is preserved — clear pre-edit draft state without restoring.
+                _queuePreEditDraft = null;
+            }
         }
 
         StopTypeIntoPromptAnimation(); // removes TourTypeTag item + stops timer
-        _promptQueue.RemoveByTag(TourDummyTag);
+
+        // Remove dummy items, but preserve any the user has substantially edited.
+        var dummyItems = _promptQueue.Items.Where(i => i.SourceTag == TourDummyTag).ToList();
+        foreach (var item in dummyItems)
+        {
+            if (!HasSubstantialTourWork(item))
+                _promptQueue.RemoveItem(item);
+        }
+
         SyncQueuePanel();
     }
+
+    private static bool HasSubstantialTourWork(PromptQueueItem item)
+    {
+        if (item.HasSubstantialVoiceWork) return true;
+        var initialLength = item.InitialText?.Length ?? 0;
+        return Math.Abs(item.Text.Length - initialLength) > 40;
+    }
+
+    private static int CountWords(string text)
+        => text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 
     /// <summary>
     /// Removes the last <c>TourQuickReplyPanel</c> block from the coordinator transcript,
@@ -15177,6 +15214,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var dummyItem = new PromptQueueItem
                 {
                     Text           = $"[Tour Demo Item {existingCount + i}]",
+                    InitialText    = $"[Tour Demo Item {existingCount + i}]",
                     SequenceNumber = ++_promptQueueSeq,
                     QueueNumber    = NextQueueNumber(),
                     SourceTag      = DummyTag
@@ -15679,6 +15717,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 existing = new PromptQueueItem
                 {
                     Text           = fullText,
+                    InitialText    = fullText,
                     SequenceNumber = ++_promptQueueSeq,
                     QueueNumber    = NextQueueNumber(),
                     SourceTag      = DummyTag
