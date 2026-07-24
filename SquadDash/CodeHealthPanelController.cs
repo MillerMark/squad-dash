@@ -36,6 +36,11 @@ internal sealed class CodeHealthPanelController {
     private DispatcherTimer?       _countdownTimer;
     private DispatcherTimer?       _transientStatusTimer;
 
+    private UIElement? _filterEmptyState;
+
+    /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
+    internal Action? ClearFilterAction { get; set; }
+
     // ── Construction ─────────────────────────────────────────────────────────
 
     internal CodeHealthPanelController(
@@ -185,14 +190,35 @@ internal sealed class CodeHealthPanelController {
     }
 
     private void ApplyFilter() {
+        bool anyVisible = false;
         foreach (UIElement child in _listPanel.Children) {
             if (child is FrameworkElement fe && fe.Tag is CodeHealthTask task) {
                 bool matches = string.IsNullOrEmpty(_viewModel.FilterText)
                     || PanelFilterHelper.Matches(task.Title, _viewModel.FilterText)
                     || PanelFilterHelper.Matches(task.Instructions ?? string.Empty, _viewModel.FilterText);
                 fe.Visibility = matches ? Visibility.Visible : Visibility.Collapsed;
+                if (matches) anyVisible = true;
             }
         }
+
+        if (!anyVisible && !string.IsNullOrEmpty(_viewModel.FilterText))
+            ShowFilterEmptyState();
+        else
+            HideFilterEmptyState();
+    }
+
+    private void ShowFilterEmptyState() {
+        if (_filterEmptyState is not null) {
+            _filterEmptyState.Visibility = Visibility.Visible;
+            return;
+        }
+        _filterEmptyState = FilterEmptyStateHelper.Build(ClearFilterAction ?? (() => {}));
+        _listPanel.Children.Add(_filterEmptyState);
+    }
+
+    private void HideFilterEmptyState() {
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>

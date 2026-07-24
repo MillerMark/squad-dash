@@ -25,6 +25,7 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
     private System.Windows.Controls.Image _mascotImage = null!;
     private CheckBox _showCompletedCheckBox = null!;
     private Action<GuidedTour>? _onTourSelected;
+    private UIElement _filterEmptyState = null!;
 
     /// <summary>
     /// The tour selected by the user, or <c>null</c> if the dialog was cancelled.
@@ -196,12 +197,19 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         buttonRow.Children.Add(cancelButton);
 
         // ── Layout ───────────────────────────────────────────────────────────
+        // Wrap the tour list in a Grid so the filter empty-state can overlay it.
+        _filterEmptyState = FilterEmptyStateHelper.Build(() => _filterBox.Text = string.Empty);
+        _filterEmptyState.Visibility = Visibility.Collapsed;
+        var tourListHost = new Grid();
+        tourListHost.Children.Add(_tourList);
+        tourListHost.Children.Add(_filterEmptyState);
+
         var layout = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(filterGrid,  Dock.Top);
         layout.Children.Add(filterGrid);
         DockPanel.SetDock(buttonRow, Dock.Bottom);
         layout.Children.Add(buttonRow);
-        layout.Children.Add(_tourList);
+        layout.Children.Add(tourListHost);
 
         // Wrap the tour list in a two-column grid with the mascot on the left
         var outerGrid = new Grid();
@@ -277,6 +285,10 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
             _tourList.SelectedIndex = 0;
         RefreshMascot();
         UpdateStartButton();
+
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = (!string.IsNullOrEmpty(filter) && _tourList.Items.Count == 0)
+                ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RepopulateCurrentFilter()
@@ -304,6 +316,10 @@ internal sealed class FrmGuidedTourSelector : ChromedWindow
         }
         RefreshMascot();
         UpdateStartButton();
+
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = (!string.IsNullOrEmpty(filter) && _tourList.Items.Count == 0)
+                ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RefreshMascot()

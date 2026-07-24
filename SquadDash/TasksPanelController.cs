@@ -35,6 +35,11 @@ internal sealed class TasksPanelController {
     private MenuItem? _toggleCompletedItem;
     private readonly List<MenuItem> _allToggleItems = [];
 
+    private UIElement? _filterEmptyState;
+
+    /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
+    internal Action? ClearFilterAction { get; set; }
+
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -360,6 +365,36 @@ internal sealed class TasksPanelController {
     private void ApplyFilter() {
         ApplyFilterToPanel(_activePanel, syncHeadings: true);
         ApplyFilterToPanel(_completedPanel, syncHeadings: false);
+
+        if (!string.IsNullOrEmpty(_viewModel.FilterText)) {
+            bool anyVisible = false;
+            foreach (UIElement child in _activePanel.Children) {
+                if (child is System.Windows.Controls.Border { Tag: TaskItem } && child.Visibility == Visibility.Visible) {
+                    anyVisible = true;
+                    break;
+                }
+            }
+            if (!anyVisible)
+                ShowFilterEmptyState();
+            else
+                HideFilterEmptyState();
+        } else {
+            HideFilterEmptyState();
+        }
+    }
+
+    private void ShowFilterEmptyState() {
+        if (_filterEmptyState is not null) {
+            _filterEmptyState.Visibility = Visibility.Visible;
+            return;
+        }
+        _filterEmptyState = FilterEmptyStateHelper.Build(ClearFilterAction ?? (() => {}));
+        _activePanel.Children.Add(_filterEmptyState);
+    }
+
+    private void HideFilterEmptyState() {
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = Visibility.Collapsed;
     }
 
     private void ApplyFilterToPanel(StackPanel panel, bool syncHeadings) {

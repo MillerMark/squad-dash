@@ -3153,6 +3153,7 @@ internal sealed class FrmControlPicker : ChromedWindow
     private readonly List<string> _allNames;
     private readonly ListBox      _list;
     private readonly TextBox      _filterBox;
+    private UIElement?            _filterEmptyState;
 
     /// <summary>The element name chosen by the user, or <c>null</c> if cancelled.</summary>
     public string? SelectedName { get; private set; }
@@ -3227,7 +3228,14 @@ internal sealed class FrmControlPicker : ChromedWindow
         layout.Children.Add(_filterBox);
         DockPanel.SetDock(buttonRow, Dock.Bottom);
         layout.Children.Add(buttonRow);
-        layout.Children.Add(_list);
+
+        // Wrap the list in a Grid so the filter empty-state can overlay it.
+        _filterEmptyState = FilterEmptyStateHelper.Build(() => _filterBox.Text = string.Empty);
+        _filterEmptyState.Visibility = Visibility.Collapsed;
+        var listHost = new Grid();
+        listHost.Children.Add(_list);
+        listHost.Children.Add(_filterEmptyState);
+        layout.Children.Add(listHost);
 
         contentArea.Child = layout;
 
@@ -3249,6 +3257,10 @@ internal sealed class FrmControlPicker : ChromedWindow
             ? _allNames
             : _allNames.Where(n => n.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
         PopulateList(filtered, null);
+
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = (!string.IsNullOrEmpty(filter) && _list.Items.Count == 0)
+                ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void PopulateList(List<string> names, string? preselect)

@@ -6921,6 +6921,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             getRoster: () => _currentWorkspace is null
                                  ? []
                                  : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
+        _tasksPanelController.ClearFilterAction = () => { if (TasksFilterBox is not null) TasksFilterBox.Text = string.Empty; };
 
         // Wire dynamic max-width hint so splitter snap targets content width
         if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
@@ -36396,6 +36397,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 needsApprovalHeader: ApprovalNeedsHeader,
                 emptyStateText: ApprovalEmptyStateText,
                 onCategoriesMerged: merges => Dispatcher.Invoke(() => ApplyFeatureCategoryMerges(merges)));
+            _approvalPanel.ClearFilterAction = () => { if (ApprovalFilterBox is not null) ApprovalFilterBox.Text = string.Empty; };
             _approvalPanel.ReplaceAllItems(_approvalItems);
 
             // Wire dynamic max-width hint so splitter double-click snaps to content width
@@ -37653,6 +37655,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     _docsPanelState = st with { NotesSortOrder = order };
                     _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
                 });
+            _notesPanel.ClearFilterAction = () => { if (NotesFilterBox is not null) NotesFilterBox.Text = string.Empty; };
             _notesPanel.Refresh(_noteItems);
 
             // Wire dynamic max-width hint so splitter snap targets content width
@@ -37713,6 +37716,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
                 onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
+            _codeHealthPanel.ClearFilterAction = () => { if (CodeHealthFilterBox is not null) CodeHealthFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (CodeHealthPanelBorder is { } mpb)
@@ -37812,6 +37816,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg),
                 addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); });
+            _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width
             if (InboxPanelBorder is { } ipb)

@@ -43,6 +43,11 @@ internal sealed class InboxPanelController
     private readonly InboxPanelViewModel _viewModel = new();
     internal InboxPanelViewModel ViewModel => _viewModel;
 
+    private UIElement? _filterEmptyState;
+
+    /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
+    internal Action? ClearFilterAction { get; set; }
+
     // ── Construction ─────────────────────────────────────────────────────────
 
     public InboxPanelController(
@@ -172,7 +177,24 @@ internal sealed class InboxPanelController
             }
         }
 
-        // Show or hide the empty state label.
+        bool filterActive = !string.IsNullOrEmpty(_viewModel.FilterText);
+
+        if (!anyVisible && filterActive)
+        {
+            // Filter is active and produced no results — show filter-specific empty state.
+            ShowFilterEmptyState();
+            // Hide any generic "no messages" label so the two don't stack.
+            foreach (UIElement child in _listPanel.Children)
+            {
+                if (child is TextBlock { Tag: string tag } && tag == "empty")
+                    child.Visibility = Visibility.Collapsed;
+            }
+            return;
+        }
+
+        HideFilterEmptyState();
+
+        // Show or hide the generic empty state label.
         bool emptyLabelPresent = false;
         foreach (UIElement child in _listPanel.Children)
         {
@@ -193,6 +215,23 @@ internal sealed class InboxPanelController
 
         if (!anyVisible && !emptyLabelPresent)
             _listPanel.Children.Add(BuildEmptyLabel(_viewModel.UnreadOnly ? "No unread messages" : "No messages"));
+    }
+
+    private void ShowFilterEmptyState()
+    {
+        if (_filterEmptyState is not null)
+        {
+            _filterEmptyState.Visibility = Visibility.Visible;
+            return;
+        }
+        _filterEmptyState = FilterEmptyStateHelper.Build(ClearFilterAction ?? (() => {}));
+        _listPanel.Children.Add(_filterEmptyState);
+    }
+
+    private void HideFilterEmptyState()
+    {
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = Visibility.Collapsed;
     }
 
     private UIElement BuildEmptyLabel(string text)

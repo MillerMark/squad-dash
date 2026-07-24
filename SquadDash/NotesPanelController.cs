@@ -32,6 +32,11 @@ internal sealed class NotesPanelController {
 
     private Action<NotesSortOrder>? _onSortOrderChanged;
 
+    private UIElement? _filterEmptyState;
+
+    /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
+    internal Action? ClearFilterAction { get; set; }
+
     // ── Construction ─────────────────────────────────────────────────────────
 
     public NotesPanelController(
@@ -139,11 +144,33 @@ internal sealed class NotesPanelController {
     }
 
     private void ApplyFilterToList() {
+        bool anyVisible = false;
         foreach (UIElement child in _listPanel.Children) {
-            if (child is Border { Tag: NoteItem note })
-                child.Visibility = PanelFilterHelper.Matches(note.Title, _viewModel.FilterText)
-                    ? Visibility.Visible : Visibility.Collapsed;
+            if (child is Border { Tag: NoteItem note }) {
+                bool visible = PanelFilterHelper.Matches(note.Title, _viewModel.FilterText);
+                child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                if (visible) anyVisible = true;
+            }
         }
+
+        if (!anyVisible && !string.IsNullOrEmpty(_viewModel.FilterText))
+            ShowFilterEmptyState();
+        else
+            HideFilterEmptyState();
+    }
+
+    private void ShowFilterEmptyState() {
+        if (_filterEmptyState is not null) {
+            _filterEmptyState.Visibility = Visibility.Visible;
+            return;
+        }
+        _filterEmptyState = FilterEmptyStateHelper.Build(ClearFilterAction ?? (() => {}));
+        _listPanel.Children.Add(_filterEmptyState);
+    }
+
+    private void HideFilterEmptyState() {
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = Visibility.Collapsed;
     }
 
     private Border BuildRow(NoteItem note) {

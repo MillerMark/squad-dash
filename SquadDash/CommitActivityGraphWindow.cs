@@ -127,6 +127,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private TextBox?                      _featureFilterBox;
     private Button?                       _featureFilterClear;
     private string[]                      _featureFilters = [];
+    private UIElement?                    _filterEmptyState;
+    private Grid?                         _canvasGrid;
 
     // ── Zoom / pan ────────────────────────────────────────────────────────────
     private bool   _isPanMode;
@@ -334,6 +336,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         _selectionPanelRow.Height = new GridLength(180);
 
         var canvasGrid = new Grid();
+        _canvasGrid = canvasGrid;
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         canvasGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -358,6 +361,12 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         canvasGrid.Children.Add(_scrollViewer);
         canvasGrid.Children.Add(_selectionSplitter);
         canvasGrid.Children.Add(_selectionPanel);
+
+        // Filter empty-state overlay (row 1, same as _scrollViewer; starts hidden)
+        _filterEmptyState = FilterEmptyStateHelper.Build(() => { if (_featureFilterBox is not null) _featureFilterBox.Text = string.Empty; });
+        _filterEmptyState.Visibility = Visibility.Collapsed;
+        Grid.SetRow(_filterEmptyState, 1);
+        canvasGrid.Children.Add(_filterEmptyState);
 
         var layout = new DockPanel{ LastChildFill = true };
         DockPanel.SetDock(topBar, Dock.Top);
@@ -1585,6 +1594,15 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
                 _featureFilters.Any(f =>
                     (r.DisplayName ?? "").Contains(f, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+
+            // Show empty-state overlay when no rows match the filter text.
+            if (_filterEmptyState is not null)
+                _filterEmptyState.Visibility = displayRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        else
+        {
+            if (_filterEmptyState is not null)
+                _filterEmptyState.Visibility = Visibility.Collapsed;
         }
 
         // Hide feature groups that have no commits (and no pending commits) within

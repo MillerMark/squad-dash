@@ -47,6 +47,11 @@ internal sealed class CommitApprovalPanel {
     private readonly Action<bool>? _onGroupedViewChanged;
     private IReadOnlyList<CommitApprovalItem> _lastItems = [];
     private List<CommitApprovalItem> _mutableItems = new();
+
+    private UIElement? _filterEmptyState;
+
+    /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
+    internal Action? ClearFilterAction { get; set; }
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
         StackPanel                               approvedPanel,
@@ -966,6 +971,36 @@ internal sealed class CommitApprovalPanel {
         ApplyFilterToPanel(_needsApprovalPanel);
         ApplyFilterToPanel(_approvedPanel);
         ApplyFilterToPanel(_rejectedPanel);
+
+        if (!string.IsNullOrEmpty(_filterText)) {
+            bool anyVisible = false;
+            foreach (UIElement child in _needsApprovalPanel.Children) {
+                if (child is Border { Tag: CommitApprovalItem } && child.Visibility == Visibility.Visible) {
+                    anyVisible = true;
+                    break;
+                }
+            }
+            if (!anyVisible)
+                ShowFilterEmptyState();
+            else
+                HideFilterEmptyState();
+        } else {
+            HideFilterEmptyState();
+        }
+    }
+
+    private void ShowFilterEmptyState() {
+        if (_filterEmptyState is not null) {
+            _filterEmptyState.Visibility = Visibility.Visible;
+            return;
+        }
+        _filterEmptyState = FilterEmptyStateHelper.Build(ClearFilterAction ?? (() => {}));
+        _needsApprovalPanel.Children.Add(_filterEmptyState);
+    }
+
+    private void HideFilterEmptyState() {
+        if (_filterEmptyState is not null)
+            _filterEmptyState.Visibility = Visibility.Collapsed;
     }
 
     private bool MatchesFilter(CommitApprovalItem item) {
