@@ -300,6 +300,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourPreferencesWindowShown;
     private event Action? _tourPreferencesWindowClosed;
     private event Action? _tourNewQueueSlotAtFront;
+    private event Action? _tourEnvironmentFontZoomed;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
     private string? _lastMissingUtilityAgentNoticeKey;
@@ -9033,6 +9034,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _fontSizeApplyPending = false;
                 ApplyFontSizeScale();
+                _tourEnvironmentFontZoomed?.Invoke();
                 // Graph window can wait until after the font layout pass settles.
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
                     () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
@@ -14947,6 +14949,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new NewQueueSlotAdvanceTrigger(
                 addHandler:    h => _tourNewQueueSlotAtFront += h,
                 removeHandler: h => _tourNewQueueSlotAtFront -= h));
+
+        _tourAdvanceTriggerRegistry.Register(
+            "EnvironmentFontZoomed",
+            new EnvironmentFontZoomedAdvanceTrigger(
+                addHandler:    h => _tourEnvironmentFontZoomed += h,
+                removeHandler: h => _tourEnvironmentFontZoomed -= h));
     }
 
     private void RegisterTourContexts()
