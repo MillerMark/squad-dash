@@ -307,7 +307,7 @@ internal sealed class GuidedTourController
         if (!IsActive || _currentStepIndex <= 0) return;
         var commandsAfter = CurrentStep.EffectiveCommandsAfter;
         _currentStepIndex--;
-        ShowCurrentStep(prevCommandsAfter: commandsAfter);
+        ShowCurrentStep(prevCommandsAfter: commandsAfter, navigatingForward: false);
     }
 
     /// <summary>
@@ -437,7 +437,7 @@ internal sealed class GuidedTourController
     private static string TourStepCounts(IEnumerable<GuidedTour> tours) =>
         string.Join(",", tours.Select(t => t.Steps.Count));
 
-    private async void ShowCurrentStep(IReadOnlyList<string>? prevCommandsAfter = null)
+    private async void ShowCurrentStep(IReadOnlyList<string>? prevCommandsAfter = null, bool navigatingForward = true)
     {
         _activeTriggerSubscription?.Dispose();
         _activeTriggerSubscription = null;
@@ -461,16 +461,30 @@ internal sealed class GuidedTourController
             {
                 SquadDashTrace.Write(TraceCategory.Callouts,
                     $"ShowCurrentStep: skipping step \"{step.Title}\" — context \"{step.RequiredContext}\"={ctxResult.Value}, required={step.RequiredContextValue}");
-                if (_currentStepIndex < _activeTour!.Steps.Count - 1)
+                if (navigatingForward)
                 {
-                    _currentStepIndex++;
-                    ShowCurrentStep(prevCommandsAfter: null);
+                    if (_currentStepIndex < _activeTour!.Steps.Count - 1)
+                    {
+                        _currentStepIndex++;
+                        ShowCurrentStep(prevCommandsAfter: null, navigatingForward: true);
+                        return;
+                    }
+                    else
+                    {
+                        StopTour();
+                        return;
+                    }
                 }
-                else
+                else // navigating backward
                 {
-                    StopTour();
+                    if (_currentStepIndex > 0)
+                    {
+                        _currentStepIndex--;
+                        ShowCurrentStep(prevCommandsAfter: null, navigatingForward: false);
+                        return;
+                    }
+                    // At step 0 going backward with condition fail: fall through and show step 0 anyway
                 }
-                return;
             }
         }
 
