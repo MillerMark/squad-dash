@@ -305,6 +305,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private event Action? _tourAllAttachmentsRemoved;
     private event Action<string>? _tourPreferencePageSelected;
     private bool _tourTypeItemIsSimulated;
+    private bool _tourPrefsWindowEnterLetThrough;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -14479,6 +14480,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 FreezeTypeIntoPromptAnimation();
                 StopKeepingTourMenusOpen();
                 StopKeepingTourIntelliSenseOpen();
+                _tourPrefsWindowEnterLetThrough = false;
             },
             onCalloutShown:           ReassertTourHighlightOverlays,
             triggerRegistry:         _tourAdvanceTriggerRegistry,
@@ -16502,6 +16504,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SetAgentsPanelFocusMode(false);
         });
 
+        _tourCommandRegistry.Register("OptionsPageCloseHasPriorityOnEnter", () =>
+        {
+            // When this command is active for a step, pressing Enter while the Preferences
+            // window is open will close it (normal WPF behaviour) instead of advancing the tour.
+            // The flag is automatically cleared when the step changes or the tour stops.
+            _tourPrefsWindowEnterLetThrough = true;
+        });
+
         _tourCommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>
         {
             // Only peeks the prompt box if we are in full-screen AND the prompt is not
@@ -17510,7 +17520,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 workHoursWorkspaceDir: _currentWorkspace is not null
                     ? _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath)
                     : null,
-                onWorkHoursSaved: settings => _commitActivityGraphWindow?.SetWorkHours(settings));
+                onWorkHoursSaved: settings => _commitActivityGraphWindow?.SetWorkHours(settings),
+                tourHasEnterPriority: () => _guidedTourController is { IsActive: true } && !_tourPrefsWindowEnterLetThrough,
+                advanceTourStep: () => _guidedTourController?.Next());
             _preferencesWindow.PageSelected += label => _tourPreferencePageSelected?.Invoke(label);
             _preferencesWindow.Closed += (_, _) => _tourPreferencesWindowClosed?.Invoke();
             _tourPreferencesWindowShown?.Invoke();

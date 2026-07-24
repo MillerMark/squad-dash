@@ -186,6 +186,8 @@ internal sealed class PreferencesWindow : Window {
     // ── Push-to-talk support ──────────────────────────────────────────────
     private readonly Action<TextBox>? _startPtt;
     private readonly Action?          _stopPtt;
+    private readonly Func<bool>?      _tourHasEnterPriority;
+    private readonly Action?          _advanceTourStep;
     private readonly CtrlDoubleTapGestureTracker _pttGesture =
         new CtrlDoubleTapGestureTracker(maxTapHoldMs: 250, doubleTapGapMs: 350);
     private bool _pttActive;
@@ -202,13 +204,17 @@ internal sealed class PreferencesWindow : Window {
         Action? startGuidedTour = null,
         WorkHoursStore? workHoursStore = null,
         string? workHoursWorkspaceDir = null,
-        Action<WorkHoursSettings>? onWorkHoursSaved = null) {
+        Action<WorkHoursSettings>? onWorkHoursSaved = null,
+        Func<bool>? tourHasEnterPriority = null,
+        Action? advanceTourStep = null) {
         _settingsStore    = settingsStore;
         _pushNotificationService = pushNotificationService;
         _workspacePaths   = workspacePaths;
         _onSaved          = onSaved;
         _startPtt         = startPtt;
         _stopPtt          = stopPtt;
+        _tourHasEnterPriority = tourHasEnterPriority;
+        _advanceTourStep      = advanceTourStep;
         _startGuidedTour  = startGuidedTour;
         _workHoursStore       = workHoursStore ?? new WorkHoursStore();
         _workHoursWorkspaceDir = workHoursWorkspaceDir;
@@ -232,8 +238,14 @@ internal sealed class PreferencesWindow : Window {
             UseAeroCaptionButtons = false
         });
         KeyDown += (_, e) => {
-            if (e.Key == Key.Enter)
-                Close();
+            if (e.Key == Key.Enter) {
+                if (_tourHasEnterPriority?.Invoke() == true) {
+                    _advanceTourStep?.Invoke();
+                    e.Handled = true;
+                } else {
+                    Close();
+                }
+            }
         };
 
         // ── Push-to-talk: double-tap Ctrl routes speech to the focused TextBox ──
@@ -2491,8 +2503,10 @@ internal sealed class PreferencesWindow : Window {
         Action? startGuidedTour = null,
         WorkHoursStore? workHoursStore = null,
         string? workHoursWorkspaceDir = null,
-        Action<WorkHoursSettings>? onWorkHoursSaved = null) {
-        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour, workHoursStore, workHoursWorkspaceDir, onWorkHoursSaved);
+        Action<WorkHoursSettings>? onWorkHoursSaved = null,
+        Func<bool>? tourHasEnterPriority = null,
+        Action? advanceTourStep = null) {
+        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour, workHoursStore, workHoursWorkspaceDir, onWorkHoursSaved, tourHasEnterPriority, advanceTourStep);
         if (owner != null)
             window.Owner = owner;
         window.Show();
