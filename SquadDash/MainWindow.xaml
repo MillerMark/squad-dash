@@ -2695,7 +2695,7 @@
                     </StackPanel>
                     <TextBlock x:Name="TranscriptTitleTextBlock"
                                Text="Transcript"
-                               FontSize="{DynamicResource FontSizeSubtitle}"
+                               FontSize="16"
                                FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource SubtleText}" />
@@ -2718,7 +2718,7 @@
                                  IsUndoEnabled="False"
                                  IsInactiveSelectionHighlightEnabled="False"
                                  ContextMenu="{x:Null}"
-                                 FontSize="{DynamicResource FontSizeMedium}"
+                                 FontSize="14"
                                  Foreground="{DynamicResource LabelText}"
                                  SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
                                  SelectionOpacity="{DynamicResource DocEditorSelectionOpacity}"

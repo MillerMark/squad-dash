@@ -8943,6 +8943,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 $"ApplyFontSizeScale level={_fontScaleLevel} no-op (same dict) elapsed={sw.ElapsedMilliseconds}ms");
             return;
         }
+
+        // Nuclear option: detach the main transcript RTB from its parent Grid before the
+        // ResourceDictionary swap so that the 117-block FlowDocument is NOT measured during
+        // the font-scale layout cascade.  The RTB is re-inserted below, after the title
+        // TextBlock's font size is already settled, giving a single controlled layout pass
+        // instead of cascading invalidations.
+        //
+        // Background: OutputTextBox.FontSize is a direct local value (set by
+        // ApplyTranscriptFontSize) and does not participate in the font-scale swap.
+        // However, sibling rows in the outer Grid (agent-card panels in Row 2) DO resize
+        // when their DynamicResource FontSize bindings update, shrinking the transcript
+        // row (Row 4, Height="*") and triggering a full RTB remeasure → 117-block
+        // FlowDocument reformat.  Detaching prevents that cascade.
+        var transcriptGrid = OutputTextBox.Parent as Grid;
+        var rtbIdx = transcriptGrid?.Children.IndexOf(OutputTextBox) ?? -1;
+        if (rtbIdx >= 0)
+            transcriptGrid!.Children.Remove(OutputTextBox);
+
         var mergedDicts = Application.Current.Resources.MergedDictionaries;
         var idx = mergedDicts.IndexOf(_activeFontSizeDict);
         var swapSw = System.Diagnostics.Stopwatch.StartNew();
@@ -8952,6 +8970,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             mergedDicts.Add(newDict);
         swapSw.Stop();
         _activeFontSizeDict = newDict;
+
+        // TranscriptTitleTextBlock.FontSize is a static value in XAML (not DynamicResource)
+        // so it won't auto-update.  Set it directly now while the RTB is still detached so
+        // the resulting DockPanel remeasure doesn't cascade into the FlowDocument.
+        if (newDict["FontSizeSubtitle"] is double subtitleSize)
+            TranscriptTitleTextBlock.FontSize = subtitleSize;
+
+        // Reattach the RTB: it is now measured exactly once at the settled post-swap size.
+        if (transcriptGrid != null && rtbIdx >= 0)
+            transcriptGrid.Children.Insert(rtbIdx, OutputTextBox);
+
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
             $"ApplyFontSizeScale level={_fontScaleLevel} keys={newDict.Count} swap={swapSw.ElapsedMilliseconds}ms total={sw.ElapsedMilliseconds}ms");
