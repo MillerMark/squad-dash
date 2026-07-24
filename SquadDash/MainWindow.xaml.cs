@@ -8246,7 +8246,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _selectionController.ReconcilePanels(
             Array.Empty<(AgentStatusCard Agent, TranscriptThreadState Thread)>(),
-            mainVisible: true);
+            mainVisible: true,
+            mainOwnerIsLeadAgent: agent.IsLeadAgent);
 
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
@@ -24044,7 +24045,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _selectionController.ReconcilePanels(
             _secondaryTranscripts.Select(entry => (entry.Agent, entry.Thread)),
-            _mainTranscriptVisible);
+            _mainTranscriptVisible,
+            mainOwnerIsLeadAgent: _selectedTranscriptThread == null
+                                  || ReferenceEquals(_selectedTranscriptThread, CoordinatorThread));
 
         var visibleThread = _mainTranscriptVisible
             ? (_selectedTranscriptThread?.ThreadId ?? CoordinatorThread.ThreadId)

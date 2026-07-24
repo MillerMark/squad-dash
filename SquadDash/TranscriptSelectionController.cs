@@ -14,6 +14,7 @@ internal sealed class TranscriptSelectionController
     private readonly IReadOnlyList<AgentStatusCard> _allAgents;
     private readonly HashSet<(AgentStatusCard Agent, TranscriptThreadState Thread)> _openPanels = new();
     private bool _mainVisible;
+    private bool _mainOwnerIsLeadAgent = true;
 
     public TranscriptSelectionController(IReadOnlyList<AgentStatusCard> allAgents, bool mainVisible = true)
     {
@@ -53,13 +54,15 @@ internal sealed class TranscriptSelectionController
     /// </summary>
     public void ReconcilePanels(
         IEnumerable<(AgentStatusCard Agent, TranscriptThreadState Thread)> openPanels,
-        bool mainVisible)
+        bool mainVisible,
+        bool mainOwnerIsLeadAgent = true)
     {
         _openPanels.Clear();
         foreach (var openPanel in openPanels)
             _openPanels.Add(openPanel);
 
         _mainVisible = mainVisible;
+        _mainOwnerIsLeadAgent = mainOwnerIsLeadAgent;
     }
 
     // ── Entry points ─────────────────────────────────────────────────────────
@@ -121,13 +124,24 @@ internal sealed class TranscriptSelectionController
     {
         if (card.IsLeadAgent)
         {
-            // Toggle main transcript
             if (_mainVisible)
             {
-                // Only hide if there are other panels visible
-                if (_openPanels.Count > 0)
-                    DoHideMain();
-                // else: don't close the last visible thing
+                if (_mainOwnerIsLeadAgent)
+                {
+                    // Main shows coordinator — toggle off only if other panels exist
+                    if (_openPanels.Count > 0)
+                        DoHideMain();
+                    // else: don't close the last visible thing
+                }
+                else
+                {
+                    // Main is showing a non-coordinator agent — open coordinator as secondary
+                    var thread1 = GetThread1(card);
+                    if (thread1 is not null)
+                        DoOpenPanel(card, thread1);
+                    else
+                        DoShowMain();
+                }
             }
             else
             {

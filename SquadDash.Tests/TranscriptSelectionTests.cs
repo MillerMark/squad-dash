@@ -88,6 +88,49 @@ internal sealed class TranscriptSelectionTests
         Assert.That(showMainFired, Is.True);
     }
 
+    [Test]
+    public void HandleCardClick_ShiftLead_MainShowsNonLeadAgent_OpensLeadAsSecondary()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var leadThread = MakeThread(1);
+        lead.Threads.Add(leadThread);
+
+        var controller = MakeController([lead], mainVisible: true);
+        controller.ReconcilePanels([], mainVisible: true, mainOwnerIsLeadAgent: false);
+
+        (AgentStatusCard? card, TranscriptThreadState? thread, bool isAuto) opened = default;
+        controller.OpenPanelRequested += (c, t, a) => opened = (c, t, a);
+        bool hideFired = false;
+        controller.HideMainRequested += () => hideFired = true;
+
+        controller.HandleCardClick(lead, shiftHeld: true);
+
+        Assert.That(opened.card, Is.SameAs(lead));
+        Assert.That(opened.thread, Is.SameAs(leadThread));
+        Assert.That(hideFired, Is.False);
+    }
+
+    [Test]
+    public void HandleCardClick_ShiftLead_MainShowsLeadAgent_NoOtherPanels_DoesNothing()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var leadThread = MakeThread(1);
+        lead.Threads.Add(leadThread);
+
+        var controller = MakeController([lead], mainVisible: true);
+        controller.ReconcilePanels([], mainVisible: true, mainOwnerIsLeadAgent: true);
+
+        bool openFired = false;
+        bool hideFired = false;
+        controller.OpenPanelRequested += (_, _, _) => openFired = true;
+        controller.HideMainRequested += () => hideFired = true;
+
+        controller.HandleCardClick(lead, shiftHeld: true);
+
+        Assert.That(openFired, Is.False);
+        Assert.That(hideFired, Is.False);
+    }
+
     // ── HandleChipClick — plain click exclusive within agent ─────────────────
 
     [Test]
