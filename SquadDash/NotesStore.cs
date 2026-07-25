@@ -75,6 +75,24 @@ internal sealed class NotesStore {
         }
     }
 
+    // ── Shared-notes helpers (stored in .squad/notes/) ───────────────────────
+
+    /// <summary>Returns the full path to the .md file for a shared note in .squad/notes/.</summary>
+    public static string GetSharedNotePath(string squadFolder, Guid id) =>
+        Path.Combine(squadFolder, "notes", $"{id:N}.md");
+
+    /// <summary>Writes the content for a new shared note to .squad/notes/.</summary>
+    public static void WriteSharedContent(string squadFolder, Guid id, string markdown) {
+        try {
+            var dir = Path.Combine(squadFolder, "notes");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(GetSharedNotePath(squadFolder, id), markdown, new System.Text.UTF8Encoding(false));
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("NotesStore", $"WriteSharedContent {id} failed: {ex.Message}");
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>

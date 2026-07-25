@@ -23,6 +23,7 @@ internal sealed class NotesPanelController {
     private readonly Action<NoteItem>?        _attachFollowUp;
     private readonly Action<NoteItem>?        _addToNewChat;
     private readonly Func<NoteItem, string>?  _loadPreview;
+    private readonly Action?                  _newSharedNote;
 
     private readonly NotesPanelViewModel _viewModel = new();
     internal NotesPanelViewModel ViewModel => _viewModel;
@@ -51,7 +52,8 @@ internal sealed class NotesPanelController {
         Action<NoteItem>?        addToNewChat        = null,
         Func<NoteItem, string>?  loadPreview         = null,
         NotesSortOrder           initialSortOrder    = NotesSortOrder.MostRecentOnTop,
-        Action<NotesSortOrder>?  onSortOrderChanged  = null) {
+        Action<NotesSortOrder>?  onSortOrderChanged  = null,
+        Action?                  newSharedNote       = null) {
 
         _listPanel            = listPanel;
         _scrollContainer      = scrollContainer;
@@ -65,6 +67,7 @@ internal sealed class NotesPanelController {
         _loadPreview          = loadPreview;
         _viewModel.SortOrder  = initialSortOrder;
         _onSortOrderChanged   = onSortOrderChanged;
+        _newSharedNote        = newSharedNote;
 
         AttachPanelContextMenu();
     }
@@ -192,7 +195,23 @@ internal sealed class NotesPanelController {
         titleLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
-        row.Child = titleLabel;
+        UIElement rowContent;
+        if (note.Scope == DataScope.Shared) {
+            var icon = new TextBlock {
+                Text              = "🌐",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin            = new Thickness(4, 4, 2, 4),
+            };
+            icon.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            icon.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            var contentPanel = new StackPanel { Orientation = Orientation.Horizontal };
+            contentPanel.Children.Add(icon);
+            contentPanel.Children.Add(titleLabel);
+            rowContent = contentPanel;
+        } else {
+            rowContent = titleLabel;
+        }
+        row.Child = rowContent;
 
         // ── Hover popup ───────────────────────────────────────────────────────────
         if (_loadPreview is not null) {
@@ -237,12 +256,12 @@ internal sealed class NotesPanelController {
         };
 
         // Right-click context menu
-        row.ContextMenu = BuildRowContextMenu(note, row, titleLabel);
+        row.ContextMenu = BuildRowContextMenu(note, row, titleLabel, rowContent);
 
         return row;
     }
 
-    private ContextMenu BuildRowContextMenu(NoteItem note, Border row, TextBlock titleLabel) {
+    private ContextMenu BuildRowContextMenu(NoteItem note, Border row, TextBlock titleLabel, UIElement rowContent) {
         var menu = MakeMenu();
 
         if (_attachFollowUp is not null)
@@ -263,10 +282,16 @@ internal sealed class NotesPanelController {
         newItem.Click += (_, _) => _newNote();
         menu.Items.Add(newItem);
 
+        if (_newSharedNote is not null) {
+            var sharedItem = MakeItem("Add New Shared Note  🌐");
+            sharedItem.Click += (_, _) => _newSharedNote();
+            menu.Items.Add(sharedItem);
+        }
+
         menu.Items.Add(MakeSep());
 
         var renameItem = MakeItem("Rename");
-        renameItem.Click += (_, _) => BeginInlineRename(note, row, titleLabel);
+        renameItem.Click += (_, _) => BeginInlineRename(note, row, titleLabel, rowContent);
         menu.Items.Add(renameItem);
 
         var editItem = MakeItem("View/Edit\u2026");
@@ -285,7 +310,7 @@ internal sealed class NotesPanelController {
 
     // ── Rename ────────────────────────────────────────────────────────────────
 
-    private void BeginInlineRename(NoteItem note, Border row, TextBlock titleLabel) {
+    private void BeginInlineRename(NoteItem note, Border row, TextBlock titleLabel, UIElement rowContent) {
         var textBox = new TextBox {
             Text        = note.Title,
             BorderThickness = new Thickness(0),
@@ -307,7 +332,7 @@ internal sealed class NotesPanelController {
                 newTitle = note.Title;
 
             titleLabel.Text = newTitle;
-            row.Child  = titleLabel;
+            row.Child  = rowContent;
             row.Cursor = Cursors.Hand;
 
             if (!string.Equals(newTitle, note.Title, StringComparison.Ordinal))
@@ -315,7 +340,7 @@ internal sealed class NotesPanelController {
         }
 
         void Cancel() {
-            row.Child  = titleLabel;
+            row.Child  = rowContent;
             row.Cursor = Cursors.Hand;
         }
 
@@ -347,6 +372,11 @@ internal sealed class NotesPanelController {
         var newItem = MakeItem("New Note");
         newItem.Click += (_, _) => _newNote();
         menu.Items.Add(newItem);
+        if (_newSharedNote is not null) {
+            var sharedItem = MakeItem("Add New Shared Note  🌐");
+            sharedItem.Click += (_, _) => _newSharedNote();
+            menu.Items.Add(sharedItem);
+        }
         menu.Items.Add(MakeSep());
         menu.Items.Add(BuildSortSubmenu());
         _listPanel.ContextMenu = menu;

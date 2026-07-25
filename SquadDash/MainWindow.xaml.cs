@@ -37994,13 +37994,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 newNote:             () => CreateNewNote(),
                 attachFollowUp:      note => AttachNoteFollowUp(note),
                 addToNewChat:        note => { AddEmptyQueueSlot(); AttachNoteFollowUp(note); },
-                loadPreview:         note => _notesStore?.LoadContent(note.Id) ?? "",
+                loadPreview:         note => note.Scope == DataScope.Shared
+                                         ? (File.Exists(NotesStore.GetSharedNotePath(_currentWorkspace?.SquadFolderPath ?? "", note.Id))
+                                                ? File.ReadAllText(NotesStore.GetSharedNotePath(_currentWorkspace?.SquadFolderPath ?? "", note.Id))
+                                                : string.Empty)
+                                         : (_notesStore?.LoadContent(note.Id) ?? ""),
                 initialSortOrder:    _docsPanelState?.NotesSortOrder ?? NotesSortOrder.MostRecentOnTop,
                 onSortOrderChanged:  order => {
                     var st = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
                     _docsPanelState = st with { NotesSortOrder = order };
                     _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
-                });
+                },
+                newSharedNote:       () => CreateNewSharedNote());
             _notesPanel.ClearFilterAction = () => { if (NotesFilterBox is not null) NotesFilterBox.Text = string.Empty; };
             _notesPanel.Refresh(_noteItems);
 
@@ -39319,7 +39324,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OpenNote(NoteItem note)
     {
         if (_notesStore is null) return;
-        var path = _notesStore.GetNotePath(note.Id);
+        var path = note.Scope == DataScope.Shared
+            ? NotesStore.GetSharedNotePath(_currentWorkspace?.SquadFolderPath ?? "", note.Id)
+            : _notesStore.GetNotePath(note.Id);
         if (!File.Exists(path)) return;
         var liveNote = note;
         MarkdownDocumentWindow.Show(
@@ -39337,7 +39344,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EditNote(NoteItem note)
     {
         if (_notesStore is null) return;
-        var path = _notesStore.GetNotePath(note.Id);
+        var path = note.Scope == DataScope.Shared
+            ? NotesStore.GetSharedNotePath(_currentWorkspace?.SquadFolderPath ?? "", note.Id)
+            : _notesStore.GetNotePath(note.Id);
         if (!File.Exists(path)) return;
         var liveNote = note;
         MarkdownDocumentWindow.Show(
@@ -39387,6 +39396,41 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 OnTitleCommit: newTitle => RenameNote(note, newTitle)));
     }
 
+    private void CreateNewSharedNote()
+    {
+        if (_notesStore is null || _currentWorkspace is null) return;
+        var note = new NoteItem(Guid.NewGuid(), "New Shared Note", DateTimeOffset.UtcNow.ToUnixTimeSeconds(), DataScope.Shared);
+        NotesStore.WriteSharedContent(_currentWorkspace.SquadFolderPath, note.Id, string.Empty);
+        _noteItems.Insert(0, note);
+        _notesStore.SaveAll(_noteItems);
+
+        if (!_notesPanelVisible)
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
+            PersistNotesPanelVisible();
+        }
+        else
+        {
+            _notesPanel?.AddNote(note);
+        }
+
+        // Open with source visible so the user can start typing immediately.
+        var path = NotesStore.GetSharedNotePath(_currentWorkspace.SquadFolderPath, note.Id);
+        MarkdownDocumentWindow.Show(
+            CanShowOwnedWindow() ? this : null,
+            note.Title,
+            path,
+            showSource: true,
+            BuildMarkdownCaptureContext(),
+            autoSave: true,
+            noteContext: new NoteEditContext(
+                InitialTitle: note.Title,
+                OnTitleCommit: newTitle => RenameNote(note, newTitle)));
+    }
+
     private void RenameNote(NoteItem oldNote, string newTitle)
     {
         var idx = _noteItems.FindIndex(n => n.Id == oldNote.Id);
@@ -39401,7 +39445,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_notesStore is null) return;
         _noteItems.RemoveAll(n => n.Id == note.Id);
-        _notesStore.DeleteContent(note.Id);
+        if (note.Scope == DataScope.Shared) {
+            var sharedPath = NotesStore.GetSharedNotePath(_currentWorkspace?.SquadFolderPath ?? "", note.Id);
+            try { if (File.Exists(sharedPath)) File.Delete(sharedPath); } catch { }
+        } else {
+            _notesStore.DeleteContent(note.Id);
+        }
         _notesStore.SaveAll(_noteItems);
         _notesPanel?.Refresh(_noteItems);
     }
