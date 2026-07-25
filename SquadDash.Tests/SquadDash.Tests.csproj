@@ -384,4 +384,9 @@
 
   </ItemGroup>
 
+  <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />
+  </ItemGroup>
+
 </Project>
