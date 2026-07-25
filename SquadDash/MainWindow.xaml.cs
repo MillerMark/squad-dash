@@ -38162,7 +38162,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg),
                 addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },
-                openDecomposePlan:      OpenDecomposePlanAttachment);
+                openDecomposePlan:      OpenDecomposePlanAttachment,
+                addAsNote:              msg => AddNoteFromTextWithTitle(msg.Subject, msg.Body ?? string.Empty));
             _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width

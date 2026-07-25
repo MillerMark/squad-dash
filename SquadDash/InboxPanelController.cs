@@ -34,6 +34,7 @@ internal sealed class InboxPanelController
     private readonly Action<InboxMessage>?    _addToChat;
     private readonly Action<InboxMessage>?    _addToNewChat;
     private readonly Action<InboxAttachment>? _openDecomposePlan;
+    private readonly Action<InboxMessage>?    _addAsNote;
     private Func<string, TaskItem?>?          _lookupTask;
 
     private readonly HashSet<string> _selectedIds = new();
@@ -69,7 +70,8 @@ internal sealed class InboxPanelController
         Func<string, TaskItem?>? lookupTask = null,
         Action<InboxMessage>?    addToChat  = null,
         Action<InboxMessage>?    addToNewChat = null,
-        Action<InboxAttachment>? openDecomposePlan = null)
+        Action<InboxAttachment>? openDecomposePlan = null,
+        Action<InboxMessage>?    addAsNote = null)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -88,6 +90,7 @@ internal sealed class InboxPanelController
         _addToChat              = addToChat;
         _addToNewChat           = addToNewChat;
         _openDecomposePlan      = openDecomposePlan;
+        _addAsNote              = addAsNote;
         _lookupTask             = lookupTask;
 
         _listScrollContainer.IsKeyboardFocusWithinChanged += (_, _) =>
@@ -778,7 +781,14 @@ internal sealed class InboxPanelController
             menu.Items.Add(addToNewChatItem);
         }
 
-        if (_addToChat is not null || _addToNewChat is not null)
+        if (_addAsNote is not null)
+        {
+            var addAsNoteItem = MakeItem("Add as Note");
+            addAsNoteItem.Click += (_, _) => _addAsNote(msg);
+            menu.Items.Add(addAsNoteItem);
+        }
+
+        if (_addToChat is not null || _addToNewChat is not null || _addAsNote is not null)
             menu.Items.Add(MakeSep());
 
         if (msg.Read)
