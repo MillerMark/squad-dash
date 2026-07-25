@@ -388,7 +388,8 @@ internal sealed class WorkspaceConversationStore {
                !string.IsNullOrWhiteSpace(state.PromptDraft) ||
                state.PromptHistory.Count > 0 ||
                state.Turns.Count > 0 ||
-               state.GetThreads().Count > 0;
+               state.GetThreads().Count > 0 ||
+               !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId);
     }
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
@@ -465,6 +466,9 @@ internal sealed class WorkspaceConversationStore {
             LoopQueuedToDequeue      = state.LoopQueuedToDequeue == true ? true : null,
             LoopMode                 = state.LoopMode,
             LoopContinuousContext    = state.LoopContinuousContext,
+            ActiveExecutingPlanGroupId = string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId)
+                ? null
+                : state.ActiveExecutingPlanGroupId.Trim(),
             ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
             ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
@@ -821,6 +825,12 @@ internal sealed record WorkspaceConversationState(
     public bool? LoopQueuedToDequeue { get; init; }
     public LoopMode? LoopMode { get; init; }
     public bool? LoopContinuousContext { get; init; }
+    /// <summary>
+    /// Group ID for a plan currently owned by the dedicated Executing Plan loop.
+    /// Persisted so queue pauses and process restarts cannot resume through the selected
+    /// general-purpose loop with an empty task filter.
+    /// </summary>
+    public string? ActiveExecutingPlanGroupId { get; init; }
     /// <summary>Sim response for the active-draft tab set by /test-queue $ActiveDraft$. Null when not in sim mode.</summary>
     public string? ActiveDraftSimResponse { get; init; }
     /// <summary>Delay in seconds for the active-draft sim entry. Only meaningful when ActiveDraftSimResponse is non-null.</summary>

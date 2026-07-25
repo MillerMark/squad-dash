@@ -2,7 +2,7 @@
 configured: true
 interval: 1
 timeout: 120
-description: "Decompose Group Runner — executes subtasks from a decompose group sequentially"
+description: "Executing Plan — runs dependency-eligible tasks from one approved plan"
 commands: [stop_loop]
 ---
 
@@ -37,11 +37,14 @@ Example actions array:
 
 ---
 
-## Decompose Group Execution — Iteration {{iteration}}
+## Approved Plan Execution — Iteration {{iteration}}
 
-You are Argus Weld executing decompose group: [**FILTER**]
+You are Argus Weld executing the single approved plan identified here: [**FILTER**]
 
-Read `.squad/tasks.md`. Find the subtask for this group where:
+Read the `tasks.md` file in the configured Squad folder. Work only on a task belonging to this exact
+decompose group. Never select an unrelated unchecked task, even if this plan is blocked.
+
+Find the subtask for this group where:
 - status is `- [ ]` (pending) AND
 - all IDs in `dependsOn` are `[x]` (complete)
 
@@ -70,7 +73,7 @@ Read `.squad/tasks.md`. Find the subtask for this group where:
 3. Build must be green when done.
 4. Do NOT emit QUICK_REPLIES_JSON.
 5. Do NOT emit HOST_COMMAND_JSON unless failing (see failure instructions below).
-6. Mark the task `[x]` in `.squad/tasks.md` when done.
+6. Mark the task `[x]` in `tasks.md` when done.
 
 **On failure:**
 

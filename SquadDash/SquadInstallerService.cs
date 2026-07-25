@@ -209,6 +209,7 @@ internal sealed class SquadInstallerService {
         EnsureLoopFile(squadDir, "loop-filtered-tasks.md");
         EnsureLoopFile(squadDir, "loop-fix-test-failures.md");
         EnsureLoopFile(squadDir, "loop-interactive-repair.md");
+        UpdateHostOwnedLoopFile(squadDir, "loop-executing-plan.md");
     }
 
     private static void EnsureCodeHealthFile(string squadDir) {
@@ -236,8 +237,22 @@ internal sealed class SquadInstallerService {
         File.WriteAllText(destPath, content, Encoding.UTF8);
     }
 
+    private static void UpdateHostOwnedLoopFile(string squadDir, string fileName) {
+        var content = LoadEmbeddedMarkdown(fileName);
+        if (content is null)
+            return;
+
+        var destPath = Path.Combine(squadDir, fileName);
+        if (File.Exists(destPath) &&
+            string.Equals(File.ReadAllText(destPath), content, StringComparison.Ordinal))
+            return;
+
+        File.WriteAllText(destPath, content, Encoding.UTF8);
+    }
+
     public static string? LoadEmbeddedSquadDashMdPublic() => LoadEmbeddedSquadDashMd();
     public static string? LoadEmbeddedSquadDashProfilesMdPublic() => LoadEmbeddedSquadDashProfilesMd();
+    internal static string? LoadEmbeddedLoopMarkdownPublic(string fileName) => LoadEmbeddedMarkdown(fileName);
     public static string? LoadEmbeddedCastingReferenceMdPublic() => LoadEmbeddedMarkdown("casting-reference.md");
     internal static string? LoadEmbeddedCodeHealthMdPublic() => LoadEmbeddedMarkdown("code-health.md");
 

@@ -5,6 +5,15 @@ using System.Linq;
 
 namespace SquadDash;
 
+internal enum DecomposeGroupExecutionState
+{
+    Eligible,
+    Complete,
+    Blocked,
+    Missing,
+    Unreadable,
+}
+
 /// <summary>
 /// Orchestrates a decompose group lifecycle: validates the dependency DAG via Kahn's algorithm,
 /// writes the group to tasks.md, tracks the in-flight step, and marks failed steps on stop.
@@ -56,18 +65,22 @@ internal sealed class CodeHealthGroupRunner
     /// The loop prompt uses the same selection rule, so an interrupted iteration can
     /// reliably mark the task it was expected to execute as failed.
     /// </summary>
-    internal void TrackFirstEligibleStep(string groupId)
+    internal DecomposeGroupExecutionState TrackFirstEligibleStep(string groupId)
     {
         _currentStepId = null;
         try
         {
-            if (!File.Exists(_tasksFilePath)) return;
+            if (!File.Exists(_tasksFilePath))
+                return DecomposeGroupExecutionState.Missing;
             var parsed = TasksPanelParser.Parse(File.ReadAllLines(_tasksFilePath));
             var items = parsed.OpenGroups
                 .SelectMany(group => group.Items)
                 .Concat(parsed.CompletedItems)
                 .Where(item => string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal))
                 .ToList();
+            if (items.Count == 0)
+                return DecomposeGroupExecutionState.Missing;
+
             var completedIds = items
                 .Where(item => item.IsChecked && item.TaskId is not null)
                 .Select(item => item.TaskId!)
@@ -76,11 +89,17 @@ internal sealed class CodeHealthGroupRunner
                 .Where(item => !item.IsChecked && !item.IsFailed && item.TaskId is not null)
                 .FirstOrDefault(item => item.DependsOn is null || item.DependsOn.All(completedIds.Contains))
                 ?.TaskId;
+            if (_currentStepId is not null)
+                return DecomposeGroupExecutionState.Eligible;
+            if (items.All(item => item.IsChecked))
+                return DecomposeGroupExecutionState.Complete;
+            return DecomposeGroupExecutionState.Blocked;
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"CodeHealthGroupRunner: could not determine eligible step for '{groupId}': {ex.Message}");
+            return DecomposeGroupExecutionState.Unreadable;
         }
     }
 

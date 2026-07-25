@@ -663,6 +663,22 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsActiveExecutingPlanGroupId()
+    {
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveExecutingPlanGroupId = "  GODCLASS-20260725  ",
+            });
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.That(
+            loaded.ActiveExecutingPlanGroupId,
+            Is.EqualTo("GODCLASS-20260725"));
+    }
+
+    [Test]
     public void Clear_ThenDraftSave_DoesNotRecoverOldTranscriptBackup() {
         _store.Save(
             _workspacePath,

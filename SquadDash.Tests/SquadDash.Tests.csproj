@@ -101,6 +101,7 @@
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopStartupResumePolicy.cs" Link="Source\LoopStartupResumePolicy.cs" />
+    <Compile Include="..\SquadDash\LoopStopResumePolicy.cs" Link="Source\LoopStopResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />
     <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
     <Compile Include="..\SquadDash\ShutdownProtectionPolicy.cs" Link="Source\ShutdownProtectionPolicy.cs" />
@@ -227,6 +228,7 @@
     <Compile Include="..\SquadDash\ApprovalGroupParser.cs" Link="Source\ApprovalGroupParser.cs" />
     <Compile Include="..\SquadDash\TriggeredPromptInjection.cs" Link="Source\TriggeredPromptInjection.cs" />
     <Compile Include="..\SquadDash\BuiltInPromptInjections.cs" Link="Source\BuiltInPromptInjections.cs" />
+    <Compile Include="..\SquadDash\DataScope.cs" Link="Source\DataScope.cs" />
     <Compile Include="..\SquadDash\NoteItem.cs" Link="Source\NoteItem.cs" />
     <Compile Include="..\SquadDash\NotesStore.cs" Link="Source\NotesStore.cs" />
 

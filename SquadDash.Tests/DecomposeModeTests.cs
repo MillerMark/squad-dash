@@ -1072,6 +1072,45 @@ internal sealed class CodeHealthGroupRunnerTests
             File.ReadAllText(_tasksFile),
             Does.Contain("- [!] **[PROJ-20240101-002]**"));
     }
+
+    [Test]
+    public void TrackFirstEligibleStep_MissingGroup_ReturnsMissing()
+    {
+        var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), _tasksFile);
+
+        var state = runner.TrackFirstEligibleStep("MISSING-20240101");
+
+        Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Missing));
+    }
+
+    [Test]
+    public void TrackFirstEligibleStep_FailedPrerequisite_ReturnsBlocked()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeLinearGroup();
+        runner.TryStartGroup(group, out _);
+        writer.MarkTaskFailed(_tasksFile, "PROJ-20240101-001");
+
+        var state = runner.TrackFirstEligibleStep(group.GroupId);
+
+        Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Blocked));
+    }
+
+    [Test]
+    public void TrackFirstEligibleStep_AllTasksComplete_ReturnsComplete()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeLinearGroup();
+        runner.TryStartGroup(group, out _);
+        var content = File.ReadAllText(_tasksFile).Replace("- [ ]", "- [x]", StringComparison.Ordinal);
+        File.WriteAllText(_tasksFile, content);
+
+        var state = runner.TrackFirstEligibleStep(group.GroupId);
+
+        Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Complete));
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

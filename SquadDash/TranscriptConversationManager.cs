@@ -1433,6 +1433,22 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
+    internal void UpdateActiveExecutingPlanState(string? groupId) {
+        var normalized = string.IsNullOrWhiteSpace(groupId) ? null : groupId.Trim();
+        if (string.Equals(
+                _conversationState.ActiveExecutingPlanGroupId,
+                normalized,
+                StringComparison.Ordinal))
+            return;
+
+        _conversationState = _conversationState with {
+            ActiveExecutingPlanGroupId = normalized,
+        };
+        PersistConversationStateInBackground(
+            _conversationState,
+            nameof(UpdateActiveExecutingPlanState));
+    }
+
     internal void NavigateHistory(int direction) {
         var result = PromptHistoryNavigator.Navigate(
             _promptHistory,

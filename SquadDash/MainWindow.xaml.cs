@@ -357,6 +357,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
+    private bool                    _loopResumeSuppressedByExplicitStop;
     private bool                    _decomposeRepairPending;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -3036,9 +3037,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private async Task DrainQueueBeforeLoopIterationAsync()
     {
-        // Decompose loops manage their own iteration sequencing — do not drain queue between steps.
-        if (_activeDecomposeGroupId is not null) return;
-
         bool dispatched = false;
         while (!_isPromptRunning && !_isClosing && !_restartPending && !HasPendingDirectQuickReplyAgentFollowUp() && !LastTurnNeedsInput())
         {
@@ -3112,6 +3110,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             SquadDashTrace.Write("Loop", $"DrainQueueBeforeLoopIterationAsync: stopping loop before next iteration restart={_restartPending} closing={_isClosing}");
             _loopController.RequestStop();
+            return;
+        }
+
+        if (_activeDecomposeGroupId is not null && _CodeHealthGroupRunner is not null)
+        {
+            var groupState = _CodeHealthGroupRunner.TrackFirstEligibleStep(_activeDecomposeGroupId);
+            if (groupState is DecomposeGroupExecutionState.Blocked or
+                DecomposeGroupExecutionState.Missing or
+                DecomposeGroupExecutionState.Unreadable)
+            {
+                SquadDashTrace.Write(
+                    "Loop",
+                    $"Executing Plan stopped before next iteration group={_activeDecomposeGroupId} state={groupState}; no unrelated task will be selected.");
+                AppendLoopOutputLine(
+                    $"⏹ Executing Plan stopped — group {_activeDecomposeGroupId} is {groupState.ToString().ToLowerInvariant()}.",
+                    LoopLifecycleBrush);
+                _loopController.RequestStop();
+            }
         }
     }
 
@@ -3230,7 +3246,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write("Loop", $"MaybeFireQueuedLoopAsync: starting queued loop resumeFromIteration={resumeFromIteration} wasQueueResume={wasQueueResume} wasQrResume={wasQrResume} queueCount={_promptQueue.Count}");
             AppendLoopOutputLine(resumeMsg, LoopLifecycleBrush);
             AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
-            await StartLoopImmediateAsync(resumeFromIteration: resumeFromIteration);
+            await ResumeLoopImmediateAsync(resumeFromIteration);
         }
         catch (Exception ex)
         {
@@ -4528,6 +4544,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void ForceStopLoopForRunningWorkStop()
     {
         AppendLoopOutputLine("⚡ Loop force-stopped with running work.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
+        SuppressLoopResumeAfterExplicitStop("stop-running-work");
         if (_activeLoopMode == LoopMode.NativeAgents)
         {
             _loopController.RequestAbort();
@@ -5749,8 +5766,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private async Task ExecuteLoopIterationAsync(string prompt, string? sessionId)
     {
-        var loopMdPath = Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop.md");
-        var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View loop.md](app://open-loop-md:{loopMdPath})";
+        var isExecutingPlan = _activeDecomposeGroupId is not null;
+        var loopMdPath = isExecutingPlan
+            ? Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop-executing-plan.md")
+            : GetEffectiveLoopMdPath();
+        var loopLabel = isExecutingPlan ? "Executing Plan" : Path.GetFileName(loopMdPath);
+        var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View {loopLabel}](app://open-loop-md:{loopMdPath})";
         await _pec.ExecutePromptAsync(
             prompt,
             addToHistory: false,
@@ -5811,28 +5832,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void OnNativeLoopStopped()
     {
-        // Clear decompose state before resuming normal queue logic.
-        _CodeHealthGroupRunner?.ClearCurrentStep();
-        _activeDecomposeGroupId = null;
-        _CodeHealthGroupRunner = null;
-
         int stoppedIteration = _loopCurrentIteration;
+        bool hasInterrupt = _loopInterruptedByQueue;
+        var resumeDecision = LoopStopResumePolicy.Resolve(
+            explicitStop: _loopResumeSuppressedByExplicitStop,
+            restartPending: _restartPending,
+            interruptedByQueue: hasInterrupt,
+            queueHasReadyItems: _promptQueue.HasReadyItems,
+            loopAlreadyQueued: _loopQueued);
+        bool shouldResumeAfterQueue = resumeDecision.ResumeAfterQueue;
+        bool shouldPreserveForRestart = resumeDecision.PreserveForRestart;
+
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
-        // Preserve LoopActiveOnExit during a pending restart so the new instance
-        // can auto-resume the loop.  On a normal stop, clear it as usual.
-        if (!_restartPending)
+
+        if (!resumeDecision.PreserveExecution)
+        {
             _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+            ClearExecutingPlanState();
+        }
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
 
         if (_restartPending &&
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
         {
-            _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, stoppedIteration);
-            SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending; preserving loop active-on-exit resumeFromIteration={_loopQueuedResumeFromIteration} queueCount={_promptQueue.Count}");
+            if (shouldPreserveForRestart)
+                _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, stoppedIteration);
+            SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending preserve={shouldPreserveForRestart} explicitStop={_loopResumeSuppressedByExplicitStop} resumeFromIteration={_loopQueuedResumeFromIteration} group={_activeDecomposeGroupId ?? "(none)"} queueCount={_promptQueue.Count}");
             SyncLoopPanel();
             return;
         }
@@ -5840,14 +5869,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // If queue items arrived while the loop was running (or are still pending),
         // mark the loop for resume once the queue drains.  Abort goes through
         // OnNativeLoopError and intentionally does NOT re-queue.
-        bool hasInterrupt = _loopInterruptedByQueue;
         SquadDashTrace.Write("Queue", $"OnNativeLoopStopped: hasInterrupt={hasInterrupt} hasReadyItems={_promptQueue.HasReadyItems} loopQueued={_loopQueued}.");
-        if ((hasInterrupt || _promptQueue.HasReadyItems) && !_loopQueued)
+        if (shouldResumeAfterQueue && !_loopQueued)
         {
             QueueLoopResumeAfterQueueDrain(stoppedIteration, "native-loop-stopped", updateUi: false);
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
+        _loopResumeSuppressedByExplicitStop = false;
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
         TryFireDeferredCodeHealth();
@@ -5861,6 +5890,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopIsWaiting = false;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
         _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        ClearExecutingPlanState();
+        _loopResumeSuppressedByExplicitStop = false;
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         SyncLoopPanel();
     }
@@ -6647,30 +6678,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         StopLoopButton.Content = (_loopQueued && !running) ? "✕ Dequeue Loop" : "■ Stop After This";
         AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
-        if (LoopFilePicker is not null) LoopFilePicker.IsEnabled = !running;
+        if (LoopFilePicker is not null)
+        {
+            LoopFilePicker.IsEnabled = !running;
+            LoopFilePicker.Visibility = _activeDecomposeGroupId is not null
+                ? Visibility.Collapsed
+                : _loopFileEntries.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        }
         LoopContinuousContextCheckBox.IsEnabled = !running;
         LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
 
+        var executingPlanPrefix = _activeDecomposeGroupId is not null ? "Executing Plan · " : string.Empty;
         string status;
         if (_loopQueued)
-            status = _promptQueue.Count > 0 ? "⏸ Paused — dequeuing prompts" : "⏸ Starting after this turn";
+            status = _promptQueue.Count > 0
+                ? $"⏸ {executingPlanPrefix}Paused — dequeuing prompts"
+                : $"⏸ {executingPlanPrefix}Starting after this turn";
         else if (running
             && _activeLoopMode == LoopMode.NativeAgents
             && _loopController.StopState == LoopStopState.StopRequested)
-            status = "◌ Stopping after this iteration…";
+            status = $"◌ {executingPlanPrefix}Stopping after this iteration…";
         else if (running && _loopIsWaiting)
         {
             var remaining = _loopNextIterationAt - DateTimeOffset.Now;
             status = remaining.TotalSeconds > 60
-                ? $"⏳ Waiting · next in {(int)remaining.TotalMinutes}m"
+                ? $"⏳ {executingPlanPrefix}Waiting · next in {(int)remaining.TotalMinutes}m"
                 : remaining.TotalSeconds > 0
-                    ? $"⏳ Waiting · next in {(int)remaining.TotalSeconds}s"
-                    : "⏳ Waiting…";
+                    ? $"⏳ {executingPlanPrefix}Waiting · next in {(int)remaining.TotalSeconds}s"
+                    : $"⏳ {executingPlanPrefix}Waiting…";
         }
         else if (running)
             status = _loopCurrentIteration > 0
-                ? $"● Running · Round {_loopCurrentIteration}"
-                : "● Running";
+                ? $"● {executingPlanPrefix}Running · Round {_loopCurrentIteration}"
+                : $"● {executingPlanPrefix}Running";
         else
             status = string.Empty;
 
@@ -6712,14 +6752,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _suppressLoopPickerChange = true;
         try
         {
-            _loopFileEntries = LoopMdParser.ScanForLoopFiles(squadPath);
+            _loopFileEntries = LoopMdParser.ScanForLoopFiles(squadPath)
+                .Where(entry => !IsExecutingPlanLoopFile(entry.FilePath))
+                .ToArray();
             LoopFilePicker.ItemsSource = _loopFileEntries.Select(e => {
                 var item = new System.Windows.Controls.ComboBoxItem { Content = e.DisplayName };
                 if (!string.IsNullOrEmpty(e.TooltipText))
                     item.ToolTip = MakeThemedToolTip(e.TooltipText);
                 return item;
             }).ToList();
-            LoopFilePicker.Visibility = _loopFileEntries.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+            LoopFilePicker.Visibility = _activeDecomposeGroupId is not null
+                ? Visibility.Collapsed
+                : _loopFileEntries.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
 
             var targetPath = _selectedLoopMdPath ?? _loopFileEntries.FirstOrDefault()?.FilePath;
             var idx = 0;
@@ -7141,6 +7185,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             QueueLoopResumeAfterQueueDrain(resumeFromIteration, "start-loop-immediate-guard");
             return;
         }
+        _loopResumeSuppressedByExplicitStop = false;
+        ClearExecutingPlanState();
         BackupAndClearLoopOutput();
         var loopMdPath = GetEffectiveLoopMdPath();
 
@@ -7162,31 +7208,70 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private async Task<bool> StartDecomposeLoopAsync(string groupId, DecomposedTaskGroup? group = null)
+    private void ClearExecutingPlanState()
+    {
+        _CodeHealthGroupRunner?.ClearCurrentStep();
+        _CodeHealthGroupRunner = null;
+        _activeDecomposeGroupId = null;
+        _conversationManager.UpdateActiveExecutingPlanState(null);
+    }
+
+    private void SuppressLoopResumeAfterExplicitStop(string reason)
+    {
+        _loopResumeSuppressedByExplicitStop = true;
+        _loopQueued = false;
+        _loopQueuedResumeFromIteration = 0;
+        _loopInterruptedByQueue = false;
+        _loopPausedForQuickReply = false;
+        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        _conversationManager.UpdateActiveExecutingPlanState(null);
+        _conversationManager.UpdateQueuedPromptsState(
+            _promptQueue.Items, _followUpAttachments,
+            queueRightmostHeld: IsRightmostQueueTabActive(),
+            loopQueuedToDequeue: false,
+            activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+            activeTabIndex: GetActiveQueueTabIndex());
+        SquadDashTrace.Write(
+            "Loop",
+            $"Loop auto-resume suppressed by explicit stop reason={reason} restartPending={_restartPending} group={_activeDecomposeGroupId ?? "(none)"}");
+    }
+
+    private async Task ResumeLoopImmediateAsync(int resumeFromIteration)
+    {
+        var planGroupId = _activeDecomposeGroupId ??
+            _conversationManager.ConversationState.ActiveExecutingPlanGroupId;
+        if (!string.IsNullOrWhiteSpace(planGroupId))
+        {
+            await StartDecomposeLoopAsync(planGroupId, resumeFromIteration: resumeFromIteration);
+            return;
+        }
+
+        await StartLoopImmediateAsync(resumeFromIteration);
+    }
+
+    private async Task<bool> StartDecomposeLoopAsync(
+        string groupId,
+        DecomposedTaskGroup? group = null,
+        int resumeFromIteration = 0)
     {
         if (_currentWorkspace is null) return false;
 
-        var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-        var resourceName = assembly.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith("loop-decompose.md", StringComparison.OrdinalIgnoreCase));
-        if (resourceName is null)
-        {
-            SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: loop-decompose.md embedded resource not found.");
-            return false;
-        }
-
-        using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null) return false;
-        using var reader = new System.IO.StreamReader(stream);
-        var content = await reader.ReadToEndAsync();
-        var config = LoopMdParser.ParseFromContent(content);
+        var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
+        LoopMdConfig? config = File.Exists(loopPath) ? LoopMdParser.Parse(loopPath) : null;
         if (config is null)
         {
-            SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: failed to parse loop-decompose.md config.");
-            return false;
+            var content = SquadInstallerService.LoadEmbeddedLoopMarkdownPublic("loop-executing-plan.md");
+            config = content is null ? null : LoopMdParser.ParseFromContent(content);
+            if (config is null)
+            {
+                SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: failed to load Executing Plan loop config.");
+                return false;
+            }
         }
 
+        _loopResumeSuppressedByExplicitStop = false;
         _activeDecomposeGroupId = groupId;
+        _conversationManager.UpdateActiveExecutingPlanState(groupId);
         _CodeHealthGroupRunner = new CodeHealthGroupRunner(
             new DecomposedTasksWriter(),
             System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"));
@@ -7200,6 +7285,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 $"StartDecomposeLoopAsync: cycle detected in group '{groupId}' — aborting loop start.");
             _CodeHealthGroupRunner  = null;
             _activeDecomposeGroupId  = null;
+            _conversationManager.UpdateActiveExecutingPlanState(null);
             if (inboxErrorJson is not null)
                 TrySaveInboxMessageFromResponse(inboxErrorJson);
             return false;
@@ -7210,7 +7296,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncLoopPanel();
         BackupAndClearLoopOutput();
         await _loopController.StartAsync(config, continuousContext: true,
-            _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId, featureGroups: _featureGroupStore?.Load());
+            _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId, featureGroups: _featureGroupStore?.Load());
         return true;
     }
 
@@ -7971,6 +8057,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (_activeDecomposeGroupId is not null)
                 _CodeHealthGroupRunner?.OnStopRequested();
+            SuppressLoopResumeAfterExplicitStop("host-command");
             _loopController.RequestStop();
             _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
         }));
@@ -8128,6 +8215,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         LoopLifecycleBrush);
                     if (_activeDecomposeGroupId is not null)
                         _CodeHealthGroupRunner?.OnStopRequested();
+                    SuppressLoopResumeAfterExplicitStop("squadash-command");
                     _loopController.RequestStop();
                     _loopFollowUpTcs?.TrySetResult(true); // unblock any follow-up wait
                     SyncLoopPanel();
@@ -8152,6 +8240,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (_loopQueued && !IsLoopRunning)
             {
+                SuppressLoopResumeAfterExplicitStop("dequeue-button");
                 _loopQueued = false;
                 _conversationManager.UpdateQueuedPromptsState(
                     _promptQueue.Items, _followUpAttachments,
@@ -8163,6 +8252,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SyncLoopPanel();
                 return;
             }
+            SuppressLoopResumeAfterExplicitStop("stop-button");
             if (_activeLoopMode == LoopMode.NativeAgents)
             {
                 AppendLoopOutputLine("⏹ Clean loop termination requested — current iteration will finish then stop.", LoopLifecycleBrush);
@@ -8201,6 +8291,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (result == MessageBoxResult.OK)
             {
                 AppendLoopOutputLine("⚡ Loop abruptly terminated via Abort — current iteration may be incomplete.", new SolidColorBrush(Color.FromRgb(0xFF, 0x88, 0x44)));
+                SuppressLoopResumeAfterExplicitStop("abort-button");
                 if (_activeLoopMode == LoopMode.NativeAgents)
                 {
                     _loopController.RequestAbort();
@@ -22555,7 +22646,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     if (_isClosing || _restartPending) return;
                     AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
-                    await StartLoopImmediateAsync(resumeFromIteration: loopResumeIteration);
+                    await ResumeLoopImmediateAsync(loopResumeIteration);
                 }, System.Windows.Threading.DispatcherPriority.Background);
             }
         }
@@ -39988,6 +40079,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var result = new List<LoopFileEntry>();
         foreach (var entry in allEntries)
         {
+            if (IsExecutingPlanLoopFile(entry.FilePath))
+                continue;
             if (string.Equals(entry.FilePath, _selectedLoopMdPath, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (string.Equals(entry.FilePath, filteredTasksPath, StringComparison.OrdinalIgnoreCase))
@@ -40000,8 +40093,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void ShowDoTheseWithMenu(FrameworkElement? anchor)
     {
         if (_currentWorkspace is null) return;
-        var entries = LoopMdParser.ScanForLoopFiles(_currentWorkspace.SquadFolderPath);
-        if (entries.Count == 0) return;
+        var entries = LoopMdParser.ScanForLoopFiles(_currentWorkspace.SquadFolderPath)
+            .Where(entry => !IsExecutingPlanLoopFile(entry.FilePath))
+            .ToArray();
+        if (entries.Length == 0) return;
 
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
@@ -40046,6 +40141,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         menu.IsOpen = true;
     }
+
+    private static bool IsExecutingPlanLoopFile(string path) =>
+        string.Equals(
+            Path.GetFileName(path),
+            "loop-executing-plan.md",
+            StringComparison.OrdinalIgnoreCase);
 
     private void NotesFilterBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
