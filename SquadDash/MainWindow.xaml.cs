@@ -4946,6 +4946,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                     TrySaveInboxMessageFromResponse(rawResponse);
 
+                    // TASKS_JSON is a host payload, not a maintenance-only payload.  Normal
+                    // coordinator turns can emit it too, so process it at the same response
+                    // finalization boundary as inbox and host-command payloads.  Maintenance
+                    // responses remain owned by CodeHealthRunner's capture callback below.
+                    if (_CodeHealthRunner?.IsRunning != true)
+                        TryStartDecomposeGroupFromResponse(rawResponse);
+
                     // Handle SquadDash loop commands embedded in the AI response.
                     if (squadashPayload?.Command is string cmd)
                         HandleSquadashCommand(cmd);
@@ -7115,6 +7122,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         BackupAndClearLoopOutput();
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId, featureGroups: _featureGroupStore?.Load());
+    }
+
+    /// <summary>
+    /// Parses a TASKS_JSON payload from a completed ordinary assistant response and hands the
+    /// resulting group to the native decompose lifecycle.  The tasks file is only mutated by
+    /// <see cref="CodeHealthGroupRunner"/> after parser and DAG validation succeed.
+    /// </summary>
+    private void TryStartDecomposeGroupFromResponse(string? rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse) ||
+            !rawResponse.Contains("TASKS_JSON:", StringComparison.Ordinal))
+            return;
+
+        if (!TasksJsonParser.TryParse(rawResponse, out var group) || group is null)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                "TASKS_JSON detected in completed response but parsing or validation failed.");
+            return;
+        }
+
+        if (_loopController.IsRunning)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"TASKS_JSON parsed for group '{group.GroupId}', but a loop is already running; group was not started.");
+            return;
+        }
+
+        SquadDashTrace.Write(TraceCategory.General,
+            $"TASKS_JSON parsed from ordinary response for group '{group.GroupId}' — starting native decompose lifecycle.");
+        _ = StartDecomposeLoopAsync(group.GroupId, group);
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────

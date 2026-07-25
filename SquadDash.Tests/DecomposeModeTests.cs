@@ -133,6 +133,26 @@ internal sealed class TasksJsonParserTests
     }
 
     [Test]
+    public void TryParse_FencedJsonWithTrailingTranscriptProse_ReturnsTrue()
+    {
+        var text = $"""
+            Done. Emitting the native decompose group now:
+
+            TASKS_JSON:
+            ```json
+            {MinimalGroupJson()}
+            ```
+
+            What just happened: SquadDash will parse and start the group.
+            """;
+
+        var result = TasksJsonParser.TryParse(text, out var group);
+
+        Assert.That(result, Is.True);
+        Assert.That(group!.GroupId, Is.EqualTo("PROJ-20240101"));
+    }
+
+    [Test]
     public void TryParse_MultipleTasksJsonBlocks_UsesLastOne()
     {
         const string groupId1 = "FIRST-20000101";
