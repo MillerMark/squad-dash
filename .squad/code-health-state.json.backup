@@ -69,6 +69,11 @@
       "lastRunAt": "2026-07-11T01:42:56.1757465Z",
       "lastCommitSha": "f85993c99091a2a64412764f552760bf88eb2818",
       "safetyOverride": "direct"
+    },
+    "consolidate-feature-categories": {
+      "lastRunAt": "2026-07-14T20:19:44.0833478Z",
+      "lastCommitSha": "",
+      "safetyOverride": ""
     }
   }
 }
