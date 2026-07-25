@@ -55,6 +55,8 @@ internal sealed class DecomposePlanWindow : ChromedWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
+        scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
+        scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
 
