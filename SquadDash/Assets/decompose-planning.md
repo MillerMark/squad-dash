@@ -9,19 +9,21 @@ Use this protocol for an ordinary user request when the work is too large or int
 implement safely in one turn. Do not use it merely because a task has several routine steps.
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. Each task contains `id`, `description`, `dependsOn`, and `priority`.
+`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `description`, `dependsOn`, and `priority`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
 ## TASKS_JSON schema
 
-All fields shown below are required. Emit the marker on a bare top-level line. A Markdown JSON
+All fields shown below except `delivery` are required. Emit the marker on a bare top-level line. A Markdown JSON
 fence around the object is accepted but not required.
 
 - `groupId`: uppercase letters followed by `-YYYYMMDD`; pattern `^[A-Z]+-\d{8}$`.
 - `groupTitle`: short user-facing title.
 - `branch`: suggested new Git branch using a conventional descriptive name.
 - `summary`: concise explanation of the outcome and decomposition strategy.
+- `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
+  to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: 2–25 task objects.
 - `tasks[].id`: exactly `{groupId}-NNN`, with a three-digit suffix.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
@@ -42,6 +44,7 @@ TASKS_JSON:
   "groupTitle": "Extract Search Infrastructure",
   "branch": "refactor/search-infrastructure",
   "summary": "Separate search indexing and UI integration while keeping every step buildable.",
+  "delivery": "transcript",
   "tasks": [
     {
       "id": "SEARCH-20260725-001",
@@ -67,7 +70,9 @@ TASKS_JSON:
 
 For ordinary responses Squad Dash stages the plan and asks the user whether to add it to the
 backlog, execute it in the proposed new branch, or execute it in the active branch. Never claim
-that emitting `TASKS_JSON` itself grants permission to execute.
+that emitting `TASKS_JSON` itself grants permission to execute. When `delivery` is `"inbox"`,
+Squad Dash sends the staged plan to the Inbox with the same three host-owned actions instead of
+showing approval controls beneath the transcript response.
 
 ## DECOMPOSE_DECISION_JSON schema
 

@@ -8,47 +8,245 @@ namespace SquadDash;
 
 internal sealed class DecomposePlanWindow : Window
 {
+    private const double NodeWidth = 220;
+    private const double NodeHeight = 76;
+    private const double ColumnSpacing = 360;
+    private const double RowSpacing = 128;
+    private static readonly Brush EdgeBrush = new SolidColorBrush(Color.FromRgb(72, 105, 130));
+
     internal DecomposePlanWindow(DecomposedTaskGroup group)
     {
         Title = group.GroupTitle;
-        Width = 1000; Height = 650; MinWidth = 700; MinHeight = 450;
-        var canvas = new Canvas { Background = Brushes.Transparent, Margin = new Thickness(24) };
-        var scroll = new ScrollViewer { Content = canvas, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        Content = scroll;
+        Width = 1200;
+        Height = 720;
+        MinWidth = 760;
+        MinHeight = 480;
 
-        var levels = new Dictionary<string, int>();
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
+        header.Children.Add(new TextBlock
+        {
+            Text = group.Summary,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        header.Children.Add(new TextBlock
+        {
+            Text = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Brushes.DimGray,
+        });
+        root.Children.Add(header);
+
+        var canvas = new Canvas { Background = Brushes.Transparent, Margin = new Thickness(18) };
+        var scroll = new ScrollViewer
+        {
+            Content = canvas,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        Grid.SetRow(scroll, 1);
+        root.Children.Add(scroll);
+        Content = root;
+
+        var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var levels = CalculateLevels(group.Tasks, tasksById);
+        var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
+        var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
+        foreach (var column in columns)
+        {
+            var tasks = column.ToArray();
+            var x = 42 + column.Key * ColumnSpacing;
+            var stageHeader = new TextBlock
+            {
+                Text = tasks.Length == 1
+                    ? $"Stage {column.Key + 1}"
+                    : $"Stage {column.Key + 1}  ·  {tasks.Length} independent tasks",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.DimGray,
+            };
+            Canvas.SetLeft(stageHeader, x);
+            Canvas.SetTop(stageHeader, 18);
+            canvas.Children.Add(stageHeader);
+
+            for (var row = 0; row < tasks.Length; row++)
+                positions[tasks[row].Id] = new Point(x, 58 + row * RowSpacing);
+        }
+
+        // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
+        // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
+        var gatedGroups = group.Tasks
+            .Where(task => task.DependsOn.Count > 1)
+            .GroupBy(task => string.Join("\u001f", task.DependsOn.OrderBy(id => id, StringComparer.Ordinal)))
+            .ToArray();
+        var gatedTaskIds = gatedGroups.SelectMany(g => g).Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
+        var gates = new List<(Point Center, IReadOnlyList<DecomposedSubTask> Targets, IReadOnlyList<string> Dependencies)>();
+
+        foreach (var gateGroup in gatedGroups)
+        {
+            var targets = gateGroup.ToArray();
+            var dependencies = targets[0].DependsOn.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+            var sourceRight = dependencies.Where(positions.ContainsKey).Max(id => positions[id].X + NodeWidth);
+            var targetLeft = targets.Min(task => positions[task.Id].X);
+            var centers = dependencies.Where(positions.ContainsKey).Select(id => positions[id].Y + NodeHeight / 2)
+                .Concat(targets.Select(task => positions[task.Id].Y + NodeHeight / 2));
+            var gateCenter = new Point((sourceRight + targetLeft) / 2, centers.Average());
+            gates.Add((gateCenter, targets, dependencies));
+
+            foreach (var dependency in dependencies.Where(positions.ContainsKey))
+            {
+                var source = positions[dependency];
+                AddConnector(canvas,
+                    new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
+                    new Point(gateCenter.X - 20, gateCenter.Y),
+                    arrowHead: false);
+            }
+            foreach (var target in targets)
+            {
+                var targetPoint = positions[target.Id];
+                AddConnector(canvas,
+                    new Point(gateCenter.X + 20, gateCenter.Y),
+                    new Point(targetPoint.X, targetPoint.Y + NodeHeight / 2),
+                    arrowHead: true);
+            }
+        }
+
+        foreach (var task in group.Tasks.Where(task => !gatedTaskIds.Contains(task.Id)))
+        {
+            foreach (var dependency in task.DependsOn.Where(positions.ContainsKey))
+            {
+                var source = positions[dependency];
+                var target = positions[task.Id];
+                AddConnector(canvas,
+                    new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
+                    new Point(target.X, target.Y + NodeHeight / 2),
+                    arrowHead: true);
+            }
+        }
+
+        foreach (var gate in gates)
+        {
+            var badge = new Border
+            {
+                Width = 40,
+                Height = 26,
+                CornerRadius = new CornerRadius(13),
+                BorderThickness = new Thickness(1.5),
+                BorderBrush = EdgeBrush,
+                Background = Brushes.White,
+                ToolTip = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
+                Child = new TextBlock
+                {
+                    Text = "ALL",
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold,
+                    Foreground = EdgeBrush,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            Canvas.SetLeft(badge, gate.Center.X - 20);
+            Canvas.SetTop(badge, gate.Center.Y - 13);
+            canvas.Children.Add(badge);
+        }
+
+        foreach (var task in group.Tasks)
+        {
+            var position = positions[task.Id];
+            var shortName = task.Description.Split(':', '—')[0].Trim();
+            var dependencyText = task.DependsOn.Count == 0
+                ? "None — this task can start immediately."
+                : string.Join("\n", task.DependsOn.Select(id => "• " + id));
+            var content = new StackPanel();
+            content.Children.Add(new TextBlock
+            {
+                Text = shortName,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.Black,
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = task.Id,
+                Margin = new Thickness(0, 5, 0, 0),
+                FontSize = 10,
+                Foreground = Brushes.DimGray,
+            });
+            var border = new Border
+            {
+                Width = NodeWidth,
+                Height = NodeHeight,
+                Padding = new Thickness(11, 8, 11, 8),
+                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(1.25),
+                BorderBrush = Brushes.SlateGray,
+                Background = Brushes.WhiteSmoke,
+                ToolTip = $"{task.Description}\n\nPrerequisites:\n{dependencyText}",
+                Child = content,
+            };
+            Canvas.SetLeft(border, position.X);
+            Canvas.SetTop(border, position.Y);
+            canvas.Children.Add(border);
+        }
+
+        canvas.Width = Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
+        canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
+    }
+
+    private static Dictionary<string, int> CalculateLevels(
+        IReadOnlyList<DecomposedSubTask> tasks,
+        IReadOnlyDictionary<string, DecomposedSubTask> tasksById)
+    {
+        var levels = new Dictionary<string, int>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+
         int Level(string id)
         {
             if (levels.TryGetValue(id, out var known)) return known;
-            var task = group.Tasks.First(t => t.Id == id);
-            return levels[id] = task.DependsOn.Count == 0 ? 0 : task.DependsOn.Max(Level) + 1;
+            if (!tasksById.TryGetValue(id, out var task) || !visiting.Add(id)) return 0;
+            var validDependencies = task.DependsOn.Where(tasksById.ContainsKey).ToArray();
+            var level = validDependencies.Length == 0 ? 0 : validDependencies.Max(Level) + 1;
+            visiting.Remove(id);
+            return levels[id] = level;
         }
-        foreach (var task in group.Tasks) Level(task.Id);
-        var positions = new Dictionary<string, Point>();
-        foreach (var column in group.Tasks.GroupBy(t => levels[t.Id]).OrderBy(g => g.Key))
+
+        foreach (var task in tasks) Level(task.Id);
+        return levels;
+    }
+
+    private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead)
+    {
+        canvas.Children.Add(new Line
         {
-            int row = 0;
-            foreach (var task in column)
-                positions[task.Id] = new Point(40 + column.Key * 260, 40 + row++ * 110);
-        }
-        foreach (var task in group.Tasks)
-            foreach (var dependency in task.DependsOn)
-            {
-                var a = positions[dependency]; var b = positions[task.Id];
-                canvas.Children.Add(new Line { X1 = a.X + 190, Y1 = a.Y + 30, X2 = b.X, Y2 = b.Y + 30,
-                    Stroke = Brushes.SlateGray, StrokeThickness = 2 });
-            }
-        foreach (var task in group.Tasks)
+            X1 = from.X,
+            Y1 = from.Y,
+            X2 = to.X,
+            Y2 = to.Y,
+            Stroke = EdgeBrush,
+            StrokeThickness = 2,
+        });
+        if (!arrowHead) return;
+
+        var vector = from - to;
+        if (vector.Length < 0.1) return;
+        vector.Normalize();
+        var perpendicular = new Vector(-vector.Y, vector.X);
+        const double length = 11;
+        const double halfWidth = 5;
+        var basePoint = to + vector * length;
+        canvas.Children.Add(new Polygon
         {
-            var p = positions[task.Id];
-            var label = task.Description.Split(':', '—')[0].Trim();
-            var border = new Border { Width = 190, MinHeight = 60, Padding = new Thickness(10), CornerRadius = new CornerRadius(6),
-                BorderThickness = new Thickness(1), BorderBrush = Brushes.SlateGray, Background = Brushes.WhiteSmoke,
-                ToolTip = task.Description, Child = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Black } };
-            Canvas.SetLeft(border, p.X); Canvas.SetTop(border, p.Y); canvas.Children.Add(border);
-        }
-        canvas.Width = Math.Max(900, positions.Values.Max(p => p.X) + 250);
-        canvas.Height = Math.Max(550, positions.Values.Max(p => p.Y) + 120);
+            Points =
+            [
+                to,
+                basePoint + perpendicular * halfWidth,
+                basePoint - perpendicular * halfWidth,
+            ],
+            Fill = EdgeBrush,
+        });
     }
 }

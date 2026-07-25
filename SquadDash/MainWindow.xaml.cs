@@ -365,6 +365,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private string?                  _activeDecomposeGroupId;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private bool                    _decomposeRepairPending;
+    private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
+    private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
     private bool                        _inboxSavedForCurrentTurn;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -4976,6 +4978,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         }
                     }
 
+                    // Moving on to any new Coordinator turn, including a maintenance request,
+                    // makes an older unhandled plan durable in the Inbox.
+                    PromoteBypassedDecomposePlans(rawResponse);
+
                     // Handle SquadDash loop commands embedded in the AI response.
                     if (squadashPayload?.Command is string cmd)
                         HandleSquadashCommand(cmd);
@@ -5009,6 +5015,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 break;
 
             case "error":
+                PromoteBypassedDecomposePlans(null);
                 _pec.ActiveToolName = null;
                 _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "bridge-done-final-notification");
                 UpdateLeadAgent("Error", string.Empty, evt.Message ?? "Unknown error");
@@ -7183,8 +7190,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         _decomposeRepairPending = false;
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
+        var previousPlan = store.Load(group.GroupId);
         var plan = store.Save(group);
-        AppendPendingDecomposeApproval(plan, ownerView);
+        if (previousPlan is not null && !string.Equals(previousPlan.Revision, plan.Revision, StringComparison.Ordinal))
+            ArchiveDecomposePlanInboxReminder(previousPlan);
+        if (DecomposePlanInbox.RequestsInboxDelivery(group))
+            SaveDecomposePlanInboxReminder(plan, explicitlyRequested: true);
+        else
+            AppendPendingDecomposeApproval(plan, ownerView);
     }
 
     private void QueueDecomposeRepair()
@@ -7335,6 +7348,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
             new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
+            ArchiveDecomposePlanInboxReminder(plan);
             AppendLine($"✅ Added decompose group {group.GroupId} to the backlog.");
             return;
         }
@@ -7342,7 +7356,82 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_loopController.IsRunning)
             throw new InvalidOperationException("Another loop started while this plan was being prepared.");
         if (await StartDecomposeLoopAsync(effective.GroupId, effective))
+        {
             new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
+            ArchiveDecomposePlanInboxReminder(plan);
+        }
+    }
+
+    private void PromoteBypassedDecomposePlans(string? rawResponse)
+    {
+        var captured = _pendingPlansAtCoordinatorTurnStart;
+        _pendingPlansAtCoordinatorTurnStart = [];
+        if (captured.Count == 0 || _currentWorkspace is null)
+            return;
+
+        var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+        foreach (var plan in captured)
+        {
+            if (DecomposePlanInbox.ResponseAddressesPlan(plan, rawResponse))
+                continue;
+
+            var current = store.Load(plan.Group.GroupId);
+            if (current is not null && string.Equals(current.Revision, plan.Revision, StringComparison.Ordinal))
+                SaveDecomposePlanInboxReminder(plan, explicitlyRequested: false);
+        }
+    }
+
+    private void SaveDecomposePlanInboxReminder(PendingDecomposePlan plan, bool explicitlyRequested)
+    {
+        if (_inboxStore is null)
+            return;
+        var message = DecomposePlanInbox.BuildMessage(plan, DateTimeOffset.Now, explicitlyRequested);
+        var alreadyDelivered = explicitlyRequested
+            ? _inboxStore.GetById(message.Id) is not null
+            : _inboxStore.Exists(message.Id, includeArchive: true);
+        if (alreadyDelivered)
+            return;
+
+        _inboxStore.Save(message);
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        AppendInboxReceivedEntry(message.Subject, message.Id);
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"Pending decompose plan '{plan.Group.GroupId}' delivered to Inbox (explicit={explicitlyRequested}).");
+    }
+
+    private void ArchiveDecomposePlanInboxReminder(PendingDecomposePlan plan)
+    {
+        if (_inboxStore is null)
+            return;
+        var messageId = DecomposePlanInbox.BuildMessageId(plan);
+        _inboxStore.Archive(messageId);
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        foreach (var window in _openInboxWindows.Where(w => w.MessageId == messageId).ToArray())
+            window.Close();
+    }
+
+    private void OpenDecomposePlanAttachment(InboxAttachment attachment)
+    {
+        if (_currentWorkspace is null)
+            return;
+
+        PendingDecomposePlan? plan = null;
+        if (!string.IsNullOrWhiteSpace(attachment.PlanGroupId))
+        {
+            var live = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                .Load(attachment.PlanGroupId);
+            if (live is not null && string.Equals(live.Revision, attachment.PlanRevision, StringComparison.Ordinal))
+                plan = live;
+        }
+        if (plan is null)
+            DecomposePlanInbox.TryReadSnapshot(attachment, out plan);
+        if (plan is null)
+        {
+            UIErrorHelper.ShowWarning("Plan Unavailable", "The attached task plan could not be loaded.");
+            return;
+        }
+
+        new DecomposePlanWindow(plan.Group) { Owner = CanShowOwnedWindow() ? this : null }.Show();
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────
@@ -25434,6 +25523,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptTurnView BeginTranscriptTurn(TranscriptThreadState thread, string? prompt)
     {
         prompt ??= string.Empty;
+        if (ReferenceEquals(thread, CoordinatorThread))
+        {
+            var isOrdinaryUserTurn = !_pendingPromptIsSystemInjected &&
+                                     !_decomposeRepairPending &&
+                                     _activeDecomposeGroupId is null &&
+                                     _currentWorkspace is not null;
+            _pendingPlansAtCoordinatorTurnStart = isOrdinaryUserTurn
+                ? new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).LoadAll()
+                : [];
+        }
         var now = DateTimeOffset.Now;
         // For tour demo threads, suppress the separator and "Starting…" header on successive
         // calls that arrive within 2 minutes of the previous turn — they are visual clutter.
@@ -25947,7 +26046,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             var pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
                 .Load(restoredGroup.GroupId);
-            if (pendingPlan is not null)
+            if (pendingPlan is not null &&
+                string.Equals(pendingPlan.Revision, PendingDecomposePlanStore.ComputeRevision(restoredGroup), StringComparison.Ordinal) &&
+                !DecomposePlanInbox.RequestsInboxDelivery(pendingPlan.Group))
                 AppendPendingDecomposeApproval(pendingPlan, view);
         }
         foreach (var block in view.ThinkingBlocks)
@@ -35662,7 +35763,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
                             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
                             initialFontSize:   _inboxFontSize,
-                            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
+                            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+                            openDecomposePlan: OpenDecomposePlanAttachment);
                         win.Owner = this;
                         _openInboxWindows.Add(win);
                         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -37226,7 +37328,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
-            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
+            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+            openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -37266,7 +37369,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
-            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); });
+            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+            openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -38218,7 +38322,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
                 lookupTask:             LookupTaskById,
                 addToChat:              msg => AttachInboxMessageFollowUp(msg),
-                addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); });
+                addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },
+                openDecomposePlan:      OpenDecomposePlanAttachment);
             _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width
@@ -38269,6 +38374,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
+            if (string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+            {
+                var actionKey = message.Id + "\u001f" + action.Label;
+                if (!_decomposeInboxActionsInProgress.Add(actionKey))
+                    return;
+                try
+                {
+                    if (_isPromptRunning)
+                        throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
+                    if (!DecomposeDecisionParser.TryParse(action.Prompt, out var decision) || decision is null)
+                        throw new InvalidOperationException("This Inbox plan action is malformed and cannot be applied.");
+                    if (_currentWorkspace is null)
+                        return;
+                    var plan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(decision.GroupId);
+                    if (plan is null || !string.Equals(plan.Revision, decision.Revision, StringComparison.Ordinal))
+                        throw new InvalidOperationException("This task-plan action is stale because the pending plan changed or was already handled.");
+                    await ApplyDecomposeDecisionAsync(plan, decision.Action, decision.Branch);
+                }
+                finally
+                {
+                    _decomposeInboxActionsInProgress.Remove(actionKey);
+                }
+                return;
+            }
+
             _inboxStore?.MarkActionUsed(message.Id, action.Label);
 
             if (action.RouteMode == "done" || string.IsNullOrWhiteSpace(action.Prompt))

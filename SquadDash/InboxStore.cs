@@ -209,6 +209,17 @@ public class InboxStore
         }
     }
 
+    /// <summary>Returns whether a message is present in the active Inbox or its archive.</summary>
+    public bool Exists(string id, bool includeArchive = true)
+    {
+        lock (_sync)
+        {
+            if (File.Exists(GetFilePath(id)))
+                return true;
+            return includeArchive && File.Exists(Path.Combine(_inboxFolder, ArchiveSubfolder, id + ".json"));
+        }
+    }
+
     /// <summary>Returns the absolute path to the JSON file for the given message id.</summary>
     public string GetMessageFilePath(string id) => GetFilePath(id);
 

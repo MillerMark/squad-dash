@@ -33,6 +33,7 @@ internal sealed class InboxPanelController
     private readonly Action<InboxMessage, Action?> _openMessageWindow;
     private readonly Action<InboxMessage>?    _addToChat;
     private readonly Action<InboxMessage>?    _addToNewChat;
+    private readonly Action<InboxAttachment>? _openDecomposePlan;
     private Func<string, TaskItem?>?          _lookupTask;
 
     private readonly HashSet<string> _selectedIds = new();
@@ -67,7 +68,8 @@ internal sealed class InboxPanelController
         Action<InboxMessage, Action?> openMessageWindow,
         Func<string, TaskItem?>? lookupTask = null,
         Action<InboxMessage>?    addToChat  = null,
-        Action<InboxMessage>?    addToNewChat = null)
+        Action<InboxMessage>?    addToNewChat = null,
+        Action<InboxAttachment>? openDecomposePlan = null)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -85,6 +87,7 @@ internal sealed class InboxPanelController
         _openMessageWindow      = openMessageWindow;
         _addToChat              = addToChat;
         _addToNewChat           = addToNewChat;
+        _openDecomposePlan      = openDecomposePlan;
         _lookupTask             = lookupTask;
 
         _listScrollContainer.IsKeyboardFocusWithinChanged += (_, _) =>
@@ -524,7 +527,7 @@ internal sealed class InboxPanelController
         // Attachments
         _viewerAttachmentsPanel.Children.Clear();
         foreach (var att in msg.Attachments)
-            _viewerAttachmentsPanel.Children.Add(BuildAttachmentChip(att, Application.Current?.MainWindow, _lookupTask));
+            _viewerAttachmentsPanel.Children.Add(BuildAttachmentChip(att, Application.Current?.MainWindow, _lookupTask, _openDecomposePlan));
         _viewerAttachmentsPanel.Visibility = msg.Attachments.Count > 0
             ? Visibility.Visible : Visibility.Collapsed;
 
@@ -567,7 +570,8 @@ internal sealed class InboxPanelController
 
         btn.Click += (_, _) =>
         {
-            btn.IsEnabled = false;
+            if (!string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+                btn.IsEnabled = false;
             _onActionClicked(action, msg);
         };
 
@@ -581,7 +585,11 @@ internal sealed class InboxPanelController
         _    => "Unknown Priority",
     };
 
-    private static UIElement BuildAttachmentChip(InboxAttachment att, Window? owner, Func<string, TaskItem?>? lookupTask = null)
+    private static UIElement BuildAttachmentChip(
+        InboxAttachment att,
+        Window? owner,
+        Func<string, TaskItem?>? lookupTask = null,
+        Action<InboxAttachment>? openDecomposePlan = null)
     {
         var icon = att.Type switch
         {
@@ -590,6 +598,7 @@ internal sealed class InboxPanelController
             "image"    => "🖼",
             "task-ref" => "✅",
             "text"     => "📝",
+            "decompose-plan" => "🗺",
             _          => "📎",
         };
 
@@ -616,6 +625,14 @@ internal sealed class InboxPanelController
 
         switch (att.Type)
         {
+            case "decompose-plan":
+                if (openDecomposePlan is not null)
+                {
+                    chip.ToolTip = ToolTipHelper.MakeThemedToolTip("Open the task dependency graph");
+                    chip.MouseLeftButtonUp += (_, _) => openDecomposePlan(att);
+                }
+                break;
+
             case "url":
                 if (att.Href is not null)
                     chip.MouseLeftButtonUp += (_, _) =>

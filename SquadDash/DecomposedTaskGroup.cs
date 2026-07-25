@@ -8,7 +8,8 @@ internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("groupTitle")] string GroupTitle,
     [property: JsonPropertyName("branch")]     string Branch,
     [property: JsonPropertyName("summary")]    string Summary,
-    [property: JsonPropertyName("tasks")]      IReadOnlyList<DecomposedSubTask> Tasks);
+    [property: JsonPropertyName("tasks")]      IReadOnlyList<DecomposedSubTask> Tasks,
+    [property: JsonPropertyName("delivery")]   string? Delivery = null);
 
 internal sealed record DecomposedSubTask(
     [property: JsonPropertyName("id")]          string Id,

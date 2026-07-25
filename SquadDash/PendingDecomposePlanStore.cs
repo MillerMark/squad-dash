@@ -74,7 +74,7 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         return plans;
     }
 
-    private static string ComputeRevision(DecomposedTaskGroup group)
+    internal static string ComputeRevision(DecomposedTaskGroup group)
     {
         var json = JsonSerializer.Serialize(group);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant()[..16];

@@ -18,7 +18,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        RepairFusedProseBoundaries(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))))).TrimEnd();
+        RepairFusedProseBoundaries(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -274,6 +274,66 @@ internal static class TranscriptTextUtilities
             return text[..sentinelIdx].TrimEnd();
 
         return text;
+    }
+
+    private static string StripTasksJsonBlock(string text)
+    {
+        const string sentinel = "TASKS_JSON:";
+        var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
+        if (sentinelIdx < 0)
+            return text;
+
+        // Hide an incomplete payload while it streams. Once the object closes, preserve any
+        // accidental visible prose that follows it and consume an optional Markdown fence.
+        var braceStart = text.IndexOf('{', sentinelIdx + sentinel.Length);
+        if (braceStart < 0 || !TryFindBalancedJsonObjectEnd(text, braceStart, out var braceEnd))
+            return text[..sentinelIdx].TrimEnd();
+
+        var payloadEnd = braceEnd + 1;
+        var cursor = payloadEnd;
+        while (cursor < text.Length && text[cursor] is ' ' or '\t' or '\r' or '\n')
+            cursor++;
+
+        var betweenMarkerAndJson = text[(sentinelIdx + sentinel.Length)..braceStart];
+        var hasOpeningFence = betweenMarkerAndJson
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(line => line.TrimStart().StartsWith("```", StringComparison.Ordinal));
+        if (hasOpeningFence && cursor < text.Length &&
+            text.AsSpan(cursor).StartsWith("```".AsSpan(), StringComparison.Ordinal))
+        {
+            var fenceLineEnd = text.IndexOf('\n', cursor);
+            payloadEnd = fenceLineEnd < 0 ? text.Length : fenceLineEnd + 1;
+        }
+
+        var before = text[..sentinelIdx].TrimEnd();
+        var after = text[payloadEnd..].TrimStart();
+        if (before.Length == 0) return after;
+        if (after.Length == 0) return before;
+        return before + "\n\n" + after;
+    }
+
+    private static bool TryFindBalancedJsonObjectEnd(string text, int braceStart, out int braceEnd)
+    {
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var index = braceStart; index < text.Length; index++)
+        {
+            var ch = text[index];
+            if (escaped) { escaped = false; continue; }
+            if (ch == '\\' && inString) { escaped = true; continue; }
+            if (ch == '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (ch == '{') depth++;
+            else if (ch == '}' && --depth == 0)
+            {
+                braceEnd = index;
+                return true;
+            }
+        }
+
+        braceEnd = -1;
+        return false;
     }
 
     private static int FindTopLevelSentinelIndex(string text, string sentinel)

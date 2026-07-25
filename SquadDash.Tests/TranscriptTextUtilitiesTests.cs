@@ -116,6 +116,56 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_TasksJsonBlock_StripsPayloadButPreservesVisibleText()
+    {
+        const string text = """
+            Here is the proposed plan.
+
+            TASKS_JSON:
+
+            ```json
+            {
+              "groupId": "PLAN-20260725",
+              "groupTitle": "Plan",
+              "branch": "feature/plan",
+              "summary": "Summary",
+              "tasks": [{ "id": "PLAN-20260725-001", "description": "First", "dependsOn": [], "priority": "high" }]
+            }
+            ```
+
+            This trailing explanation remains visible.
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("""
+            Here is the proposed plan.
+
+            This trailing explanation remains visible.
+            """));
+    }
+
+    [Test]
+    public void SanitizeResponseText_PartialTopLevelTasksJson_StripsWhileStreaming()
+    {
+        const string text = "Plan ready.\n\nTASKS_JSON:\n{\n  \"groupId\": \"PLAN-20260725\",";
+        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo("Plan ready."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
+    {
+        const string text = """
+            Example only:
+            ```json
+            TASKS_JSON:
+            { "groupId": "PLAN-20260725" }
+            ```
+            """;
+        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo(text));
+    }
+
+    [Test]
     public void SanitizeResponseText_InboxMessageJsonFileBlock_StripsDeliveredPayload() {
         const string text = """
             Report ready.

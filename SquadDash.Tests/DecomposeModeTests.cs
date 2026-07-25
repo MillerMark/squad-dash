@@ -435,6 +435,111 @@ internal sealed class PendingDecomposePlanStoreTests
     }
 }
 
+[TestFixture]
+internal sealed class DecomposePlanInboxTests
+{
+    [Test]
+    public void BuildMessage_CreatesHighPriorityPlanAttachmentAndHostActions()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+        var pending = new PendingDecomposePlan("abc123", group);
+
+        var message = DecomposePlanInbox.BuildMessage(pending, DateTimeOffset.Parse("2026-07-25T12:00:00Z"), false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Priority, Is.EqualTo("high"));
+            Assert.That(message.Attachments, Has.Count.EqualTo(1));
+            Assert.That(message.Attachments[0].Type, Is.EqualTo(DecomposePlanInbox.AttachmentType));
+            Assert.That(message.Attachments[0].PlanGroupId, Is.EqualTo(group.GroupId));
+            Assert.That(message.Actions.Select(a => a.Label), Is.EqualTo(new[]
+                { "Add to Backlog", "Execute in New Branch", "Execute in Active Branch" }));
+            Assert.That(message.Actions.All(a => a.RouteMode == DecomposePlanInbox.ActionRouteMode), Is.True);
+        });
+
+        Assert.That(DecomposePlanInbox.TryReadSnapshot(message.Attachments[0], out var restored), Is.True);
+        Assert.That(restored!.Group.GroupTitle, Is.EqualTo(group.GroupTitle));
+        Assert.That(DecomposeDecisionParser.TryParse(message.Actions[1].Prompt, out var decision), Is.True);
+        Assert.That(decision!.Action, Is.EqualTo("execute-new-branch"));
+        Assert.That(decision.Branch, Is.EqualTo(group.Branch));
+    }
+
+    [Test]
+    public void TasksJsonDeliveryInbox_IsParsedAndRecognized()
+    {
+        const string response = """
+            TASKS_JSON:
+            {
+              "groupId": "PLAN-20260725",
+              "groupTitle": "Plan",
+              "branch": "feature/plan",
+              "summary": "Summary",
+              "delivery": "inbox",
+              "tasks": [{ "id": "PLAN-20260725-001", "description": "First", "dependsOn": [], "priority": "high" }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(response, out var group), Is.True);
+        Assert.That(DecomposePlanInbox.RequestsInboxDelivery(group!), Is.True);
+    }
+
+    [Test]
+    public void InboxStoreExists_FindsArchivedPlanReminder()
+    {
+        var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "plan-inbox-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new InboxStore(squadFolder);
+            store.Save(new InboxMessage
+            {
+                Id = "plan-reminder",
+                Subject = "Plan",
+                Timestamp = DateTimeOffset.UtcNow,
+            });
+            store.Archive("plan-reminder");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(store.GetById("plan-reminder"), Is.Null);
+                Assert.That(store.Exists("plan-reminder"), Is.True);
+                Assert.That(store.Exists("plan-reminder", includeArchive: false), Is.False);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
+    }
+
+    [Test]
+    public void ResponseAddressesPlan_DistinguishesApprovalRevisionAndUnrelatedResponse()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+        var pending = new PendingDecomposePlan("abc123", group);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending,
+                "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"revision\":\"abc123\",\"action\":\"add-to-backlog\"}"), Is.True);
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending,
+                "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"revision\":\"stale\",\"action\":\"add-to-backlog\"}"), Is.False);
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending, """
+                TASKS_JSON:
+                {
+                  "groupId": "PLAN-20260725",
+                  "groupTitle": "Revised plan",
+                  "branch": "feature/revised-plan",
+                  "summary": "Revised",
+                  "tasks": [{ "id": "PLAN-20260725-001", "description": "Revised first", "dependsOn": [], "priority": "high" }]
+                }
+                """), Is.True);
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending, "I wrote some unrelated tests."), Is.False);
+        });
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // DecomposedTasksWriter
 // ════════════════════════════════════════════════════════════════════════════

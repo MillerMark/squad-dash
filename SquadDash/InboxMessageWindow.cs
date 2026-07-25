@@ -41,7 +41,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action? onMarkedUnread = null,
         Action? onRepliedInChat = null,
         double initialFontSize = 14,
-        Action<double>? onFontSizeChanged = null)
+        Action<double>? onFontSizeChanged = null,
+        Action<InboxAttachment>? openDecomposePlan = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -156,7 +157,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         root.Children.Add(attachmentsPanel);
 
         foreach (var att in message.Attachments)
-            attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _lookupTask));
+            attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _lookupTask, openDecomposePlan));
 
         // ── Actions ───────────────────────────────────────────────────────────
         var actionsPanel = new WrapPanel
@@ -392,7 +393,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         btn.Click += (_, _) =>
         {
-            btn.IsEnabled = false;
+            // Host-owned plan actions close/archive the message on success. Keep them enabled
+            // when validation or branch setup fails so the user can correct the issue and retry.
+            if (!string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+                btn.IsEnabled = false;
             onActionClicked(action, msg);
         };
 
@@ -406,7 +410,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _    => "Unknown Priority",
     };
 
-    private static UIElement BuildAttachmentChip(InboxAttachment att, Window? owner, Func<string, TaskItem?>? lookupTask = null)
+    private static UIElement BuildAttachmentChip(
+        InboxAttachment att,
+        Window? owner,
+        Func<string, TaskItem?>? lookupTask = null,
+        Action<InboxAttachment>? openDecomposePlan = null)
     {
         var icon = att.Type switch
         {
@@ -415,6 +423,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             "image"    => "🖼",
             "task-ref" => "✅",
             "text"     => "📝",
+            "decompose-plan" => "🗺",
             _          => "📎",
         };
 
@@ -441,6 +450,14 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         switch (att.Type)
         {
+            case "decompose-plan":
+                if (openDecomposePlan is not null)
+                {
+                    chip.ToolTip = ToolTipHelper.MakeThemedToolTip("Open the task dependency graph");
+                    chip.MouseLeftButtonUp += (_, _) => openDecomposePlan(att);
+                }
+                break;
+
             case "url":
                 if (att.Href is not null)
                     chip.MouseLeftButtonUp += (_, _) =>
