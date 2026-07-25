@@ -5,6 +5,8 @@ using System.Windows.Input;
 
 namespace SquadDash;
 
+internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
+
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
 {
@@ -50,7 +52,22 @@ internal static class TranscriptQuickReplyFactory
         };
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
-        container.Tag is QuickReplyCopyData or ContainerMarker;
+        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or ContainerMarker;
+
+    internal static void RemovePendingDecomposeApprovalContainers(BlockCollection blocks)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            if (block is BlockUIContainer { Tag: PendingDecomposeApprovalTag })
+            {
+                blocks.Remove(block);
+                continue;
+            }
+
+            if (block is Section section)
+                RemovePendingDecomposeApprovalContainers(section.Blocks);
+        }
+    }
 
     internal static IEnumerable<Button> EnumerateButtons(DependencyObject root)
     {

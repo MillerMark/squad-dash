@@ -1,5 +1,5 @@
 ---
-schema-version: 1
+schema-version: 2
 host-owned: true
 ---
 
@@ -9,7 +9,7 @@ Use this protocol for an ordinary user request when the work is too large or int
 implement safely in one turn. Do not use it merely because a task has several routine steps.
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `description`, `dependsOn`, and `priority`.
+`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, and `priority`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -26,6 +26,9 @@ fence around the object is accepted but not required.
   to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: 2–25 task objects.
 - `tasks[].id`: exactly `{groupId}-NNN`, with a three-digit suffix.
+- `tasks[].title`: concise, action-oriented, human-readable task name. Do not use only a phase
+  number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
+  `Phase 1A`.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
@@ -48,18 +51,21 @@ TASKS_JSON:
   "tasks": [
     {
       "id": "SEARCH-20260725-001",
+      "title": "Introduce the search index abstraction",
       "description": "Introduce ISearchIndex and its in-memory implementation with unit tests; do not change existing UI call sites yet.",
       "dependsOn": [],
       "priority": "high"
     },
     {
       "id": "SEARCH-20260725-002",
+      "title": "Move document indexing behind ISearchIndex",
       "description": "Move document indexing behind ISearchIndex and add integration tests proving existing indexing behavior is preserved.",
       "dependsOn": ["SEARCH-20260725-001"],
       "priority": "high"
     },
     {
       "id": "SEARCH-20260725-003",
+      "title": "Migrate the search UI to ISearchIndex",
       "description": "Update the search UI controller to consume ISearchIndex, remove the superseded direct indexing path, and run the full test suite.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid"

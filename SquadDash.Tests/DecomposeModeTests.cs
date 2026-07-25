@@ -28,6 +28,7 @@ internal sealed class TasksJsonParserTests
             [
               {
                 "id": "{{groupId}}-001",
+                "title": "First task",
                 "description": "First task",
                 "dependsOn": [],
                 "priority": "high"
@@ -113,6 +114,7 @@ internal sealed class TasksJsonParserTests
         Assert.That(group.Summary,     Is.EqualTo("Summary"));
         Assert.That(group.Tasks,       Has.Count.EqualTo(1));
         Assert.That(group.Tasks[0].Id, Is.EqualTo("PROJ-20240101-001"));
+        Assert.That(group.Tasks[0].Title, Is.EqualTo("First task"));
     }
 
     [Test]
@@ -121,8 +123,8 @@ internal sealed class TasksJsonParserTests
         const string groupId = "FEAT-20991231";
         var tasksJson = $$"""
             [
-              { "id": "{{groupId}}-001", "description": "A", "dependsOn": [], "priority": "low" },
-              { "id": "{{groupId}}-002", "description": "B", "dependsOn": ["{{groupId}}-001"], "priority": "high" }
+              { "id": "{{groupId}}-001", "title": "A", "description": "A", "dependsOn": [], "priority": "low" },
+              { "id": "{{groupId}}-002", "title": "B", "description": "B", "dependsOn": ["{{groupId}}-001"], "priority": "high" }
             ]
             """;
         var text = WrapJson(MinimalGroupJson(groupId: groupId, tasksJson: tasksJson));
@@ -229,7 +231,7 @@ internal sealed class TasksJsonParserTests
         const string groupId = "PROJ-20240101";
         var tasksList = new System.Text.StringBuilder("[");
         for (int i = 1; i <= 25; i++)
-            tasksList.Append($"{{ \"id\": \"{groupId}-{i:D3}\", \"description\": \"Task {i}\", \"dependsOn\": [], \"priority\": \"low\" }},");
+            tasksList.Append($"{{ \"id\": \"{groupId}-{i:D3}\", \"title\": \"Task {i}\", \"description\": \"Task {i}\", \"dependsOn\": [], \"priority\": \"low\" }},");
         // Remove trailing comma and close array
         tasksList.Length--;
         tasksList.Append(']');
@@ -247,7 +249,7 @@ internal sealed class TasksJsonParserTests
         const string groupId = "PROJ-20240101";
         var tasksList = new System.Text.StringBuilder("[");
         for (int i = 1; i <= 26; i++)
-            tasksList.Append($"{{ \"id\": \"{groupId}-{i:D3}\", \"description\": \"Task {i}\", \"dependsOn\": [], \"priority\": \"low\" }},");
+            tasksList.Append($"{{ \"id\": \"{groupId}-{i:D3}\", \"title\": \"Task {i}\", \"description\": \"Task {i}\", \"dependsOn\": [], \"priority\": \"low\" }},");
         tasksList.Length--;
         tasksList.Append(']');
 
@@ -266,6 +268,17 @@ internal sealed class TasksJsonParserTests
         Assert.That(result, Is.False);
     }
 
+    [Test]
+    public void TryParse_MissingTaskTitle_ReturnsFalse()
+    {
+        const string tasksJson = """
+            [{ "id": "PROJ-20240101-001", "description": "Detailed work", "dependsOn": [], "priority": "high" }]
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(
+            WrapJson(MinimalGroupJson(tasksJson: tasksJson)), out _), Is.False);
+    }
+
     // ── dependsOn validation ─────────────────────────────────────────────────
 
     [Test]
@@ -276,6 +289,7 @@ internal sealed class TasksJsonParserTests
             [
               {
                 "id": "{{groupId}}-001",
+                "title": "Task 1",
                 "description": "Task 1",
                 "dependsOn": ["PROJ-20240101-999"],
                 "priority": "low"
@@ -295,8 +309,8 @@ internal sealed class TasksJsonParserTests
         const string groupId = "PROJ-20240101";
         var tasksJson = $$"""
             [
-              { "id": "{{groupId}}-001", "description": "A", "dependsOn": [], "priority": "high" },
-              { "id": "{{groupId}}-001", "description": "B", "dependsOn": [], "priority": "low" }
+              { "id": "{{groupId}}-001", "title": "A", "description": "A", "dependsOn": [], "priority": "high" },
+              { "id": "{{groupId}}-001", "title": "B", "description": "B", "dependsOn": [], "priority": "low" }
             ]
             """;
         Assert.That(TasksJsonParser.TryParse(
@@ -446,6 +460,21 @@ internal sealed class PendingDecomposePlanStoreTests
     }
 
     [Test]
+    public void ComputeRevision_TaskTitleChangesApprovalRevision()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high", "Extract first component")]);
+
+        var renamed = group with
+        {
+            Tasks = [group.Tasks[0] with { Title = "Extract a different component" }]
+        };
+
+        Assert.That(PendingDecomposePlanStore.ComputeRevision(renamed),
+            Is.Not.EqualTo(PendingDecomposePlanStore.ComputeRevision(group)));
+    }
+
+    [Test]
     public void Load_AcceptsRevisionProducedBeforeDeliveryFieldWasAdded()
     {
         var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "legacy-pending-plan-" + Guid.NewGuid().ToString("N"));
@@ -517,7 +546,7 @@ internal sealed class DecomposePlanInboxTests
               "branch": "feature/plan",
               "summary": "Summary",
               "delivery": "inbox",
-              "tasks": [{ "id": "PLAN-20260725-001", "description": "First", "dependsOn": [], "priority": "high" }]
+              "tasks": [{ "id": "PLAN-20260725-001", "title": "First", "description": "First", "dependsOn": [], "priority": "high" }]
             }
             """;
 
@@ -573,7 +602,7 @@ internal sealed class DecomposePlanInboxTests
                   "groupTitle": "Revised plan",
                   "branch": "feature/revised-plan",
                   "summary": "Revised",
-                  "tasks": [{ "id": "PLAN-20260725-001", "description": "Revised first", "dependsOn": [], "priority": "high" }]
+                  "tasks": [{ "id": "PLAN-20260725-001", "title": "Revised first", "description": "Revised first", "dependsOn": [], "priority": "high" }]
                 }
                 """), Is.True);
             Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending, "I wrote some unrelated tests."), Is.False);
@@ -672,6 +701,31 @@ internal sealed class DecomposedTasksWriterTests
 
         var content = File.ReadAllText(_tasksFile);
         Assert.That(content, Does.Contain("dependsOn: (none)"));
+    }
+
+    [Test]
+    public void WriteGroup_ExplicitTitleAndDescription_RoundTripIndependently()
+    {
+        var task = new DecomposedSubTask(
+            "PROJ-20240101-001",
+            "Move watcher lifecycle and event routing out of MainWindow.",
+            [],
+            "high",
+            "Extract WorkspaceFileWatcherCoordinator");
+        var group = MakeGroup(tasks: [task]);
+
+        new DecomposedTasksWriter().WriteGroup(_tasksFile, group);
+        var content = File.ReadAllText(_tasksFile);
+        var restored = TasksPanelParser.Parse(File.ReadAllLines(_tasksFile))
+            .DecomposeGroups[group.GroupId].Tasks.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content, Does.Contain("**[PROJ-20240101-001]** Extract WorkspaceFileWatcherCoordinator"));
+            Assert.That(content, Does.Contain("description: Move watcher lifecycle and event routing out of MainWindow."));
+            Assert.That(restored.Title, Is.EqualTo(task.Title));
+            Assert.That(restored.Description, Is.EqualTo(task.Description));
+        });
     }
 
     [Test]

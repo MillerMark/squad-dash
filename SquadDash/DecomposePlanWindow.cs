@@ -9,9 +9,9 @@ namespace SquadDash;
 internal sealed class DecomposePlanWindow : ChromedWindow
 {
     private const double NodeWidth = 220;
-    private const double NodeHeight = 76;
+    private const double NodeHeight = 100;
     private const double ColumnSpacing = 360;
-    private const double RowSpacing = 128;
+    private const double RowSpacing = 152;
 
     internal DecomposePlanWindow(DecomposedTaskGroup group) : base(captionHeight: CloseButtonHeight)
     {
@@ -168,28 +168,32 @@ internal sealed class DecomposePlanWindow : ChromedWindow
         foreach (var task in group.Tasks)
         {
             var position = positions[task.Id];
-            var shortName = task.Description.Split(':', '—')[0].Trim();
             var dependencyText = task.DependsOn.Count == 0
                 ? "None — this task can start immediately."
                 : string.Join("\n", task.DependsOn.Select(id => "• " + id));
             var nodeTitle = new TextBlock
             {
-                Text         = shortName,
+                Text         = task.Title ?? task.Description,
                 TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight    = 40,
                 FontWeight   = FontWeights.SemiBold,
             };
             nodeTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             nodeTitle.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            var nodeId = new TextBlock
+            var nodeDescription = new TextBlock
             {
-                Text   = task.Id,
+                Text         = task.Description,
+                TextWrapping = TextWrapping.Wrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxHeight    = 34,
                 Margin = new Thickness(0, 5, 0, 0),
             };
-            nodeId.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            nodeId.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             var content = new StackPanel();
             content.Children.Add(nodeTitle);
-            content.Children.Add(nodeId);
+            content.Children.Add(nodeDescription);
             var border = new Border
             {
                 Width           = NodeWidth,

@@ -7222,7 +7222,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncSendButton();
     }
 
-    private void AppendPendingDecomposeApproval(PendingDecomposePlan plan, TranscriptTurnView? ownerView = null)
+    private void AppendPendingDecomposeApproval(
+        PendingDecomposePlan plan,
+        TranscriptTurnView? ownerView = null,
+        bool includeActions = true)
     {
         var group = plan.Group;
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
@@ -7241,11 +7244,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         intro.Inlines.Add(link);
         blocks.Add(intro);
 
+        if (!includeActions)
+            return;
+
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(plan, "add-to-backlog", null));
         AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
         AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-active-branch", null));
-        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel));
+        var actionsContainer = TranscriptQuickReplyFactory.CreateContainer(
+            panel,
+            new PendingDecomposeApprovalTag(group.GroupId, plan.Revision));
+        blocks.Add(actionsContainer);
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         void AddButton(string label, Func<Task> action)
@@ -7259,11 +7268,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     return;
                 }
                 panel.IsEnabled = false;
+                panel.Visibility = Visibility.Collapsed;
                 try { await action(); }
-                catch (Exception ex) { panel.IsEnabled = true; HandleUiCallbackException("Decompose plan", ex); }
+                catch (Exception ex)
+                {
+                    panel.IsEnabled = true;
+                    panel.Visibility = Visibility.Visible;
+                    HandleUiCallbackException("Decompose plan", ex);
+                }
             };
             panel.Children.Add(button);
         }
+    }
+
+    private void RemovePendingDecomposeApprovalButtons()
+    {
+        TranscriptQuickReplyFactory.RemovePendingDecomposeApprovalContainers(
+            CoordinatorThread.Document.Blocks);
     }
 
     private void TryApplyDecomposeDecisionFromResponse(string? rawResponse)
@@ -25500,6 +25521,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         prompt ??= string.Empty;
         if (ReferenceEquals(thread, CoordinatorThread))
         {
+            // Plan actions answer only the immediately preceding response. A newer turn makes
+            // the Inbox reminder the durable action surface, while the transcript link remains.
+            RemovePendingDecomposeApprovalButtons();
             var isOrdinaryUserTurn = !_pendingPromptIsSystemInjected &&
                                      !_decomposeRepairPending &&
                                      _activeDecomposeGroupId is null &&
@@ -26024,7 +26048,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (pendingPlan is not null &&
                 string.Equals(pendingPlan.Revision, PendingDecomposePlanStore.ComputeRevision(restoredGroup), StringComparison.Ordinal) &&
                 !DecomposePlanInbox.RequestsInboxDelivery(pendingPlan.Group))
-                AppendPendingDecomposeApproval(pendingPlan, view);
+                AppendPendingDecomposeApproval(pendingPlan, view, includeActions: isLastTurn);
         }
         foreach (var block in view.ThinkingBlocks)
             block.Expander.IsExpanded = !turn.ThinkingCollapsed;

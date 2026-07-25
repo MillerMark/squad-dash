@@ -102,9 +102,13 @@ internal sealed class DecomposedTasksWriter
                 ? string.Join(", ", task.DependsOn)
                 : "(none)";
 
-            sb.AppendLine($"- {marker} **[{task.Id}]** {task.Description}");
+            // New groups keep the concise title on the scannable task line and preserve the
+            // complete implementation brief as metadata. The fallback only supports groups
+            // created programmatically by older builds; TASKS_JSON requires an explicit title.
+            sb.AppendLine($"- {marker} **[{task.Id}]** {task.Title ?? task.Description}");
             sb.AppendLine(
                 $"  Group: {group.GroupId} | Branch: {group.Branch} | Priority: {task.Priority}");
+            sb.AppendLine($"  description: {task.Description}");
             sb.AppendLine($"  dependsOn: {depsDisplay}");
             if (failed)
                 sb.AppendLine("  (Failed — see inbox for details.)");

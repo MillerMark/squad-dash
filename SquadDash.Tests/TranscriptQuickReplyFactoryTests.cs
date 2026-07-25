@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 
 namespace SquadDash.Tests;
 
@@ -38,5 +39,32 @@ internal sealed class TranscriptQuickReplyFactoryTests
 
         Assert.That(TranscriptQuickReplyFactory.IsQuickReplyContainer(container), Is.True);
         Assert.That(buttons, Is.EqualTo(new[] { button }));
+    }
+
+    [Test]
+    public void RemovePendingDecomposeApprovalContainers_RemovesOnlyPlanActionsRecursively()
+    {
+        var document = new FlowDocument();
+        var section = new Section();
+        var planActions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new PendingDecomposeApprovalTag("PLAN-20260725", "revision"));
+        var ordinaryReplies = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new QuickReplyCopyData(["Continue"], null));
+        section.Blocks.Add(new Paragraph(new Run("View task plan and dependencies")));
+        section.Blocks.Add(planActions);
+        section.Blocks.Add(ordinaryReplies);
+        document.Blocks.Add(section);
+
+        TranscriptQuickReplyFactory.RemovePendingDecomposeApprovalContainers(document.Blocks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(section.Blocks.Contains(planActions), Is.False);
+            Assert.That(section.Blocks.Contains(ordinaryReplies), Is.True);
+            Assert.That(section.Blocks.OfType<Paragraph>().Single().Inlines.OfType<Run>().Single().Text,
+                Is.EqualTo("View task plan and dependencies"));
+        });
     }
 }

@@ -225,7 +225,8 @@ internal static class TasksPanelParser {
 
                 var status      = taskMatch.Groups["status"].Value.ToLowerInvariant();
                 var taskId      = taskMatch.Groups["id"].Value.Trim();
-                var description = StripOwner(taskMatch.Groups["description"].Value.Trim(), out var owner);
+                var taskTitle   = taskMatch.Groups["description"].Value.Trim();
+                var description = taskTitle;
                 var priority    = "medium";
                 IReadOnlyList<string> dependsOn = [];
 
@@ -237,6 +238,8 @@ internal static class TasksPanelParser {
                     var metadataMatch = DecomposeMetadataRegex.Match(metadata);
                     if (metadataMatch.Success)
                         priority = metadataMatch.Groups["priority"].Value.Trim();
+                    else if (metadata.StartsWith("description:", StringComparison.OrdinalIgnoreCase))
+                        description = metadata["description:".Length..].Trim();
                     else if (metadata.StartsWith("dependsOn:", StringComparison.OrdinalIgnoreCase)) {
                         var rawDependencies = metadata["dependsOn:".Length..].Trim();
                         dependsOn = rawDependencies.Equals("(none)", StringComparison.OrdinalIgnoreCase) ||
@@ -246,6 +249,8 @@ internal static class TasksPanelParser {
                     }
                     metadataEnd++;
                 }
+
+                description = StripOwner(description, out var owner);
 
                 var emoji = PriorityToEmoji(priority);
                 var hover = BuildDecomposeHover(groupId, title, branch, summary, taskId, priority, dependsOn, status == "!");
@@ -264,7 +269,7 @@ internal static class TasksPanelParser {
                     DependsOn: dependsOn,
                     IsFailed: status == "!");
 
-                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority));
+                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority, taskTitle));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

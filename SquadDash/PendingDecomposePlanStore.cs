@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -77,21 +78,40 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
 
     internal static string ComputeRevision(DecomposedTaskGroup group)
     {
-        // This is the V1 approval contract. Keep it explicit: adding host/UI metadata to
-        // DecomposedTaskGroup must not invalidate pending plans that were saved by an older
-        // Squad Dash build. In particular, delivery controls where a plan is presented; it
-        // does not change the work the user is approving.
-        var payload = new RevisionPayloadV1(
-            group.GroupId,
-            group.GroupTitle,
-            group.Branch,
-            group.Summary,
-            group.Tasks);
+        // Plans saved before task titles existed must retain their original revision. New plans
+        // include titles in the approval contract because the title is user-visible work data.
+        object payload = group.Tasks.All(task => string.IsNullOrWhiteSpace(task.Title))
+            ? new RevisionPayloadV1(
+                group.GroupId,
+                group.GroupTitle,
+                group.Branch,
+                group.Summary,
+                group.Tasks.Select(task => new RevisionTaskV1(
+                    task.Id, task.Description, task.DependsOn, task.Priority)).ToArray())
+            : new RevisionPayloadV2(
+                group.GroupId,
+                group.GroupTitle,
+                group.Branch,
+                group.Summary,
+                group.Tasks);
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant()[..16];
     }
 
     private sealed record RevisionPayloadV1(
+        [property: JsonPropertyName("groupId")] string GroupId,
+        [property: JsonPropertyName("groupTitle")] string GroupTitle,
+        [property: JsonPropertyName("branch")] string Branch,
+        [property: JsonPropertyName("summary")] string Summary,
+        [property: JsonPropertyName("tasks")] IReadOnlyList<RevisionTaskV1> Tasks);
+
+    private sealed record RevisionTaskV1(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("description")] string Description,
+        [property: JsonPropertyName("dependsOn")] IReadOnlyList<string> DependsOn,
+        [property: JsonPropertyName("priority")] string Priority);
+
+    private sealed record RevisionPayloadV2(
         [property: JsonPropertyName("groupId")] string GroupId,
         [property: JsonPropertyName("groupTitle")] string GroupTitle,
         [property: JsonPropertyName("branch")] string Branch,

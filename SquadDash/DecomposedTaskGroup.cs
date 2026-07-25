@@ -15,4 +15,5 @@ internal sealed record DecomposedSubTask(
     [property: JsonPropertyName("id")]          string Id,
     [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("dependsOn")]   IReadOnlyList<string> DependsOn,
-    [property: JsonPropertyName("priority")]    string Priority);
+    [property: JsonPropertyName("priority")]    string Priority,
+    [property: JsonPropertyName("title")]       string? Title = null);

@@ -146,6 +146,13 @@ internal static class TasksJsonParser
                 return false;
             }
 
+            if (string.IsNullOrWhiteSpace(task.Title))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' has an empty title");
+                return false;
+            }
+
             if (string.IsNullOrWhiteSpace(task.Description))
             {
                 SquadDashTrace.Write(TraceCategory.General,
