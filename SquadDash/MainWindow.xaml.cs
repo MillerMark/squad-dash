@@ -9077,8 +9077,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var level = _fontScaleLevel;
         _ = Task.Run(() =>
         {
-            var snapshot = _settingsStore.SaveFontSizeScaleLevel(level);
-            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            try
+            {
+                var snapshot = _settingsStore.SaveFontSizeScaleLevel(level);
+                Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Settings", "[Warning] CommitFontSizeScale settings save failed: " + ex.Message);
+            }
         });
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
@@ -33950,9 +33957,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var accentOffset = _activeAccentHueOffset;
         _ = Task.Run(() =>
         {
-            var snapshot = _settingsStore.SaveWorkspaceTintStop(folderPath, stop);
-            snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, accentOffset);
-            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            try
+            {
+                var snapshot = _settingsStore.SaveWorkspaceTintStop(folderPath, stop);
+                snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, accentOffset);
+                Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Settings", "[Warning] CommitTintStop settings save failed: " + ex.Message);
+            }
         });
     }
 
@@ -33965,8 +33979,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var folderPath = _currentWorkspace.FolderPath;
         _ = Task.Run(() =>
         {
-            var snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, offsetDegrees);
-            Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            try
+            {
+                var snapshot = _settingsStore.SaveWorkspaceAccentHueOffset(folderPath, offsetDegrees);
+                Dispatcher.InvokeAsync(() => _settingsSnapshot = snapshot);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Settings", "[Warning] SetWorkspaceAccentHueOffset settings save failed: " + ex.Message);
+            }
         });
     }
 
