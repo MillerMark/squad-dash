@@ -130,8 +130,8 @@ internal static class AgentArtifactStore
                 if (modifiedAt < cutoff)
                     info.Delete();
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (IOException ex) { SquadDashTrace.Write("AgentArtifacts", $"CleanupExpiredArchives: could not delete file {file}: {ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { SquadDashTrace.Write("AgentArtifacts", $"CleanupExpiredArchives: access denied deleting file {file}: {ex.Message}"); }
         }
 
         foreach (var directory in Directory.EnumerateDirectories(archiveRoot, "*", SearchOption.AllDirectories)
@@ -142,8 +142,8 @@ internal static class AgentArtifactStore
                 if (!Directory.EnumerateFileSystemEntries(directory).Any())
                     Directory.Delete(directory);
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (IOException ex) { SquadDashTrace.Write("AgentArtifacts", $"CleanupExpiredArchives: could not remove empty directory {directory}: {ex.Message}"); }
+            catch (UnauthorizedAccessException ex) { SquadDashTrace.Write("AgentArtifacts", $"CleanupExpiredArchives: access denied removing directory {directory}: {ex.Message}"); }
         }
     }
 
