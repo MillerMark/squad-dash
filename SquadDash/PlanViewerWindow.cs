@@ -168,9 +168,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var task in group.Tasks)
         {
             var position = positions[task.Id];
-            var dependencyText = task.DependsOn.Count == 0
-                ? "None — this task can start immediately."
-                : string.Join("\n", task.DependsOn.Select(id => "• " + id));
+            var prereqLines = task.DependsOn.Count == 0
+                ? ["None — this task can start immediately."]
+                : task.DependsOn.Select(id =>
+                {
+                    if (!tasksById.TryGetValue(id, out var dep)) return $"• {id}";
+                    var label = dep.Title ?? dep.Description;
+                    return "• " + (label.Length > 60 ? label[..60] + "…" : label);
+                }).ToArray();
             var nodeTitle = new TextBlock
             {
                 Text         = task.Title ?? task.Description,
@@ -201,7 +206,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = $"{task.Description}\n\nPrerequisites:\n{dependencyText}",
+                ToolTip         = BuildTaskToolTip(task.Description, prereqLines),
                 Child           = content,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
@@ -213,6 +218,44 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         canvas.Width = Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
         canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
+    }
+
+    private static ToolTip BuildTaskToolTip(string description, string[] prereqLines)
+    {
+        var descBlock = new TextBlock
+        {
+            Text         = description,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth     = 500,
+        };
+        descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        descBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var prereqHeader = new TextBlock
+        {
+            Text       = "Prerequisites:",
+            FontWeight = FontWeights.SemiBold,
+            Margin     = new Thickness(0, 8, 0, 2),
+        };
+        prereqHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        prereqHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+        var panel = new StackPanel { MaxWidth = 500 };
+        panel.Children.Add(descBlock);
+        panel.Children.Add(prereqHeader);
+        foreach (var line in prereqLines)
+        {
+            var lineBlock = new TextBlock
+            {
+                Text         = line,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            lineBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            lineBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(lineBlock);
+        }
+
+        return new ToolTip { Content = panel };
     }
 
     private static Dictionary<string, int> CalculateLevels(
