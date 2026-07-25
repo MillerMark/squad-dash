@@ -2912,3 +2912,81 @@ This decision also drove two other fixes in the same commit (`4f016c5`):
 2. **RevisionPendingIndicator rewrite:** Converted from `InlineUIContainer` (inserted into FlowDocument) to `Adorner`-based overlay. This removes the indicator from the undo stack (Ctrl+Z no longer shows spinner artifact) and positions the indicator at `endPointer.GetCharacterRect(LogicalDirection.Forward)` using the same live TextPointer.
 
 Both changes are tightly coupled to the TextPointer strategy — they benefit from the same automatic position tracking.
+
+
+---
+
+### 2026-07-01 — Shared vs Local data folder contract
+
+**Context:**
+
+SquadDash persists two fundamentally different categories of data:
+
+- **Shared data** — belongs to the workspace and the team. Committed to version control so all collaborators see it.
+- **Local data** — belongs to the machine or user. Never committed; holds window state, session state, and personal notes.
+
+Without a written contract, individual features choose storage locations ad-hoc, leading to accidental git commits of machine-specific data or siloed team data that teammates can't access.
+
+**Decision:**
+
+> **Shared data root:** `.squad/` inside the workspace directory (i.e., the folder that contains `squad.yaml`). This folder is committed to version control. Any file placed here is visible to every team member who clones or pulls the repository.
+>
+> **Local data root:** `%LOCALAPPDATA%\SquadDash\workspaces\<workspace-id>\` — machine-specific, never committed. The workspace-id is a stable identifier derived from the workspace directory (e.g., a hash or the folder name).
+>
+> **Programmatic contract:** The `DataScope` enum (`SquadDash/DataScope.cs`) expresses this distinction in C# code. Any method or service that persists data should accept or return a `DataScope` so callers understand where the file lives.
+
+**Folder layout:**
+
+```
+<workspace>/
+  .squad/                            ← Shared root (version-controlled)
+    decisions.md                     Shared
+    tasks.md                         Shared
+    team.md                          Shared
+    routing.md                       Shared
+    maintenance*.md                  Shared
+    guided-tour.json                 Shared (workspace override for guided tour)
+    loop*.md                         Shared
+    code-health*.md                  Shared
+    notes/                           Shared notes subfolder (created on demand)
+      *.md
+
+%LOCALAPPDATA%\SquadDash\
+  workspaces\<workspace-id>\         ← Local root (never committed)
+    notes\                           Local (user-private) notes
+    layout.json                      Window layout / docking state
+    settings-snapshot.json           Application settings snapshot
+    session.json                     Session state
+```
+
+**Data type classification:**
+
+| Data type | `DataScope` | Path |
+|-----------|-------------|------|
+| `tasks.md` | `Shared` | `.squad/tasks.md` |
+| `decisions.md` | `Shared` | `.squad/decisions.md` |
+| `team.md` | `Shared` | `.squad/team.md` |
+| `routing.md` | `Shared` | `.squad/routing.md` |
+| `maintenance*.md` | `Shared` | `.squad/maintenance*.md` |
+| Guided tour steps (`guided-tour.json`) | `Shared` | `.squad/guided-tour.json` |
+| Loop files (`loop*.md`) | `Shared` | `.squad/loop*.md` |
+| Code-health entries (`code-health*.md`) | `Shared` | `.squad/code-health*.md` |
+| Shared notes | `Shared` | `.squad/notes/*.md` (created on demand) |
+| Personal / local notes | `Local` | `%LOCALAPPDATA%\SquadDash\workspaces\<id>\notes\` |
+| Window layout / docking state | `Local` | `%LOCALAPPDATA%\SquadDash\workspaces\<id>\layout.json` |
+| Application settings snapshot | `Local` | `%LOCALAPPDATA%\SquadDash\workspaces\<id>\settings-snapshot.json` |
+| Session state | `Local` | `%LOCALAPPDATA%\SquadDash\workspaces\<id>\session.json` |
+
+**Rules:**
+
+1. **Never place local data inside `.squad/`.** Machine-specific files (layout, session, personal notes) must not be committed.
+2. **Never place shared data only in AppData.** Data the whole team needs (tasks, decisions, code-health) lives in `.squad/`.
+3. **`.squad/notes/` is created on demand** — do not pre-create it; create it the first time a shared note is saved.
+4. **New data types must declare a `DataScope`** before shipping. If unsure, default to `Local` and promote to `Shared` intentionally.
+5. **`.gitignore` excludes AppData content** by not tracking it (it is outside the repo). The `.squad/` folder is tracked. No additional `.gitignore` entry is needed for AppData paths.
+
+**Rationale:**
+
+Explicit folder roots eliminate ambiguity. Every feature author can answer "where does this file live?" by looking up the data type in the table above and following the `DataScope` to the right root. The `DataScope` enum gives the compiler a place to enforce the convention programmatically as the codebase grows.
+
+**Scope:** All agents. Applies to any new feature that reads or writes persistent data.
