@@ -297,7 +297,7 @@
       },
       {
         "title": "Branch indicator - has repo.",
-        "markdownText": "This is the **branch** you\u0027re working in.\r\nWhen you\u0027re in a branch that is **not your home branch**, the circle will glow red.\r\nClick for options.",
+        "markdownText": "This is the **branch** you\u0027re working in.\r\nWhen you\u0027re **outside** your **home branch**, the circle will glow red.\r\nClick for options.",
         "targetControlId": "BranchIndicatorStrip",
         "calloutPlacement": "West",
         "preAction": "None",
