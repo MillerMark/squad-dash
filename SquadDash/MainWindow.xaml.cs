@@ -14441,10 +14441,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
                 if (name == "FirstActiveAgentCardWithHiddenTranscript")
                 {
-                    // First active (non-lead) agent whose transcript is not currently shown —
-                    // neither selected in the main panel nor open as a secondary panel.
+                    // First active agent whose transcript is not currently shown —
+                    // none of its threads are selected in the main panel (IsSelected)
+                    // or open as a secondary panel (IsSecondaryPanelOpen).
+                    // Includes the lead/coordinator card.
                     var card = _activeAgentCards
-                        .Where(c => !c.IsLeadAgent)
                         .FirstOrDefault(c => c.Threads.All(
                             t => !t.IsSelected && !t.IsSecondaryPanelOpen));
                     if (card is not null)
