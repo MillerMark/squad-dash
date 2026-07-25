@@ -107,22 +107,10 @@ internal sealed class QuickReplyFixtureLoader : IFixtureLoader
                 if (string.IsNullOrWhiteSpace(label))
                     continue;
 
-                var button = new Button
-                {
-                    Content         = label,
-                    Margin          = new Thickness(0, 0, 8, 8),
-                    Padding         = new Thickness(10, 4, 10, 4),
-                    BorderThickness = new Thickness(1),
-                    Cursor          = Cursors.Hand,
-                    MinHeight       = 28
-                };
-
-                if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style style)
-                    button.Style = style;
-
-                button.SetResourceReference(Control.BackgroundProperty,  "QuickReplySurface");
-                button.SetResourceReference(Control.ForegroundProperty,  "QuickReplyText");
-                button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
+                var fontSize = doc.FontSize > 0
+                    ? doc.FontSize
+                    : (double)Application.Current.Resources["FontSizeNormal"];
+                var button = TranscriptQuickReplyFactory.CreateButton(label, fontSize);
 
                 panel.Children.Add(button);
             }
@@ -132,7 +120,7 @@ internal sealed class QuickReplyFixtureLoader : IFixtureLoader
 
             stack.Children.Add(panel);
 
-            _addedBlock = new BlockUIContainer(stack) { Margin = new Thickness(0, 2, 0, 10) };
+            _addedBlock = TranscriptQuickReplyFactory.CreateContainer(stack);
             doc.Blocks.Add(_addedBlock);
 
             _applied = true;

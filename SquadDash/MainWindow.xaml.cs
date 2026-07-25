@@ -7245,15 +7245,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(plan, "add-to-backlog", null));
         AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
         AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-active-branch", null));
-        blocks.Add(new BlockUIContainer(panel) { Margin = new Thickness(0, 2, 0, 10) });
+        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel));
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         void AddButton(string label, Func<Task> action)
         {
-            var button = new Button { Content = label, Margin = new Thickness(0, 0, 8, 8),
-                Padding = new Thickness(10, 4, 10, 4), Cursor = Cursors.Hand, MinHeight = 28 };
-            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style style)
-                button.Style = style;
+            var button = TranscriptQuickReplyFactory.CreateButton(label, _transcriptFontSize);
             button.Click += async (_, _) =>
             {
                 if (_isPromptRunning)
@@ -9508,16 +9505,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (codeBox is not null)
                     codeBox.FontSize = codeBlockFontSize;
 
-                // Quick reply: BlockUIContainer (Tag=QuickReplyCopyData) > StackPanel > WrapPanel > Button
-                if (inner.Tag is QuickReplyCopyData && inner.Child is System.Windows.Controls.StackPanel qrStack)
-                {
-                    foreach (var child in qrStack.Children)
-                    {
-                        if (child is System.Windows.Controls.WrapPanel wp)
-                            foreach (var btn in wp.Children.OfType<Button>())
-                                btn.FontSize = _transcriptFontSize;
-                    }
-                }
+                if (TranscriptQuickReplyFactory.IsQuickReplyContainer(inner))
+                    foreach (var button in TranscriptQuickReplyFactory.EnumerateButtons(inner.Child))
+                        button.FontSize = _transcriptFontSize;
             }
 
             foreach (var para in section.Blocks.OfType<Paragraph>())
@@ -17207,30 +17197,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         foreach (var label in buttonLabels)
         {
-            var button = new System.Windows.Controls.Button
-            {
-                Content         = label,
-                Tag             = new TourQuickReplyPayload(label),
-                Margin          = new System.Windows.Thickness(0, 0, 8, 8),
-                Padding         = new System.Windows.Thickness(10, 4, 10, 4),
-                BorderThickness = new System.Windows.Thickness(1),
-                Cursor          = System.Windows.Input.Cursors.Hand,
-                MinHeight       = 28,
-            };
-            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is System.Windows.Style style)
-                button.Style = style;
-            button.FontSize = _transcriptFontSize;
-            button.SetResourceReference(System.Windows.Controls.Control.BackgroundProperty, "QuickReplySurface");
-            button.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "QuickReplyText");
-            button.SetResourceReference(System.Windows.Controls.Control.BorderBrushProperty, "QuickReplyBorder");
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label,
+                _transcriptFontSize,
+                new TourQuickReplyPayload(label));
             button.Click += TourQuickReplyButton_Click;
             panel.Children.Add(button);
         }
 
-        var block = new System.Windows.Documents.BlockUIContainer(panel)
-        {
-            Margin = new System.Windows.Thickness(0, 2, 0, 10)
-        };
+        var block = TranscriptQuickReplyFactory.CreateContainer(panel);
         CoordinatorThread.Document.Blocks.Add(block);
         TrackNewCoordinatorBlocks(blocksBefore);
         ScrollToEndIfAtBottom(CoordinatorThread);
@@ -26896,10 +26871,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var option = routeDecision.Option.Label;
             var routedQuickReply = routeDecision.Decision;
             var isDraft = string.Equals(routedQuickReply.RouteMode, "draft", StringComparison.OrdinalIgnoreCase);
-            var button = new Button
-            {
-                Content = isDraft ? $"✏️ {option}" : option,
-                Tag = new QuickReplyButtonPayload(
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                isDraft ? $"✏️ {option}" : option,
+                _transcriptFontSize,
+                new QuickReplyButtonPayload(
                     entry,
                     option,
                     routedQuickReply.RoutingInstruction,
@@ -26907,32 +26882,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     routedQuickReply.RouteMode,
                     routedQuickReply.TargetAgentHandle,
                     routeDecision.Option.Prompt),
-                Margin = new Thickness(0, 0, 8, 8),
-                Padding = new Thickness(10, 4, 10, 4),
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
-                MinHeight = 28,
-                ToolTip = QuickReplyRoutePresentation.BuildButtonToolTip(
+                QuickReplyRoutePresentation.BuildButtonToolTip(
                     new QuickReplyRoutePresentation.RouteInfo(
                         routedQuickReply.RouteMode,
                         routedQuickReply.ContinuationAgentLabel,
-                        routedQuickReply.Reason))
-            };
-            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style quickReplyStyle)
-                button.Style = quickReplyStyle;
-            button.FontSize = _transcriptFontSize;
-            button.SetResourceReference(Control.BackgroundProperty, "QuickReplySurface");
-            button.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
-            button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
+                        routedQuickReply.Reason)));
             button.Click += QuickReplyButton_Click;
             panel.Children.Add(button);
         }
 
         stack.Children.Add(panel);
-        var container = new BlockUIContainer(stack) { Margin = new Thickness(0, 2, 0, 10) };
-        container.Tag = new QuickReplyCopyData(
-            options.Select(o => o.Label).ToArray(),
-            captionText);
+        var container = TranscriptQuickReplyFactory.CreateContainer(
+            stack,
+            new QuickReplyCopyData(options.Select(o => o.Label).ToArray(), captionText));
         return container;
     }
 
@@ -39346,19 +39308,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         foreach (var task in enabledTasks)
         {
             var taskId = task.Id;
-            var button = new Button
-            {
-                Content        = task.Title,
-                Margin         = new Thickness(0, 0, 8, 8),
-                Padding        = new Thickness(10, 4, 10, 4),
-                BorderThickness = new Thickness(1),
-                Cursor         = Cursors.Hand,
-                MinHeight      = 28,
-            };
-            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
-                button.Style = qrStyle;
-            else if (Application.Current.TryFindResource("ThemedButtonStyle") is Style themedStyle)
-                button.Style = themedStyle;
+            var button = TranscriptQuickReplyFactory.CreateButton(task.Title, _transcriptFontSize);
             button.Click += async (_, _) =>
             {
                 try
@@ -39371,7 +39321,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             };
             panel.Children.Add(button);
         }
-        var buttonsBlock = new BlockUIContainer(panel) { Margin = new Thickness(0, 2, 0, 10) };
+        var buttonsBlock = TranscriptQuickReplyFactory.CreateContainer(panel);
         CoordinatorThread.Document.Blocks.Add(buttonsBlock);
         ScrollToEndIfAtBottom(CoordinatorThread);
     }

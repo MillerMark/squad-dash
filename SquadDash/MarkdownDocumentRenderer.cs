@@ -531,33 +531,26 @@ internal sealed class MarkdownDocumentRenderer {
             var option = routeDecision.Option.Label;
             var routedQuickReply = routeDecision.Decision;
             var isDraft = string.Equals(routedQuickReply.RouteMode, "draft", StringComparison.OrdinalIgnoreCase);
-            var button = new Button {
-                Content = isDraft ? $"✏️ {option}" : option,
-                Tag = new QuickReplyButtonPayload(
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                isDraft ? $"✏️ {option}" : option,
+                _getFontSize(),
+                new QuickReplyButtonPayload(
                     entry,
                     option,
                     routedQuickReply.RoutingInstruction,
                     routedQuickReply.ContinuationAgentLabel,
                     routedQuickReply.RouteMode),
-                Margin = new Thickness(0, 0, 8, 8),
-                Padding = new Thickness(10, 4, 10, 4),
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
-                MinHeight = 28,
-                ToolTip = QuickReplyRoutePresentation.BuildButtonToolTip(
+                QuickReplyRoutePresentation.BuildButtonToolTip(
                     new QuickReplyRoutePresentation.RouteInfo(
                         routedQuickReply.RouteMode,
                         routedQuickReply.ContinuationAgentLabel,
-                        routedQuickReply.Reason))
-            };
-            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style quickReplyStyle)
-                button.Style = quickReplyStyle;
+                        routedQuickReply.Reason)));
             button.Click += (s, e) => { DismissKeyboardHint(); _onQuickReplyButtonClick(s, e); };
             panel.Children.Add(button);
         }
 
         stack.Children.Add(panel);
-        return new BlockUIContainer(stack) { Margin = new Thickness(0, 2, 0, 10) };
+        return TranscriptQuickReplyFactory.CreateContainer(stack);
     }
 
     // ── Inline markdown ────────────────────────────────────────────────────
