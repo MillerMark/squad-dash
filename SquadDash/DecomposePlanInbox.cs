@@ -39,12 +39,25 @@ internal static class DecomposePlanInbox
     internal static InboxMessage BuildMessage(
         PendingDecomposePlan plan,
         DateTimeOffset timestamp,
-        bool explicitlyRequested)
+        bool explicitlyRequested,
+        string? activeBranch = null)
     {
         var group = plan.Group;
         var reason = explicitlyRequested
             ? "This decomposition plan was sent to your Inbox as requested."
             : "This decomposition plan was staged in the transcript but was not acted on before the conversation moved on.";
+        var actions = new List<InboxAction>
+        {
+            BuildAction("Add to Backlog", plan, "add-to-backlog", null,
+                "Add all tasks and their dependencies to tasks.md."),
+        };
+        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
+        {
+            actions.Add(BuildAction($"Execute in {group.Branch} Branch", plan, "execute-new-branch", group.Branch,
+                $"Switch to or create {group.Branch}, then start the dependency-aware loop."));
+        }
+        actions.Add(BuildAction("Execute in Active Branch", plan, "execute-active-branch", null,
+            "Start the dependency-aware loop on the currently active branch."));
 
         return new InboxMessage
         {
@@ -74,15 +87,7 @@ internal static class DecomposePlanInbox
                     Content = JsonSerializer.Serialize(plan, SnapshotOptions),
                 }
             ],
-            Actions =
-            [
-                BuildAction("Add to Backlog", plan, "add-to-backlog", null,
-                    "Add all tasks and their dependencies to tasks.md."),
-                BuildAction("Execute in New Branch", plan, "execute-new-branch", group.Branch,
-                    $"Create {group.Branch} and start the dependency-aware loop."),
-                BuildAction("Execute in Active Branch", plan, "execute-active-branch", null,
-                    "Start the dependency-aware loop on the currently active branch."),
-            ],
+            Actions = actions,
         };
     }
 

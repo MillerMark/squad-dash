@@ -7299,7 +7299,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(plan, "add-to-backlog", null));
-        AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
+        var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
+        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
+        {
+            AddButton($"Execute in {group.Branch} Branch",
+                () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
+        }
         AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-active-branch", null));
         var actionsContainer = TranscriptQuickReplyFactory.CreateContainer(
             panel,
@@ -7397,13 +7402,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         else if (action == "execute-new-branch")
         {
             var target = string.IsNullOrWhiteSpace(branchOverride) ? group.Branch : branchOverride.Trim();
-            var dirty = await RunGitAsync(workspace, "status --porcelain");
-            if (!string.IsNullOrWhiteSpace(dirty))
-                throw new InvalidOperationException("Create the new branch after committing or stashing the current working-tree changes.");
-            await RunGitAsync(workspace, $"check-ref-format --branch \"{target.Replace("\"", "\\\"")}\"");
-            await RunGitAsync(workspace, $"checkout -b \"{target.Replace("\"", "\\\"")}\"");
+            await PrepareDecomposeBranchAsync(workspace, target, allowOnlyTasksFileDirty: false);
             effective = group with { Branch = target };
-            UpdateBranchIndicator();
         }
 
         if (action == "add-to-backlog")
@@ -7453,7 +7453,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_inboxStore is null)
             return;
-        var message = DecomposePlanInbox.BuildMessage(plan, DateTimeOffset.Now, explicitlyRequested);
+        var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
+        var message = DecomposePlanInbox.BuildMessage(
+            plan,
+            DateTimeOffset.Now,
+            explicitlyRequested,
+            activeBranch);
         var alreadyDelivered = explicitlyRequested
             ? _inboxStore.GetById(message.Id) is not null
             : _inboxStore.Exists(message.Id, includeArchive: true);
@@ -40040,34 +40045,43 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             throw new InvalidOperationException("The selected task plan contains a dependency cycle.");
 
         var workspace = _currentWorkspace.FolderPath;
-        var activeBranch = ReadGitBranch(workspace);
-        if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
-            throw new InvalidOperationException("There is no active Git branch for this workspace.");
-
         var targetBranch = group.Branch.Trim();
-        if (!string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
-        {
-            var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
-            if (!string.IsNullOrWhiteSpace(dirty) &&
-                !await IsOnlyTasksFileDirtyAsync(workspace, dirty))
-                throw new InvalidOperationException(
-                    $"Switch to plan branch '{targetBranch}' after committing or stashing the other working-tree changes.");
-
-            var escapedBranch = targetBranch.Replace("\"", "\\\"");
-            await RunGitAsync(workspace, $"check-ref-format --branch \"{escapedBranch}\"");
-            var existing = await RunGitAsync(
-                workspace,
-                $"branch --list --format=\"%(refname:short)\" \"{escapedBranch}\"");
-            await RunGitAsync(
-                workspace,
-                string.Equals(existing.Trim(), targetBranch, StringComparison.Ordinal)
-                    ? $"checkout \"{escapedBranch}\""
-                    : $"checkout -b \"{escapedBranch}\"");
-            UpdateBranchIndicator();
-        }
+        await PrepareDecomposeBranchAsync(workspace, targetBranch, allowOnlyTasksFileDirty: true);
 
         if (!await StartDecomposeLoopAsync(group.GroupId, group))
             throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
+    }
+
+    private async Task PrepareDecomposeBranchAsync(
+        string workspace,
+        string targetBranch,
+        bool allowOnlyTasksFileDirty)
+    {
+        var activeBranch = ReadGitBranch(workspace);
+        if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
+            throw new InvalidOperationException("There is no active Git branch for this workspace.");
+        if (string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
+            return;
+
+        var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+        if (!string.IsNullOrWhiteSpace(dirty) &&
+            (!allowOnlyTasksFileDirty || !await IsOnlyTasksFileDirtyAsync(workspace, dirty)))
+        {
+            throw new InvalidOperationException(
+                $"Switch to plan branch '{targetBranch}' after committing or stashing the working-tree changes.");
+        }
+
+        var escapedBranch = targetBranch.Replace("\"", "\\\"");
+        await RunGitAsync(workspace, $"check-ref-format --branch \"{escapedBranch}\"");
+        var existing = await RunGitAsync(
+            workspace,
+            $"branch --list --format=\"%(refname:short)\" \"{escapedBranch}\"");
+        await RunGitAsync(
+            workspace,
+            string.Equals(existing.Trim(), targetBranch, StringComparison.Ordinal)
+                ? $"checkout \"{escapedBranch}\""
+                : $"checkout -b \"{escapedBranch}\"");
+        UpdateBranchIndicator();
     }
 
     private async Task<bool> IsOnlyTasksFileDirtyAsync(string workspace, string allStatus)

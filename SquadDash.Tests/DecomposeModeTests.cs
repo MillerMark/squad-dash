@@ -524,7 +524,7 @@ internal sealed class DecomposePlanInboxTests
             Assert.That(message.Attachments[0].Type, Is.EqualTo(DecomposePlanInbox.AttachmentType));
             Assert.That(message.Attachments[0].PlanGroupId, Is.EqualTo(group.GroupId));
             Assert.That(message.Actions.Select(a => a.Label), Is.EqualTo(new[]
-                { "Add to Backlog", "Execute in New Branch", "Execute in Active Branch" }));
+                { "Add to Backlog", "Execute in feature/plan Branch", "Execute in Active Branch" }));
             Assert.That(message.Actions.All(a => a.RouteMode == DecomposePlanInbox.ActionRouteMode), Is.True);
         });
 
@@ -533,6 +533,23 @@ internal sealed class DecomposePlanInboxTests
         Assert.That(DecomposeDecisionParser.TryParse(message.Actions[1].Prompt, out var decision), Is.True);
         Assert.That(decision!.Action, Is.EqualTo("execute-new-branch"));
         Assert.That(decision.Branch, Is.EqualTo(group.Branch));
+    }
+
+    [Test]
+    public void BuildMessage_ProposedBranchAlreadyActive_OmitsDuplicateBranchAction()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high", "First task")]);
+        var pending = new PendingDecomposePlan("abc123", group);
+
+        var message = DecomposePlanInbox.BuildMessage(
+            pending,
+            DateTimeOffset.Parse("2026-07-25T12:00:00Z"),
+            explicitlyRequested: false,
+            activeBranch: "feature/plan");
+
+        Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
+            { "Add to Backlog", "Execute in Active Branch" }));
     }
 
     [Test]
