@@ -6,20 +6,19 @@ using System.Windows.Shapes;
 
 namespace SquadDash;
 
-internal sealed class DecomposePlanWindow : Window
+internal sealed class DecomposePlanWindow : ChromedWindow
 {
     private const double NodeWidth = 220;
     private const double NodeHeight = 76;
     private const double ColumnSpacing = 360;
     private const double RowSpacing = 128;
-    private static readonly Brush EdgeBrush = new SolidColorBrush(Color.FromRgb(72, 105, 130));
 
-    internal DecomposePlanWindow(DecomposedTaskGroup group)
+    internal DecomposePlanWindow(DecomposedTaskGroup group) : base(captionHeight: CloseButtonHeight)
     {
-        Title = group.GroupTitle;
-        Width = 1200;
-        Height = 720;
-        MinWidth = 760;
+        Title     = group.GroupTitle;
+        Width     = 1200;
+        Height    = 720;
+        MinWidth  = 760;
         MinHeight = 480;
 
         var root = new Grid();
@@ -27,19 +26,26 @@ internal sealed class DecomposePlanWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
-        header.Children.Add(new TextBlock
+
+        var summaryBlock = new TextBlock
         {
-            Text = group.Summary,
+            Text         = group.Summary,
             TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 6),
-        });
-        header.Children.Add(new TextBlock
+            FontWeight   = FontWeights.SemiBold,
+            Margin       = new Thickness(0, 0, 0, 6),
+        };
+        summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        header.Children.Add(summaryBlock);
+
+        var hintBlock = new TextBlock
         {
-            Text = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
+            Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.DimGray,
-        });
+        };
+        hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        hintBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        header.Children.Add(hintBlock);
         root.Children.Add(header);
 
         var canvas = new Canvas { Background = Brushes.Transparent, Margin = new Thickness(18) };
@@ -47,11 +53,12 @@ internal sealed class DecomposePlanWindow : Window
         {
             Content = canvas,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
-        Content = root;
+
+        ApplyOuterBorder(titleText: group.GroupTitle).Child = root;
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         var levels = CalculateLevels(group.Tasks, tasksById);
@@ -63,12 +70,13 @@ internal sealed class DecomposePlanWindow : Window
             var x = 42 + column.Key * ColumnSpacing;
             var stageHeader = new TextBlock
             {
-                Text = tasks.Length == 1
+                Text       = tasks.Length == 1
                     ? $"Stage {column.Key + 1}"
                     : $"Stage {column.Key + 1}  ·  {tasks.Length} independent tasks",
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brushes.DimGray,
             };
+            stageHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            stageHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             Canvas.SetLeft(stageHeader, x);
             Canvas.SetTop(stageHeader, 18);
             canvas.Children.Add(stageHeader);
@@ -130,25 +138,26 @@ internal sealed class DecomposePlanWindow : Window
 
         foreach (var gate in gates)
         {
+            var badgeText = new TextBlock
+            {
+                Text                = "ALL",
+                FontWeight          = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Center,
+            };
+            badgeText.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
+            badgeText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             var badge = new Border
             {
-                Width = 40,
-                Height = 26,
-                CornerRadius = new CornerRadius(13),
+                Width           = 40,
+                Height          = 26,
+                CornerRadius    = new CornerRadius(13),
                 BorderThickness = new Thickness(1.5),
-                BorderBrush = EdgeBrush,
-                Background = Brushes.White,
-                ToolTip = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
-                Child = new TextBlock
-                {
-                    Text = "ALL",
-                    FontSize = 10,
-                    FontWeight = FontWeights.Bold,
-                    Foreground = EdgeBrush,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
+                ToolTip         = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
+                Child           = badgeText,
             };
+            badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+            badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             Canvas.SetLeft(badge, gate.Center.X - 20);
             Canvas.SetTop(badge, gate.Center.Y - 13);
             canvas.Children.Add(badge);
@@ -161,33 +170,36 @@ internal sealed class DecomposePlanWindow : Window
             var dependencyText = task.DependsOn.Count == 0
                 ? "None — this task can start immediately."
                 : string.Join("\n", task.DependsOn.Select(id => "• " + id));
-            var content = new StackPanel();
-            content.Children.Add(new TextBlock
+            var nodeTitle = new TextBlock
             {
-                Text = shortName,
+                Text         = shortName,
                 TextWrapping = TextWrapping.Wrap,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Brushes.Black,
-            });
-            content.Children.Add(new TextBlock
+                FontWeight   = FontWeights.SemiBold,
+            };
+            nodeTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            nodeTitle.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            var nodeId = new TextBlock
             {
-                Text = task.Id,
+                Text   = task.Id,
                 Margin = new Thickness(0, 5, 0, 0),
-                FontSize = 10,
-                Foreground = Brushes.DimGray,
-            });
+            };
+            nodeId.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            nodeId.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            var content = new StackPanel();
+            content.Children.Add(nodeTitle);
+            content.Children.Add(nodeId);
             var border = new Border
             {
-                Width = NodeWidth,
-                Height = NodeHeight,
-                Padding = new Thickness(11, 8, 11, 8),
-                CornerRadius = new CornerRadius(7),
+                Width           = NodeWidth,
+                Height          = NodeHeight,
+                Padding         = new Thickness(11, 8, 11, 8),
+                CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                BorderBrush = Brushes.SlateGray,
-                Background = Brushes.WhiteSmoke,
-                ToolTip = $"{task.Description}\n\nPrerequisites:\n{dependencyText}",
-                Child = content,
+                ToolTip         = $"{task.Description}\n\nPrerequisites:\n{dependencyText}",
+                Child           = content,
             };
+            border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
+            border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
             canvas.Children.Add(border);
@@ -220,15 +232,16 @@ internal sealed class DecomposePlanWindow : Window
 
     private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead)
     {
-        canvas.Children.Add(new Line
+        var line = new Line
         {
             X1 = from.X,
             Y1 = from.Y,
             X2 = to.X,
             Y2 = to.Y,
-            Stroke = EdgeBrush,
             StrokeThickness = 2,
-        });
+        };
+        line.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+        canvas.Children.Add(line);
         if (!arrowHead) return;
 
         var vector = from - to;
@@ -238,7 +251,7 @@ internal sealed class DecomposePlanWindow : Window
         const double length = 11;
         const double halfWidth = 5;
         var basePoint = to + vector * length;
-        canvas.Children.Add(new Polygon
+        var arrow = new Polygon
         {
             Points =
             [
@@ -246,7 +259,8 @@ internal sealed class DecomposePlanWindow : Window
                 basePoint + perpendicular * halfWidth,
                 basePoint - perpendicular * halfWidth,
             ],
-            Fill = EdgeBrush,
-        });
+        };
+        arrow.SetResourceReference(Shape.FillProperty, "ActivePanelTitle");
+        canvas.Children.Add(arrow);
     }
 }
