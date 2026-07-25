@@ -2,6 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
@@ -76,7 +77,24 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
 
     internal static string ComputeRevision(DecomposedTaskGroup group)
     {
-        var json = JsonSerializer.Serialize(group);
+        // This is the V1 approval contract. Keep it explicit: adding host/UI metadata to
+        // DecomposedTaskGroup must not invalidate pending plans that were saved by an older
+        // Squad Dash build. In particular, delivery controls where a plan is presented; it
+        // does not change the work the user is approving.
+        var payload = new RevisionPayloadV1(
+            group.GroupId,
+            group.GroupTitle,
+            group.Branch,
+            group.Summary,
+            group.Tasks);
+        var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant()[..16];
     }
+
+    private sealed record RevisionPayloadV1(
+        [property: JsonPropertyName("groupId")] string GroupId,
+        [property: JsonPropertyName("groupTitle")] string GroupTitle,
+        [property: JsonPropertyName("branch")] string Branch,
+        [property: JsonPropertyName("summary")] string Summary,
+        [property: JsonPropertyName("tasks")] IReadOnlyList<DecomposedSubTask> Tasks);
 }

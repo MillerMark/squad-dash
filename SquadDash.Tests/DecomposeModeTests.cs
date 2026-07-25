@@ -433,6 +433,47 @@ internal sealed class PendingDecomposePlanStoreTests
             if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
         }
     }
+
+    [Test]
+    public void ComputeRevision_DeliveryMetadataDoesNotChangeApprovalRevision()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+
+        Assert.That(
+            PendingDecomposePlanStore.ComputeRevision(group with { Delivery = "inbox" }),
+            Is.EqualTo(PendingDecomposePlanStore.ComputeRevision(group)));
+    }
+
+    [Test]
+    public void Load_AcceptsRevisionProducedBeforeDeliveryFieldWasAdded()
+    {
+        var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "legacy-pending-plan-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            const string groupJson = """
+                {"groupId":"PLAN-20260725","groupTitle":"Plan","branch":"feature/plan","summary":"Summary","tasks":[{"id":"PLAN-20260725-001","description":"First","dependsOn":[],"priority":"high"}]}
+                """;
+            var legacyRevision = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(groupJson)))
+                .ToLowerInvariant()[..16];
+            var folder = Path.Combine(squadFolder, "tmp", "decompose");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "PLAN-20260725.json"),
+                $$"""
+                  {"Revision":"{{legacyRevision}}","Group":{{groupJson}}}
+                  """);
+
+            var loaded = new PendingDecomposePlanStore(squadFolder).Load("PLAN-20260725");
+
+            Assert.That(loaded, Is.Not.Null);
+            Assert.That(loaded!.Revision, Is.EqualTo(legacyRevision));
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
+    }
 }
 
 [TestFixture]
