@@ -7290,6 +7290,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         intro.Inlines.Add(revision);
         intro.Inlines.Add(new LineBreak());
         var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
+        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
         link.Click += (_, _) => new PlanViewerWindow(group) { Owner = this }.Show();
         intro.Inlines.Add(link);
         blocks.Add(intro);
