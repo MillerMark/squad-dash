@@ -78,6 +78,7 @@ If the user later approves or modifies a staged plan in free text, emit:
 ```json
 {
   "groupId": "GROUP-YYYYMMDD",
+  "revision": "revision supplied by Squad Dash in the pending-plan context",
   "action": "execute-new-branch",
   "branch": "optional branch override"
 }
@@ -86,3 +87,4 @@ If the user later approves or modifies a staged plan in free text, emit:
 Only emit a decision for a group already staged by Squad Dash. A revised task graph requires a
 new `TASKS_JSON` proposal and another approval. `action` must be exactly one of `add-to-backlog`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
+The `revision` must exactly match the revision supplied by Squad Dash for that pending group.

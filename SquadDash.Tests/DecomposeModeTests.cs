@@ -289,6 +289,27 @@ internal sealed class TasksJsonParserTests
         Assert.That(group, Is.Null);
     }
 
+    [Test]
+    public void TryParse_DuplicateTaskIds_ReturnsFalse()
+    {
+        const string groupId = "PROJ-20240101";
+        var tasksJson = $$"""
+            [
+              { "id": "{{groupId}}-001", "description": "A", "dependsOn": [], "priority": "high" },
+              { "id": "{{groupId}}-001", "description": "B", "dependsOn": [], "priority": "low" }
+            ]
+            """;
+        Assert.That(TasksJsonParser.TryParse(
+            WrapJson(MinimalGroupJson(groupId: groupId, tasksJson: tasksJson)), out _), Is.False);
+    }
+
+    [Test]
+    public void TryParse_EmptyRequiredGroupMetadata_ReturnsFalse()
+    {
+        Assert.That(TasksJsonParser.TryParse(
+            WrapJson(MinimalGroupJson(groupTitle: "", branch: "", summary: "")), out _), Is.False);
+    }
+
     // ── task ID format ───────────────────────────────────────────────────────
 
     [Test]
@@ -362,16 +383,55 @@ internal sealed class DecomposeDecisionParserTests
     [TestCase("execute-active-branch")]
     public void TryParse_ValidDecision_ReturnsDecision(string action)
     {
-        var text = $"DECOMPOSE_DECISION_JSON:\n```json\n{{\"groupId\":\"PLAN-20260725\",\"action\":\"{action}\",\"branch\":\"feature/plan\"}}\n```";
+        var text = $"DECOMPOSE_DECISION_JSON:\n```json\n{{\"groupId\":\"PLAN-20260725\",\"revision\":\"abc123\",\"action\":\"{action}\",\"branch\":\"feature/plan\"}}\n```";
         Assert.That(DecomposeDecisionParser.TryParse(text, out var decision), Is.True);
         Assert.That(decision!.Action, Is.EqualTo(action));
+        Assert.That(decision.Revision, Is.EqualTo("abc123"));
     }
 
     [Test]
     public void TryParse_UnknownAction_IsRejected()
     {
         Assert.That(DecomposeDecisionParser.TryParse(
-            "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"action\":\"run-anything\"}", out _), Is.False);
+            "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"revision\":\"abc123\",\"action\":\"run-anything\"}", out _), Is.False);
+    }
+
+    [Test]
+    public void TryParse_MissingRevision_IsRejected() =>
+        Assert.That(DecomposeDecisionParser.TryParse(
+            "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"action\":\"add-to-backlog\"}", out _), Is.False);
+}
+
+[TestFixture]
+internal sealed class PendingDecomposePlanStoreTests
+{
+    [Test]
+    public void SaveLoadAndDelete_RoundTripsRevisionedPlan()
+    {
+        var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "pending-plan-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+                [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+            var store = new PendingDecomposePlanStore(squadFolder);
+            var saved = store.Save(group);
+            var loaded = store.Load(group.GroupId);
+
+            Assert.That(loaded, Is.Not.Null);
+            Assert.Multiple(() =>
+            {
+                Assert.That(loaded!.Revision, Is.EqualTo(saved.Revision));
+                Assert.That(loaded.Group.GroupId, Is.EqualTo(group.GroupId));
+                Assert.That(loaded.Group.Tasks.Select(t => t.Id), Is.EqualTo(group.Tasks.Select(t => t.Id)));
+            });
+            Assert.That(store.LoadAll(), Has.Count.EqualTo(1));
+            store.Delete(group.GroupId);
+            Assert.That(store.Load(group.GroupId), Is.Null);
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
     }
 }
 
@@ -482,6 +542,17 @@ internal sealed class DecomposedTasksWriterTests
         var newGroupPos  = content.IndexOf("<!-- decompose-group:", StringComparison.Ordinal);
         var existingPos  = content.IndexOf("# existing content",   StringComparison.Ordinal);
         Assert.That(newGroupPos, Is.LessThan(existingPos));
+    }
+
+    [Test]
+    public void WriteGroup_SameGroupTwice_DoesNotDuplicateBlock()
+    {
+        var writer = new DecomposedTasksWriter();
+        var group = MakeGroup();
+        writer.WriteGroup(_tasksFile, group);
+        writer.WriteGroup(_tasksFile, group);
+        var content = File.ReadAllText(_tasksFile);
+        Assert.That(CountOccurrences(content, $"<!-- decompose-group: {group.GroupId} |"), Is.EqualTo(1));
     }
 
     // ── WriteGroupFailed ─────────────────────────────────────────────────────

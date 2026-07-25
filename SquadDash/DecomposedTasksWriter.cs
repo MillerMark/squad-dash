@@ -16,7 +16,7 @@ internal sealed class DecomposedTasksWriter
     /// to <paramref name="tasksFilePath"/>.
     /// </summary>
     internal void WriteGroup(string tasksFilePath, DecomposedTaskGroup group) =>
-        PrependToTasksFile(tasksFilePath, BuildGroupBlock(group, failed: false));
+        PrependToTasksFile(tasksFilePath, group.GroupId, BuildGroupBlock(group, failed: false));
 
     /// <summary>
     /// Prepends the group header and all subtasks with <c>[!]</c> failed markers
@@ -24,7 +24,7 @@ internal sealed class DecomposedTasksWriter
     /// are ever written to the file.
     /// </summary>
     internal void WriteGroupFailed(string tasksFilePath, DecomposedTaskGroup group) =>
-        PrependToTasksFile(tasksFilePath, BuildGroupBlock(group, failed: true));
+        PrependToTasksFile(tasksFilePath, group.GroupId, BuildGroupBlock(group, failed: true));
 
     /// <summary>
     /// Finds the line <c>- [ ] **[{taskId}]**</c> in <paramref name="tasksFilePath"/>
@@ -114,13 +114,22 @@ internal sealed class DecomposedTasksWriter
         return sb.ToString();
     }
 
-    private static void PrependToTasksFile(string tasksFilePath, string content)
+    private static void PrependToTasksFile(string tasksFilePath, string groupId, string content)
     {
         string existing = File.Exists(tasksFilePath)
             ? File.ReadAllText(tasksFilePath)
             : string.Empty;
 
+        if (existing.Contains($"<!-- decompose-group: {groupId} |", StringComparison.Ordinal))
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"DecomposedTasksWriter: group '{groupId}' already exists; duplicate write skipped.");
+            return;
+        }
+
         var separator = existing.Length > 0 ? Environment.NewLine : string.Empty;
-        File.WriteAllText(tasksFilePath, content + separator + existing, Encoding.UTF8);
+        var tempPath = tasksFilePath + ".tmp";
+        File.WriteAllText(tempPath, content + separator + existing, Encoding.UTF8);
+        File.Move(tempPath, tasksFilePath, overwrite: true);
     }
 }

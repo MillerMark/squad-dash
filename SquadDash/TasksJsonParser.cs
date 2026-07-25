@@ -88,6 +88,15 @@ internal static class TasksJsonParser
         if (parsed is null)
             return false;
 
+        if (string.IsNullOrWhiteSpace(parsed.GroupTitle) ||
+            string.IsNullOrWhiteSpace(parsed.Branch) ||
+            string.IsNullOrWhiteSpace(parsed.Summary))
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                "TasksJsonParser: groupTitle, branch, and summary must be non-empty");
+            return false;
+        }
+
         // Validate groupId format.
         if (!GroupIdPattern.IsMatch(parsed.GroupId ?? string.Empty))
         {
@@ -130,7 +139,19 @@ internal static class TasksJsonParser
                 return false;
             }
 
-            validIds.Add(task.Id);
+            if (!validIds.Add(task.Id))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: duplicate task id '{task.Id}'");
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(task.Description))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' has an empty description");
+                return false;
+            }
         }
 
         // Validate all dependsOn IDs reference valid siblings.

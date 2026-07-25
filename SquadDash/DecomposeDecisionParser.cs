@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
-internal sealed record DecomposeDecision(string GroupId, string Action, string? Branch);
+internal sealed record DecomposeDecision(string GroupId, string Revision, string Action, string? Branch);
 
 internal static class DecomposeDecisionParser
 {
@@ -35,8 +35,13 @@ internal static class DecomposeDecisionParser
             decision = JsonSerializer.Deserialize<DecomposeDecision>(text[start..(end + 1)],
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
-        catch (JsonException) { return false; }
+        catch (JsonException ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"Decompose decision JSON is invalid: {ex.Message}");
+            return false;
+        }
         return decision is not null && GroupIdPattern.IsMatch(decision.GroupId ?? "") &&
+               !string.IsNullOrWhiteSpace(decision.Revision) &&
                decision.Action is "add-to-backlog" or "execute-new-branch" or "execute-active-branch";
     }
 }

@@ -364,6 +364,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
+    private bool                    _decomposeRepairPending;
     private bool                        _inboxSavedForCurrentTurn;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -4952,8 +4953,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
                     {
-                        TryStartDecomposeGroupFromResponse(rawResponse);
-                        TryApplyDecomposeDecisionFromResponse(rawResponse);
+                        var hasTasksPayload = rawResponse?.Contains("TASKS_JSON:", StringComparison.Ordinal) == true;
+                        var hasDecisionPayload = rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true;
+                        TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
+                        if (hasTasksPayload && hasDecisionPayload)
+                        {
+                            AppendLine("⚠ The response contained both a task proposal and an execution decision. " +
+                                       "Squad Dash staged the proposal but ignored the decision; approval must come in a later turn.");
+                            SquadDashTrace.Write(TraceCategory.General,
+                                "Decompose decision ignored because TASKS_JSON appeared in the same response.");
+                        }
+                        else
+                        {
+                            TryApplyDecomposeDecisionFromResponse(rawResponse);
+                        }
+
+                        if (_decomposeRepairPending && !hasTasksPayload)
+                        {
+                            _decomposeRepairPending = false;
+                            AppendLine("⚠ The automatic task-plan repair response did not contain TASKS_JSON. " +
+                                       "The plan was not staged; please ask the AI to try again.");
+                        }
                     }
 
                     // Handle SquadDash loop commands embedded in the AI response.
@@ -7079,9 +7099,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private async Task StartDecomposeLoopAsync(string groupId, DecomposedTaskGroup? group = null)
+    private async Task<bool> StartDecomposeLoopAsync(string groupId, DecomposedTaskGroup? group = null)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null) return false;
 
         var assembly = System.Reflection.Assembly.GetExecutingAssembly();
         var resourceName = assembly.GetManifestResourceNames()
@@ -7089,18 +7109,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (resourceName is null)
         {
             SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: loop-decompose.md embedded resource not found.");
-            return;
+            return false;
         }
 
         using var stream = assembly.GetManifestResourceStream(resourceName);
-        if (stream is null) return;
+        if (stream is null) return false;
         using var reader = new System.IO.StreamReader(stream);
         var content = await reader.ReadToEndAsync();
         var config = LoopMdParser.ParseFromContent(content);
         if (config is null)
         {
             SquadDashTrace.Write(TraceCategory.General, "StartDecomposeLoopAsync: failed to parse loop-decompose.md config.");
-            return;
+            return false;
         }
 
         _activeDecomposeGroupId = groupId;
@@ -7119,19 +7139,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _activeDecomposeGroupId  = null;
             if (inboxErrorJson is not null)
                 TrySaveInboxMessageFromResponse(inboxErrorJson);
-            return;
+            return false;
         }
 
         BackupAndClearLoopOutput();
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId, featureGroups: _featureGroupStore?.Load());
+        return true;
     }
 
     /// <summary>
     /// Parses a TASKS_JSON payload from an ordinary response and stages it for user approval.
     /// Unlike maintenance mode, an ordinary response never grants execution permission itself.
     /// </summary>
-    private void TryStartDecomposeGroupFromResponse(string? rawResponse)
+    private void TryStartDecomposeGroupFromResponse(string? rawResponse, TranscriptTurnView? ownerView = null)
     {
         if (string.IsNullOrWhiteSpace(rawResponse) ||
             !rawResponse.Contains("TASKS_JSON:", StringComparison.Ordinal))
@@ -7141,6 +7162,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             SquadDashTrace.Write(TraceCategory.General,
                 "TASKS_JSON detected in completed response but parsing or validation failed.");
+            QueueDecomposeRepair();
             return;
         }
 
@@ -7151,31 +7173,61 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected before staging due to dependency cycle: {string.Join(", ", cycleIds!)}");
             AppendLine($"⚠ Could not stage decompose group {group.GroupId}: its dependency graph contains a cycle.");
+            QueueDecomposeRepair();
             return;
         }
+        _decomposeRepairPending = false;
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
-        store.Save(group);
-        AppendPendingDecomposeApproval(group);
+        var plan = store.Save(group);
+        AppendPendingDecomposeApproval(plan, ownerView);
     }
 
-    private void AppendPendingDecomposeApproval(DecomposedTaskGroup group)
+    private void QueueDecomposeRepair()
     {
+        if (_decomposeRepairPending)
+        {
+            _decomposeRepairPending = false;
+            AppendLine("⚠ The automatic task-plan repair attempt was still invalid. " +
+                       "Squad Dash stopped retrying; the plan was not staged.");
+            return;
+        }
+
+        _decomposeRepairPending = true;
+        AppendLine("⚠ Parser errors were found in the task-plan response. " +
+                   "Squad Dash is resubmitting it to the AI once for a schema-correct response…");
+        var prompt = "Your previous TASKS_JSON proposal failed Squad Dash validation. " +
+                     "Correct the proposal and respond with the complete corrected TASKS_JSON block. " +
+                     "Do not execute any work and do not emit DECOMPOSE_DECISION_JSON. Follow this specification exactly:\n\n" +
+                     DecomposePlanningInstructions.LoadSpecification();
+        _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "decompose-repair");
+        SyncQueuePanel();
+        SyncSendButton();
+    }
+
+    private void AppendPendingDecomposeApproval(PendingDecomposePlan plan, TranscriptTurnView? ownerView = null)
+    {
+        var group = plan.Group;
+        var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
         var intro = CreateTranscriptParagraph(bottomMargin: 4);
         intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
         intro.Inlines.Add(new LineBreak());
         var branch = new Run(group.Branch) { FontWeight = FontWeights.SemiBold };
         intro.Inlines.Add(branch);
         intro.Inlines.Add(new LineBreak());
+        var revision = new Run($"Plan revision: {plan.Revision}");
+        revision.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        intro.Inlines.Add(revision);
+        intro.Inlines.Add(new LineBreak());
         var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
         link.Click += (_, _) => new DecomposePlanWindow(group) { Owner = this }.Show();
         intro.Inlines.Add(link);
-        CoordinatorThread.Document.Blocks.Add(intro);
+        blocks.Add(intro);
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(group, "add-to-backlog", null));
-        AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(group, "execute-new-branch", group.Branch));
-        AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(group, "execute-active-branch", null));
-        CoordinatorThread.Document.Blocks.Add(new BlockUIContainer(panel) { Margin = new Thickness(0, 2, 0, 10) });
+        AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(plan, "add-to-backlog", null));
+        AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
+        AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-active-branch", null));
+        blocks.Add(new BlockUIContainer(panel) { Margin = new Thickness(0, 2, 0, 10) });
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         void AddButton(string label, Func<Task> action)
@@ -7186,6 +7238,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 button.Style = style;
             button.Click += async (_, _) =>
             {
+                if (_isPromptRunning)
+                {
+                    AppendLine("Wait for the current prompt to finish before applying the task plan.");
+                    return;
+                }
                 panel.IsEnabled = false;
                 try { await action(); }
                 catch (Exception ex) { panel.IsEnabled = true; HandleUiCallbackException("Decompose plan", ex); }
@@ -7196,21 +7253,50 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void TryApplyDecomposeDecisionFromResponse(string? rawResponse)
     {
-        if (!DecomposeDecisionParser.TryParse(rawResponse, out var decision) || decision is null || _currentWorkspace is null)
+        if (!DecomposeDecisionParser.TryParse(rawResponse, out var decision) || decision is null)
+        {
+            if (rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true)
+                AppendLine("⚠ The decomposition decision was malformed and was ignored; no task plan was changed or executed.");
+            return;
+        }
+        if (_currentWorkspace is null)
             return;
         var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
-        var group = store.Load(decision.GroupId);
-        if (group is null)
+        var plan = store.Load(decision.GroupId);
+        if (plan is null)
         {
             SquadDashTrace.Write(TraceCategory.General, $"Decompose decision ignored: pending group '{decision.GroupId}' was not found.");
             return;
         }
-        _ = ApplyDecomposeDecisionAsync(group, decision.Action, decision.Branch);
+        if (!string.Equals(plan.Revision, decision.Revision, StringComparison.Ordinal))
+        {
+            AppendLine($"⚠ Approval for {decision.GroupId} was ignored because its plan revision is stale.");
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Decompose decision revision mismatch for '{decision.GroupId}': expected {plan.Revision}, received {decision.Revision}.");
+            return;
+        }
+        Dispatcher.InvokeAsync(
+            async () => await ApplyDecomposeDecisionSafelyAsync(plan, decision.Action, decision.Branch),
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private async Task ApplyDecomposeDecisionAsync(DecomposedTaskGroup group, string action, string? branchOverride)
+    private async Task ApplyDecomposeDecisionSafelyAsync(PendingDecomposePlan plan, string action, string? branchOverride)
+    {
+        try { await ApplyDecomposeDecisionAsync(plan, action, branchOverride); }
+        catch (Exception ex) { HandleUiCallbackException("Decompose plan", ex); }
+    }
+
+    private async Task ApplyDecomposeDecisionAsync(PendingDecomposePlan plan, string action, string? branchOverride)
     {
         if (_currentWorkspace is null) return;
+        var currentPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(plan.Group.GroupId);
+        if (currentPlan is null || !string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
+            throw new InvalidOperationException("This task-plan approval is stale. Use the controls on the latest plan response.");
+        var group = plan.Group;
+        if (!TasksJsonParser.TryParse("TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group), out _))
+            throw new InvalidOperationException("The saved task plan no longer passes schema validation.");
+        if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out _))
+            throw new InvalidOperationException("The saved task plan contains a dependency cycle.");
         var workspace = _currentWorkspace.FolderPath;
         var effective = group;
         if (action != "add-to-backlog" && _loopController.IsRunning)
@@ -7248,8 +7334,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
-        await StartDecomposeLoopAsync(effective.GroupId, effective);
+        if (_loopController.IsRunning)
+            throw new InvalidOperationException("Another loop started while this plan was being prepared.");
+        if (await StartDecomposeLoopAsync(effective.GroupId, effective))
+            new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────
@@ -25847,6 +25935,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         view.ResponseTextBuilder.Clear();
         view.ResponseTextBuilder.Append(turn.ResponseText);
+        if (ReferenceEquals(thread, CoordinatorThread) &&
+            _currentWorkspace is not null &&
+            TasksJsonParser.TryParse(turn.ResponseText, out var restoredGroup) &&
+            restoredGroup is not null)
+        {
+            var pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                .Load(restoredGroup.GroupId);
+            if (pendingPlan is not null)
+                AppendPendingDecomposeApproval(pendingPlan, view);
+        }
         foreach (var block in view.ThinkingBlocks)
             block.Expander.IsExpanded = !turn.ThinkingCollapsed;
 
