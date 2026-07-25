@@ -33,7 +33,7 @@ internal sealed class CodeHealthGroupRunner
     {
         inboxErrorJson = null;
 
-        if (!TryDetectCycle(group, out var cycleIds))
+        if (!HasNoDependencyCycle(group, out var cycleIds))
         {
             _writer.WriteGroupFailed(_tasksFilePath, group);
             var cycleList  = string.Join(", ", cycleIds!);
@@ -68,7 +68,7 @@ internal sealed class CodeHealthGroupRunner
     /// Returns <c>true</c> when no cycle is detected.
     /// When a cycle exists, <paramref name="cycleIds"/> contains the IDs with non-zero in-degree.
     /// </summary>
-    private static bool TryDetectCycle(
+    internal static bool HasNoDependencyCycle(
         DecomposedTaskGroup     group,
         out List<string>?       cycleIds)
     {

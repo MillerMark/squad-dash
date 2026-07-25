@@ -296,6 +296,8 @@
     <Compile Include="..\SquadDash\TasksJsonParser.cs" Link="Source\TasksJsonParser.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\CodeHealthGroupRunner.cs" Link="Source\CodeHealthGroupRunner.cs" />
+    <Compile Include="..\SquadDash\DecomposeDecisionParser.cs" Link="Source\DecomposeDecisionParser.cs" />
+    <Compile Include="..\SquadDash\PendingDecomposePlanStore.cs" Link="Source\PendingDecomposePlanStore.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 
@@ -387,6 +389,7 @@
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />
+    <EmbeddedResource Include="..\SquadDash\Assets\decompose-planning.md" Link="Assets\decompose-planning.md" />
   </ItemGroup>
 
 </Project>

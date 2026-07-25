@@ -4,6 +4,15 @@ namespace SquadDash.Tests;
 internal sealed class DefaultPromptInstructionProviderTests
 {
     [Test]
+    public void Get_DecomposePlanning_ContainsShippedProtocol()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().DecomposePlanning;
+        Assert.That(instruction, Does.Contain("TASKS_JSON:"));
+        Assert.That(instruction, Does.Contain("DECOMPOSE_DECISION_JSON:"));
+        Assert.That(instruction, Does.Contain("stages the plan"));
+    }
+
+    [Test]
     public void InboxInstruction_SaysActionsAreDeferred_NotImmediateDelegation()
     {
         var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;

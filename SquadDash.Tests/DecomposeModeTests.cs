@@ -354,6 +354,27 @@ internal sealed class TasksJsonParserTests
     }
 }
 
+[TestFixture]
+internal sealed class DecomposeDecisionParserTests
+{
+    [TestCase("add-to-backlog")]
+    [TestCase("execute-new-branch")]
+    [TestCase("execute-active-branch")]
+    public void TryParse_ValidDecision_ReturnsDecision(string action)
+    {
+        var text = $"DECOMPOSE_DECISION_JSON:\n```json\n{{\"groupId\":\"PLAN-20260725\",\"action\":\"{action}\",\"branch\":\"feature/plan\"}}\n```";
+        Assert.That(DecomposeDecisionParser.TryParse(text, out var decision), Is.True);
+        Assert.That(decision!.Action, Is.EqualTo(action));
+    }
+
+    [Test]
+    public void TryParse_UnknownAction_IsRejected()
+    {
+        Assert.That(DecomposeDecisionParser.TryParse(
+            "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"action\":\"run-anything\"}", out _), Is.False);
+    }
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // DecomposedTasksWriter
 // ════════════════════════════════════════════════════════════════════════════

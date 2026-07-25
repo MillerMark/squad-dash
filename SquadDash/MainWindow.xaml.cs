@@ -4951,7 +4951,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     // finalization boundary as inbox and host-command payloads.  Maintenance
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
+                    {
                         TryStartDecomposeGroupFromResponse(rawResponse);
+                        TryApplyDecomposeDecisionFromResponse(rawResponse);
+                    }
 
                     // Handle SquadDash loop commands embedded in the AI response.
                     if (squadashPayload?.Command is string cmd)
@@ -7125,9 +7128,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     }
 
     /// <summary>
-    /// Parses a TASKS_JSON payload from a completed ordinary assistant response and hands the
-    /// resulting group to the native decompose lifecycle.  The tasks file is only mutated by
-    /// <see cref="CodeHealthGroupRunner"/> after parser and DAG validation succeed.
+    /// Parses a TASKS_JSON payload from an ordinary response and stages it for user approval.
+    /// Unlike maintenance mode, an ordinary response never grants execution permission itself.
     /// </summary>
     private void TryStartDecomposeGroupFromResponse(string? rawResponse)
     {
@@ -7142,16 +7144,112 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        if (_loopController.IsRunning)
+        SquadDashTrace.Write(TraceCategory.General,
+            $"TASKS_JSON parsed from ordinary response for group '{group.GroupId}' — staging for approval.");
+        if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out var cycleIds))
         {
             SquadDashTrace.Write(TraceCategory.General,
-                $"TASKS_JSON parsed for group '{group.GroupId}', but a loop is already running; group was not started.");
+                $"TASKS_JSON group '{group.GroupId}' rejected before staging due to dependency cycle: {string.Join(", ", cycleIds!)}");
+            AppendLine($"⚠ Could not stage decompose group {group.GroupId}: its dependency graph contains a cycle.");
+            return;
+        }
+        var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
+        store.Save(group);
+        AppendPendingDecomposeApproval(group);
+    }
+
+    private void AppendPendingDecomposeApproval(DecomposedTaskGroup group)
+    {
+        var intro = CreateTranscriptParagraph(bottomMargin: 4);
+        intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
+        intro.Inlines.Add(new LineBreak());
+        var branch = new Run(group.Branch) { FontWeight = FontWeights.SemiBold };
+        intro.Inlines.Add(branch);
+        intro.Inlines.Add(new LineBreak());
+        var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
+        link.Click += (_, _) => new DecomposePlanWindow(group) { Owner = this }.Show();
+        intro.Inlines.Add(link);
+        CoordinatorThread.Document.Blocks.Add(intro);
+
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(group, "add-to-backlog", null));
+        AddButton("Execute in New Branch", () => ApplyDecomposeDecisionAsync(group, "execute-new-branch", group.Branch));
+        AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(group, "execute-active-branch", null));
+        CoordinatorThread.Document.Blocks.Add(new BlockUIContainer(panel) { Margin = new Thickness(0, 2, 0, 10) });
+        ScrollToEndIfAtBottom(CoordinatorThread);
+
+        void AddButton(string label, Func<Task> action)
+        {
+            var button = new Button { Content = label, Margin = new Thickness(0, 0, 8, 8),
+                Padding = new Thickness(10, 4, 10, 4), Cursor = Cursors.Hand, MinHeight = 28 };
+            if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style style)
+                button.Style = style;
+            button.Click += async (_, _) =>
+            {
+                panel.IsEnabled = false;
+                try { await action(); }
+                catch (Exception ex) { panel.IsEnabled = true; HandleUiCallbackException("Decompose plan", ex); }
+            };
+            panel.Children.Add(button);
+        }
+    }
+
+    private void TryApplyDecomposeDecisionFromResponse(string? rawResponse)
+    {
+        if (!DecomposeDecisionParser.TryParse(rawResponse, out var decision) || decision is null || _currentWorkspace is null)
+            return;
+        var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+        var group = store.Load(decision.GroupId);
+        if (group is null)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"Decompose decision ignored: pending group '{decision.GroupId}' was not found.");
+            return;
+        }
+        _ = ApplyDecomposeDecisionAsync(group, decision.Action, decision.Branch);
+    }
+
+    private async Task ApplyDecomposeDecisionAsync(DecomposedTaskGroup group, string action, string? branchOverride)
+    {
+        if (_currentWorkspace is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+        var effective = group;
+        if (action != "add-to-backlog" && _loopController.IsRunning)
+            throw new InvalidOperationException("Another loop is already running.");
+        if (action == "execute-active-branch")
+        {
+            var active = ReadGitBranch(workspace);
+            if (string.IsNullOrWhiteSpace(active) || active.StartsWith("(detached", StringComparison.Ordinal))
+                throw new InvalidOperationException("There is no active Git branch for this workspace.");
+            effective = group with { Branch = active };
+        }
+        else if (action == "execute-new-branch")
+        {
+            var target = string.IsNullOrWhiteSpace(branchOverride) ? group.Branch : branchOverride.Trim();
+            var dirty = await RunGitAsync(workspace, "status --porcelain");
+            if (!string.IsNullOrWhiteSpace(dirty))
+                throw new InvalidOperationException("Create the new branch after committing or stashing the current working-tree changes.");
+            await RunGitAsync(workspace, $"check-ref-format --branch \"{target.Replace("\"", "\\\"")}\"");
+            await RunGitAsync(workspace, $"checkout -b \"{target.Replace("\"", "\\\"")}\"");
+            effective = group with { Branch = target };
+            UpdateBranchIndicator();
+        }
+
+        if (action == "add-to-backlog")
+        {
+            var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(),
+                Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"));
+            if (!runner.TryStartGroup(effective, out var error))
+            {
+                if (error is not null) TrySaveInboxMessageFromResponse(error);
+                return;
+            }
+            new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
+            AppendLine($"✅ Added decompose group {group.GroupId} to the backlog.");
             return;
         }
 
-        SquadDashTrace.Write(TraceCategory.General,
-            $"TASKS_JSON parsed from ordinary response for group '{group.GroupId}' — starting native decompose lifecycle.");
-        _ = StartDecomposeLoopAsync(group.GroupId, group);
+        new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
+        await StartDecomposeLoopAsync(effective.GroupId, effective);
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────
