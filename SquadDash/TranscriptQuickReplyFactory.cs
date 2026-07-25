@@ -6,6 +6,7 @@ using System.Windows.Input;
 namespace SquadDash;
 
 internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
+internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
 
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
@@ -54,18 +55,25 @@ internal static class TranscriptQuickReplyFactory
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
         container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or ContainerMarker;
 
-    internal static void RemovePendingDecomposeApprovalContainers(BlockCollection blocks)
+    internal static void RemovePendingDecomposeApprovalContainers(
+        BlockCollection blocks,
+        Func<PendingDecomposeApprovalTag, Block?>? createMissingPlanLink = null)
     {
         foreach (var block in blocks.ToArray())
         {
-            if (block is BlockUIContainer { Tag: PendingDecomposeApprovalTag })
+            if (block is BlockUIContainer { Tag: PendingDecomposeApprovalTag approvalTag })
             {
+                var hasMatchingLink = block.PreviousBlock?.Tag is PendingDecomposePlanLinkTag linkTag &&
+                                      string.Equals(linkTag.GroupId, approvalTag.GroupId, StringComparison.Ordinal) &&
+                                      string.Equals(linkTag.Revision, approvalTag.Revision, StringComparison.Ordinal);
+                if (!hasMatchingLink && createMissingPlanLink?.Invoke(approvalTag) is { } linkBlock)
+                    blocks.InsertBefore(block, linkBlock);
                 blocks.Remove(block);
                 continue;
             }
 
             if (block is Section section)
-                RemovePendingDecomposeApprovalContainers(section.Blocks);
+                RemovePendingDecomposeApprovalContainers(section.Blocks, createMissingPlanLink);
         }
     }
 

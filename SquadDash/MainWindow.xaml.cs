@@ -7279,43 +7279,27 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var group = plan.Group;
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
-        var intro = CreateTranscriptParagraph(bottomMargin: 4);
-        intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
-        intro.Inlines.Add(new LineBreak());
-        var branch = new Run(group.Branch) { FontWeight = FontWeights.SemiBold };
-        intro.Inlines.Add(branch);
-        intro.Inlines.Add(new LineBreak());
-        var revision = new Run($"Plan revision: {plan.Revision}");
-        revision.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        intro.Inlines.Add(revision);
-        intro.Inlines.Add(new LineBreak());
-        var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
-        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-        link.Click += (_, _) => new PlanViewerWindow(group) { Owner = this }.Show();
-        intro.Inlines.Add(link);
-        blocks.Add(intro);
+        blocks.Add(CreatePendingDecomposePlanLinkParagraph(plan));
 
         if (!includeActions)
             return;
 
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        AddButton("Add to Backlog", () => ApplyDecomposeDecisionAsync(plan, "add-to-backlog", null));
         var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
-        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
-        {
-            AddButton($"Execute in {group.Branch} Branch",
-                () => ApplyDecomposeDecisionAsync(plan, "execute-new-branch", group.Branch));
-        }
-        AddButton("Execute in Active Branch", () => ApplyDecomposeDecisionAsync(plan, "execute-active-branch", null));
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
+            AddButton(action);
         var actionsContainer = TranscriptQuickReplyFactory.CreateContainer(
             panel,
             new PendingDecomposeApprovalTag(group.GroupId, plan.Revision));
         blocks.Add(actionsContainer);
         ScrollToEndIfAtBottom(CoordinatorThread);
 
-        void AddButton(string label, Func<Task> action)
+        void AddButton(DecomposePlanActionDefinition action)
         {
-            var button = TranscriptQuickReplyFactory.CreateButton(label, _transcriptFontSize);
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                action.Label,
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
             button.Click += async (_, _) =>
             {
                 if (_isPromptRunning)
@@ -7325,7 +7309,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
                 panel.IsEnabled = false;
                 panel.Visibility = Visibility.Collapsed;
-                try { await action(); }
+                try
+                {
+                    if (!await ApplyDecomposeDecisionAsync(plan, action.Action, action.Branch))
+                    {
+                        panel.IsEnabled = true;
+                        panel.Visibility = Visibility.Visible;
+                    }
+                }
                 catch (Exception ex)
                 {
                     panel.IsEnabled = true;
@@ -7340,7 +7331,36 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void RemovePendingDecomposeApprovalButtons()
     {
         TranscriptQuickReplyFactory.RemovePendingDecomposeApprovalContainers(
-            CoordinatorThread.Document.Blocks);
+            CoordinatorThread.Document.Blocks,
+            tag =>
+            {
+                if (_currentWorkspace is null)
+                    return null;
+                var plan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                    .Load(tag.GroupId);
+                return plan is not null && string.Equals(plan.Revision, tag.Revision, StringComparison.Ordinal)
+                    ? CreatePendingDecomposePlanLinkParagraph(plan)
+                    : null;
+            });
+    }
+
+    private Paragraph CreatePendingDecomposePlanLinkParagraph(PendingDecomposePlan plan)
+    {
+        var intro = CreateTranscriptParagraph(bottomMargin: 4);
+        intro.Tag = new PendingDecomposePlanLinkTag(plan.Group.GroupId, plan.Revision);
+        intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
+        intro.Inlines.Add(new LineBreak());
+        intro.Inlines.Add(new Run(plan.Group.Branch) { FontWeight = FontWeights.SemiBold });
+        intro.Inlines.Add(new LineBreak());
+        var revision = new Run($"Plan revision: {plan.Revision}");
+        revision.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        intro.Inlines.Add(revision);
+        intro.Inlines.Add(new LineBreak());
+        var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
+        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        link.Click += (_, _) => OpenDecomposePlanViewer(plan);
+        intro.Inlines.Add(link);
+        return intro;
     }
 
     private void TryApplyDecomposeDecisionFromResponse(string? rawResponse)
@@ -7378,9 +7398,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException("Decompose plan", ex); }
     }
 
-    private async Task ApplyDecomposeDecisionAsync(PendingDecomposePlan plan, string action, string? branchOverride)
+    private async Task<bool> ApplyDecomposeDecisionAsync(PendingDecomposePlan plan, string action, string? branchOverride)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null) return false;
         var currentPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(plan.Group.GroupId);
         if (currentPlan is null || !string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("This task-plan approval is stale. Use the controls on the latest plan response.");
@@ -7414,12 +7434,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!runner.TryStartGroup(effective, out var error))
             {
                 if (error is not null) TrySaveInboxMessageFromResponse(error);
-                return;
+                return false;
             }
             new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
             ArchiveDecomposePlanInboxReminder(plan);
             AppendLine($"✅ Added decompose group {group.GroupId} to the backlog.");
-            return;
+            return true;
         }
 
         if (_loopController.IsRunning)
@@ -7428,7 +7448,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
             ArchiveDecomposePlanInboxReminder(plan);
+            return true;
         }
+        return false;
     }
 
     private void PromoteBypassedDecomposePlans(string? rawResponse)
@@ -7484,6 +7506,45 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             window.Close();
     }
 
+    private void OpenDecomposePlanViewer(PendingDecomposePlan plan)
+    {
+        PendingDecomposePlan? livePlan = null;
+        if (_currentWorkspace is not null)
+        {
+            var candidate = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                .Load(plan.Group.GroupId);
+            if (candidate is not null &&
+                string.Equals(candidate.Revision, plan.Revision, StringComparison.Ordinal))
+                livePlan = candidate;
+        }
+
+        var displayedPlan = livePlan ?? plan;
+        var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
+        Func<DecomposePlanActionDefinition, Task<bool>>? applyAction =
+            livePlan is not null
+                ? ApplyFromViewerAsync
+                : null;
+        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction)
+        {
+            Owner = CanShowOwnedWindow() ? this : null,
+        }.Show();
+
+        async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
+        {
+            try
+            {
+                if (_isPromptRunning)
+                    throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
+                return await ApplyDecomposeDecisionAsync(displayedPlan, action.Action, action.Branch);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException("Decompose plan", ex);
+                return false;
+            }
+        }
+    }
+
     private void OpenDecomposePlanAttachment(InboxAttachment attachment)
     {
         if (_currentWorkspace is null)
@@ -7495,7 +7556,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var live = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
                 .Load(attachment.PlanGroupId);
             if (live is not null && string.Equals(live.Revision, attachment.PlanRevision, StringComparison.Ordinal))
+            {
                 plan = live;
+            }
         }
         if (plan is null)
             DecomposePlanInbox.TryReadSnapshot(attachment, out plan);
@@ -7505,7 +7568,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        new PlanViewerWindow(plan.Group) { Owner = CanShowOwnedWindow() ? this : null }.Show();
+        OpenDecomposePlanViewer(plan);
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────

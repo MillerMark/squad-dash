@@ -52,7 +52,10 @@ internal sealed class TranscriptQuickReplyFactoryTests
         var ordinaryReplies = TranscriptQuickReplyFactory.CreateContainer(
             new WrapPanel(),
             new QuickReplyCopyData(["Continue"], null));
-        section.Blocks.Add(new Paragraph(new Run("View task plan and dependencies")));
+        section.Blocks.Add(new Paragraph(new Run("View task plan and dependencies"))
+        {
+            Tag = new PendingDecomposePlanLinkTag("PLAN-20260725", "revision"),
+        });
         section.Blocks.Add(planActions);
         section.Blocks.Add(ordinaryReplies);
         document.Blocks.Add(section);
@@ -64,6 +67,34 @@ internal sealed class TranscriptQuickReplyFactoryTests
             Assert.That(section.Blocks.Contains(planActions), Is.False);
             Assert.That(section.Blocks.Contains(ordinaryReplies), Is.True);
             Assert.That(section.Blocks.OfType<Paragraph>().Single().Inlines.OfType<Run>().Single().Text,
+                Is.EqualTo("View task plan and dependencies"));
+        });
+    }
+
+    [Test]
+    public void RemovePendingDecomposeApprovalContainers_RepairsMissingPlanLinkBeforeRemovingActions()
+    {
+        var document = new FlowDocument();
+        var section = new Section();
+        var planActions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new PendingDecomposeApprovalTag("PLAN-20260725", "revision"));
+        section.Blocks.Add(planActions);
+        document.Blocks.Add(section);
+
+        TranscriptQuickReplyFactory.RemovePendingDecomposeApprovalContainers(
+            document.Blocks,
+            tag => new Paragraph(new Run("View task plan and dependencies"))
+            {
+                Tag = new PendingDecomposePlanLinkTag(tag.GroupId, tag.Revision),
+            });
+
+        var link = section.Blocks.OfType<Paragraph>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(section.Blocks.Contains(planActions), Is.False);
+            Assert.That(link.Tag, Is.EqualTo(new PendingDecomposePlanLinkTag("PLAN-20260725", "revision")));
+            Assert.That(link.Inlines.OfType<Run>().Single().Text,
                 Is.EqualTo("View task plan and dependencies"));
         });
     }

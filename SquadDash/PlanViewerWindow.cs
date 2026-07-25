@@ -13,8 +13,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double ColumnSpacing = 360;
     private const double RowSpacing = 152;
 
-    internal PlanViewerWindow(DecomposedTaskGroup group) : base(captionHeight: CloseButtonHeight)
+    internal PlanViewerWindow(
+        PendingDecomposePlan plan,
+        string? activeBranch,
+        double quickReplyFontSize,
+        Func<DecomposePlanActionDefinition, Task<bool>>? applyAction = null)
+        : base(captionHeight: CloseButtonHeight)
     {
+        var group = plan.Group;
         Title     = group.GroupTitle;
         Width     = 1200;
         Height    = 720;
@@ -26,6 +32,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
+
+        if (applyAction is not null)
+        {
+            var actionsPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
+            {
+                var capturedAction = action;
+                var button = TranscriptQuickReplyFactory.CreateButton(
+                    action.Label,
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
+                button.Click += async (_, _) =>
+                {
+                    actionsPanel.IsEnabled = false;
+                    try
+                    {
+                        if (await applyAction(capturedAction))
+                            Close();
+                        else
+                            actionsPanel.IsEnabled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        actionsPanel.IsEnabled = true;
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
+                        UIErrorHelper.ShowError("Task Plan", ex.Message, this);
+                    }
+                };
+                actionsPanel.Children.Add(button);
+            }
+            header.Children.Add(actionsPanel);
+        }
 
         var summaryBlock = new TextBlock
         {

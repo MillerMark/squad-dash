@@ -3,6 +3,12 @@ using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
+internal sealed record DecomposePlanActionDefinition(
+    string Label,
+    string Action,
+    string? Branch,
+    string Hint);
+
 /// <summary>Builds and reads host-owned Inbox messages for pending decomposition plans.</summary>
 internal static class DecomposePlanInbox
 {
@@ -46,18 +52,9 @@ internal static class DecomposePlanInbox
         var reason = explicitlyRequested
             ? "This decomposition plan was sent to your Inbox as requested."
             : "This decomposition plan was staged in the transcript but was not acted on before the conversation moved on.";
-        var actions = new List<InboxAction>
-        {
-            BuildAction("Add to Backlog", plan, "add-to-backlog", null,
-                "Add all tasks and their dependencies to tasks.md."),
-        };
-        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
-        {
-            actions.Add(BuildAction($"Execute in {group.Branch} Branch", plan, "execute-new-branch", group.Branch,
-                $"Switch to or create {group.Branch}, then start the dependency-aware loop."));
-        }
-        actions.Add(BuildAction("Execute in Active Branch", plan, "execute-active-branch", null,
-            "Start the dependency-aware loop on the currently active branch."));
+        var actions = BuildActionDefinitions(plan, activeBranch)
+            .Select(action => BuildInboxAction(plan, action))
+            .ToList();
 
         return new InboxMessage
         {
@@ -91,6 +88,40 @@ internal static class DecomposePlanInbox
         };
     }
 
+    /// <summary>
+    /// Returns the one canonical, branch-aware action set used by the transcript, Inbox,
+    /// and plan viewer. When the proposed branch is already active, the redundant proposed-
+    /// branch action is omitted.
+    /// </summary>
+    internal static IReadOnlyList<DecomposePlanActionDefinition> BuildActionDefinitions(
+        PendingDecomposePlan plan,
+        string? activeBranch)
+    {
+        var group = plan.Group;
+        var actions = new List<DecomposePlanActionDefinition>
+        {
+            new(
+                "Add to Backlog",
+                "add-to-backlog",
+                null,
+                "Add all tasks and their dependencies to tasks.md."),
+        };
+        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
+        {
+            actions.Add(new DecomposePlanActionDefinition(
+                $"Execute in {group.Branch} Branch",
+                "execute-new-branch",
+                group.Branch,
+                $"Switch to or create {group.Branch}, then start the dependency-aware loop."));
+        }
+        actions.Add(new DecomposePlanActionDefinition(
+            "Execute in Active Branch",
+            "execute-active-branch",
+            null,
+            "Start the dependency-aware loop on the currently active branch."));
+        return actions;
+    }
+
     internal static bool TryReadSnapshot(InboxAttachment attachment, out PendingDecomposePlan? plan)
     {
         plan = null;
@@ -116,20 +147,21 @@ internal static class DecomposePlanInbox
         }
     }
 
-    private static InboxAction BuildAction(
-        string label,
+    private static InboxAction BuildInboxAction(
         PendingDecomposePlan plan,
-        string action,
-        string? branch,
-        string hint)
+        DecomposePlanActionDefinition action)
     {
-        var decision = new DecomposeDecision(plan.Group.GroupId, plan.Revision, action, branch);
+        var decision = new DecomposeDecision(
+            plan.Group.GroupId,
+            plan.Revision,
+            action.Action,
+            action.Branch);
         return new InboxAction
         {
-            Label = label,
+            Label = action.Label,
             RouteMode = ActionRouteMode,
             Prompt = "DECOMPOSE_DECISION_JSON:\n" + JsonSerializer.Serialize(decision, DecisionOptions),
-            Hint = hint,
+            Hint = action.Hint,
         };
     }
 }
