@@ -628,12 +628,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     // ── Window placement persistence ─────────────────────────────────────────
 
     private string BuildPlacementKey()
-    {
-        if (_workspaceFolderPath is null) return "::CommitHistoryVisualizer";
-        var normalized = Path.GetFullPath(_workspaceFolderPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return normalized + "::CommitHistoryVisualizer";
-    }
+        => CommitActivityGraphLogic.BuildPlacementKey(_workspaceFolderPath);
 
     private void ApplyPersistedPlacement()
     {
@@ -678,25 +673,14 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     {
         var canvasGraphWidth = _canvas.ActualWidth - CommitActivityCanvas.LabelColumnWidth;
         if (canvasGraphWidth <= 0) return;
-        int dayCount = Math.Max(1, _endDate.DayNumber - _startDate.DayNumber + 1);
-        var ppd         = canvasGraphWidth / dayCount;
-        var mouseGraphX = Math.Clamp(mouseCanvasX - CommitActivityCanvas.LabelColumnWidth, 0, canvasGraphWidth);
+        int absRange    = _rangeSlider.MaxDate.DayNumber - _rangeSlider.MinDate.DayNumber + 1;
+        var mouseGraphX = mouseCanvasX - CommitActivityCanvas.LabelColumnWidth;
 
-        double mouseDateFrac  = _startDate.DayNumber + mouseGraphX / ppd;
-        double centerDateFrac = _startDate.DayNumber + (canvasGraphWidth / 2.0) / ppd;
+        var (newStartDay, newEndDay) = CommitActivityGraphLogic.CalculateZoomedDayRange(
+            _startDate.DayNumber, _endDate.DayNumber, canvasGraphWidth, mouseGraphX, factor, absRange);
 
-        int absRange     = _rangeSlider.MaxDate.DayNumber - _rangeSlider.MinDate.DayNumber + 1;
-        double newDayCount = Math.Clamp(dayCount / factor, 1, absRange);
-
-        double newMouseDateFrac = centerDateFrac + (mouseDateFrac - centerDateFrac) * 0.8;
-
-        double newPPD       = canvasGraphWidth / newDayCount;
-        double newStartFrac = newMouseDateFrac - mouseGraphX / newPPD;
-
-        int newStartDay = (int)Math.Round(newStartFrac);
-        int newEndDay   = newStartDay + (int)Math.Round(newDayCount) - 1;
-
-        ClampDateRange(ref newStartDay, ref newEndDay, (int)Math.Round(newDayCount));
+        int newDayCount = newEndDay - newStartDay + 1;
+        ClampDateRange(ref newStartDay, ref newEndDay, newDayCount);
 
         _startDate = DateOnly.FromDayNumber(newStartDay);
         _endDate   = DateOnly.FromDayNumber(newEndDay);
@@ -725,14 +709,8 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     }
 
     private void ClampDateRange(ref int startDay, ref int endDay, int dayCount)
-    {
-        int minDay = _rangeSlider.MinDate.DayNumber;
-        int maxDay = _rangeSlider.MaxDate.DayNumber;
-        if (endDay   > maxDay) { endDay   = maxDay;   startDay = endDay   - dayCount + 1; }
-        if (startDay < minDay) { startDay = minDay;   endDay   = startDay + dayCount - 1; }
-        startDay = Math.Max(startDay, minDay);
-        endDay   = Math.Min(endDay,   maxDay);
-    }
+        => CommitActivityGraphLogic.ClampDayRange(ref startDay, ref endDay, dayCount,
+               _rangeSlider.MinDate.DayNumber, _rangeSlider.MaxDate.DayNumber);
 
     private void ApplySelectionAsDateRange()
     {
@@ -983,13 +961,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     }
 
     private static string FormatSelectionDuration(TimeSpan ts)
-    {
-        if (ts.TotalHours >= 1)
-            return $"{(int)ts.TotalHours}h {ts.Minutes}m";
-        if (ts.TotalMinutes >= 1)
-            return $"{(int)ts.TotalMinutes}m";
-        return $"{(int)ts.TotalSeconds}s";
-    }
+        => CommitActivityGraphLogic.FormatDuration(ts);
 
     private void UpdateViewSummary()
     {
@@ -1528,20 +1500,7 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     /// Each line is an abbreviated SHA followed by a space and an ISO 8601 timestamp.
     /// </summary>
     internal static List<(string sha, DateTimeOffset time)> ParseGitLogOutput(string output)
-    {
-        var results = new List<(string, DateTimeOffset)>();
-        foreach (var line in output.AsSpan().EnumerateLines())
-        {
-            var s = line.ToString().Trim();
-            var spaceIdx = s.IndexOf(' ');
-            if (spaceIdx < 7) continue;
-            var sha  = s[..spaceIdx];
-            var rest = s[(spaceIdx + 1)..].Trim();
-            if (DateTimeOffset.TryParse(rest, out var time))
-                results.Add((sha, time));
-        }
-        return results;
-    }
+        => CommitActivityGraphLogic.ParseGitLogOutput(output);
 
     // ── Canvas refresh ────────────────────────────────────────────────────────
 
@@ -1759,40 +1718,10 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
     private static List<CommitActivityRow> BuildFeatureRows(
         List<CommitApprovalItem> items,
         bool                     hasWorkspace = false)
-    {
-        var rows = new List<CommitActivityRow>();
-
-        // Always show Uncategorized when workspace is available (git history will populate it).
-        var hasUncategorized = hasWorkspace || items.Any(i => i.FeatureGroup is null);
-        if (hasUncategorized)
-            rows.Add(new CommitActivityRow(null, "Uncategorized", 0));
-
-        var named = items
-            .Where(i => i.FeatureGroup is not null)
-            .Select(i => i.FeatureGroup!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(g => g, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        for (int i = 0; i < named.Count; i++)
-            rows.Add(new CommitActivityRow(named[i], named[i], (i % 6) + 1));
-
-        return rows;
-    }
+        => CommitActivityGraphLogic.BuildFeatureRows(items, hasWorkspace);
 
     private static List<CommitStatRequest> BuildRequests(List<CommitApprovalItem> items)
-        => items
-            .GroupBy(i => i.CommitSha, StringComparer.OrdinalIgnoreCase)
-            .Select(g =>
-            {
-                var first = g.First();
-                return new CommitStatRequest(
-                    first.CommitSha,
-                    first.FeatureGroup,
-                    DateOnly.FromDateTime(first.TurnStartedAt.LocalDateTime),
-                    TurnStartedAt: first.TurnStartedAt);
-            })
-            .ToList();
+        => CommitActivityGraphLogic.BuildRequests(items);
 
     // ── AI categorization ─────────────────────────────────────────────────────
 
@@ -2208,9 +2137,7 @@ internal sealed class RangeSliderControl : FrameworkElement
     }
 
     private static DateOnly ClampDate(DateOnly value, DateOnly min, DateOnly max)
-        => value.DayNumber < min.DayNumber ? min
-         : value.DayNumber > max.DayNumber ? max
-         : value;
+        => CommitActivityGraphLogic.ClampDate(value, min, max);
 
     // ── Brush / text helpers ───────────────────────────────────────────────────
 
@@ -3132,17 +3059,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     /// Priority order for day-of-week labels: Mon first, then Fri, Wed, Tue, Thu, Sat, Sun.
     /// Lower value = drawn first. Ensures key business-week anchors survive at low zoom.
     /// </summary>
-    private static int DayLabelPriority(DayOfWeek dow) => dow switch
-    {
-        DayOfWeek.Monday    => 1,
-        DayOfWeek.Friday    => 2,
-        DayOfWeek.Wednesday => 3,
-        DayOfWeek.Tuesday   => 4,
-        DayOfWeek.Thursday  => 5,
-        DayOfWeek.Saturday  => 6,
-        DayOfWeek.Sunday    => 7,
-        _                   => 8,
-    };
+    private static int DayLabelPriority(DayOfWeek dow)
+        => CommitActivityGraphLogic.DayLabelPriority(dow);
 
     /// <summary>
     /// Greedily selects day labels in priority order, accepting each only if it does
@@ -3190,23 +3108,8 @@ internal sealed class CommitActivityCanvas : FrameworkElement
 
         for (var day = startDay; day <= endDay; day = day.AddDays(1))
         {
-            var dayStart = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue),           offset);
-            var dayEnd   = new DateTimeOffset(day.AddDays(1).ToDateTime(TimeOnly.MinValue), offset);
-
-            if (!_workHours.IsWorkDay(day.DayOfWeek))
-            {
-                DrawOffHoursRect(dc, brush, gridHeight, dayStart, dayEnd);
-            }
-            else
-            {
-                // Pre-work: midnight → WorkDayStartHour
-                var workStart = new DateTimeOffset(day.ToDateTime(new TimeOnly(_workHours.WorkDayStartHour, 0)), offset);
-                DrawOffHoursRect(dc, brush, gridHeight, dayStart, workStart);
-
-                // Post-work: WorkDayEndHour → midnight
-                var workEnd = new DateTimeOffset(day.ToDateTime(new TimeOnly(_workHours.WorkDayEndHour, 0)), offset);
-                DrawOffHoursRect(dc, brush, gridHeight, workEnd, dayEnd);
-            }
+            foreach (var (segStart, segEnd) in CommitActivityGraphLogic.GetOffHoursSegments(day, offset, _workHours))
+                DrawOffHoursRect(dc, brush, gridHeight, segStart, segEnd);
         }
     }
 
@@ -3247,16 +3150,7 @@ internal sealed class CommitActivityCanvas : FrameworkElement
     /// Rects may extend 75% beyond the row boundary, which is intentional.
     /// </summary>
     private static double CommitRectHeight(CommitStatResult commit)
-    {
-        const double ZeroHeight = 2.0;
-        const double MinHeight  = 3.0;
-        const double MaxHeight  = RowHeight * 1.75;
-        var totalLines = commit.Insertions + commit.Deletions;
-        if (totalLines <= 0)    return ZeroHeight;
-        if (totalLines >= 1000) return MaxHeight;
-        var t = Math.Log(totalLines + 1.0) / Math.Log(1001.0);
-        return MinHeight + (MaxHeight - MinHeight) * t;
-    }
+        => CommitActivityGraphLogic.CommitRectHeight(commit.Insertions, commit.Deletions, RowHeight);
 
     // ── Tooltip / hit testing ──────────────────────────────────────────────────
 

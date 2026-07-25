@@ -242,6 +242,7 @@
     <Compile Include="..\SquadDash\AnnotationCursors.cs" Link="Source\AnnotationCursors.cs" />
     <Compile Include="..\SquadDash\WorkHoursSettings.cs" Link="Source\WorkHoursSettings.cs" />
     <Compile Include="..\SquadDash\WorkHoursStore.cs" Link="Source\WorkHoursStore.cs" />
+    <Compile Include="..\SquadDash\CommitActivityGraphLogic.cs" Link="Source\CommitActivityGraphLogic.cs" />
     <Compile Include="..\SquadDash\CommitActivityGraphWindow.cs" Link="Source\CommitActivityGraphWindow.cs" />
     <Compile Include="..\SquadDash\FeatureGroupStore.cs" Link="Source\FeatureGroupStore.cs" />
     <Compile Include="..\SquadDash\FeatureGroupPromptBuilder.cs" Link="Source\FeatureGroupPromptBuilder.cs" />
