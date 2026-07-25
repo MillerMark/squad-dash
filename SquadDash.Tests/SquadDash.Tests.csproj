@@ -282,6 +282,7 @@
     <Compile Include="..\SquadDash\MarkdownHoverPopup.cs" Link="Source\MarkdownHoverPopup.cs" />
     <Compile Include="..\SquadDash\MarkdownFlowDocumentBuilder.cs" Link="Source\MarkdownFlowDocumentBuilder.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelController.cs" Link="Source\CodeHealthPanelController.cs" />
+    <Compile Include="..\SquadDash\FilterEmptyStateHelper.cs" Link="Source\FilterEmptyStateHelper.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelViewModel.cs" Link="Source\CodeHealthPanelViewModel.cs" />
     <Compile Include="..\SquadDash\InboxPanelViewModel.cs" Link="Source\InboxPanelViewModel.cs" />
     <Compile Include="..\SquadDash\TasksPanelViewModel.cs" Link="Source\TasksPanelViewModel.cs" />

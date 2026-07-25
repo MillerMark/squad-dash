@@ -124,10 +124,16 @@ internal sealed class TranscriptSelectionController
     {
         if (card.IsLeadAgent)
         {
-            // Toggle main transcript
-            if (_mainVisible)
+            if (_mainVisible && !_mainOwnerIsLeadAgent)
             {
-                // Only hide if there are other panels visible
+                // Main is showing a non-lead agent; open lead as secondary panel
+                var thread1 = GetThread1(card);
+                if (thread1 is not null)
+                    DoOpenPanel(card, thread1);
+            }
+            else if (_mainVisible)
+            {
+                // Only hide main if there are other panels visible
                 if (_openPanels.Count > 0)
                     DoHideMain();
                 // else: don't close the last visible thing
