@@ -322,6 +322,130 @@ internal sealed class TranscriptSelectionTests
         Assert.That(showMainFired, Is.False);
     }
 
+    // ── HandleCardClick — shift-click non-lead ────────────────────────────────
+
+    [Test]
+    public void HandleCardClick_ShiftNonLead_MainShowsCoordinator_OpensAgentAsSecondary()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var agentA = MakeCard("Lyra");
+        var t1 = MakeThread(1);
+        agentA.Threads.Add(t1);
+
+        var controller = MakeController([lead, agentA], mainVisible: true);
+
+        (AgentStatusCard? card, TranscriptThreadState? thread, bool isAuto) opened = default;
+        controller.OpenPanelRequested += (c, t, a) => opened = (c, t, a);
+        bool hideFired = false;
+        controller.HideMainRequested += () => hideFired = true;
+
+        controller.HandleCardClick(agentA, shiftHeld: true);
+
+        Assert.That(opened.card, Is.SameAs(agentA));
+        Assert.That(opened.thread, Is.SameAs(t1));
+        Assert.That(hideFired, Is.False, "Main (coordinator) should stay visible");
+    }
+
+    [Test]
+    public void HandleCardClick_ShiftNonLead_AnotherSecondaryAlreadyOpen_AddsSecondary()
+    {
+        var agentA = MakeCard("Lyra");
+        var agentB = MakeCard("Orion");
+        var tA = MakeThread(1);
+        var tB = MakeThread(1);
+        agentA.Threads.Add(tA);
+        agentB.Threads.Add(tB);
+
+        var controller = MakeController([agentA, agentB], mainVisible: true);
+        controller.HandleCardClick(agentB, shiftHeld: true); // open agentB first
+        Assert.That(controller.OpenPanels.Count, Is.EqualTo(1));
+
+        var opened = new List<(AgentStatusCard c, TranscriptThreadState t)>();
+        controller.OpenPanelRequested += (c, t, _) => opened.Add((c, t));
+        var closed = new List<(AgentStatusCard c, TranscriptThreadState t)>();
+        controller.ClosePanelRequested += (c, t) => closed.Add((c, t));
+
+        controller.HandleCardClick(agentA, shiftHeld: true);
+
+        Assert.That(opened, Has.Some.Matches<(AgentStatusCard c, TranscriptThreadState t)>(x => x.c == agentA));
+        Assert.That(closed, Has.None.Matches<(AgentStatusCard c, TranscriptThreadState t)>(x => x.c == agentB),
+            "AgentB's panel should not be closed when agentA is shift-clicked open");
+        Assert.That(controller.OpenPanels.Count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void HandleCardClick_ShiftNonLead_PanelAlreadyOpen_ClosesIt()
+    {
+        var agentA = MakeCard("Lyra");
+        var t1 = MakeThread(1);
+        agentA.Threads.Add(t1);
+
+        var controller = MakeController([agentA], mainVisible: true);
+        controller.HandleCardClick(agentA, shiftHeld: true); // open
+        Assert.That(controller.OpenPanels.Count, Is.EqualTo(1));
+
+        bool closeFired = false;
+        controller.ClosePanelRequested += (_, _) => closeFired = true;
+
+        controller.HandleCardClick(agentA, shiftHeld: true); // toggle off
+
+        Assert.That(closeFired, Is.True);
+        Assert.That(controller.OpenPanels.Count, Is.EqualTo(0));
+    }
+
+    // ── HandleCardClick — shift-click lead (coordinator) ─────────────────────
+
+    [Test]
+    public void HandleCardClick_ShiftLead_MainVisible_SecondariesExist_HidesMain()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var agentA = MakeCard("Lyra");
+        var t1 = MakeThread(1);
+        agentA.Threads.Add(t1);
+
+        var controller = MakeController([lead, agentA], mainVisible: true);
+        controller.HandleCardClick(agentA, shiftHeld: true); // open a secondary
+        Assert.That(controller.OpenPanels.Count, Is.EqualTo(1));
+
+        bool hideFired = false;
+        controller.HideMainRequested += () => hideFired = true;
+
+        controller.HandleCardClick(lead, shiftHeld: true);
+
+        Assert.That(hideFired, Is.True);
+    }
+
+    [Test]
+    public void HandleCardClick_ShiftLead_MainVisible_NoSecondaries_DoesNotHideMain()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var controller = MakeController([lead], mainVisible: true);
+
+        bool hideFired = false;
+        bool openFired = false;
+        controller.HideMainRequested += () => hideFired = true;
+        controller.OpenPanelRequested += (_, _, _) => openFired = true;
+
+        controller.HandleCardClick(lead, shiftHeld: true);
+
+        Assert.That(hideFired, Is.False, "Must not blank the screen when coordinator is the only visible panel");
+        Assert.That(openFired, Is.False);
+    }
+
+    [Test]
+    public void HandleCardClick_ShiftLead_MainNotVisible_ShowsMain()
+    {
+        var lead = MakeCard("Squad", isLead: true);
+        var controller = MakeController([lead], mainVisible: false);
+
+        bool showFired = false;
+        controller.ShowMainRequested += () => showFired = true;
+
+        controller.HandleCardClick(lead, shiftHeld: true);
+
+        Assert.That(showFired, Is.True);
+    }
+
     // ── IsSecondaryPanelOpen and card indicator ───────────────────────────────
 
     [Test]
