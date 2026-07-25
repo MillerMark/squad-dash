@@ -4,7 +4,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:SquadDash"
         xmlns:panelDocking="clr-namespace:SquadDash.PanelDocking"
-        Title="Squad Dash"
+        Title="SquadDash"
         Icon="Assets/SquadDash.ico"
         Height="820"
         Width="1320"

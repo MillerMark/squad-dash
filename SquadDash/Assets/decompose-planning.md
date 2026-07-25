@@ -74,10 +74,10 @@ TASKS_JSON:
 }
 ```
 
-For ordinary responses Squad Dash stages the plan and asks the user whether to add it to the
+For ordinary responses SquadDash stages the plan and asks the user whether to add it to the
 backlog, execute it in the proposed new branch, or execute it in the active branch. Never claim
 that emitting `TASKS_JSON` itself grants permission to execute. When `delivery` is `"inbox"`,
-Squad Dash sends the staged plan to the Inbox with the same three host-owned actions instead of
+SquadDash sends the staged plan to the Inbox with the same three host-owned actions instead of
 showing approval controls beneath the transcript response.
 
 ## DECOMPOSE_DECISION_JSON schema
@@ -89,13 +89,13 @@ If the user later approves or modifies a staged plan in free text, emit:
 ```json
 {
   "groupId": "GROUP-YYYYMMDD",
-  "revision": "revision supplied by Squad Dash in the pending-plan context",
+  "revision": "revision supplied by SquadDash in the pending-plan context",
   "action": "execute-new-branch",
   "branch": "optional branch override"
 }
 ```
 
-Only emit a decision for a group already staged by Squad Dash. A revised task graph requires a
+Only emit a decision for a group already staged by SquadDash. A revised task graph requires a
 new `TASKS_JSON` proposal and another approval. `action` must be exactly one of `add-to-backlog`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
-The `revision` must exactly match the revision supplied by Squad Dash for that pending group.
+The `revision` must exactly match the revision supplied by SquadDash for that pending group.

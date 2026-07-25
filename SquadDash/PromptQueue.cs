@@ -84,8 +84,18 @@ internal sealed class PromptQueue {
     }
 
     /// <summary>Inserts a new item at index 0, making it the next item to dispatch.</summary>
-    public PromptQueueItem EnqueueAtFront(string text, int seqNum, string? sourceTag = null) {
-        var item = new PromptQueueItem { Text = text, SequenceNumber = seqNum, SourceTag = sourceTag };
+    public PromptQueueItem EnqueueAtFront(
+        string text,
+        int seqNum,
+        string? sourceTag = null,
+        bool isSystemInjected = false) {
+        var item = new PromptQueueItem
+        {
+            Text = text,
+            SequenceNumber = seqNum,
+            SourceTag = sourceTag,
+            IsSystemInjected = isSystemInjected,
+        };
         _items.Insert(0, item);
         ItemEnqueued?.Invoke(this, EventArgs.Empty);
         return item;

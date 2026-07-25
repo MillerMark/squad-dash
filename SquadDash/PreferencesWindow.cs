@@ -1302,7 +1302,7 @@ internal sealed class PreferencesWindow : Window {
         AddSectionHeader(form, "Model");
 
         var hint = new TextBlock {
-            Text = "Choose the AI provider used by Squad Dash. GitHub Copilot uses your Copilot account and can be pinned to a specific model; Custom Model uses your own compatible provider settings.",
+            Text = "Choose the AI provider used by SquadDash. GitHub Copilot uses your Copilot account and can be pinned to a specific model; Custom Model uses your own compatible provider settings.",
             TextWrapping = TextWrapping.Wrap,
             FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 12)

@@ -184,6 +184,24 @@ internal sealed class PromptQueueTests {
     }
 
     [Test]
+    public void EnqueueAtFront_WithSystemInjection_PreservesRepairMetadata() {
+        var queue = new PromptQueue();
+
+        var item = queue.EnqueueAtFront(
+            "full hidden repair prompt",
+            7,
+            sourceTag: "decompose-repair",
+            isSystemInjected: true);
+
+        Assert.Multiple(() => {
+            Assert.That(queue.Items[0], Is.SameAs(item));
+            Assert.That(item.Text, Is.EqualTo("full hidden repair prompt"));
+            Assert.That(item.SourceTag, Is.EqualTo("decompose-repair"));
+            Assert.That(item.IsSystemInjected, Is.True);
+        });
+    }
+
+    [Test]
     public void DequeueFirstReady_PreservesIsDictatedFlag() {
         var queue = new PromptQueue();
         queue.Enqueue("typed",    1, isDictated: false);

@@ -385,6 +385,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
+    private const string SystemTranscriptStatusPrefix = "[SQUADDASH_SYSTEM_STATUS] ";
     private bool _bridgeRestartForSettingsPending;
     private readonly PromptQueue _promptQueue;
     private bool _queueManuallyPaused;
@@ -2689,11 +2690,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             ResetQueuePausedState();
             HandleOpenEditorsBeforeSend(id);
-            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+            _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            await _pec.ExecutePromptAsync(
+                ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
+                addToHistory: !item.IsSystemInjected,
+                clearPromptBox: false,
+                displayPrompt: BuildQueuedPromptDisplayText(item));
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(DispatchQueuedTabAsync), ex);
+        }
+        finally
+        {
+            _pendingPromptIsSystemInjected = false;
         }
     }
 
@@ -2731,7 +2741,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             SquadDashTrace.Write("UI", $"Prompt sent: rightmost queued tab as quick-reply answer id={id}");
-            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+            _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            await _pec.ExecutePromptAsync(
+                ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
+                addToHistory: !item.IsSystemInjected,
+                clearPromptBox: false,
+                displayPrompt: BuildQueuedPromptDisplayText(item));
         }
         catch (Exception ex)
         {
@@ -2739,6 +2754,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         finally
         {
+            _pendingPromptIsSystemInjected = false;
             _loopFollowUpTcs?.TrySetResult(true);
         }
     }
@@ -2830,7 +2846,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _promptQueue.Remove(item.Id);
         SyncQueuePanel();
 
-        AppendLine($"📤 Dispatching queued item #{item.QueueNumber}…", (Brush)FindResource("SubtleText"));
+        if (!item.IsSystemInjected)
+            AppendLine($"📤 Dispatching queued item #{item.QueueNumber}…", (Brush)FindResource("SubtleText"));
 
         try
         {
@@ -2841,7 +2858,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             AutoActivateCoordinatorTranscriptOnPromptSubmit();
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
-            await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+            await _pec.ExecutePromptAsync(
+                ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
+                addToHistory: !item.IsSystemInjected,
+                clearPromptBox: false,
+                displayPrompt: BuildQueuedPromptDisplayText(item));
         }
         catch (Exception ex)
         {
@@ -2859,6 +2880,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private static string ApplyDictationAnnotation(PromptQueueItem item) =>
         item.IsDictated ? item.Text + "\n(some or all of this prompt was dictated by voice)" : item.Text;
+
+    private static string? BuildQueuedPromptDisplayText(PromptQueueItem item)
+    {
+        if (!item.IsSystemInjected)
+            return null;
+
+        return string.Equals(item.SourceTag, "decompose-repair", StringComparison.Ordinal)
+            ? SystemTranscriptStatusPrefix +
+              "SquadDash could not accept the task plan because its TASKS_JSON was malformed, " +
+              "failed schema validation, or contained invalid dependencies. The complete schema " +
+              "was sent back to AI automatically; waiting for one corrected plan now…"
+            : null;
+    }
 
     private static string DescribeQueueItemForTrace(PromptQueueItem item) =>
         $"id={ShortQueueItemId(item.Id)} seq={item.SequenceNumber} chars={item.Text.Length} hash={StableQueueTextHash(item.Text)} dictated={item.IsDictated} remote={item.IsFromRemote} system={item.IsSystemInjected} sim={item.IsSimEntry}";
@@ -2922,7 +2956,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
-            AppendLine($"📤 Dispatching queued item #{item.QueueNumber}…", (Brush)FindResource("SubtleText"));
+            if (!item.IsSystemInjected)
+                AppendLine($"📤 Dispatching queued item #{item.QueueNumber}…", (Brush)FindResource("SubtleText"));
 
             try
             {
@@ -2932,7 +2967,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
-                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(
+                    ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
+                    addToHistory: !item.IsSystemInjected,
+                    clearPromptBox: false,
+                    displayPrompt: BuildQueuedPromptDisplayText(item));
             }
             catch (Exception ex)
             {
@@ -3016,7 +3055,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _promptQueue.Remove(item.Id);
             SyncQueuePanel();
 
-            AppendLine("📤 Dispatching queued item…", (Brush)FindResource("SubtleText"));
+            if (!item.IsSystemInjected)
+                AppendLine("📤 Dispatching queued item…", (Brush)FindResource("SubtleText"));
 
             try
             {
@@ -3026,7 +3066,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
-                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(
+                    ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
+                    addToHistory: !item.IsSystemInjected,
+                    clearPromptBox: false,
+                    displayPrompt: BuildQueuedPromptDisplayText(item));
             }
             catch (Exception ex)
             {
@@ -4961,7 +5005,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         if (hasTasksPayload && hasDecisionPayload)
                         {
                             AppendLine("⚠ The response contained both a task proposal and an execution decision. " +
-                                       "Squad Dash staged the proposal but ignored the decision; approval must come in a later turn.");
+                                       "SquadDash staged the proposal but ignored the decision; approval must come in a later turn.");
                             SquadDashTrace.Write(TraceCategory.General,
                                 "Decompose decision ignored because TASKS_JSON appeared in the same response.");
                         }
@@ -5730,7 +5774,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             try
             {
-                await _pec.ExecutePromptAsync(ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id), addToHistory: !item.IsSystemInjected, clearPromptBox: false);
+                await _pec.ExecutePromptAsync(
+                    ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
+                    addToHistory: !item.IsSystemInjected,
+                    clearPromptBox: false,
+                    displayPrompt: BuildQueuedPromptDisplayText(item));
             }
             finally
             {
@@ -7206,18 +7254,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             _decomposeRepairPending = false;
             AppendLine("⚠ The automatic task-plan repair attempt was still invalid. " +
-                       "Squad Dash stopped retrying; the plan was not staged.");
+                       "SquadDash stopped retrying; the plan was not staged.");
             return;
         }
 
         _decomposeRepairPending = true;
-        AppendLine("⚠ Parser errors were found in the task-plan response. " +
-                   "Squad Dash is resubmitting it to the AI once for a schema-correct response…");
-        var prompt = "Your previous TASKS_JSON proposal failed Squad Dash validation. " +
+        var prompt = "Your previous TASKS_JSON proposal failed validation. " +
                      "Correct the proposal and respond with the complete corrected TASKS_JSON block. " +
                      "Do not execute any work and do not emit DECOMPOSE_DECISION_JSON. Follow this specification exactly:\n\n" +
                      DecomposePlanningInstructions.LoadSpecification();
-        _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "decompose-repair");
+        _promptQueue.EnqueueAtFront(
+            prompt,
+            ++_promptQueueSeq,
+            sourceTag: "decompose-repair",
+            isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
     }
@@ -25731,7 +25781,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             if (promptIsSystemInjected)
             {
-                var systemRun = new Run("↩ Following up…");
+                var systemText = promptBody.StartsWith(SystemTranscriptStatusPrefix, StringComparison.Ordinal)
+                    ? promptBody[SystemTranscriptStatusPrefix.Length..]
+                    : "↩ Following up…";
+                var systemRun = new Run(systemText);
                 systemRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                 promptParagraph.Inlines.Add(systemRun);
             }
@@ -30464,7 +30517,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ? solutionDisplay
             : _currentWorkspace is { FolderPath.Length: > 0 }
                 ? Path.GetFileName(_currentWorkspace.FolderPath)
-                : "Squad Dash";
+                : "SquadDash";
         SyncNoWorkspaceHintOverlay();
     }
 
@@ -30487,7 +30540,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             nameof(WorkspaceTitleDisplay),
             typeof(string),
             typeof(MainWindow),
-            new PropertyMetadata("Squad Dash"));
+            new PropertyMetadata("SquadDash"));
 
     public string WorkspaceTitleDisplay
     {
@@ -40014,7 +40067,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         if (!await StartDecomposeLoopAsync(group.GroupId, group))
-            throw new InvalidOperationException("Squad Dash could not start the decomposition loop.");
+            throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
     }
 
     private async Task<bool> IsOnlyTasksFileDirtyAsync(string workspace, string allStatus)
