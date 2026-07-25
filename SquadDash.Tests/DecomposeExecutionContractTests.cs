@@ -192,4 +192,22 @@ internal sealed class DecomposeRevisionTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public void Parser_ReadsAdjacentLegacyRevisionMetadata()
+    {
+        var parsed = TasksPanelParser.Parse(
+        [
+            "<!-- decompose-group: PLAN-20260725 | branch: refactor/plan -->",
+            "<!-- decompose-revision: abc123 -->",
+            "**[PLAN-20260725] Plan**",
+            "> Summary",
+            "- [ ] **[PLAN-20260725-001]** First",
+            "  Group: PLAN-20260725 | Branch: refactor/plan | Priority: high",
+            "  description: First",
+            "  dependsOn: (none)",
+        ]);
+
+        Assert.That(parsed.DecomposeGroups["PLAN-20260725"].HostRevision, Is.EqualTo("abc123"));
+    }
 }

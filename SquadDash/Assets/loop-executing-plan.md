@@ -43,7 +43,8 @@ You are Argus Weld executing the single approved plan identified here: [**FILTER
 
 Read the `tasks.md` file in the configured Squad folder. Work only on a task belonging to this exact
 decompose group. Never select an unrelated unchecked task, even if this plan is blocked.
-Read the plan revision from the decompose-group header. SquadDash owns every task status marker:
+Read the plan revision from the decompose-group header or its adjacent `decompose-revision` metadata.
+SquadDash owns every task status marker:
 do not edit, stage, or commit `tasks.md`.
 
 Find the subtask for this group where:

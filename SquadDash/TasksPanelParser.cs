@@ -211,6 +211,11 @@ internal static class TasksPanelParser {
 
             for (int i = start + 1; i < end; i++) {
                 var trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("<!-- decompose-revision:", StringComparison.Ordinal) &&
+                    trimmed.EndsWith("-->", StringComparison.Ordinal)) {
+                    revision = trimmed["<!-- decompose-revision:".Length..^3].Trim();
+                    continue;
+                }
                 if (trimmed.StartsWith($"**[{groupId}] ", StringComparison.Ordinal) &&
                     trimmed.EndsWith("**", StringComparison.Ordinal)) {
                     title = trimmed[(groupId.Length + 4)..^2].Trim();
