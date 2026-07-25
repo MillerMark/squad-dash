@@ -834,6 +834,27 @@ internal sealed class CodeHealthGroupRunnerTests
 
         Assert.DoesNotThrow(() => runner.OnStopRequested());
     }
+
+    [Test]
+    public void TrackFirstEligibleStep_AfterDependencyCompletes_TracksNextTask()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeLinearGroup();
+        runner.TryStartGroup(group, out _);
+        var content = File.ReadAllText(_tasksFile).Replace(
+            "- [ ] **[PROJ-20240101-001]**",
+            "- [x] **[PROJ-20240101-001]**",
+            StringComparison.Ordinal);
+        File.WriteAllText(_tasksFile, content);
+
+        runner.TrackFirstEligibleStep(group.GroupId);
+        runner.OnStopRequested();
+
+        Assert.That(
+            File.ReadAllText(_tasksFile),
+            Does.Contain("- [!] **[PROJ-20240101-002]**"));
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -5738,6 +5738,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void OnNativeLoopIterationStarted(int iteration)
     {
         _loopCurrentIteration = iteration;
+        if (_activeDecomposeGroupId is not null)
+            _CodeHealthGroupRunner?.TrackFirstEligibleStep(_activeDecomposeGroupId);
         _loopIsWaiting = false;
         _pec.SetIsLoopRunning(true);
         _settingsSnapshot = _settingsStore.SaveLoopActive(true);
@@ -7142,6 +7144,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return false;
         }
 
+        _activeLoopMode = LoopMode.NativeAgents;
+        _loopPanelVisible = true;
+        SyncLoopPanel();
         BackupAndClearLoopOutput();
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration: 0, filterText: groupId, featureGroups: _featureGroupStore?.Load());
@@ -39804,6 +39809,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
+            if (_tasksPanelController?.TryGetSingleVisibleDecomposeGroup(
+                    out var decomposeGroup,
+                    out var containsFailedTask) == true &&
+                decomposeGroup is not null)
+            {
+                if (containsFailedTask)
+                {
+                    MessageBox.Show(
+                        "This plan contains a failed task. Reset that task to pending or edit tasks.md before running the plan again.",
+                        "Plan Has a Failed Task",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                await StartBackloggedDecomposeGroupAsync(decomposeGroup);
+                return;
+            }
+
             var loopFilePath = Path.Combine(workspaceFolder, ".squad", "loop-filtered-tasks.md");
             if (!File.Exists(loopFilePath)) return;
 
@@ -39845,6 +39869,68 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await QueueOrStartLoopAsync(LoopMode.NativeAgents);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
+    }
+
+    private async Task StartBackloggedDecomposeGroupAsync(DecomposedTaskGroup group)
+    {
+        if (_currentWorkspace is null) return;
+        if (!TasksJsonParser.TryParse(
+                "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group),
+                out _))
+            throw new InvalidOperationException(
+                "The selected task plan no longer passes schema validation. Edit tasks.md before running it.");
+        if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out _))
+            throw new InvalidOperationException("The selected task plan contains a dependency cycle.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
+            throw new InvalidOperationException("There is no active Git branch for this workspace.");
+
+        var targetBranch = group.Branch.Trim();
+        if (!string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
+        {
+            var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+            if (!string.IsNullOrWhiteSpace(dirty) &&
+                !await IsOnlyTasksFileDirtyAsync(workspace, dirty))
+                throw new InvalidOperationException(
+                    $"Switch to plan branch '{targetBranch}' after committing or stashing the other working-tree changes.");
+
+            var escapedBranch = targetBranch.Replace("\"", "\\\"");
+            await RunGitAsync(workspace, $"check-ref-format --branch \"{escapedBranch}\"");
+            var existing = await RunGitAsync(
+                workspace,
+                $"branch --list --format=\"%(refname:short)\" \"{escapedBranch}\"");
+            await RunGitAsync(
+                workspace,
+                string.Equals(existing.Trim(), targetBranch, StringComparison.Ordinal)
+                    ? $"checkout \"{escapedBranch}\""
+                    : $"checkout -b \"{escapedBranch}\"");
+            UpdateBranchIndicator();
+        }
+
+        if (!await StartDecomposeLoopAsync(group.GroupId, group))
+            throw new InvalidOperationException("Squad Dash could not start the decomposition loop.");
+    }
+
+    private async Task<bool> IsOnlyTasksFileDirtyAsync(string workspace, string allStatus)
+    {
+        if (_currentWorkspace is null) return false;
+        var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var relativeTasksPath = Path.GetRelativePath(repositoryRoot, tasksPath).Replace('\\', '/');
+        if (relativeTasksPath.StartsWith("../", StringComparison.Ordinal) ||
+            Path.IsPathRooted(relativeTasksPath))
+            return false;
+
+        var escapedPath = relativeTasksPath.Replace("\"", "\\\"");
+        var tasksStatus = await RunGitAsync(
+            workspace,
+            $"status --porcelain --untracked-files=all -- \"{escapedPath}\"");
+        return string.Equals(
+            allStatus.Replace("\r\n", "\n").Trim(),
+            tasksStatus.Replace("\r\n", "\n").Trim(),
+            StringComparison.Ordinal);
     }
 
     private async void CodeHealthDoTheseButton_Click(object sender, RoutedEventArgs e)

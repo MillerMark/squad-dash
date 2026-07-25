@@ -17,15 +17,30 @@ internal static class TasksPanelParser {
     private static readonly Regex PriorityHeadingRegex =
         new(@"^##\s+(🔴|🟡|🟢|🔵|⚫)\s+(.+)$", RegexOptions.Compiled);
 
+    private static readonly Regex DecomposeHeaderRegex = new(
+        @"^<!--\s*decompose-group:\s*(?<id>[^|]+?)\s*\|\s*branch:\s*(?<branch>.+?)\s*-->$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex DecomposeTaskRegex = new(
+        @"^-\s*\[(?<status>[ x!])\]\s*\*\*\[(?<id>[^\]]+)\]\*\*\s*(?<description>.*)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex DecomposeMetadataRegex = new(
+        @"^Group:\s*(?<group>[^|]+?)\s*\|\s*Branch:\s*(?<branch>[^|]+?)\s*\|\s*Priority:\s*(?<priority>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private const string OwnerMarker = " *(Owner:";
 
     internal static TaskParseResult Parse(string[] lines) {
         var groups              = new List<TaskPriorityGroup>();
         var completedItems      = new List<TaskItem>();
+        var decomposeGroups     = new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
+        var consumed            = ParseDecomposeGroups(lines, groups, completedItems, decomposeGroups);
         TaskPriorityGroup? current   = null;
         bool inCompletedSection      = false;
 
         for (int i = 0; i < lines.Length; i++) {
+            if (consumed[i]) continue;
             var line    = lines[i].TrimEnd();
             var trimmed = line.TrimStart();
 
@@ -142,7 +157,9 @@ internal static class TasksPanelParser {
         // in the file collapse into a single group in the panel.
         var merged = new List<TaskPriorityGroup>();
         foreach (var g in groups) {
-            var existing = merged.FirstOrDefault(m => m.Emoji == g.Emoji);
+            var existing = g.DecomposeGroupId is null
+                ? merged.FirstOrDefault(m => m.DecomposeGroupId is null && m.Emoji == g.Emoji)
+                : null;
             if (existing is not null)
                 existing.Items.AddRange(g.Items);
             else
@@ -150,10 +167,173 @@ internal static class TasksPanelParser {
         }
 
         // Sort: High (🔴) → Mid (🟡) → Low (🟢), items within each group keep file order.
-        merged.Sort((a, b) => PriorityOrder(a.Emoji).CompareTo(PriorityOrder(b.Emoji)));
+        merged = merged
+            .Select((group, index) => (group, index))
+            .OrderBy(pair => PriorityOrder(pair.group.Emoji))
+            .ThenBy(pair => pair.index)
+            .Select(pair => pair.group)
+            .ToList();
 
-        return new TaskParseResult(merged, completedItems);
+        return new TaskParseResult(merged, completedItems, decomposeGroups);
     }
+
+    private static bool[] ParseDecomposeGroups(
+        string[] lines,
+        List<TaskPriorityGroup> openGroups,
+        List<TaskItem> completedItems,
+        Dictionary<string, DecomposedTaskGroup> groupsById) {
+
+        var consumed = new bool[lines.Length];
+        int index = 0;
+        while (index < lines.Length) {
+            var header = DecomposeHeaderRegex.Match(lines[index].Trim());
+            if (!header.Success) {
+                index++;
+                continue;
+            }
+
+            int start = index;
+            int end = index + 1;
+            while (end < lines.Length &&
+                   !DecomposeHeaderRegex.IsMatch(lines[end].Trim()) &&
+                   !lines[end].StartsWith("## ", StringComparison.Ordinal))
+                end++;
+
+            for (int i = start; i < end; i++) consumed[i] = true;
+
+            var groupId = header.Groups["id"].Value.Trim();
+            var branch  = header.Groups["branch"].Value.Trim();
+            var title   = groupId;
+            var summary = string.Empty;
+            var tasks   = new List<DecomposedSubTask>();
+            var items   = new List<TaskItem>();
+
+            for (int i = start + 1; i < end; i++) {
+                var trimmed = lines[i].Trim();
+                if (trimmed.StartsWith($"**[{groupId}] ", StringComparison.Ordinal) &&
+                    trimmed.EndsWith("**", StringComparison.Ordinal)) {
+                    title = trimmed[(groupId.Length + 4)..^2].Trim();
+                    continue;
+                }
+                if (trimmed.StartsWith("> ", StringComparison.Ordinal)) {
+                    summary = trimmed[2..].Trim();
+                    continue;
+                }
+
+                var taskMatch = DecomposeTaskRegex.Match(trimmed);
+                if (!taskMatch.Success) continue;
+
+                var status      = taskMatch.Groups["status"].Value.ToLowerInvariant();
+                var taskId      = taskMatch.Groups["id"].Value.Trim();
+                var description = StripOwner(taskMatch.Groups["description"].Value.Trim(), out var owner);
+                var priority    = "medium";
+                IReadOnlyList<string> dependsOn = [];
+
+                int metadataEnd = i + 1;
+                while (metadataEnd < end &&
+                       !DecomposeTaskRegex.IsMatch(lines[metadataEnd].Trim()) &&
+                       !DecomposeHeaderRegex.IsMatch(lines[metadataEnd].Trim())) {
+                    var metadata = lines[metadataEnd].Trim();
+                    var metadataMatch = DecomposeMetadataRegex.Match(metadata);
+                    if (metadataMatch.Success)
+                        priority = metadataMatch.Groups["priority"].Value.Trim();
+                    else if (metadata.StartsWith("dependsOn:", StringComparison.OrdinalIgnoreCase)) {
+                        var rawDependencies = metadata["dependsOn:".Length..].Trim();
+                        dependsOn = rawDependencies.Equals("(none)", StringComparison.OrdinalIgnoreCase) ||
+                                    rawDependencies.Length == 0
+                            ? []
+                            : rawDependencies.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    }
+                    metadataEnd++;
+                }
+
+                var emoji = PriorityToEmoji(priority);
+                var hover = BuildDecomposeHover(groupId, title, branch, summary, taskId, priority, dependsOn, status == "!");
+                var item = new TaskItem(
+                    Text: description,
+                    Owner: owner,
+                    IsUserOwned: owner?.Contains("you", StringComparison.OrdinalIgnoreCase) == true,
+                    IsChecked: status == "x",
+                    Emoji: emoji,
+                    RawLine: lines[i].TrimEnd(),
+                    Description: hover,
+                    DecomposeGroupId: groupId,
+                    DecomposeGroupTitle: title,
+                    DecomposeBranch: branch,
+                    TaskId: taskId,
+                    DependsOn: dependsOn,
+                    IsFailed: status == "!");
+
+                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority));
+                items.Add(item);
+                i = metadataEnd - 1;
+            }
+
+            if (tasks.Count > 0) {
+                var group = new DecomposedTaskGroup(groupId, title, branch, summary, tasks);
+                groupsById[groupId] = group;
+
+                var openItems = items.Where(item => !item.IsChecked).ToList();
+                if (openItems.Count > 0) {
+                    var groupEmoji = openItems
+                        .OrderBy(item => PriorityOrder(item.Emoji))
+                        .Select(item => item.Emoji)
+                        .First();
+                    var panelGroup = new TaskPriorityGroup(
+                        groupEmoji,
+                        $"Plan · {title}",
+                        groupId,
+                        title,
+                        branch);
+                    panelGroup.Items.AddRange(openItems);
+                    openGroups.Add(panelGroup);
+                }
+
+                completedItems.AddRange(items.Where(item => item.IsChecked));
+            }
+
+            index = end;
+        }
+
+        return consumed;
+    }
+
+    private static string StripOwner(string text, out string? owner) {
+        owner = null;
+        var ownerIdx = text.IndexOf(OwnerMarker, StringComparison.Ordinal);
+        if (ownerIdx <= 0) return text;
+        var after = text[(ownerIdx + OwnerMarker.Length)..];
+        var closeIdx = after.IndexOf(')', StringComparison.Ordinal);
+        if (closeIdx >= 0) owner = after[..closeIdx].Trim();
+        return text[..ownerIdx].Trim();
+    }
+
+    private static string BuildDecomposeHover(
+        string groupId,
+        string title,
+        string branch,
+        string summary,
+        string taskId,
+        string priority,
+        IReadOnlyList<string> dependsOn,
+        bool failed) {
+
+        var dependencies = dependsOn.Count == 0 ? "None" : string.Join(", ", dependsOn);
+        var failure = failed ? "\n\n**Status:** Failed — reset or edit this task before rerunning the plan." : string.Empty;
+        var summaryText = string.IsNullOrWhiteSpace(summary) ? string.Empty : $"\n\n{summary}";
+        return $"**Plan:** {title} (`{groupId}`)  \n" +
+               $"**Task:** `{taskId}`  \n" +
+               $"**Branch:** `{branch}`  \n" +
+               $"**Priority:** {priority}  \n" +
+               $"**Depends on:** {dependencies}" + summaryText + failure;
+    }
+
+    private static string PriorityToEmoji(string priority) => priority.Trim().ToLowerInvariant() switch {
+        "critical" => "⚫",
+        "high"     => "🔴",
+        "low"      => "🟢",
+        _          => "🟡",
+    };
 
     /// <summary>
     /// Parses completed-tasks.md: extracts every <c>- [x]</c> line and returns the
@@ -223,18 +403,35 @@ internal sealed record TaskItem(
     bool    IsChecked,
     string  Emoji,
     string  RawLine,
-    string? Description = null);
+    string? Description = null,
+    string? DecomposeGroupId = null,
+    string? DecomposeGroupTitle = null,
+    string? DecomposeBranch = null,
+    string? TaskId = null,
+    IReadOnlyList<string>? DependsOn = null,
+    bool IsFailed = false);
 
 /// <summary>Result of parsing tasks.md: open priority groups and completed items.</summary>
 internal sealed class TaskParseResult(
     IReadOnlyList<TaskPriorityGroup> openGroups,
-    IReadOnlyList<TaskItem>          completedItems) {
+    IReadOnlyList<TaskItem>          completedItems,
+    IReadOnlyDictionary<string, DecomposedTaskGroup>? decomposeGroups = null) {
     internal IReadOnlyList<TaskPriorityGroup> OpenGroups     { get; } = openGroups;
     internal IReadOnlyList<TaskItem>          CompletedItems { get; } = completedItems;
+    internal IReadOnlyDictionary<string, DecomposedTaskGroup> DecomposeGroups { get; } =
+        decomposeGroups ?? new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
 }
 
-internal sealed class TaskPriorityGroup(string emoji, string label) {
+internal sealed class TaskPriorityGroup(
+    string emoji,
+    string label,
+    string? decomposeGroupId = null,
+    string? decomposeGroupTitle = null,
+    string? decomposeBranch = null) {
     internal string         Emoji { get; } = emoji;
     internal string         Label { get; } = label;
+    internal string? DecomposeGroupId { get; } = decomposeGroupId;
+    internal string? DecomposeGroupTitle { get; } = decomposeGroupTitle;
+    internal string? DecomposeBranch { get; } = decomposeBranch;
     internal List<TaskItem> Items { get; } = [];
 }

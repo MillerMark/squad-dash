@@ -69,7 +69,7 @@ internal sealed class DecomposedTasksWriter
 
         if (alreadyHasNote)
         {
-            File.WriteAllLines(tasksFilePath, lines);
+            WriteAllLinesAtomically(tasksFilePath, lines);
             return;
         }
 
@@ -81,7 +81,7 @@ internal sealed class DecomposedTasksWriter
         for (int i = foundIdx + 1; i < lines.Length; i++)
             result.Add(lines[i]);
 
-        File.WriteAllLines(tasksFilePath, result);
+        WriteAllLinesAtomically(tasksFilePath, result);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
@@ -131,5 +131,12 @@ internal sealed class DecomposedTasksWriter
         var tempPath = tasksFilePath + ".tmp";
         File.WriteAllText(tempPath, content + separator + existing, Encoding.UTF8);
         File.Move(tempPath, tasksFilePath, overwrite: true);
+    }
+
+    private static void WriteAllLinesAtomically(string path, IEnumerable<string> lines)
+    {
+        var tempPath = path + ".tmp";
+        File.WriteAllLines(tempPath, lines, Encoding.UTF8);
+        File.Move(tempPath, path, overwrite: true);
     }
 }

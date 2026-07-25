@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace SquadDash;
 
@@ -47,6 +50,39 @@ internal sealed class CodeHealthGroupRunner
 
     /// <summary>Records which subtask is currently executing.</summary>
     internal void SetCurrentStep(string taskId) => _currentStepId = taskId;
+
+    /// <summary>
+    /// Reads the persisted group state and tracks the first dependency-eligible task.
+    /// The loop prompt uses the same selection rule, so an interrupted iteration can
+    /// reliably mark the task it was expected to execute as failed.
+    /// </summary>
+    internal void TrackFirstEligibleStep(string groupId)
+    {
+        _currentStepId = null;
+        try
+        {
+            if (!File.Exists(_tasksFilePath)) return;
+            var parsed = TasksPanelParser.Parse(File.ReadAllLines(_tasksFilePath));
+            var items = parsed.OpenGroups
+                .SelectMany(group => group.Items)
+                .Concat(parsed.CompletedItems)
+                .Where(item => string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal))
+                .ToList();
+            var completedIds = items
+                .Where(item => item.IsChecked && item.TaskId is not null)
+                .Select(item => item.TaskId!)
+                .ToHashSet(StringComparer.Ordinal);
+            _currentStepId = items
+                .Where(item => !item.IsChecked && !item.IsFailed && item.TaskId is not null)
+                .FirstOrDefault(item => item.DependsOn is null || item.DependsOn.All(completedIds.Contains))
+                ?.TaskId;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"CodeHealthGroupRunner: could not determine eligible step for '{groupId}': {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Called when stop_loop is received while decompose mode is active.

@@ -31,6 +31,8 @@ internal sealed class TasksPanelController {
 
     private readonly TasksPanelViewModel _viewModel = new();
     internal TasksPanelViewModel ViewModel => _viewModel;
+    private IReadOnlyDictionary<string, DecomposedTaskGroup> _decomposeGroups =
+        new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
 
     private MenuItem? _toggleCompletedItem;
     private readonly List<MenuItem> _allToggleItems = [];
@@ -76,6 +78,7 @@ internal sealed class TasksPanelController {
         _activePanel.Children.Clear();
         _completedPanel.Children.Clear();
         _allToggleItems.Clear();
+        _decomposeGroups = result.DecomposeGroups;
 
         var openGroups = result.OpenGroups;
         var hasOpen    = openGroups.Any(g => g.Items.Count > 0);
@@ -100,6 +103,8 @@ internal sealed class TasksPanelController {
                 };
                 headingLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 headingLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                if (group.DecomposeGroupId is not null)
+                    headingLabel.ToolTip = $"{group.DecomposeGroupId} · branch {group.DecomposeBranch}";
                 headingRow.Children.Add(indicator);
                 headingRow.Children.Add(headingLabel);
                 _activePanel.Children.Add(headingRow);
@@ -120,6 +125,39 @@ internal sealed class TasksPanelController {
     public void SetFilter(string text) {
         _viewModel.FilterText = text.Trim();
         ApplyFilter();
+    }
+
+    /// <summary>
+    /// Returns a decompose group only when every currently visible open task belongs to
+    /// that same group. This lets the Tasks-panel action preserve dependency-aware execution
+    /// without changing the behavior for ordinary or mixed task selections.
+    /// </summary>
+    internal bool TryGetSingleVisibleDecomposeGroup(
+        out DecomposedTaskGroup? group,
+        out bool containsFailedTask) {
+
+        group = null;
+        containsFailedTask = false;
+        var visible = _activePanel.Children
+            .OfType<Border>()
+            .Where(row => row.Visibility == Visibility.Visible)
+            .Select(row => row.Tag)
+            .OfType<TaskItem>()
+            .ToList();
+        if (visible.Count == 0) return false;
+
+        var groupId = visible[0].DecomposeGroupId;
+        if (string.IsNullOrWhiteSpace(groupId) ||
+            visible.Any(item => !string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal)))
+            return false;
+
+        containsFailedTask = _activePanel.Children
+            .OfType<Border>()
+            .Select(row => row.Tag)
+            .OfType<TaskItem>()
+            .Any(item => item.IsFailed &&
+                         string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal));
+        return _decomposeGroups.TryGetValue(groupId, out group);
     }
 
     // ── Panel context menu────────────────────────────────────────────────────
@@ -254,7 +292,9 @@ internal sealed class TasksPanelController {
                 VerticalAlignment   = VerticalAlignment.Top,
                 Margin              = new Thickness(-1, 2, 1, 0),
             };
-            dot.SetResourceReference(Border.BackgroundProperty, "LineColor");
+            dot.SetResourceReference(
+                Border.BackgroundProperty,
+                item.IsFailed ? "SystemErrorText" : "LineColor");
             Grid.SetColumn(dot, 0);
             grid.Children.Add(dot);
         }
@@ -414,8 +454,17 @@ internal sealed class TasksPanelController {
                 }
 
                 // Text filter applied on top — both conditions must hold.
-                if (visible && !string.IsNullOrEmpty(textFilter))
-                    visible = PanelFilterHelper.Matches(item.Text, textFilter);
+                if (visible && !string.IsNullOrEmpty(textFilter)) {
+                    var searchableText = string.Join(" ", new[] {
+                        item.Text,
+                        item.TaskId,
+                        item.DecomposeGroupId,
+                        item.DecomposeGroupTitle,
+                        item.DecomposeBranch,
+                        item.DependsOn is { Count: > 0 } ? string.Join(" ", item.DependsOn) : null,
+                    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                    visible = PanelFilterHelper.Matches(searchableText, textFilter);
+                }
 
                 child.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             }

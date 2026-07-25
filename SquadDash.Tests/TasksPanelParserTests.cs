@@ -407,4 +407,65 @@ internal sealed class TasksPanelParserTests {
         Assert.That(result.OpenGroups[0].Emoji, Is.EqualTo("🟢"));
         Assert.That(result.OpenGroups[0].Items, Has.Count.EqualTo(2));
     }
+
+    [Test]
+    public void Parse_DecomposeBlock_CreatesFirstClassPlanGroupWithMetadata() {
+        string[] lines = [
+            "<!-- decompose-group: GODCLASS-20260725 | branch: codex/split-main-window -->",
+            "**[GODCLASS-20260725] Split MainWindow responsibilities**",
+            "> Extract cohesive services without breaking behavior.",
+            "",
+            "- [x] **[GODCLASS-20260725-001]** Add characterization tests",
+            "  Group: GODCLASS-20260725 | Branch: codex/split-main-window | Priority: high",
+            "  dependsOn: (none)",
+            "",
+            "- [ ] **[GODCLASS-20260725-002]** Extract transcript coordination",
+            "  Group: GODCLASS-20260725 | Branch: codex/split-main-window | Priority: medium",
+            "  dependsOn: GODCLASS-20260725-001",
+            "",
+            "## 🔴 High Priority",
+            "- [ ] Ordinary task",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+        var planGroup = result.OpenGroups.Single(group => group.DecomposeGroupId is not null);
+        var item = planGroup.Items.Single();
+
+        Assert.Multiple(() => {
+            Assert.That(planGroup.Label, Is.EqualTo("Plan · Split MainWindow responsibilities"));
+            Assert.That(planGroup.DecomposeBranch, Is.EqualTo("codex/split-main-window"));
+            Assert.That(item.Text, Is.EqualTo("Extract transcript coordination"));
+            Assert.That(item.TaskId, Is.EqualTo("GODCLASS-20260725-002"));
+            Assert.That(item.DependsOn, Is.EqualTo(new[] { "GODCLASS-20260725-001" }));
+            Assert.That(item.Description, Does.Contain("Split MainWindow responsibilities"));
+            Assert.That(result.CompletedItems.Single().TaskId, Is.EqualTo("GODCLASS-20260725-001"));
+            Assert.That(result.DecomposeGroups["GODCLASS-20260725"].Tasks, Has.Count.EqualTo(2));
+            Assert.That(result.OpenGroups.Any(group => group.Items.Any(task => task.Text == "Ordinary task")), Is.True);
+        });
+    }
+
+    [Test]
+    public void Parse_MultipleDecomposeBlocks_RemainSeparatePlanGroups() {
+        string[] lines = [
+            "<!-- decompose-group: FIRST-20260725 | branch: codex/first -->",
+            "**[FIRST-20260725] First plan**",
+            "> First summary.",
+            "- [ ] **[FIRST-20260725-001]** First task",
+            "  Group: FIRST-20260725 | Branch: codex/first | Priority: high",
+            "  dependsOn: (none)",
+            "<!-- decompose-group: SECOND-20260725 | branch: codex/second -->",
+            "**[SECOND-20260725] Second plan**",
+            "> Second summary.",
+            "- [ ] **[SECOND-20260725-001]** Second task",
+            "  Group: SECOND-20260725 | Branch: codex/second | Priority: high",
+            "  dependsOn: (none)",
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.Multiple(() => {
+            Assert.That(result.DecomposeGroups.Keys, Is.EquivalentTo(new[] { "FIRST-20260725", "SECOND-20260725" }));
+            Assert.That(result.OpenGroups.Count(group => group.DecomposeGroupId is not null), Is.EqualTo(2));
+        });
+    }
 }
