@@ -1,3 +1,63 @@
+﻿<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition -->
+**[GODCLASS-20260725] MainWindow God Class Decomposition**
+> Extract responsibilities from MainWindow.xaml.cs (41,284 lines) in safe phases. Each step leaves the build green. Phase 1 is three independent no-XAML extractions. Phase 2 depends on all of Phase 1. Phase 3 panel controllers depend on all of Phase 2. Phase 4 interface segregation depends on all of Phase 3. Phase 5 event broker depends on Phase 4.
+
+- [x] **[GODCLASS-20260725-001]** Extract WorkspaceFileWatcherCoordinator
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Move all FileSystemWatcher fields (_inboxWatcher, _teamFileWatcher, _docsWatcher, _codeHealthMdWatcher, etc.) plus their setup, teardown, and event handlers from MainWindow.xaml.cs into a new SquadDash/WorkspaceFileWatcherCoordinator.cs. MainWindow holds one reference and delegates watcher lifecycle. No XAML changes required. Vesper unit tests ship with this extraction covering watcher start/stop and event routing. Owner: arjun-sen.
+  dependsOn: (none)
+
+- [ ] **[GODCLASS-20260725-002]** Extract UiTimingConstants
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Find all hard-coded delay integer/double literals used with Task.Delay, Thread.Sleep, or DispatcherTimer intervals in MainWindow.xaml.cs (approximately 20+ occurrences: 50ms, 80ms, 100ms, 220ms, 500ms, 1000ms, etc.). Create a new static class SquadDash/UiTimingConstants.cs with named constants for each value. Replace all inline literals with the named constants. Pure rename refactor — no behavior change. Build must be green. Owner: arjun-sen.
+  dependsOn: (none)
+
+- [ ] **[GODCLASS-20260725-003]** Extract SettingsSnapshotManager
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate _settingsSnapshot and all code that reads, writes, applies, or diffs it in MainWindow.xaml.cs. Move into a new SquadDash/SettingsSnapshotManager.cs class with a clean interface. MainWindow holds a reference and calls through the manager. No XAML changes required. Vesper unit tests ship covering snapshot create, apply, and restore paths. Owner: arjun-sen.
+  dependsOn: (none)
+
+- [ ] **[GODCLASS-20260725-004]** Extract ScreenshotService
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate the screenshot capture block in MainWindow.xaml.cs (~200 lines). Move capture logic, file naming, and error handling into SquadDash/ScreenshotService.cs. MainWindow calls the service via a clean method. No XAML changes required. Build must be green. Unit tests ship. Owner: arjun-sen.
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-005]** Extract GuidedTourCoordinator
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate the 15+ _tour* fields and their recovery state machine in MainWindow.xaml.cs (_tourMenuRecoveryRunning, _tourIntelliSenseRecoveryRunning, etc.). Move all tour state and transitions into SquadDash/GuidedTourCoordinator.cs. MainWindow wires the coordinator into the UI event chain but owns no tour state. Build must be green. Unit tests ship covering state transitions and recovery scenarios. Owner: arjun-sen.
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-006]** Extract PromptQueueCoordinator
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate _promptQueue and all OnQueue* event handlers in MainWindow.xaml.cs. Move into SquadDash/PromptQueueCoordinator.cs. This reduces the 380+ direct event subscriptions in MainWindow and lays the foundation for the Phase 5 event broker. Build must be green. Vesper unit tests ship covering enqueue/dequeue and event handler wiring. Owner: arjun-sen.
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-007]** Extract TranscriptPanelController
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate all ITranscriptRenderSink implementation logic in MainWindow.xaml.cs. Move into SquadDash/TranscriptPanelController.cs. MainWindow holds the controller and routes events to it. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
+  dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
+
+- [ ] **[GODCLASS-20260725-008]** Extract AgentRosterController
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate all IAgentRosterView implementation logic in MainWindow.xaml.cs. Move into SquadDash/AgentRosterController.cs. MainWindow holds the controller and delegates roster updates through it. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
+  dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
+
+- [ ] **[GODCLASS-20260725-009]** Extract InboxPanelController
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Locate inbox panel state and event logic in MainWindow.xaml.cs. Move into SquadDash/InboxPanelController.cs. MainWindow delegates all inbox state changes through the controller. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
+  dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
+
+- [ ] **[GODCLASS-20260725-010]** Interface segregation — remove direct IXxx impls from MainWindow
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: After Phase 3 extractions, remove MainWindow's direct implementations of ILiveElementLocator, IWorkspaceContext, IPromptBoxState, ITranscriptRenderSink, and IAgentRosterView. Each interface is satisfied by the controller extracted in Phase 3. Wire MainWindow → controller → interface. Confirm with a build that MainWindow has zero direct IXxx implementations. Owner: arjun-sen.
+  dependsOn: GODCLASS-20260725-007, GODCLASS-20260725-008, GODCLASS-20260725-009
+
+- [ ] **[GODCLASS-20260725-011]** Replace direct event subscriptions with event broker
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Replace remaining direct event subscriptions in MainWindow (380+ total, reduced by prior phases) with a lightweight pub-sub event broker class. Eliminates memory-leak risk from undisposed handlers and decouples senders from receivers. Vesper unit tests assert correct event delivery and that no references are leaked after unsubscribe. Owner: arjun-sen.
+  dependsOn: GODCLASS-20260725-010
+
+
 # SquadDash Task List
 
 > This file is the persistent backlog for SquadDash development.

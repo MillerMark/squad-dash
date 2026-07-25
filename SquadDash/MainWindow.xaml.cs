@@ -219,16 +219,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private DateTimeOffset _lastUiResponsivenessTick = DateTimeOffset.Now;
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
     private LoopController _loopController = null!; // initialized in constructor after _pec
-    private FileSystemWatcher? _inboxWatcher;
-    private FileSystemWatcher? _teamFileWatcher;
-    private FileSystemWatcher? _restartRequestWatcher;
-    private FileSystemWatcher? _gitHeadWatcher;
+    private WorkspaceFileWatcherCoordinator _watcherCoordinator = null!; // initialized in constructor
     private string _currentBranch = string.Empty;
     private readonly DispatcherTimer _teamRefreshDebounceTimer;
-    private FileSystemWatcher? _docsWatcher;
-    private FileSystemWatcher? _codeHealthMdWatcher;
-    private FileSystemWatcher? _featureCategoryWatcher;
-    private DispatcherTimer? _featureCategoryRefreshDebounce;
     private CancellationTokenSource? _docsRefreshCts;
     private Point _docsDragStartPoint;
     private TreeViewItem? _docsDragItem;
@@ -1202,6 +1195,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             Interval = TimeSpan.FromMilliseconds(350)
         };
         _teamRefreshDebounceTimer.Tick += TeamRefreshDebounceTimer_Tick;
+
+        _watcherCoordinator = new WorkspaceFileWatcherCoordinator(
+            postToUi:                   TryPostToUi,
+            handleException:            (op, ex, show) => HandleUiCallbackException(op, ex, show),
+            onInboxChanged:             RefreshSidebar,
+            onTeamFileChanged:          HandleSquadMarkdownWatcherChange,
+            onTeamFileRenamed:          HandleSquadMarkdownWatcherRename,
+            onGitHeadChanged:           UpdateBranchIndicator,
+            onRestartRequestChanged:    HandleRestartRequestChanged,
+            onDocsChanged:              OnDocsWatcherChanged,
+            onDocsRenamed:              OnDocsWatcherRenamed,
+            onCodeHealthMdChanged:      () => Dispatcher.InvokeAsync(SyncCodeHealthPanel),
+            onFeatureCategoryChanged:   () => Dispatcher.BeginInvoke(RefreshFeatureCategoryViewsFromStore));
 
         _bridge.EventReceived += (_, evt) => QueueBridgeEventForUi(evt);
         _bridge.ErrorReceived += (_, text) => TryPostToUi(() => HandleBridgeError(text), "Bridge.ErrorReceived");
@@ -19983,7 +19989,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var newFileName = Path.GetFileNameWithoutExtension(newFilePath);
             const string newTitle = "New Document";
 
-            if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = false;
+            _watcherCoordinator.SetDocsWatcherActive(false);
             try
             {
                 File.WriteAllText(newFilePath, $"# {newTitle}\n\nWrite your content here.\n");
@@ -20078,7 +20084,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             finally
             {
-                if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = true;
+                _watcherCoordinator.SetDocsWatcherActive(true);
             }
 
             PopulateDocumentationTopics();
@@ -32059,98 +32065,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             StartLoopButton.IsEnabled = loopExists && !IsLoopRunning;
     }
 
-    private void ConfigureInboxWatcher(string inboxPath)
-    {
-        DisposeInboxWatcher();
-        Directory.CreateDirectory(inboxPath); // ensure it exists so the watcher can start immediately
-
-        _inboxWatcher = new FileSystemWatcher(inboxPath)
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite
-        };
-        _inboxWatcher.Created += InboxWatcher_Changed;
-        _inboxWatcher.Deleted += InboxWatcher_Changed;
-        _inboxWatcher.Renamed += InboxWatcher_Renamed;
-        _inboxWatcher.Changed += InboxWatcher_Changed;
-        _inboxWatcher.EnableRaisingEvents = true;
-    }
+    private void ConfigureInboxWatcher(string inboxPath) =>
+        _watcherCoordinator.ConfigureInboxWatcher(inboxPath);
 
     private void ConfigureTeamFileWatcher()
     {
-        DisposeTeamFileWatcher();
         if (_currentWorkspace is null)
+        {
+            _watcherCoordinator.DisposeTeamFileWatcher();
             return;
-
+        }
         var squadFolderPath = _currentWorkspace.SquadFolderPath;
-
-        // If .squad doesn't exist yet, watch from the workspace root so we still
-        // detect .squad/tasks.md creation (e.g. when a loop run first creates it).
         var watchPath = Directory.Exists(squadFolderPath)
             ? squadFolderPath
             : _currentWorkspace.FolderPath;
-
-        if (!Directory.Exists(watchPath))
-            return;
-
-        _teamFileWatcher = new FileSystemWatcher(watchPath, "*.md")
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
-        };
-        _teamFileWatcher.Changed += TeamFileWatcher_Changed;
-        _teamFileWatcher.Created += TeamFileWatcher_Changed;
-        _teamFileWatcher.Deleted += TeamFileWatcher_Changed;
-        _teamFileWatcher.Renamed += TeamFileWatcher_Renamed;
-        _teamFileWatcher.EnableRaisingEvents = true;
+        _watcherCoordinator.ConfigureTeamFileWatcher(watchPath);
     }
 
     private void ConfigureGitHeadWatcher()
     {
-        _gitHeadWatcher?.Dispose();
-        _gitHeadWatcher = null;
-
+        _watcherCoordinator.DisposeGitHeadWatcher();
         if (_currentWorkspace is null)
         {
             UpdateBranchIndicator();
             return;
         }
-
         var gitDir = Path.Combine(_currentWorkspace.FolderPath, ".git");
         if (!Directory.Exists(gitDir))
         {
             UpdateBranchIndicator();
             return;
         }
-
-        try
-        {
-            _gitHeadWatcher = new FileSystemWatcher(gitDir, "HEAD")
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
-            };
-            _gitHeadWatcher.Changed += GitHeadWatcher_Changed;
-            _gitHeadWatcher.Created += GitHeadWatcher_Changed;
-            _gitHeadWatcher.EnableRaisingEvents = true;
-        }
-        catch
-        {
-            // Non-fatal: watcher may fail on some environments
-        }
-
+        _watcherCoordinator.TryConfigureGitHeadWatcher(gitDir);
         UpdateBranchIndicator();
-    }
-
-    private void GitHeadWatcher_Changed(object sender, FileSystemEventArgs e)
-    {
-        try
-        {
-            TryPostToUi(UpdateBranchIndicator, "GitHeadWatcher.Changed");
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(GitHeadWatcher_Changed), ex, showDialog: false);
-        }
     }
 
     private static bool HasGitRemote(string workspaceFolder)
@@ -32275,59 +32222,77 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private void InboxWatcher_Changed(object sender, FileSystemEventArgs e)
+    private void DisposeInboxWatcher() =>
+        _watcherCoordinator.DisposeInboxWatcher();
+
+    private void DisposeGitHeadWatcher() =>
+        _watcherCoordinator.DisposeGitHeadWatcher();
+
+    private void DisposeTeamFileWatcher()
+    {
+        _teamRefreshDebounceTimer.Stop();
+        _watcherCoordinator.DisposeTeamFileWatcher();
+    }
+
+    private void ConfigureRestartRequestWatcher()
     {
         try
         {
-            TryPostToUi(RefreshSidebar, "InboxWatcher.Changed");
+            var requestPath = _restartCoordinatorStateStore.GetRequestPathForWatcher(_workspacePaths.ApplicationRoot);
+            var directory = Path.GetDirectoryName(requestPath);
+            var fileName = Path.GetFileName(requestPath);
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName))
+                return;
+            _lastHandledRestartRequestId = _restartCoordinatorStateStore.LoadRequest(_workspacePaths.ApplicationRoot)?.RequestId;
+            _watcherCoordinator.ConfigureRestartRequestWatcher(directory, fileName);
         }
-        catch (Exception ex)
+        catch
         {
-            HandleUiCallbackException(nameof(InboxWatcher_Changed), ex, showDialog: false);
         }
     }
 
-    private void InboxWatcher_Renamed(object sender, RenamedEventArgs e)
+    private void DisposeRestartRequestWatcher() =>
+        _watcherCoordinator.DisposeRestartRequestWatcher();
+
+    private void ConfigureDocsWatcher()
     {
+        DisposeDocsWatcher();
         try
         {
-            TryPostToUi(RefreshSidebar, "InboxWatcher.Renamed");
+            var docsPath = DocTopicsLoader.FindDocsFolderPath();
+            if (string.IsNullOrEmpty(docsPath) || !Directory.Exists(docsPath))
+                return;
+            _watcherCoordinator.ConfigureDocsWatcher(docsPath);
         }
-        catch (Exception ex)
+        catch
         {
-            HandleUiCallbackException(nameof(InboxWatcher_Renamed), ex, showDialog: false);
         }
     }
 
-    private void TeamFileWatcher_Changed(object sender, FileSystemEventArgs e)
+    private void DisposeDocsWatcher()
     {
-        try
-        {
-            TryPostToUi(() => HandleSquadMarkdownWatcherChange(e.FullPath), "TeamFileWatcher.Changed");
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(TeamFileWatcher_Changed), ex, showDialog: false);
-        }
+        _watcherCoordinator.DisposeDocsWatcher();
+        _docsRefreshCts?.Cancel();
+        _docsRefreshCts?.Dispose();
+        _docsRefreshCts = null;
     }
 
-    private void TeamFileWatcher_Renamed(object sender, RenamedEventArgs e)
-    {
-        try
-        {
-            TryPostToUi(() => HandleSquadMarkdownWatcherRename(e.OldFullPath, e.FullPath), "TeamFileWatcher.Renamed");
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(TeamFileWatcher_Renamed), ex, showDialog: false);
-        }
-    }
+    private void InitCodeHealthMdWatcher(string squadFolder) =>
+        _watcherCoordinator.InitCodeHealthMdWatcher(squadFolder);
+
+    private void DisposeCodeHealthMdWatcher() =>
+        _watcherCoordinator.DisposeCodeHealthMdWatcher();
+
+    private void ConfigureFeatureCategoryWatcher(string workspaceStateDirectory) =>
+        _watcherCoordinator.ConfigureFeatureCategoryWatcher(workspaceStateDirectory);
+
+    private void DisposeFeatureCategoryWatcher() =>
+        _watcherCoordinator.DisposeFeatureCategoryWatcher();
 
     private void HandleSquadMarkdownWatcherChange(string? fullPath)
     {
         if (_currentWorkspace is null) return;
 
-        // Always refresh the loop picker and button states when any loop*.md file changes.
         if (fullPath is not null &&
             System.Text.RegularExpressions.Regex.IsMatch(
                 Path.GetFileName(fullPath),
@@ -32339,7 +32304,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             UpdateLoopPanelButtonStates();
         }
 
-        // Reload the tasks panel whenever tasks.md changes.
         if (fullPath is not null &&
             fullPath.EndsWith("tasks.md", StringComparison.OrdinalIgnoreCase) &&
             _tasksPanelVisible)
@@ -32388,237 +32352,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             HandleUiCallbackException(nameof(TeamRefreshDebounceTimer_Tick), ex);
         }
-    }
-
-    private void DisposeInboxWatcher()
-    {
-        if (_inboxWatcher is null)
-            return;
-
-        _inboxWatcher.EnableRaisingEvents = false;
-        _inboxWatcher.Created -= InboxWatcher_Changed;
-        _inboxWatcher.Deleted -= InboxWatcher_Changed;
-        _inboxWatcher.Renamed -= InboxWatcher_Renamed;
-        _inboxWatcher.Changed -= InboxWatcher_Changed;
-        _inboxWatcher.Dispose();
-        _inboxWatcher = null;
-    }
-
-    private void DisposeGitHeadWatcher()
-    {
-        _gitHeadWatcher?.Dispose();
-        _gitHeadWatcher = null;
-    }
-
-    private void DisposeTeamFileWatcher()
-    {
-        _teamRefreshDebounceTimer.Stop();
-
-        if (_teamFileWatcher is null)
-            return;
-
-        _teamFileWatcher.EnableRaisingEvents = false;
-        _teamFileWatcher.Changed -= TeamFileWatcher_Changed;
-        _teamFileWatcher.Created -= TeamFileWatcher_Changed;
-        _teamFileWatcher.Deleted -= TeamFileWatcher_Changed;
-        _teamFileWatcher.Renamed -= TeamFileWatcher_Renamed;
-        _teamFileWatcher.Dispose();
-        _teamFileWatcher = null;
-    }
-
-    private void ConfigureRestartRequestWatcher()
-    {
-        DisposeRestartRequestWatcher();
-
-        try
-        {
-            var requestPath = _restartCoordinatorStateStore.GetRequestPathForWatcher(_workspacePaths.ApplicationRoot);
-            var directory = Path.GetDirectoryName(requestPath);
-            var fileName = Path.GetFileName(requestPath);
-            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName))
-                return;
-
-            Directory.CreateDirectory(directory);
-            _lastHandledRestartRequestId = _restartCoordinatorStateStore.LoadRequest(_workspacePaths.ApplicationRoot)?.RequestId;
-
-            _restartRequestWatcher = new FileSystemWatcher(directory, fileName)
-            {
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
-            };
-            _restartRequestWatcher.Changed += RestartRequestWatcher_Changed;
-            _restartRequestWatcher.Created += RestartRequestWatcher_Changed;
-            _restartRequestWatcher.Renamed += RestartRequestWatcher_Renamed;
-            _restartRequestWatcher.EnableRaisingEvents = true;
-        }
-        catch
-        {
-        }
-    }
-
-    private void DisposeRestartRequestWatcher()
-    {
-        if (_restartRequestWatcher is null)
-            return;
-
-        _restartRequestWatcher.EnableRaisingEvents = false;
-        _restartRequestWatcher.Changed -= RestartRequestWatcher_Changed;
-        _restartRequestWatcher.Created -= RestartRequestWatcher_Changed;
-        _restartRequestWatcher.Renamed -= RestartRequestWatcher_Renamed;
-        _restartRequestWatcher.Dispose();
-        _restartRequestWatcher = null;
-    }
-
-    private void RestartRequestWatcher_Changed(object sender, FileSystemEventArgs e)
-    {
-        try
-        {
-            TryPostToUi(HandleRestartRequestChanged, "RestartRequestWatcher.Changed");
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(RestartRequestWatcher_Changed), ex, showDialog: false);
-        }
-    }
-
-    private void RestartRequestWatcher_Renamed(object sender, RenamedEventArgs e)
-    {
-        try
-        {
-            TryPostToUi(HandleRestartRequestChanged, "RestartRequestWatcher.Renamed");
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(RestartRequestWatcher_Renamed), ex, showDialog: false);
-        }
-    }
-
-    private void ConfigureDocsWatcher()
-    {
-        DisposeDocsWatcher();
-
-        try
-        {
-            var docsPath = DocTopicsLoader.FindDocsFolderPath();
-            if (string.IsNullOrEmpty(docsPath) || !Directory.Exists(docsPath))
-                return;
-
-            _docsWatcher = new FileSystemWatcher(docsPath, "*.md")
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
-            };
-            _docsWatcher.Created += DocsWatcher_Changed;
-            _docsWatcher.Deleted += DocsWatcher_Changed;
-            _docsWatcher.Renamed += DocsWatcher_Renamed;
-            _docsWatcher.Changed += DocsWatcher_Changed;
-            _docsWatcher.EnableRaisingEvents = true;
-        }
-        catch
-        {
-        }
-    }
-
-    private void DisposeDocsWatcher()
-    {
-        if (_docsWatcher is null)
-            return;
-
-        _docsWatcher.EnableRaisingEvents = false;
-        _docsWatcher.Created -= DocsWatcher_Changed;
-        _docsWatcher.Deleted -= DocsWatcher_Changed;
-        _docsWatcher.Renamed -= DocsWatcher_Renamed;
-        _docsWatcher.Changed -= DocsWatcher_Changed;
-        _docsWatcher.Dispose();
-        _docsWatcher = null;
-        _docsRefreshCts?.Cancel();
-        _docsRefreshCts?.Dispose();
-        _docsRefreshCts = null;
-    }
-
-    private void InitCodeHealthMdWatcher(string squadFolder) {
-        DisposeCodeHealthMdWatcher();
-        if (!Directory.Exists(squadFolder)) return;
-        _codeHealthMdWatcher = new FileSystemWatcher(squadFolder, "code-health.md") {
-            NotifyFilter          = NotifyFilters.LastWrite | NotifyFilters.Size,
-            EnableRaisingEvents   = true,
-            IncludeSubdirectories = false,
-        };
-        _codeHealthMdWatcher.Changed += OnMaintenanceMdChanged;
-        _codeHealthMdWatcher.Created += OnMaintenanceMdChanged;
-    }
-
-    private void OnMaintenanceMdChanged(object sender, FileSystemEventArgs e) {
-        var timer = new System.Timers.Timer(300) { AutoReset = false };
-        timer.Elapsed += (_, _) => {
-            timer.Dispose();
-            Dispatcher.InvokeAsync(SyncCodeHealthPanel);
-        };
-        timer.Start();
-    }
-
-    private void DisposeCodeHealthMdWatcher() {
-        if (_codeHealthMdWatcher is null) return;
-        _codeHealthMdWatcher.EnableRaisingEvents = false;
-        _codeHealthMdWatcher.Changed -= OnMaintenanceMdChanged;
-        _codeHealthMdWatcher.Created -= OnMaintenanceMdChanged;
-        _codeHealthMdWatcher.Dispose();
-        _codeHealthMdWatcher = null;
-    }
-
-    private void ConfigureFeatureCategoryWatcher(string workspaceStateDirectory)
-    {
-        DisposeFeatureCategoryWatcher();
-        Directory.CreateDirectory(workspaceStateDirectory);
-        _featureCategoryRefreshDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-        _featureCategoryRefreshDebounce.Tick += FeatureCategoryRefreshDebounce_Tick;
-        _featureCategoryWatcher = new FileSystemWatcher(workspaceStateDirectory)
-        {
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
-            IncludeSubdirectories = false,
-            EnableRaisingEvents = true,
-        };
-        _featureCategoryWatcher.Changed += FeatureCategoryStore_Changed;
-        _featureCategoryWatcher.Created += FeatureCategoryStore_Changed;
-        _featureCategoryWatcher.Renamed += FeatureCategoryStore_Renamed;
-    }
-
-    private void FeatureCategoryStore_Changed(object sender, FileSystemEventArgs e)
-    {
-        if (!IsFeatureCategoryStoreFile(e.Name)) return;
-        Dispatcher.BeginInvoke(() =>
-        {
-            _featureCategoryRefreshDebounce?.Stop();
-            _featureCategoryRefreshDebounce?.Start();
-        });
-    }
-
-    private void FeatureCategoryStore_Renamed(object sender, RenamedEventArgs e) =>
-        FeatureCategoryStore_Changed(sender, e);
-
-    private static bool IsFeatureCategoryStoreFile(string? name) =>
-        string.Equals(name, "commit-approvals.json", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(name, "feature-groups.json", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(name, "commit-category-cache.json", StringComparison.OrdinalIgnoreCase);
-
-    private void FeatureCategoryRefreshDebounce_Tick(object? sender, EventArgs e)
-    {
-        _featureCategoryRefreshDebounce?.Stop();
-        RefreshFeatureCategoryViewsFromStore();
-    }
-
-    private void DisposeFeatureCategoryWatcher()
-    {
-        _featureCategoryRefreshDebounce?.Stop();
-        if (_featureCategoryRefreshDebounce is not null)
-            _featureCategoryRefreshDebounce.Tick -= FeatureCategoryRefreshDebounce_Tick;
-        _featureCategoryRefreshDebounce = null;
-        if (_featureCategoryWatcher is null) return;
-        _featureCategoryWatcher.EnableRaisingEvents = false;
-        _featureCategoryWatcher.Changed -= FeatureCategoryStore_Changed;
-        _featureCategoryWatcher.Created -= FeatureCategoryStore_Changed;
-        _featureCategoryWatcher.Renamed -= FeatureCategoryStore_Renamed;
-        _featureCategoryWatcher.Dispose();
-        _featureCategoryWatcher = null;
     }
 
     private static ByokProviderSettings? BuildByokSettings(ApplicationSettingsSnapshot snapshot)
@@ -32724,7 +32457,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return null;
     }
 
-    private void DocsWatcher_Changed(object sender, FileSystemEventArgs e)
+    private void OnDocsWatcherChanged(FileSystemEventArgs e)
     {
         try
         {
@@ -32765,11 +32498,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException(nameof(DocsWatcher_Changed), ex, showDialog: false);
+            HandleUiCallbackException(nameof(OnDocsWatcherChanged), ex, showDialog: false);
         }
     }
 
-    private void DocsWatcher_Renamed(object sender, RenamedEventArgs e)
+    private void OnDocsWatcherRenamed(RenamedEventArgs e)
     {
         try
         {
@@ -32777,7 +32510,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException(nameof(DocsWatcher_Renamed), ex, showDialog: false);
+            HandleUiCallbackException(nameof(OnDocsWatcherRenamed), ex, showDialog: false);
         }
     }
 
@@ -36337,7 +36070,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = false;
+            _watcherCoordinator.SetDocsWatcherActive(false);
 
             try
             {
@@ -36397,7 +36130,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             finally
             {
-                if (_docsWatcher != null) _docsWatcher.EnableRaisingEvents = true;
+                _watcherCoordinator.SetDocsWatcherActive(true);
             }
 
             if (string.Equals(_currentDocPath, filePath, StringComparison.OrdinalIgnoreCase))
@@ -36841,8 +36574,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             lines.InsertRange(insertIndex, draggedBlock);
         }
 
-        if (_docsWatcher is not null)
-            _docsWatcher.EnableRaisingEvents = false;
+        _watcherCoordinator.SetDocsWatcherActive(false);
 
         try
         {
@@ -36850,8 +36582,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         finally
         {
-            if (_docsWatcher is not null)
-                _docsWatcher.EnableRaisingEvents = true;
+            _watcherCoordinator.SetDocsWatcherActive(true);
         }
 
         PopulateDocumentationTopics();
