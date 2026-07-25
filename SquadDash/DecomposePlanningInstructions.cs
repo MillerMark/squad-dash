@@ -52,15 +52,49 @@ internal static class DecomposePlanningInstructions
         $"you MUST read `{specificationPath}` before responding, then follow its TASKS_JSON protocol. " +
         "If the user gives free-text approval or changes for a staged decomposition plan, you MUST " +
         "read the same file and follow its DECOMPOSE_DECISION_JSON protocol. Do not invent either " +
-        "format from memory. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
+        "format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
+        "file's DECOMPOSE_RECOVERY_JSON protocol. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
 
     internal static string BuildPendingPlanContext(string squadFolderPath)
     {
         var plans = new PendingDecomposePlanStore(squadFolderPath).LoadAll();
-        if (plans.Count == 0) return string.Empty;
-        return "\nPending decomposition plans (use the exact revision in DECOMPOSE_DECISION_JSON):\n" +
-               string.Join("\n", plans.Select(p =>
-                   $"- groupId={p.Group.GroupId}; revision={p.Revision}; proposedBranch={p.Group.Branch}"));
+        var sections = new List<string>();
+        if (plans.Count > 0)
+            sections.Add("\nPending decomposition plans (use the exact revision in DECOMPOSE_DECISION_JSON):\n" +
+                         string.Join("\n", plans.Select(p =>
+                             $"- groupId={p.Group.GroupId}; revision={p.Revision}; proposedBranch={p.Group.Branch}")));
+
+        var tasksPath = Path.Combine(squadFolderPath, "tasks.md");
+        if (File.Exists(tasksPath))
+        {
+            try
+            {
+                var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+                var blocked = parsed.OpenGroups
+                    .SelectMany(group => group.Items)
+                    .Where(item => item.TaskId is not null && item.DecomposeGroupId is not null &&
+                                   (item.IsFailed || item.IsPartial) &&
+                                   parsed.DecomposeGroups.ContainsKey(item.DecomposeGroupId))
+                    .Select(item =>
+                    {
+                        var group = parsed.DecomposeGroups[item.DecomposeGroupId!];
+                        var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
+                        return $"- groupId={group.GroupId}; revision={revision}; blockedTask={item.TaskId}; " +
+                               "actions=retry-as-written|replan-failed-task";
+                    })
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (blocked.Length > 0)
+                    sections.Add("\nBlocked approved plans (use DECOMPOSE_RECOVERY_JSON for explicit user intent):\n" +
+                                 string.Join("\n", blocked));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"Could not read blocked decomposition context: {ex.Message}");
+            }
+        }
+        return string.Join(string.Empty, sections);
     }
 
     internal static string BuildOrdinaryPromptContext(string squadFolderPath)

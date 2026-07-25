@@ -1,5 +1,5 @@
 ---
-schema-version: 2
+schema-version: 3
 host-owned: true
 ---
 
@@ -32,6 +32,9 @@ fence around the object is accepted but not required.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
+- `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
+  replacements. Keep the original parent task in the full proposal and point every replacement at it.
+  SquadDash marks the parent superseded only after the revised plan is approved.
 
 The dependency graph must be acyclic. Use dependencies only for real prerequisites; independent
 tasks should remain independent so a future scheduler may run them concurrently. Each task must
@@ -99,3 +102,49 @@ Only emit a decision for a group already staged by SquadDash. A revised task gra
 new `TASKS_JSON` proposal and another approval. `action` must be exactly one of `add-to-backlog`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
 The `revision` must exactly match the revision supplied by SquadDash for that pending group.
+
+## DECOMPOSE_RECOVERY_JSON schema
+
+If the user explicitly asks to retry or replan a blocked approved plan, emit:
+
+`DECOMPOSE_RECOVERY_JSON:`
+
+```json
+{
+  "groupId": "GROUP-YYYYMMDD",
+  "revision": "revision supplied by SquadDash in blocked-plan context",
+  "action": "replan-failed-task"
+}
+```
+
+`action` must be `retry-as-written` or `replan-failed-task`. Never infer recovery merely because a
+plan is blocked; emit this payload only for explicit user intent. Replanning asks SquadDash to obtain
+a complete revised `TASKS_JSON`, including the existing tasks and smaller replacement tasks whose
+`parentTaskId` identifies the blocked parent. The revised graph requires another user approval.
+
+## DECOMPOSE_STEP_RESULT_JSON schema
+
+During an approved Executing Plan loop, SquadDash supplies the exact group, task, and revision. The
+executor must not edit `tasks.md`; it reports one result and SquadDash owns the status transition:
+
+```json
+{
+  "groupId": "GROUP-YYYYMMDD",
+  "taskId": "GROUP-YYYYMMDD-NNN",
+  "revision": "revision from the persisted group header",
+  "status": "complete",
+  "commit": "Git commit SHA",
+  "summary": "concise outcome",
+  "remainingWork": [],
+  "verification": {
+    "status": "passed",
+    "command": "exact command that ran",
+    "summary": "what passed"
+  }
+}
+```
+
+`status` must be `complete`, `partial`, or `failed`. Complete requires a new commit and passed
+verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
+validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
+before changing any plan status.

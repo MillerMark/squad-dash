@@ -299,6 +299,10 @@
     <Compile Include="..\SquadDash\DecomposedTaskGroup.cs" Link="Source\DecomposedTaskGroup.cs" />
     <Compile Include="..\SquadDash\TasksJsonParser.cs" Link="Source\TasksJsonParser.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
+    <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />
+    <Compile Include="..\SquadDash\DecomposeRecoveryDecision.cs" Link="Source\DecomposeRecoveryDecision.cs" />
+    <Compile Include="..\SquadDash\DecomposeWorktreePolicy.cs" Link="Source\DecomposeWorktreePolicy.cs" />
+    <Compile Include="..\SquadDash\DecomposePlanRevision.cs" Link="Source\DecomposePlanRevision.cs" />
     <Compile Include="..\SquadDash\CodeHealthGroupRunner.cs" Link="Source\CodeHealthGroupRunner.cs" />
     <Compile Include="..\SquadDash\DecomposeDecisionParser.cs" Link="Source\DecomposeDecisionParser.cs" />
     <Compile Include="..\SquadDash\PendingDecomposePlanStore.cs" Link="Source\PendingDecomposePlanStore.cs" />

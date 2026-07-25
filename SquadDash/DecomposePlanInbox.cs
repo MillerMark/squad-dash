@@ -14,6 +14,7 @@ internal static class DecomposePlanInbox
 {
     internal const string AttachmentType = "decompose-plan";
     internal const string ActionRouteMode = "decompose";
+    internal const string RecoveryRouteMode = "decompose-recovery";
 
     private static readonly JsonSerializerOptions SnapshotOptions = new()
     {
@@ -30,6 +31,9 @@ internal static class DecomposePlanInbox
 
     internal static string BuildMessageId(PendingDecomposePlan plan) =>
         $"decompose-plan-{plan.Group.GroupId}-{plan.Revision}";
+
+    internal static string BuildRecoveryMessageId(PendingDecomposePlan plan, string taskId) =>
+        $"decompose-recovery-{plan.Group.GroupId}-{taskId}-{plan.Revision}";
 
     internal static bool ResponseAddressesPlan(PendingDecomposePlan plan, string? rawResponse)
     {
@@ -85,6 +89,51 @@ internal static class DecomposePlanInbox
                 }
             ],
             Actions = actions,
+        };
+    }
+
+    internal static InboxMessage BuildRecoveryMessage(
+        PendingDecomposePlan plan,
+        string taskId,
+        string reason,
+        DateTimeOffset timestamp)
+    {
+        InboxAction BuildAction(string label, string action, string hint) => new()
+        {
+            Label = label,
+            RouteMode = RecoveryRouteMode,
+            Prompt = DecomposeRecoveryDecisionParser.Marker + "\n" + JsonSerializer.Serialize(
+                new DecomposeRecoveryDecision(plan.Group.GroupId, plan.Revision, action),
+                DecisionOptions),
+            Hint = hint,
+        };
+
+        return new InboxMessage
+        {
+            Id = BuildRecoveryMessageId(plan, taskId),
+            Subject = $"Blocked plan: {plan.Group.GroupTitle}",
+            From = "SquadDash",
+            Timestamp = timestamp,
+            Read = false,
+            Priority = "high",
+            Body = $"SquadDash stopped plan `{plan.Group.GroupId}` at task `{taskId}`.\n\n{reason}\n\n" +
+                   "Replanning is recommended when the task was too large; retry only when the task remains correctly scoped.",
+            Attachments =
+            [
+                new InboxAttachment
+                {
+                    Type = AttachmentType,
+                    Label = "View plan and dependencies",
+                    PlanGroupId = plan.Group.GroupId,
+                    PlanRevision = plan.Revision,
+                    Content = JsonSerializer.Serialize(plan, SnapshotOptions),
+                }
+            ],
+            Actions =
+            [
+                BuildAction("Replan Failed Task", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
+                BuildAction("Retry As Written", "retry-as-written", "Reset and execute the same task again."),
+            ],
         };
     }
 

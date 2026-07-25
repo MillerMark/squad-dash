@@ -43,48 +43,48 @@ You are Argus Weld executing the single approved plan identified here: [**FILTER
 
 Read the `tasks.md` file in the configured Squad folder. Work only on a task belonging to this exact
 decompose group. Never select an unrelated unchecked task, even if this plan is blocked.
+Read the plan revision from the decompose-group header. SquadDash owns every task status marker:
+do not edit, stage, or commit `tasks.md`.
 
 Find the subtask for this group where:
 - status is `- [ ]` (pending) AND
 - all IDs in `dependsOn` are `[x]` (complete)
 
-**If no eligible step exists:**
-
-- All tasks `[x]` → run build+tests, commit the branch named in the group header, emit INBOX_MESSAGE_JSON (success summary, from: "argus-weld"), then emit:
-  ```
-  HOST_COMMAND_JSON:
-  [{ "command": "stop_loop" }]
-  ```
-- Any task `[!]` → failure already reported. Emit only:
-  ```
-  HOST_COMMAND_JSON:
-  [{ "command": "stop_loop" }]
-  ```
-- Unresolvable state (e.g. dependsOn cycle not caught earlier) → emit INBOX_MESSAGE_JSON describing the problem, then emit:
-  ```
-  HOST_COMMAND_JSON:
-  [{ "command": "stop_loop" }]
-  ```
+**If no eligible step exists:** do not choose another task. Explain the persisted state and emit a
+failed `DECOMPOSE_STEP_RESULT_JSON` for the task ID SquadDash assigned in this prompt context.
 
 **If an eligible step is found:**
 
 1. Implement the step fully and correctly.
-2. Commit only to the branch specified in the group header (`<!-- decompose-group: ... | branch: ... -->`).
+2. Commit only source changes to the branch specified in the group header. Never stage `tasks.md`.
 3. Build must be green when done.
 4. Do NOT emit QUICK_REPLIES_JSON.
-5. Do NOT emit HOST_COMMAND_JSON unless failing (see failure instructions below).
-6. Mark the task `[x]` in `tasks.md` when done.
+5. Do NOT emit HOST_COMMAND_JSON or change the task marker.
+6. End with exactly one host-owned result payload using the assigned group, task, and revision:
 
-**On failure:**
+```
+DECOMPOSE_STEP_RESULT_JSON:
+{
+  "groupId": "GROUP-YYYYMMDD",
+  "taskId": "GROUP-YYYYMMDD-NNN",
+  "revision": "revision from the group header",
+  "status": "complete",
+  "commit": "full or short Git commit SHA",
+  "summary": "concise description of the completed work",
+  "remainingWork": [],
+  "verification": {
+    "status": "passed",
+    "command": "exact build or test command",
+    "summary": "what passed"
+  }
+}
+```
 
-1. Write a failure narrative in your response.
-2. Emit INBOX_MESSAGE_JSON (from: "argus-weld") containing:
-   - Completed tasks so far
-   - The failed task ID and reason
-   - Remaining tasks not yet attempted
-   - Suggested recovery steps
-3. Emit:
-   ```
-   HOST_COMMAND_JSON:
-   [{ "command": "stop_loop" }]
-   ```
+Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
+List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`
+when the step made no safe progress. A partial result may include a commit, but if it does its
+verification status must be `passed`.
+
+**On failure:** write a concise narrative and emit the same result payload with `status: "failed"`,
+no commit unless one was safely created, concrete `remainingWork`, and truthful verification evidence.
+SquadDash will block the plan, persist the result, stop the loop, and offer recovery actions.

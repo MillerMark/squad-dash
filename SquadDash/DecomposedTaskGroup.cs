@@ -9,11 +9,15 @@ internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("branch")]     string Branch,
     [property: JsonPropertyName("summary")]    string Summary,
     [property: JsonPropertyName("tasks")]      IReadOnlyList<DecomposedSubTask> Tasks,
-    [property: JsonPropertyName("delivery")]   string? Delivery = null);
+    [property: JsonPropertyName("delivery")]   string? Delivery = null,
+    [property: JsonIgnore]                       string? HostRevision = null);
 
 internal sealed record DecomposedSubTask(
     [property: JsonPropertyName("id")]          string Id,
     [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("dependsOn")]   IReadOnlyList<string> DependsOn,
     [property: JsonPropertyName("priority")]    string Priority,
-    [property: JsonPropertyName("title")]       string? Title = null);
+    [property: JsonPropertyName("title")]       string? Title = null,
+    [property: JsonPropertyName("parentTaskId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ParentTaskId = null);

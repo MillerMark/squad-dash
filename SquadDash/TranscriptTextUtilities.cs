@@ -18,7 +18,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        RepairFusedProseBoundaries(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))))).TrimEnd();
+        RepairFusedProseBoundaries(StripHostOwnedJsonBlocks(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -277,8 +277,22 @@ internal static class TranscriptTextUtilities
     }
 
     private static string StripTasksJsonBlock(string text)
+        => StripTopLevelJsonBlock(text, "TASKS_JSON:");
+
+    private static string StripHostOwnedJsonBlocks(string text)
     {
-        const string sentinel = "TASKS_JSON:";
+        foreach (var marker in new[]
+                 {
+                     DecomposeStepResultParser.Marker,
+                     DecomposeRecoveryDecisionParser.Marker,
+                     "DECOMPOSE_DECISION_JSON:",
+                 })
+            text = StripTopLevelJsonBlock(text, marker);
+        return text;
+    }
+
+    private static string StripTopLevelJsonBlock(string text, string sentinel)
+    {
         var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
         if (sentinelIdx < 0)
             return text;

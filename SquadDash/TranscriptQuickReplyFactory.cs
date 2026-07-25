@@ -7,6 +7,7 @@ namespace SquadDash;
 
 internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
 internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
+internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
 
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
@@ -53,7 +54,7 @@ internal static class TranscriptQuickReplyFactory
         };
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
-        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or ContainerMarker;
+        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or ContainerMarker;
 
     internal static void RemovePendingDecomposeApprovalContainers(
         BlockCollection blocks,
@@ -74,6 +75,17 @@ internal static class TranscriptQuickReplyFactory
 
             if (block is Section section)
                 RemovePendingDecomposeApprovalContainers(section.Blocks, createMissingPlanLink);
+        }
+    }
+
+    internal static void RemoveDecomposeRecoveryContainers(BlockCollection blocks)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            if (block is BlockUIContainer { Tag: DecomposeRecoveryTag })
+                blocks.Remove(block);
+            else if (block is Section section)
+                RemoveDecomposeRecoveryContainers(section.Blocks);
         }
     }
 

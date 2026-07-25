@@ -164,15 +164,26 @@ internal static class TasksJsonParser
         // Validate all dependsOn IDs reference valid siblings.
         foreach (var task in parsed.Tasks)
         {
-            if (task.DependsOn is null) continue;
-            foreach (var dep in task.DependsOn)
+            if (task.DependsOn is not null)
             {
-                if (!validIds.Contains(dep))
+                foreach (var dep in task.DependsOn)
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: task '{task.Id}' depends on unknown id '{dep}'");
-                    return false;
+                    if (!validIds.Contains(dep))
+                    {
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"TasksJsonParser: task '{task.Id}' depends on unknown id '{dep}'");
+                        return false;
+                    }
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(task.ParentTaskId) &&
+                (!validIds.Contains(task.ParentTaskId) ||
+                 string.Equals(task.ParentTaskId, task.Id, StringComparison.Ordinal)))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' has invalid parentTaskId '{task.ParentTaskId}'");
+                return false;
             }
         }
 

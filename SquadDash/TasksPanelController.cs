@@ -134,10 +134,10 @@ internal sealed class TasksPanelController {
     /// </summary>
     internal bool TryGetSingleVisibleDecomposeGroup(
         out DecomposedTaskGroup? group,
-        out bool containsFailedTask) {
+        out bool containsBlockedTask) {
 
         group = null;
-        containsFailedTask = false;
+        containsBlockedTask = false;
         var visible = _activePanel.Children
             .OfType<Border>()
             .Where(row => row.Visibility == Visibility.Visible)
@@ -151,11 +151,11 @@ internal sealed class TasksPanelController {
             visible.Any(item => !string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal)))
             return false;
 
-        containsFailedTask = _activePanel.Children
+        containsBlockedTask = _activePanel.Children
             .OfType<Border>()
             .Select(row => row.Tag)
             .OfType<TaskItem>()
-            .Any(item => item.IsFailed &&
+            .Any(item => (item.IsFailed || item.IsPartial) &&
                          string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal));
         return _decomposeGroups.TryGetValue(groupId, out group);
     }
@@ -294,7 +294,7 @@ internal sealed class TasksPanelController {
             };
             dot.SetResourceReference(
                 Border.BackgroundProperty,
-                item.IsFailed ? "SystemErrorText" : "LineColor");
+                item.IsFailed ? "SystemErrorText" : item.IsPartial ? "SystemWarningText" : "LineColor");
             Grid.SetColumn(dot, 0);
             grid.Children.Add(dot);
         }

@@ -23,6 +23,10 @@ internal sealed class CodeHealthGroupRunner
     private readonly DecomposedTasksWriter _writer;
     private readonly string               _tasksFilePath;
     private string?                       _currentStepId;
+    private string?                       _currentRevision;
+
+    internal string? CurrentStepId => _currentStepId;
+    internal string? CurrentRevision => _currentRevision;
 
     internal CodeHealthGroupRunner(DecomposedTasksWriter writer, string tasksFilePath)
     {
@@ -41,7 +45,10 @@ internal sealed class CodeHealthGroupRunner
     /// and returns <c>false</c>.
     /// </para>
     /// </summary>
-    internal bool TryStartGroup(DecomposedTaskGroup group, out string? inboxErrorJson)
+    internal bool TryStartGroup(
+        DecomposedTaskGroup group,
+        out string? inboxErrorJson,
+        string? revision = null)
     {
         inboxErrorJson = null;
 
@@ -53,7 +60,7 @@ internal sealed class CodeHealthGroupRunner
             return false;
         }
 
-        _writer.WriteGroup(_tasksFilePath, group);
+        _writer.WriteGroup(_tasksFilePath, group, revision);
         return true;
     }
 
@@ -68,6 +75,7 @@ internal sealed class CodeHealthGroupRunner
     internal DecomposeGroupExecutionState TrackFirstEligibleStep(string groupId)
     {
         _currentStepId = null;
+        _currentRevision = null;
         try
         {
             if (!File.Exists(_tasksFilePath))
@@ -81,17 +89,21 @@ internal sealed class CodeHealthGroupRunner
             if (items.Count == 0)
                 return DecomposeGroupExecutionState.Missing;
 
+            if (parsed.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
+                _currentRevision = persistedGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
+
             var completedIds = items
-                .Where(item => item.IsChecked && item.TaskId is not null)
+                .Where(item => (item.IsChecked || item.IsSuperseded) && item.TaskId is not null)
                 .Select(item => item.TaskId!)
                 .ToHashSet(StringComparer.Ordinal);
             _currentStepId = items
-                .Where(item => !item.IsChecked && !item.IsFailed && item.TaskId is not null)
+                .Where(item => !item.IsChecked && !item.IsFailed && !item.IsPartial &&
+                               !item.IsSuperseded && item.TaskId is not null)
                 .FirstOrDefault(item => item.DependsOn is null || item.DependsOn.All(completedIds.Contains))
                 ?.TaskId;
             if (_currentStepId is not null)
                 return DecomposeGroupExecutionState.Eligible;
-            if (items.All(item => item.IsChecked))
+            if (items.All(item => item.IsChecked || item.IsSuperseded))
                 return DecomposeGroupExecutionState.Complete;
             return DecomposeGroupExecutionState.Blocked;
         }
@@ -108,14 +120,65 @@ internal sealed class CodeHealthGroupRunner
     /// If the current step is still <c>[ ]</c> (i.e. the AI did not mark it <c>[x]</c>),
     /// marks it <c>[!]</c> in tasks.md.
     /// </summary>
-    internal void OnStopRequested()
+    internal void MarkCurrentStepFailed()
     {
         if (_currentStepId is null) return;
         _writer.MarkTaskFailed(_tasksFilePath, _currentStepId);
     }
 
+    internal bool ApplyStepResult(DecomposeStepResult result, out string? error)
+    {
+        error = null;
+        if (_currentStepId is null || _currentRevision is null)
+        {
+            error = "SquadDash has no tracked plan step for this result.";
+            return false;
+        }
+        if (!string.Equals(result.TaskId, _currentStepId, StringComparison.Ordinal))
+        {
+            error = $"The result was for {result.TaskId}, but SquadDash assigned {_currentStepId}.";
+            return false;
+        }
+        if (!string.Equals(result.Revision, _currentRevision, StringComparison.Ordinal))
+        {
+            error = $"The result used stale revision {result.Revision}; expected {_currentRevision}.";
+            return false;
+        }
+
+        var applied = result.Status switch
+        {
+            "complete" => _writer.MarkTaskComplete(
+                _tasksFilePath, result.TaskId, result.Commit!, result.Summary),
+            "partial" => _writer.MarkTaskPartial(
+                _tasksFilePath,
+                result.TaskId,
+                result.Commit,
+                result.Summary,
+                result.RemainingWork ?? []),
+            "failed" => MarkFailed(result.TaskId),
+            _ => false,
+        };
+        if (!applied)
+            error = $"SquadDash could not update task {result.TaskId} in tasks.md.";
+        return applied;
+
+        bool MarkFailed(string taskId)
+        {
+            _writer.MarkTaskFailed(_tasksFilePath, taskId);
+            return File.ReadAllText(_tasksFilePath)
+                .Contains($"- [!] **[{taskId}]**", StringComparison.Ordinal);
+        }
+    }
+
+    internal bool ResetCurrentStep() =>
+        _currentStepId is not null && _writer.ResetTaskPending(_tasksFilePath, _currentStepId);
+
     /// <summary>Clears step tracking when the loop has fully exited.</summary>
-    internal void ClearCurrentStep() => _currentStepId = null;
+    internal void ClearCurrentStep()
+    {
+        _currentStepId = null;
+        _currentRevision = null;
+    }
 
     // ── Cycle detection (Kahn's algorithm) ─────────────────────────────────────
 

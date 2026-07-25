@@ -1,0 +1,73 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace SquadDash;
+
+internal sealed record DecomposeStepVerification(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("command")] string? Command,
+    [property: JsonPropertyName("summary")] string? Summary);
+
+internal sealed record DecomposeStepResult(
+    [property: JsonPropertyName("groupId")] string GroupId,
+    [property: JsonPropertyName("taskId")] string TaskId,
+    [property: JsonPropertyName("revision")] string Revision,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("commit")] string? Commit,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("remainingWork")] IReadOnlyList<string>? RemainingWork,
+    [property: JsonPropertyName("verification")] DecomposeStepVerification? Verification);
+
+internal static class DecomposeStepResultParser
+{
+    internal const string Marker = "DECOMPOSE_STEP_RESULT_JSON:";
+
+    internal static bool TryParse(string? text, out DecomposeStepResult? result, out string? error)
+    {
+        result = null;
+        error = null;
+        if (!StructuredJsonBlockParser.TryExtractObject<DecomposeStepResult>(text, Marker, out var extraction) ||
+            extraction is null)
+        {
+            error = $"The response did not contain a valid {Marker} payload.";
+            return false;
+        }
+        result = extraction.Payload;
+
+        if (result is null || string.IsNullOrWhiteSpace(result.GroupId) ||
+            string.IsNullOrWhiteSpace(result.TaskId) || string.IsNullOrWhiteSpace(result.Revision) ||
+            string.IsNullOrWhiteSpace(result.Summary))
+        {
+            error = "The step result omitted groupId, taskId, revision, or summary.";
+            return false;
+        }
+
+        if (result.Status is not ("complete" or "partial" or "failed"))
+        {
+            error = "The step-result status must be complete, partial, or failed.";
+            return false;
+        }
+
+        if (result.Status == "complete" &&
+            (string.IsNullOrWhiteSpace(result.Commit) || result.Verification?.Status != "passed"))
+        {
+            error = "A complete result requires a commit and passed verification evidence.";
+            return false;
+        }
+
+        if (result.Status == "partial" && (result.RemainingWork is null || result.RemainingWork.Count == 0))
+        {
+            error = "A partial result must describe its remaining work.";
+            return false;
+        }
+
+        if (result.Status == "partial" && !string.IsNullOrWhiteSpace(result.Commit) &&
+            result.Verification?.Status != "passed")
+        {
+            error = "A committed partial result requires passed verification evidence.";
+            return false;
+        }
+
+        return true;
+    }
+}

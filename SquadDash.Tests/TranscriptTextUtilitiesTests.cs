@@ -153,6 +153,23 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_DecomposeStepResult_StripsHostPayload()
+    {
+        const string text = """
+            Implemented and verified the assigned step.
+
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc",
+             "status":"complete","commit":"abcdef1","summary":"Done","remainingWork":[],
+             "verification":{"status":"passed","command":"dotnet test","summary":"Passed"}}
+            """;
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("Implemented and verified the assigned step."));
+    }
+
+    [Test]
     public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
     {
         const string text = """

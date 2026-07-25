@@ -18,11 +18,11 @@ internal static class TasksPanelParser {
         new(@"^##\s+(🔴|🟡|🟢|🔵|⚫)\s+(.+)$", RegexOptions.Compiled);
 
     private static readonly Regex DecomposeHeaderRegex = new(
-        @"^<!--\s*decompose-group:\s*(?<id>[^|]+?)\s*\|\s*branch:\s*(?<branch>.+?)\s*-->$",
+        @"^<!--\s*decompose-group:\s*(?<id>[^|]+?)\s*\|\s*branch:\s*(?<branch>[^|]+?)(?:\s*\|\s*revision:\s*(?<revision>[^|]+?))?\s*-->$",
         RegexOptions.Compiled);
 
     private static readonly Regex DecomposeTaskRegex = new(
-        @"^-\s*\[(?<status>[ x!])\]\s*\*\*\[(?<id>[^\]]+)\]\*\*\s*(?<description>.*)$",
+        @"^-\s*\[(?<status>[ x!~>])\]\s*\*\*\[(?<id>[^\]]+)\]\*\*\s*(?<description>.*)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex DecomposeMetadataRegex = new(
@@ -203,6 +203,7 @@ internal static class TasksPanelParser {
 
             var groupId = header.Groups["id"].Value.Trim();
             var branch  = header.Groups["branch"].Value.Trim();
+            var revision = header.Groups["revision"].Value.Trim();
             var title   = groupId;
             var summary = string.Empty;
             var tasks   = new List<DecomposedSubTask>();
@@ -229,6 +230,7 @@ internal static class TasksPanelParser {
                 var description = taskTitle;
                 var priority    = "medium";
                 IReadOnlyList<string> dependsOn = [];
+                string? parentTaskId = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -247,6 +249,8 @@ internal static class TasksPanelParser {
                             ? []
                             : rawDependencies.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     }
+                    else if (metadata.StartsWith("parentTaskId:", StringComparison.OrdinalIgnoreCase))
+                        parentTaskId = metadata["parentTaskId:".Length..].Trim();
                     metadataEnd++;
                 }
 
@@ -267,18 +271,26 @@ internal static class TasksPanelParser {
                     DecomposeBranch: branch,
                     TaskId: taskId,
                     DependsOn: dependsOn,
-                    IsFailed: status == "!");
+                    IsFailed: status == "!",
+                    IsPartial: status == "~",
+                    IsSuperseded: status == ">");
 
-                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority, taskTitle));
+                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority, taskTitle, parentTaskId));
                 items.Add(item);
                 i = metadataEnd - 1;
             }
 
             if (tasks.Count > 0) {
-                var group = new DecomposedTaskGroup(groupId, title, branch, summary, tasks);
+                var group = new DecomposedTaskGroup(
+                    groupId,
+                    title,
+                    branch,
+                    summary,
+                    tasks,
+                    HostRevision: string.IsNullOrWhiteSpace(revision) ? null : revision);
                 groupsById[groupId] = group;
 
-                var openItems = items.Where(item => !item.IsChecked).ToList();
+                var openItems = items.Where(item => !item.IsChecked && !item.IsSuperseded).ToList();
                 if (openItems.Count > 0) {
                     var groupEmoji = openItems
                         .OrderBy(item => PriorityOrder(item.Emoji))
@@ -294,7 +306,7 @@ internal static class TasksPanelParser {
                     openGroups.Add(panelGroup);
                 }
 
-                completedItems.AddRange(items.Where(item => item.IsChecked));
+                completedItems.AddRange(items.Where(item => item.IsChecked || item.IsSuperseded));
             }
 
             index = end;
@@ -414,7 +426,9 @@ internal sealed record TaskItem(
     string? DecomposeBranch = null,
     string? TaskId = null,
     IReadOnlyList<string>? DependsOn = null,
-    bool IsFailed = false);
+    bool IsFailed = false,
+    bool IsPartial = false,
+    bool IsSuperseded = false);
 
 /// <summary>Result of parsing tasks.md: open priority groups and completed items.</summary>
 internal sealed class TaskParseResult(

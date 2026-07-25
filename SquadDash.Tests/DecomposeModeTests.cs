@@ -1011,24 +1011,24 @@ internal sealed class CodeHealthGroupRunnerTests
         Assert.That(result, Is.False);
     }
 
-    // ── step tracking / stop ─────────────────────────────────────────────────
+    // ── step tracking / host-owned failure ───────────────────────────────────
 
     [Test]
-    public void OnStopRequested_WithCurrentStep_MarksTaskFailed()
+    public void MarkCurrentStepFailed_WithCurrentStep_MarksTaskFailed()
     {
         var writer = new DecomposedTasksWriter();
         var runner = new CodeHealthGroupRunner(writer, _tasksFile);
         runner.TryStartGroup(MakeLinearGroup(), out _);
 
         runner.SetCurrentStep("PROJ-20240101-001");
-        runner.OnStopRequested();
+        runner.MarkCurrentStepFailed();
 
         var content = File.ReadAllText(_tasksFile);
         Assert.That(content, Does.Contain("- [!] **[PROJ-20240101-001]**"));
     }
 
     [Test]
-    public void OnStopRequested_AfterClearCurrentStep_DoesNothing()
+    public void MarkCurrentStepFailed_AfterClearCurrentStep_DoesNothing()
     {
         var writer = new DecomposedTasksWriter();
         var runner = new CodeHealthGroupRunner(writer, _tasksFile);
@@ -1037,19 +1037,19 @@ internal sealed class CodeHealthGroupRunnerTests
 
         runner.SetCurrentStep("PROJ-20240101-001");
         runner.ClearCurrentStep();
-        runner.OnStopRequested();
+        runner.MarkCurrentStepFailed();
 
         var after = File.ReadAllText(_tasksFile);
         Assert.That(after, Is.EqualTo(before));
     }
 
     [Test]
-    public void OnStopRequested_WithNoCurrentStep_DoesNotThrow()
+    public void MarkCurrentStepFailed_WithNoCurrentStep_DoesNotThrow()
     {
         var writer = new DecomposedTasksWriter();
         var runner = new CodeHealthGroupRunner(writer, _tasksFile);
 
-        Assert.DoesNotThrow(() => runner.OnStopRequested());
+        Assert.DoesNotThrow(() => runner.MarkCurrentStepFailed());
     }
 
     [Test]
@@ -1066,7 +1066,7 @@ internal sealed class CodeHealthGroupRunnerTests
         File.WriteAllText(_tasksFile, content);
 
         runner.TrackFirstEligibleStep(group.GroupId);
-        runner.OnStopRequested();
+        runner.MarkCurrentStepFailed();
 
         Assert.That(
             File.ReadAllText(_tasksFile),
