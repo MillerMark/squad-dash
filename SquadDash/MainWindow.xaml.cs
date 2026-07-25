@@ -812,7 +812,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
         InitializeComponent();
-        _watchHealthAutoRefreshTimer.Interval = TimeSpan.FromSeconds(15);
+        _watchHealthAutoRefreshTimer.Interval = UiTimingConstants.WatchHealthAutoRefreshInterval;
         _watchHealthAutoRefreshTimer.Tick += WatchHealthAutoRefreshTimer_Tick;
         BranchIndicatorStrip.ToolTip = MakeThemedToolTip("Click for Branch options");
         this.AddHandler(UIElement.GotFocusEvent, new RoutedEventHandler(OnWindowElementGotFocus), true);
@@ -1113,7 +1113,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _historyHintTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(5)
+            Interval = UiTimingConstants.HistoryHintDismissInterval
         };
         _historyHintTimer.Tick += (_, _) =>
         {
@@ -1127,7 +1127,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         };
 
-        _hintRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        _hintRefreshTimer = new DispatcherTimer { Interval = UiTimingConstants.HintRefreshInterval };
         _hintRefreshTimer.Tick += (_, _) =>
         {
             try { BuildShortcutsHint(); }
@@ -1137,7 +1137,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _toolSpinnerTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(150)
+            Interval = UiTimingConstants.ToolSpinnerInterval
         };
         _toolSpinnerTimer.Tick += (_, _) =>
         {
@@ -1153,13 +1153,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _promptHealthTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(5)
+            Interval = UiTimingConstants.PromptHealthCheckInterval
         };
         // Tick handler wired by PromptExecutionController
 
         _statusPresentationTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(1)
+            Interval = UiTimingConstants.StatusPresentationInterval
         };
         _statusPresentationTimer.Tick += (_, _) =>
         {
@@ -1192,7 +1192,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _teamRefreshDebounceTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(350)
+            Interval = UiTimingConstants.TeamRefreshDebounceInterval
         };
         _teamRefreshDebounceTimer.Tick += TeamRefreshDebounceTimer_Tick;
 
@@ -1216,7 +1216,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _uiResponsivenessTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
-            Interval = TimeSpan.FromMilliseconds(500)
+            Interval = UiTimingConstants.UiResponsivenessCheckInterval
         };
         _uiResponsivenessTimer.Tick += (_, _) =>
         {
@@ -2646,7 +2646,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _priorityFeedbackTimer?.Stop();
         _priorityFeedbackId = id;
 
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        var timer = new DispatcherTimer { Interval = UiTimingConstants.QueueFeedbackClearDelay };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
@@ -4603,7 +4603,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     /// </summary>
     private void StartCoordinatorAbortWatchdog(string reason = "abort", string marker = "[aborted]")
     {
-        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ =>
+        _ = Task.Delay(UiTimingConstants.AbortWatchdogDelay).ContinueWith(_ =>
             Dispatcher.InvokeAsync(() =>
             {
                 if (!_isPromptRunning)
@@ -5882,7 +5882,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (_loopCountdownTimer == null)
         {
-            _loopCountdownTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _loopCountdownTimer = new DispatcherTimer { Interval = UiTimingConstants.LoopCountdownInterval };
             _loopCountdownTimer.Tick += (_, _) => {
                 if (!_loopIsWaiting) { _loopCountdownTimer.Stop(); return; }
                 SyncLoopPanel();
@@ -6366,7 +6366,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             // Brief pause to let the OS release the TCP port before we rebind it.
-            await Task.Delay(500).ConfigureAwait(false);
+            await Task.Delay(UiTimingConstants.BridgePortReleaseMs).ConfigureAwait(false);
             await _bridge.StartRemoteAsync(
                 repo: System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
                 branch: "main",
@@ -6391,7 +6391,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             // Brief pause to let the OS release the TCP port before we rebind it.
-            await Task.Delay(500).ConfigureAwait(false);
+            await Task.Delay(UiTimingConstants.BridgePortReleaseMs).ConfigureAwait(false);
             await _bridge.StartRemoteAsync(
                 repo: System.IO.Path.GetFileName(_currentWorkspace.FolderPath),
                 branch: "main",
@@ -9516,7 +9516,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Debounce only the disk save so repeated ticks don't thrash storage.
         if (_fontScaleCommitTimer is null)
         {
-            _fontScaleCommitTimer       = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+            _fontScaleCommitTimer       = new DispatcherTimer { Interval = UiTimingConstants.FontScaleCommitInterval };
             _fontScaleCommitTimer.Tick += (_, _) => CommitFontSizeScale();
         }
         _fontScaleCommitTimer.Stop();
@@ -9793,7 +9793,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             catch (System.Runtime.InteropServices.COMException ex)
             {
                 lastEx = ex;
-                System.Threading.Thread.Sleep(50 * (i + 1)); // 50, 100, 150... ms — linear backoff
+                System.Threading.Thread.Sleep(UiTimingConstants.ClipboardRetryBackoffUnitMs * (i + 1)); // 50, 100, 150... ms — linear backoff
             }
         }
         // CLIPBRD_E_CANT_OPEN is transient clipboard contention; swallow silently after exhausting retries.
@@ -11392,7 +11392,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _pttCtrlPollTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
         {
-            Interval = TimeSpan.FromMilliseconds(100)
+            Interval = UiTimingConstants.PttCtrlPollInterval
         };
         _pttCtrlPollTimer.Tick += (_, _) =>
         {
@@ -11796,7 +11796,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write("UI", "Prompt sent: PTT quick-reply send");
             // Dictation started with quick replies visible and an empty prompt box.
             // Send the dictated text directly as a quick reply response (bypass the queue).
-            await Task.Delay(220).ConfigureAwait(false);
+            await Task.Delay(UiTimingConstants.PttSendSettleMs).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
                 var text = PromptTextBox.Text.Trim();
@@ -11832,7 +11832,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         else if (send && wasTargetingPrompt)
         {
             SquadDashTrace.Write("UI", "Prompt sent: PTT auto-send (voice released Ctrl)");
-            await Task.Delay(220).ConfigureAwait(false);
+            await Task.Delay(UiTimingConstants.PttSendSettleMs).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
                 if (_activeTabId is not null)
@@ -13368,7 +13368,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             CancelTranscriptGlowFadeTimer();
             _transcriptGlowFadeBorder = transcriptBorder;
 
-            _transcriptGlowHoldTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _transcriptGlowHoldTimer = new DispatcherTimer { Interval = UiTimingConstants.TranscriptGlowHoldInterval };
             _transcriptGlowHoldTimer.Tick += (_, _) =>
             {
                 _transcriptGlowHoldTimer?.Stop();
@@ -14060,7 +14060,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            await Task.Delay(1000);
+            await Task.Delay(UiTimingConstants.WatchHealthStartSettleMs);
             _watchHealthResult = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
         }
         finally
@@ -14111,7 +14111,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(UiTimingConstants.WatchHealthStopSettleMs);
             _watchHealthResult = await _watchHealthService.GetHealthAsync(_currentWorkspace.FolderPath);
         }
         finally
@@ -14346,7 +14346,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SetInstallStatus($"{text} ({(int)sw.Elapsed.TotalSeconds}s)");
             });
 
-            var elapsedTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            var elapsedTimer = new System.Windows.Threading.DispatcherTimer { Interval = UiTimingConstants.InstallProgressRefreshInterval };
             elapsedTimer.Tick += (_, _) => SetInstallStatus($"{lastProgressMessage} ({(int)sw.Elapsed.TotalSeconds}s)");
             elapsedTimer.Start();
 
@@ -15061,7 +15061,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Showing a no-activate callout can still make WPF briefly tear down and recreate
             // menu popup HWNDs. Give the active OpenMenu path time to recover before deciding
             // that the highlighted element is genuinely gone.
-            await Task.Delay(250);
+            await Task.Delay(UiTimingConstants.TourCalloutVisibilitySettleMs);
             bool isRendered = el.IsVisible
                            || (el.ActualWidth > 0 && el.ActualHeight > 0
                                && PresentationSource.FromVisual(el) is not null);
@@ -15663,13 +15663,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
 
                 menuItem.IsSubmenuOpen = true;
-                await Task.WhenAny(opened.Task, Task.Delay(500));
+                await Task.WhenAny(opened.Task, Task.Delay(UiTimingConstants.TourMenuOpenTimeoutMs));
                 await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
                 await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
 
                 // Require the popup to remain open across a short settling interval. This
                 // catches opens that WPF immediately cancels because menu focus/capture moved.
-                await Task.Delay(60);
+                await Task.Delay(UiTimingConstants.TourMenuSettleMs);
                 if (GetRenderedTourMenuPopupChild(menuItem) is { } child)
                     return child;
             }
@@ -15683,7 +15683,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write(TraceCategory.UI,
                 $"[TourOpenMenu] '{name}' did not reach a rendered-open state (attempt {attempt}/{maxAttempts}).");
             menuItem.IsSubmenuOpen = false;
-            await Task.Delay(80);
+            await Task.Delay(UiTimingConstants.TourBetweenAttemptsMs);
         }
 
         return null;
@@ -15956,7 +15956,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var el2 = ResolveTourHighlightElement(lastName);
                 if (el1 is null || el2 is null) return;
 
-                await Task.Delay(80);
+                await Task.Delay(UiTimingConstants.TourBetweenAttemptsMs);
 
                 bool rendered1 = el1.IsVisible || (el1.ActualWidth > 0 && el1.ActualHeight > 0 && PresentationSource.FromVisual(el1) is not null);
                 bool rendered2 = el2.IsVisible || (el2.ActualWidth > 0 && el2.ActualHeight > 0 && PresentationSource.FromVisual(el2) is not null);
@@ -16039,7 +16039,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 if (_tourHighlightZTimer is null)
                 {
-                    _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                    _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
                     _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
                     _tourHighlightZTimer.Start();
                 }
@@ -16062,7 +16062,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 if (ResolveTourHighlightElement(textBoxName) is not TextBox textBox) return;
 
-                await Task.Delay(80);
+                await Task.Delay(UiTimingConstants.TourBetweenAttemptsMs);
 
                 bool tbRendered = textBox.IsVisible
                                || (textBox.ActualWidth > 0 && textBox.ActualHeight > 0
@@ -16137,7 +16137,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 if (_tourHighlightZTimer is null)
                 {
-                    _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                    _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
                     _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
                     _tourHighlightZTimer.Start();
                 }
@@ -16155,7 +16155,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Wait a tick so the element has had a chance to render (important for menu items
             // that just became visible via OpenMenu).
-            await Task.Delay(80);
+            await Task.Delay(UiTimingConstants.TourBetweenAttemptsMs);
 
             bool isRendered = el.IsVisible
                            || (el.ActualWidth > 0 && el.ActualHeight > 0
@@ -16208,7 +16208,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // for as long as any rects are shown, without relying on a one-shot toggle.
             if (_tourHighlightZTimer is null)
             {
-                _tourHighlightZTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+                _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
                 _tourHighlightZTimer.Tick += (_, _) =>
                     ReassertTourHighlightOverlays();
                 _tourHighlightZTimer.Start();
@@ -16479,7 +16479,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var idleDeadline = Environment.TickCount64 + 1_500;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-                await Task.Delay(100);
+                await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
             TranscriptThreadState targetThread;
             if (string.IsNullOrWhiteSpace(agentName))
@@ -16550,7 +16550,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var idleDeadline = Environment.TickCount64 + 10_000;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-                await Task.Delay(100);
+                await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
             TranscriptThreadState targetThread;
             if (string.IsNullOrWhiteSpace(agentName))
@@ -16687,7 +16687,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Wait for any running prompt
             var idleDeadline = Environment.TickCount64 + 10_000;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-                await Task.Delay(100);
+                await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
             BeginTranscriptTurn(thread, userText);
 
@@ -16901,7 +16901,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var idleDeadline = Environment.TickCount64 + 10_000;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-                await Task.Delay(100);
+                await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
             BeginTranscriptTurn(thread, userText);
 
@@ -16938,7 +16938,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             var idleDeadline = Environment.TickCount64 + 10_000;
             while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-                await Task.Delay(100);
+                await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
             if (!_secondaryTranscripts.Any(e => e.Agent == card))
                 OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
@@ -17138,7 +17138,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var idleDeadline = Environment.TickCount64 + 1_500;
         while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-            await Task.Delay(100);
+            await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
         int blocksBefore = CoordinatorThread.Document.Blocks.Count;
         var rng = new Random();
@@ -17303,7 +17303,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Wait for coordinator to finish before injecting simulated text (max 10 s).
         var idleDeadline = Environment.TickCount64 + 10_000;
         while ((_isPromptRunning || IsLoopRunning) && Environment.TickCount64 < idleDeadline)
-            await Task.Delay(100);
+            await Task.Delay(UiTimingConstants.TourStepAnimationMs);
 
         RemoveLastTourQuickReplyPanel();
 
@@ -17362,7 +17362,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _currentQuickReplyPayloads = [];
 
         // Poll until the panel is present in the visual tree (up to 2 s).
-        var timeout = System.Threading.Tasks.Task.Delay(2000);
+        var timeout = System.Threading.Tasks.Task.Delay(UiTimingConstants.TourPanelPollTimeoutMs);
         while (!timeout.IsCompleted)
         {
             await Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
@@ -18786,7 +18786,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_loopMergedViewWindow is null) return;
         if (_loopPreviewFilterDebounce is null)
         {
-            _loopPreviewFilterDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _loopPreviewFilterDebounce = new DispatcherTimer { Interval = UiTimingConstants.LoopPreviewFilterDebounceInterval };
             _loopPreviewFilterDebounce.Tick += (_, _) =>
             {
                 _loopPreviewFilterDebounce.Stop();
@@ -20478,7 +20478,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // keystroke is expensive, especially for tables.
         if (_docPreviewRefreshTimer is null)
         {
-            _docPreviewRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _docPreviewRefreshTimer = new DispatcherTimer { Interval = UiTimingConstants.DocPreviewRefreshInterval };
             _docPreviewRefreshTimer.Tick += DocPreviewRefreshTimer_Tick;
         }
         _docPreviewRefreshTimer.Stop();
@@ -20487,7 +20487,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Debounce save to disk
         if (_docSourceSaveTimer is null)
         {
-            _docSourceSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _docSourceSaveTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceSaveInterval };
             _docSourceSaveTimer.Tick += DocSourceSaveTimer_Tick;
         }
         _docSourceSaveTimer.Stop();
@@ -20677,7 +20677,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         overlayCanvas.Children.Add(_docSourceHoverHighlight);
 
         // Auto-clear after 1 second
-        _docSourceHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _docSourceHoverTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceHoverInterval };
         _docSourceHoverTimer.Tick += (s, e) =>
         {
             _docSourceHoverTimer.Stop();
@@ -21671,7 +21671,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void DocSourceFind_TextChanged(object sender, TextChangedEventArgs e)
     {
         _docSourceFindDebounceTimer?.Stop();
-        _docSourceFindDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _docSourceFindDebounceTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceFindDebounceInterval };
         _docSourceFindDebounceTimer.Tick += (s, args) =>
         {
             _docSourceFindDebounceTimer.Stop();
@@ -24123,7 +24123,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_completedTimeFooterTimer is null)
         {
-            _completedTimeFooterTimer = new DispatcherTimer(TimeSpan.FromSeconds(60), DispatcherPriority.Background,
+            _completedTimeFooterTimer = new DispatcherTimer(UiTimingConstants.PeriodicRefreshInterval, DispatcherPriority.Background,
                 (_, _) =>
                 {
                     try { UpdateCompletedTimeFooters(); }
@@ -24935,7 +24935,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_transcriptTitleRefreshTimer is null)
         {
-            _transcriptTitleRefreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(60), DispatcherPriority.Background,
+            _transcriptTitleRefreshTimer = new DispatcherTimer(UiTimingConstants.PeriodicRefreshInterval, DispatcherPriority.Background,
                 (_, _) =>
                 {
                     ScanAndUpdateCoordinatorIntent();
@@ -25210,7 +25210,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             _coordinatorIntentDebounceTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(250)
+                Interval = UiTimingConstants.CoordinatorIntentDebounceInterval
             };
             _coordinatorIntentDebounceTimer.Tick += (_, _) =>
             {
@@ -25314,7 +25314,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (!_agentIntentDebounceTimers.TryGetValue(thread.ThreadId, out var timer))
         {
-            timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            timer = new DispatcherTimer { Interval = UiTimingConstants.CoordinatorIntentDebounceInterval };
             timer.Tick += (_, _) =>
             {
                 try
@@ -25424,7 +25424,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         entry.PostponeTimer?.Stop();
         entry.PostponeTimer = null;
 
-        var postponeTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
+        var postponeTimer = new DispatcherTimer { Interval = UiTimingConstants.PostponeReminderInterval };
         postponeTimer.Tick += (_, _) =>
         {
             postponeTimer.Stop();
@@ -25458,7 +25458,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         entry.CountdownOverlay = overlay;
         entry.ContentGrid.Children.Add(overlay);
 
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        var timer = new DispatcherTimer { Interval = UiTimingConstants.TabCountdownInterval };
         timer.Tick += (_, _) =>
         {
             entry.CountdownSecondsRemaining--;
@@ -26895,7 +26895,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             copiedTip.IsOpen = true;
             var timer = new System.Windows.Threading.DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(1.5)
+                Interval = UiTimingConstants.CopiedTooltipDismissInterval
             };
             timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
             timer.Start();
@@ -30110,7 +30110,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_currentRoutingAssessment is null || !_currentRoutingAssessment.NeedsRepair)
                 return;
 
-            await Task.Delay(250);
+            await Task.Delay(UiTimingConstants.RoutingRepairPollMs);
         }
     }
 
@@ -32524,7 +32524,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _docsRefreshCts = cts;
 
         // Schedule refresh after 150ms debounce
-        Task.Delay(150, cts.Token).ContinueWith(async _ =>
+        Task.Delay(UiTimingConstants.DocsRefreshDebounceMs, cts.Token).ContinueWith(async _ =>
         {
             if (!cts.Token.IsCancellationRequested)
             {
@@ -34112,7 +34112,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ApplyTintPreview(stop);
             if (_tintCommitTimer is null)
             {
-                _tintCommitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+                _tintCommitTimer = new DispatcherTimer { Interval = UiTimingConstants.TintCommitInterval };
                 _tintCommitTimer.Tick += (_, _) => CommitTintStop();
             }
             _tintCommitTimer.Stop();
@@ -34325,7 +34325,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_sliderDebounceTimer is null)
         {
-            _sliderDebounceTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
+            _sliderDebounceTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = UiTimingConstants.SliderDebounceInterval };
             _sliderDebounceTimer.Tick += (_, _) =>
             {
                 _sliderDebounceTimer.Stop();
@@ -35404,7 +35404,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var original = QueueStatusLabel.Text;
         QueueStatusLabel.Text = original + " (copied)";
-        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = UiTimingConstants.QueueCopiedFeedbackClearDelay };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
@@ -38795,7 +38795,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             CodeHealthBannerBorder.Visibility = Visibility.Visible;
 
         _codeHealthBannerTimer?.Stop();
-        _codeHealthBannerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+        _codeHealthBannerTimer = new DispatcherTimer { Interval = UiTimingConstants.CodeHealthBannerInterval };
         _codeHealthBannerTimer.Tick += (_, _) => DismissCodeHealthBanner();
         _codeHealthBannerTimer.Start();
     }
@@ -39522,7 +39522,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         if (_categorizationDebounceTimer is null)
         {
-            _categorizationDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _categorizationDebounceTimer = new DispatcherTimer { Interval = UiTimingConstants.CategorizationDebounceInterval };
             _categorizationDebounceTimer.Tick += (_, _) =>
             {
                 _categorizationDebounceTimer.Stop();

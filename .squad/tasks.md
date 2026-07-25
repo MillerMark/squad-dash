@@ -7,7 +7,7 @@
   description: Move all FileSystemWatcher fields (_inboxWatcher, _teamFileWatcher, _docsWatcher, _codeHealthMdWatcher, etc.) plus their setup, teardown, and event handlers from MainWindow.xaml.cs into a new SquadDash/WorkspaceFileWatcherCoordinator.cs. MainWindow holds one reference and delegates watcher lifecycle. No XAML changes required. Vesper unit tests ship with this extraction covering watcher start/stop and event routing. Owner: arjun-sen.
   dependsOn: (none)
 
-- [ ] **[GODCLASS-20260725-002]** Extract UiTimingConstants
+- [x] **[GODCLASS-20260725-002]** Extract UiTimingConstants
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Find all hard-coded delay integer/double literals used with Task.Delay, Thread.Sleep, or DispatcherTimer intervals in MainWindow.xaml.cs (approximately 20+ occurrences: 50ms, 80ms, 100ms, 220ms, 500ms, 1000ms, etc.). Create a new static class SquadDash/UiTimingConstants.cs with named constants for each value. Replace all inline literals with the named constants. Pure rename refactor — no behavior change. Build must be green. Owner: arjun-sen.
   dependsOn: (none)
