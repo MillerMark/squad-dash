@@ -92,6 +92,7 @@
     <Compile Include="..\SquadDash\AgentThreadIdentityPolicy.cs" Link="Source\AgentThreadIdentityPolicy.cs" />
     <Compile Include="..\SquadDash\QuickReplyOptionParser.cs" Link="Source\QuickReplyOptionParser.cs" />
     <Compile Include="..\SquadDash\ApplicationSettingsStore.cs" Link="Source\ApplicationSettingsStore.cs" />
+    <Compile Include="..\SquadDash\SettingsSnapshotManager.cs" Link="Source\SettingsSnapshotManager.cs" />
     <Compile Include="..\SquadDash\SoundNotificationService.cs" Link="Source\SoundNotificationService.cs" />
     <Compile Include="..\SquadDash\ITtsProvider.cs" Link="Source\ITtsProvider.cs" />
     <Compile Include="..\SquadDash\AzureTtsProvider.cs" Link="Source\AzureTtsProvider.cs" />

@@ -622,6 +622,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private MenuItem? _remoteAccessMenuItem;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, RemoteSpeechSession> _remoteSpeechSessions = new();
     private ApplicationSettingsSnapshot _settingsSnapshot = ApplicationSettingsSnapshot.Empty;
+    private SettingsSnapshotManager _settingsManager = null!;
     private string _activeThemeName = "Light";
     private string _themePreference = "Auto"; // "Auto", "Light", or "Dark"
     private readonly long _processStartedAtUtcTicks = ProcessIdentity.GetCurrentProcessStartedAtUtcTicks();
@@ -2270,6 +2271,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         _settingsSnapshot = _settingsStore.Load();
+        _settingsManager = new SettingsSnapshotManager(_settingsStore, _settingsSnapshot);
         _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
         RefreshBridgeDiagnosticsMenuCheckmark();
         AgentStatusCard.AvatarsSettingEnabled = _settingsSnapshot.ShowAgentAvatars;
@@ -20320,7 +20322,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _currentDocPath = filePath;  // store for link navigation
             // Keep BOTH in-memory stores current so DocsWatcher-triggered reloads (which read
             // _docsPanelState) restore the NEW topic rather than reverting to the old one.
-            _settingsSnapshot = _settingsSnapshot with { DocsSelectedTopic = filePath };
+            _settingsManager.Mutate(snapshot => snapshot with { DocsSelectedTopic = filePath });
+            _settingsSnapshot = _settingsManager.Current;
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { SelectedTopic = filePath };
             _pec.ActiveDocumentPath = filePath;
             UpdateApproveDocButton(filePath);
