@@ -1,4 +1,5 @@
 ﻿<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition -->
+<!-- decompose-revision: 4356959cdf9fba89 -->
 **[GODCLASS-20260725] MainWindow God Class Decomposition**
 > Extract responsibilities from MainWindow.xaml.cs (41,284 lines) in safe phases. Each step leaves the build green. Phase 1 is three independent no-XAML extractions. Phase 2 depends on all of Phase 1. Phase 3 panel controllers depend on all of Phase 2. Phase 4 interface segregation depends on all of Phase 3. Phase 5 event broker depends on Phase 4.
 
@@ -12,25 +13,57 @@
   description: Find all hard-coded delay integer/double literals used with Task.Delay, Thread.Sleep, or DispatcherTimer intervals in MainWindow.xaml.cs (approximately 20+ occurrences: 50ms, 80ms, 100ms, 220ms, 500ms, 1000ms, etc.). Create a new static class SquadDash/UiTimingConstants.cs with named constants for each value. Replace all inline literals with the named constants. Pure rename refactor — no behavior change. Build must be green. Owner: arjun-sen.
   dependsOn: (none)
 
-- [ ] **[GODCLASS-20260725-003]** Extract SettingsSnapshotManager
+- [>] **[GODCLASS-20260725-003]** Extract SettingsSnapshotManager
+  (SquadDash status: Superseded by: GODCLASS-20260725-012, GODCLASS-20260725-013, GODCLASS-20260725-014, GODCLASS-20260725-015, GODCLASS-20260725-016)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate _settingsSnapshot and all code that reads, writes, applies, or diffs it in MainWindow.xaml.cs. Move into a new SquadDash/SettingsSnapshotManager.cs class with a clean interface. MainWindow holds a reference and calls through the manager. No XAML changes required. Vesper unit tests ship covering snapshot create, apply, and restore paths. Owner: arjun-sen.
   dependsOn: (none)
 
+- [x] **[GODCLASS-20260725-012]** Introduce the tested settings manager foundation
+  (SquadDash status: Completed by SquadDash — commit 04fd00a: Added SettingsSnapshotManager, initialized it in MainWindow, migrated one low-risk mutation, and covered mutate, replace, and persistence behavior.)
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Introduce SettingsSnapshotManager as the owner of the current ApplicationSettingsSnapshot, initialize it during workspace startup, migrate one low-risk direct mutation, and add focused tests for mutate, replace, and persisted mutation behavior. Keep the remaining MainWindow call sites unchanged for later atomic steps.
+  dependsOn: (none)
+  parentTaskId: GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-013]** Migrate non-persisted settings mutations
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Route direct in-memory _settingsSnapshot with-expression mutations through SettingsSnapshotManager without changing persistence timing. Add focused tests for representative update paths and leave the build green. Do not migrate store-returning persistence calls in this step.
+  dependsOn: GODCLASS-20260725-012
+  parentTaskId: GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-014]** Migrate settings persistence call sites
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Route MainWindow call sites that assign ApplicationSettingsStore Save* return values through SettingsSnapshotManager so the manager remains the single owner after persistence. Preserve every existing save boundary and add regression tests for representative persistence paths.
+  dependsOn: GODCLASS-20260725-013
+  parentTaskId: GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-015]** Migrate dispatcher and external settings injection paths
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Move dispatcher callbacks, lambdas, PreferencesWindow injection, and other externally supplied snapshot replacements to SettingsSnapshotManager. Prove ordering and thread-affinity behavior with focused tests and keep MainWindow behavior unchanged.
+  dependsOn: GODCLASS-20260725-014
+  parentTaskId: GODCLASS-20260725-003
+
+- [ ] **[GODCLASS-20260725-016]** Remove legacy snapshot ownership and verify the extraction
+  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
+  description: Remove MainWindow's duplicate _settingsSnapshot ownership after all call sites use SettingsSnapshotManager, expose only the minimum read interface MainWindow still needs, run the full test suite and solution build, and verify there are no direct settings snapshot mutations left in MainWindow.
+  dependsOn: GODCLASS-20260725-015
+  parentTaskId: GODCLASS-20260725-003
+
 - [ ] **[GODCLASS-20260725-004]** Extract ScreenshotService
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate the screenshot capture block in MainWindow.xaml.cs (~200 lines). Move capture logic, file naming, and error handling into SquadDash/ScreenshotService.cs. MainWindow calls the service via a clean method. No XAML changes required. Build must be green. Unit tests ship. Owner: arjun-sen.
-  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
 - [ ] **[GODCLASS-20260725-005]** Extract GuidedTourCoordinator
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate the 15+ _tour* fields and their recovery state machine in MainWindow.xaml.cs (_tourMenuRecoveryRunning, _tourIntelliSenseRecoveryRunning, etc.). Move all tour state and transitions into SquadDash/GuidedTourCoordinator.cs. MainWindow wires the coordinator into the UI event chain but owns no tour state. Build must be green. Unit tests ship covering state transitions and recovery scenarios. Owner: arjun-sen.
-  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
 - [ ] **[GODCLASS-20260725-006]** Extract PromptQueueCoordinator
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate _promptQueue and all OnQueue* event handlers in MainWindow.xaml.cs. Move into SquadDash/PromptQueueCoordinator.cs. This reduces the 380+ direct event subscriptions in MainWindow and lays the foundation for the Phase 5 event broker. Build must be green. Vesper unit tests ship covering enqueue/dequeue and event handler wiring. Owner: arjun-sen.
-  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-003
+  dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
 - [ ] **[GODCLASS-20260725-007]** Extract TranscriptPanelController
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
@@ -73,31 +106,13 @@
 ## 🟡 Mid Priority
 
 
-- [ ] **[Commit History Visualizer] Extract and unit-test visualizer logic** *(Owner: Vesper)*
-  CommitActivityGraphWindow.cs (~1,500 lines) has no unit tests. Extract pure-logic helpers
-  (zoom range calculations, off-hours shading date math, cache key construction) into
-  testable classes following the QuestionSentenceExtractor pattern. Add NUnit tests for each.
-  Reference: Argus code review finding #5 from July 24 sprint review.
 
-- [ ] **[Architecture] Shared vs Local data folder convention — ADR** *(Owner: Orion Vale)*
-  SquadDash needs a standard answer for where team-shared vs user-local data lives.
-  Shared data lives in version control (`.squad/shared/` or directly in `.squad/`).
-  Local data lives in AppData. Both paths should be well-defined for every data type:
-  notes, tasks, code-health entries, loop files, guided tour steps.
-  Deliverable: ADR in `.squad/decisions.md` defining the folder contract + a `DataScope`
-  enum (Shared / Local) usable by all data-aware features.
 
-- [ ] **[Notes] Convert inbox message to note via right-click** *(Owner: Lyra Morn)*
-  Right-click on any inbox message → context menu item "Add as Note".
-  Populates a new note with the message subject as the note title and body as content.
-  Depends on: shared/local data convention ADR.
+- [x] **[Architecture] Shared vs Local data folder convention — ADR** *(Owner: Orion Vale)* — commit 5e1850b
 
-- [ ] **[Notes] Add New Shared Note from notes panel right-click** *(Owner: Lyra Morn)*
-  Right-click in the Notes panel → "Add New Shared Note".
-  Shared notes are stored in `.squad/notes/` (version-controlled).
-  Local notes remain in AppData.
-  Show a 🌐 (or team) icon on shared items to distinguish them from local ones.
-  Depends on: shared/local data convention ADR.
+- [x] **[Notes] Convert inbox message to note via right-click** *(Owner: Lyra Morn)* — commit 95fa27c
+
+- [x] **[Notes] Add New Shared Note from notes panel right-click** *(Owner: Lyra Morn)* — commit fd5aab5
 
 - [ ] **[Shared data] Shared-item indicator icon across panels** *(Owner: Lyra Morn)*
   Tasks, notes, code-health entries, and loop files that live in `.squad/` (shared/version-controlled)
@@ -387,6 +402,19 @@
   not only on `bridge-done`. Consider a lightweight flush-on-close path that drains any pending
   INBOX_MESSAGE_JSON from the current response before shutdown completes.
 
+- [ ] **[Inbox] Clicking an action button deletes the message** *(Owner: Lyra Morn)*
+  When the user clicks an action button on an inbox message, the message disappears entirely from
+  the inbox (even after clearing the "unread only" filter). Clicking an action should not delete or
+  hide the message — it should remain readable so the user can review the plan while the agent runs.
+  Expected: message stays visible; the clicked button shows as "chosen" (e.g. checkmark or dimmed
+  label) and all other action buttons on the message are disabled (mutual exclusion).
+
+- [ ] **[Inbox] Action buttons on a message should be mutually exclusive** *(Owner: Lyra Morn)*
+  After any action button is clicked on an inbox message, all action buttons on that message must
+  become permanently disabled (greyed out / unclickable). Only one action per message can ever fire.
+  This prevents double-firing and competing agents on the same branch. Implement together with the
+  message-delete fix above — they are two facets of the same interaction contract.
+
 - [ ] **[Maintenance] `branch`-safety tasks branch from current HEAD, not always from main** *(Owner: Arjun Sen)*
   When two `safety: branch` tasks run in a session, each task receives a prompt that says "create branch
   `maintenance/YYYYMMDD-<slug>` before making any code changes." The AI agent runs `git checkout -b`
@@ -490,3 +518,7 @@
 - [x] **[Commit Viewer] AI-assisted categorization of uncategorized commits** *(Owner: Lyra Morn)* ✅ Completed 2026-07-09 — commit c40ae85
 - [x] **[Guided Tour] "Passive observe" mode checkbox in tour editor** *(Owner: Lyra Morn)* ✅ Completed — commit 19ff630
 - [x] [Guided Tour] Context condition registry for conditional step skipping
+- [x] **[Commit History Visualizer] Extract and unit-test visualizer logic** *(Owner: Vesper)* — commit bb4ce97 — 11 pure-logic helpers extracted to CommitActivityGraphLogic.cs; 61 NUnit tests added
+- [x] **[Architecture] Shared vs Local data folder convention — ADR** *(Owner: Orion Vale)* — commit 5e1850b — DataScope enum added; ADR defines folder contract for all data types
+- [x] **[Notes] Convert inbox message to note via right-click** *(Owner: Lyra Morn)* — commit 95fa27c — "Add as Note" context menu item on inbox messages
+- [x] **[Notes] Add New Shared Note from notes panel right-click** *(Owner: Lyra Morn)* — commit fd5aab5 — "Add New Shared Note 🌐" in notes panel; shared notes stored in .squad/notes/; 🌐 icon on shared rows

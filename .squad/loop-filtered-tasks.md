@@ -18,7 +18,7 @@ options:
     label: "Write tests"
     hint: "Write comprehensive tests after each implementation task"
   commit_after_task:
-    value: ask
+    value: always
     type: enum
     choices: [always, never, ask]
     label: "Commit:"
