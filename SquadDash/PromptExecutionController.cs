@@ -2290,7 +2290,12 @@ internal sealed class PromptExecutionController {
         var inboxCtx = _instructionProvider.Get().InboxMessage;
         var commitReportingCtx = _instructionProvider.Get().CommitReporting;
         var subAgentApprovalGroupCtx = _instructionProvider.Get().SubAgentApprovalGroup;
-        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, artifactCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, _instructionProvider.Get().DecomposePlanning, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
+        var currentWorkspace = _workspaceContext.GetCurrentWorkspace();
+        var decomposePlanningCtx = currentWorkspace is null
+            ? null
+            : DecomposePlanningInstructions.BuildOrdinaryPromptPointer(
+                DecomposePlanningInstructions.EnsureMaterialized(currentWorkspace.SquadFolderPath));
+        var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, artifactCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, decomposePlanningCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(
             prompt,

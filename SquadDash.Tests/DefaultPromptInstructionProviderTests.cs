@@ -4,12 +4,32 @@ namespace SquadDash.Tests;
 internal sealed class DefaultPromptInstructionProviderTests
 {
     [Test]
-    public void Get_DecomposePlanning_ContainsShippedProtocol()
+    public void DecomposePlanningSpecification_ContainsCompleteSchemas()
     {
-        var instruction = new DefaultPromptInstructionProvider().Get().DecomposePlanning;
+        var instruction = DecomposePlanningInstructions.LoadSpecification();
         Assert.That(instruction, Does.Contain("TASKS_JSON:"));
         Assert.That(instruction, Does.Contain("DECOMPOSE_DECISION_JSON:"));
-        Assert.That(instruction, Does.Contain("stages the plan"));
+        Assert.That(instruction, Does.Contain("SEARCH-20260725-003"));
+        Assert.That(instruction, Does.Contain("schema-version: 1"));
+    }
+
+    [Test]
+    public void EnsureMaterialized_UsesProvidedConfiguredSquadFolder()
+    {
+        var configuredSquadFolder = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            "external-squad-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
+            Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
+            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 1"));
+            Assert.That(DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path), Does.Contain(path));
+        }
+        finally
+        {
+            if (Directory.Exists(configuredSquadFolder)) Directory.Delete(configuredSquadFolder, recursive: true);
+        }
     }
 
     [Test]

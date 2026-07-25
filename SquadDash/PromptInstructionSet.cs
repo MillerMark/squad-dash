@@ -11,6 +11,5 @@ internal sealed record PromptInstructionSet(
     string ArtifactFiles,
     string InboxMessage,
     string QuickReply,
-    string DecomposePlanning,
     string CoordinatorDelegationAccountability,
     string SubAgentApprovalGroup);

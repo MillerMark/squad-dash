@@ -298,6 +298,7 @@
     <Compile Include="..\SquadDash\CodeHealthGroupRunner.cs" Link="Source\CodeHealthGroupRunner.cs" />
     <Compile Include="..\SquadDash\DecomposeDecisionParser.cs" Link="Source\DecomposeDecisionParser.cs" />
     <Compile Include="..\SquadDash\PendingDecomposePlanStore.cs" Link="Source\PendingDecomposePlanStore.cs" />
+    <Compile Include="..\SquadDash\DecomposePlanningInstructions.cs" Link="Source\DecomposePlanningInstructions.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 
