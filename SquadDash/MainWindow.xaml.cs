@@ -7240,7 +7240,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         intro.Inlines.Add(revision);
         intro.Inlines.Add(new LineBreak());
         var link = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
-        link.Click += (_, _) => new DecomposePlanWindow(group) { Owner = this }.Show();
+        link.Click += (_, _) => new PlanViewerWindow(group) { Owner = this }.Show();
         intro.Inlines.Add(link);
         blocks.Add(intro);
 
@@ -7449,7 +7449,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
 
-        new DecomposePlanWindow(plan.Group) { Owner = CanShowOwnedWindow() ? this : null }.Show();
+        new PlanViewerWindow(plan.Group) { Owner = CanShowOwnedWindow() ? this : null }.Show();
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────

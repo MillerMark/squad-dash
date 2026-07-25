@@ -6,14 +6,14 @@ using System.Windows.Shapes;
 
 namespace SquadDash;
 
-internal sealed class DecomposePlanWindow : ChromedWindow
+internal sealed class PlanViewerWindow : ChromedWindow
 {
     private const double NodeWidth = 220;
     private const double NodeHeight = 100;
     private const double ColumnSpacing = 360;
     private const double RowSpacing = 152;
 
-    internal DecomposePlanWindow(DecomposedTaskGroup group) : base(captionHeight: CloseButtonHeight)
+    internal PlanViewerWindow(DecomposedTaskGroup group) : base(captionHeight: CloseButtonHeight)
     {
         Title     = group.GroupTitle;
         Width     = 1200;
