@@ -14439,6 +14439,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         if (border is not null) return border;
                     }
                 }
+                if (name == "FirstActiveAgentCardWithHiddenTranscript")
+                {
+                    // First active (non-lead) agent whose transcript is not currently shown —
+                    // neither selected in the main panel nor open as a secondary panel.
+                    var card = _activeAgentCards
+                        .Where(c => !c.IsLeadAgent)
+                        .FirstOrDefault(c => c.Threads.All(
+                            t => !t.IsSelected && !t.IsSecondaryPanelOpen));
+                    if (card is not null)
+                    {
+                        var border = FindAgentCardBorderForCard(card);
+                        if (border is not null) return border;
+                    }
+                }
 
                 // Lazy-resolve TourDemoAgent_{name} at lookup time in case the border wasn't
                 // registered yet (e.g. visual tree not rendered when CreateDemoAgent ran).
