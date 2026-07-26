@@ -35,7 +35,7 @@ using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
-public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState
+public partial class MainWindow : Window
 {
     private const string PostInstallPrompt =
         "Take a look at my code base and suggest a starting Squad team.";
@@ -206,6 +206,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private DateTimeOffset _lastUiResponsivenessTick = DateTimeOffset.Now;
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
     private AgentRosterController _agentRosterController = null!; // initialized in constructor before _pec
+    private WorkspaceContextController _workspaceContextController = null!; // initialized in constructor before _pec
+    private PromptBoxStateController _promptBoxStateController = null!; // initialized in constructor before _pec
+    private Screenshots.LiveElementLocatorAdapter _liveElementLocatorAdapter = null!; // initialized in constructor before _screenshotService
     private LoopController _loopController = null!; // initialized in constructor after _pec
     private WorkspaceFileWatcherCoordinator _watcherCoordinator = null!; // initialized in constructor
     private string _currentBranch = string.Empty;
@@ -761,7 +764,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _fixtureLoaderRegistry = serviceProvider?.GetRequiredService<FixtureLoaderRegistry>() ?? new FixtureLoaderRegistry();
         _workspacePaths = workspacePaths ?? WorkspacePathsProvider.Discover();
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
-        _screenshotService = new ScreenshotService(_workspacePaths, _uiActionReplayRegistry, _fixtureLoaderRegistry, this);
+        _liveElementLocatorAdapter = new Screenshots.LiveElementLocatorAdapter(
+            findByName: name => name == "TourQuickReplyPanel"
+                ? VisualTreeSearch.FindLastByName(this, name)
+                : VisualTreeSearch.FindByName(this, name),
+            getBoundsRelativeToWindow: element =>
+            {
+                try
+                {
+                    var transform = element.TransformToAncestor(this);
+                    var origin    = transform.Transform(new Point(0, 0));
+                    return new Rect(origin.X, origin.Y, element.ActualWidth, element.ActualHeight);
+                }
+                catch { return Rect.Empty; }
+            },
+            isVisible: element => element.Visibility == Visibility.Visible && element.ActualWidth > 0);
+        _screenshotService = new ScreenshotService(_workspacePaths, _uiActionReplayRegistry, _fixtureLoaderRegistry, _liveElementLocatorAdapter);
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
         AgentArtifactStore.CleanupExpiredArchives(
@@ -1324,6 +1342,26 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             getAgents:               () => _agents,
             getCurrentSessionState:  () => _currentSessionState);
 
+        _workspaceContextController = new WorkspaceContextController(
+            getCurrentWorkspace: () => _currentWorkspace,
+            getSettingsSnapshot: () => _settingsSnapshot);
+
+        _promptBoxStateController = new PromptBoxStateController(
+            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed"),
+            focusPromptTextBox: () => PromptTextBox.Focus(),
+            getIsEnabled:       () => PromptTextBox.IsEnabled,
+            getQueueCount:      () => _promptQueue.Count,
+            getPromptBoxText:   () => PromptTextBox.Text,
+            setPromptBoxText:   text => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft"),
+            enqueueSimItem:     item =>
+            {
+                item.SequenceNumber = _promptQueueCoordinator.NextSequenceNumber();
+                item.QueueNumber    = NextQueueNumber();
+                _promptQueue.EnqueueItem(item);
+                SyncQueuePanel();
+                _ = DrainQueueIfNeededAsync();
+            });
+
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
@@ -1343,8 +1381,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     sessionId,
                     configDir,
                     BuildApprovalGroupLaunchContext()),
-            workspaceContext: this,
-            promptBoxState:   this,
+            workspaceContext: _workspaceContextController,
+            promptBoxState:   _promptBoxStateController,
             transcriptSink:   _transcriptPanelController,
             agentRosterView:  _agentRosterController,
             conversationManager: _conversationManager,
@@ -1668,30 +1706,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             replaceAllInPanel: items => _approvalPanel?.ReplaceAllItems(items),
             dispatcher: Dispatcher));
     }
-
-    // ── ILiveElementLocator ─────────────────────────────────────────────────
-
-    /// <inheritdoc/>
-    FrameworkElement? ILiveElementLocator.FindByName(string name) =>
-        name == "TourQuickReplyPanel"
-            ? VisualTreeSearch.FindLastByName(this, name)
-            : VisualTreeSearch.FindByName(this, name);
-
-    /// <inheritdoc/>
-    Rect ILiveElementLocator.GetBoundsRelativeToWindow(FrameworkElement element)
-    {
-        try
-        {
-            var transform = element.TransformToAncestor(this);
-            var origin    = transform.Transform(new Point(0, 0));
-            return new Rect(origin.X, origin.Y, element.ActualWidth, element.ActualHeight);
-        }
-        catch { return Rect.Empty; }
-    }
-
-    /// <inheritdoc/>
-    bool ILiveElementLocator.IsVisible(FrameworkElement element) =>
-        element.Visibility == Visibility.Visible && element.ActualWidth > 0;
 
     private void AddWorkspaceMenuSeparator()
     {
@@ -23889,25 +23903,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!_mainTranscriptVisible)
             ShowMainTranscript();
         SelectTranscriptThread(thread);
-    }
-
-    // ── IWorkspaceContext ─────────────────────────────────────────────────
-    SessionWorkspace? IWorkspaceContext.GetCurrentWorkspace() => _currentWorkspace;
-    ApplicationSettingsSnapshot IWorkspaceContext.GetSettingsSnapshot() => _settingsSnapshot;
-
-    // ── IPromptBoxState ───────────────────────────────────────────────────
-    void IPromptBoxState.ClearPromptTextBox() => ClearPromptTextBoxLogicalBuffer("prompt-executed");
-    void IPromptBoxState.FocusPromptTextBox() => PromptTextBox.Focus();
-    bool IPromptBoxState.IsPromptTextBoxEnabled => PromptTextBox.IsEnabled;
-    int IPromptBoxState.QueueCount => _promptQueue.Count;
-    string IPromptBoxState.PromptBoxText => PromptTextBox.Text;
-    void IPromptBoxState.SetPromptBoxText(string text) => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft");
-    void IPromptBoxState.EnqueueSimItem(PromptQueueItem item) {
-        item.SequenceNumber = _promptQueueCoordinator.NextSequenceNumber();
-        item.QueueNumber    = NextQueueNumber();
-        _promptQueue.EnqueueItem(item);
-        SyncQueuePanel();
-        _ = DrainQueueIfNeededAsync();
     }
 
     private bool IsThreadAlreadyVisibleInMainTranscript(TranscriptThreadState thread)
