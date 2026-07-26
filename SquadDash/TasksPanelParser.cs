@@ -276,7 +276,7 @@ internal static class TasksPanelParser {
                     description,
                     priority,
                     dependsOn,
-                    status == "!");
+                    status);
                 var item = new TaskItem(
                     // Structured plans provide a compact, human-readable title separately
                     // from the implementation brief. Keep the Tasks panel scannable and
@@ -357,17 +357,21 @@ internal static class TasksPanelParser {
         string description,
         string priority,
         IReadOnlyList<string> dependsOn,
-        bool failed) {
+        string status) {
 
         var dependencies = dependsOn.Count == 0 ? "None" : string.Join(", ", dependsOn);
-        var failure = failed ? "\n\n**Status:** Failed — reset or edit this task before rerunning the plan." : string.Empty;
+        var statusText = status switch {
+            "!" => "\n\n**Status:** Failed — use the plan recovery controls in the transcript or Inbox.",
+            "~" => "\n\n**Status:** Partial — use the plan recovery controls in the transcript or Inbox.",
+            _ => string.Empty,
+        };
         var summaryText = string.IsNullOrWhiteSpace(summary) ? string.Empty : $"\n\n{summary}";
         return $"**Plan:** {title} (`{groupId}`)  \n" +
                $"**Task:** {taskTitle} (`{taskId}`)  \n" +
                $"**Branch:** `{branch}`  \n" +
                $"**Priority:** {priority}  \n" +
                $"**Depends on:** {dependencies}\n\n" +
-               description + summaryText + failure;
+               description + summaryText + statusText;
     }
 
     private static string PriorityToEmoji(string priority) => priority.Trim().ToLowerInvariant() switch {

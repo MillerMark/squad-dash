@@ -465,6 +465,31 @@ internal sealed class TasksPanelParserTests {
         });
     }
 
+    [TestCase("!", "Failed")]
+    [TestCase("~", "Partial")]
+    public void Parse_BlockedDecomposeTask_PointsToAvailableRecoveryControls(
+        string marker,
+        string expectedStatus) {
+
+        string[] lines = [
+            "<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition -->",
+            "**[GODCLASS-20260725] Split MainWindow responsibilities**",
+            "> Extract cohesive services without breaking behavior.",
+            $"- [{marker}] **[GODCLASS-20260725-004]** Extract ScreenshotService",
+            "  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high",
+            "  description: Move screenshot responsibilities out of MainWindow.",
+            "  dependsOn: (none)",
+        ];
+
+        var item = TasksPanelParser.Parse(lines).OpenGroups.Single().Items.Single();
+
+        Assert.Multiple(() => {
+            Assert.That(item.Description, Does.Contain($"**Status:** {expectedStatus}"));
+            Assert.That(item.Description, Does.Contain("plan recovery controls in the transcript or Inbox"));
+            Assert.That(item.Description, Does.Not.Contain("reset or edit this task"));
+        });
+    }
+
     [Test]
     public void Parse_MultipleDecomposeBlocks_RemainSeparatePlanGroups() {
         string[] lines = [

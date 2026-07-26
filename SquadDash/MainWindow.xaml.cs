@@ -8228,14 +8228,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string taskId,
         BlockCollection? targetBlocks = null)
     {
+        var blocks = targetBlocks ?? CoordinatorThread.Document.Blocks;
+        var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+        var planLink = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
+        planLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        planLink.Click += (_, _) => OpenDecomposePlanViewer(plan);
+        planLinkParagraph.Inlines.Add(planLink);
+        blocks.Add(planLinkParagraph);
+
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         AddAction("Replan Failed Task", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
         AddAsyncAction("Continue / Retry Task", "Continue preserved work when present; otherwise retry the exact same task.",
             async () => await RetryDecomposeTaskAsync(plan, taskId));
-        AddAction("View Plan", "Open the plan and dependency graph.",
-            () => OpenDecomposePlanViewer(plan), removeAfterAction: false);
-        (targetBlocks ?? CoordinatorThread.Document.Blocks).Add(TranscriptQuickReplyFactory.CreateContainer(
+        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
             panel,
             new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
         ScrollToEndIfAtBottom(CoordinatorThread);
