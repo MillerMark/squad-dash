@@ -35,7 +35,7 @@ using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
-public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState, IAgentRosterView
+public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState
 {
     private const string PostInstallPrompt =
         "Take a look at my code base and suggest a starting Squad team.";
@@ -205,6 +205,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly Stopwatch _sdkDeltaTraceStopwatch = Stopwatch.StartNew();
     private DateTimeOffset _lastUiResponsivenessTick = DateTimeOffset.Now;
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
+    private AgentRosterController _agentRosterController = null!; // initialized in constructor before _pec
     private LoopController _loopController = null!; // initialized in constructor after _pec
     private WorkspaceFileWatcherCoordinator _watcherCoordinator = null!; // initialized in constructor
     private string _currentBranch = string.Empty;
@@ -1321,6 +1322,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             renderToolEntry:             entry => RenderToolEntry(entry),
             updateToolSpinnerState:      () => UpdateToolSpinnerState());
 
+        _agentRosterController = new AgentRosterController(
+            getAgents:               () => _agents,
+            getCurrentSessionState:  () => _currentSessionState);
+
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
@@ -1343,7 +1348,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             workspaceContext: this,
             promptBoxState:   this,
             transcriptSink:   _transcriptPanelController,
-            agentRosterView:  this,
+            agentRosterView:  _agentRosterController,
             conversationManager: _conversationManager,
             backgroundTaskPresenter: _backgroundTaskPresenter,
             squadCliAdapter: _squadCliAdapter,
@@ -23923,10 +23928,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncQueuePanel();
         _ = DrainQueueIfNeededAsync();
     }
-
-    // ── IAgentRosterView ──────────────────────────────────────────────────
-    IReadOnlyList<AgentStatusCard> IAgentRosterView.GetAgents() => _agents;
-    string? IAgentRosterView.CurrentSessionState => _currentSessionState;
 
     private bool IsThreadAlreadyVisibleInMainTranscript(TranscriptThreadState thread)
     {
