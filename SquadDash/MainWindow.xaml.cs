@@ -179,6 +179,23 @@ public partial class MainWindow : Window
     ];
     private readonly SquadSdkProcess _bridge;
     private int _ignoreBridgeEventsThroughGeneration;
+
+    // ── WeakEventBroker and handler delegate fields ──────────────────────────
+    // Each Action<T> field keeps a strong reference so the broker's WeakReference
+    // stays alive for the lifetime of this MainWindow instance.
+    private readonly WeakEventBroker _broker = new();
+    private Action<BridgeEventReceivedMessage>?   _onBridgeEventReceived;
+    private Action<BridgeErrorReceivedMessage>?   _onBridgeErrorReceived;
+    private Action<UserPreferenceChangedMessage>?  _onUserPreferenceChanged;
+    private Action<PowerModeChangedMessage>?       _onPowerModeChanged;
+    private Action<PreProcessInputMessage>?        _onMainPreProcessInput;
+    private Action<PreProcessInputMessage>?        _onGlobalPreProcessInput;
+    private Action<HintRequestedMessage>?          _onHintRequested;
+    private Action<DocRevisionCompletedMessage>?   _onDocRevisionCompleted;
+    private Action<OpenPanelRequestedMessage>?     _onOpenPanelRequested;
+    private Action<ClosePanelRequestedMessage>?    _onClosePanelRequested;
+    private Action<ShowMainTranscriptMessage>?     _onShowMainTranscript;
+    private Action<HideMainTranscriptMessage>?     _onHideMainTranscript;
     private readonly ApplicationSettingsStore _settingsStore;
     private readonly SquadTeamRosterLoader _teamRosterLoader;
     private readonly SquadRoutingDocumentService _routingDocumentService;
@@ -1057,21 +1074,29 @@ public partial class MainWindow : Window
             catch (Exception ex) { HandleUiCallbackException("_activeAgentCards.CollectionChanged", ex); }
         };
         _selectionController = new TranscriptSelectionController(_agents);
-        _selectionController.OpenPanelRequested += (card, thread, isAuto) =>
+        _onOpenPanelRequested = msg =>
             QueueDeferredTranscriptPanelOperation(
-                $"open card={card.Name} thread={thread.ThreadId}",
-                () => OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: isAuto));
-        _selectionController.ClosePanelRequested += (card, thread) =>
+                $"open card={msg.Card.Name} thread={msg.Thread.ThreadId}",
+                () => OpenSecondaryPanel(msg.Card, msg.Thread, isAutoOpenedInMultiMode: msg.IsAuto));
+        _broker.Subscribe(_onOpenPanelRequested);
+        _selectionController.OpenPanelRequested += (card, thread, isAuto) =>
+            _broker.Publish(new OpenPanelRequestedMessage(card, thread, isAuto));
+
+        _onClosePanelRequested = msg =>
         {
             QueueDeferredTranscriptPanelOperation(
-                $"close card={card.Name} thread={thread.ThreadId}",
+                $"close card={msg.Card.Name} thread={msg.Thread.ThreadId}",
                 () =>
                 {
-                    var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card && e.Thread == thread);
+                    var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == msg.Card && e.Thread == msg.Thread);
                     if (entry is not null) CloseSecondaryPanel(entry);
                 });
         };
-        _selectionController.ShowMainRequested += () =>
+        _broker.Subscribe(_onClosePanelRequested);
+        _selectionController.ClosePanelRequested += (card, thread) =>
+            _broker.Publish(new ClosePanelRequestedMessage(card, thread));
+
+        _onShowMainTranscript = _ =>
         {
             QueueDeferredTranscriptPanelOperation(
                 "show-main coordinator",
@@ -1081,8 +1106,13 @@ public partial class MainWindow : Window
                     SelectTranscriptThread(CoordinatorThread);
                 });
         };
-        _selectionController.HideMainRequested += () =>
+        _broker.Subscribe(_onShowMainTranscript);
+        _selectionController.ShowMainRequested += () => _broker.Publish(new ShowMainTranscriptMessage());
+
+        _onHideMainTranscript = _ =>
             QueueDeferredTranscriptPanelOperation("hide-main", HideMainTranscript);
+        _broker.Subscribe(_onHideMainTranscript);
+        _selectionController.HideMainRequested += () => _broker.Publish(new HideMainTranscriptMessage());
         StatusAgentPanelsGrid.SizeChanged += (_, e) =>
         {
             try
@@ -1208,9 +1238,26 @@ public partial class MainWindow : Window
             onCodeHealthMdChanged:      () => Dispatcher.InvokeAsync(SyncCodeHealthPanel),
             onFeatureCategoryChanged:   () => Dispatcher.BeginInvoke(RefreshFeatureCategoryViewsFromStore));
 
-        _bridge.EventReceived += (_, evt) => QueueBridgeEventForUi(evt);
-        _bridge.ErrorReceived += (_, text) => TryPostToUi(() => HandleBridgeError(text), "Bridge.ErrorReceived");
-        InputManager.Current.PreProcessInput += MainWindow_PreProcessInput;
+        _bridge.EventReceived += (_, evt) => _broker.Publish(new BridgeEventReceivedMessage(evt));
+        _onBridgeEventReceived = msg => QueueBridgeEventForUi(msg.SdkEvent);
+        _broker.Subscribe(_onBridgeEventReceived);
+
+        _bridge.ErrorReceived += (_, text) => _broker.Publish(new BridgeErrorReceivedMessage(text));
+        _onBridgeErrorReceived = msg => TryPostToUi(() => HandleBridgeError(msg.ErrorText), "Bridge.ErrorReceived");
+        _broker.Subscribe(_onBridgeErrorReceived);
+
+        // InputManager.Current is a static/process-wide singleton; use a WeakReference capture
+        // so the routing lambda does not keep this MainWindow alive after it is closed.
+        _onMainPreProcessInput = msg => MainWindow_PreProcessInput(msg.Sender, msg.Args);
+        _broker.Subscribe(_onMainPreProcessInput);
+        {
+            var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
+            InputManager.Current.PreProcessInput += (sender, e) =>
+            {
+                if (localBrokerRef.TryGetTarget(out var b))
+                    b.Publish(new PreProcessInputMessage(sender, e));
+            };
+        }
         AttachDispatcherDiagnostics();
 
         _uiResponsivenessTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
@@ -1244,8 +1291,25 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
         ContentRendered += MainWindow_ContentRendered;
         Activated += MainWindow_Activated;
-        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
-        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        // SystemEvents are static/process-wide; route through the broker via a WeakReference
+        // capture so these subscriptions do not prevent this MainWindow from being GC'd after close.
+        _onUserPreferenceChanged = msg => OnUserPreferenceChanged(msg.Sender, msg.Args);
+        _broker.Subscribe(_onUserPreferenceChanged);
+        _onPowerModeChanged = msg => OnPowerModeChanged(msg.Sender, msg.Args);
+        _broker.Subscribe(_onPowerModeChanged);
+        {
+            var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged += (sender, e) =>
+            {
+                if (localBrokerRef.TryGetTarget(out var b))
+                    b.Publish(new UserPreferenceChangedMessage(sender, e));
+            };
+            Microsoft.Win32.SystemEvents.PowerModeChanged += (sender, e) =>
+            {
+                if (localBrokerRef.TryGetTarget(out var b))
+                    b.Publish(new PowerModeChangedMessage(sender, e));
+            };
+        }
         LocationChanged += (_, _) =>
         {
             try
@@ -1855,11 +1919,25 @@ public partial class MainWindow : Window
             _startupInitialized = true;
 
             // Global shortcut: F12 → toggle UI Reveal on the active window.
-            // InputManager.PreProcessInput fires before WPF dispatch for every window on this
-            // thread, so the shortcut works even when a floating window has keyboard focus.
-            InputManager.Current.PreProcessInput += OnGlobalPreProcessInput;
+            // The InputManager routing lambda was already subscribed to the static
+            // InputManager.Current.PreProcessInput in the constructor; here we just
+            // register the GlobalPreProcessInput handler with the broker.
+            _onGlobalPreProcessInput = msg => OnGlobalPreProcessInput(msg.Sender, msg.Args);
+            _broker.Subscribe(_onGlobalPreProcessInput);
             PreviewMouseLeftButtonDown += (_, _) => FrmUltimateCallout.CloseAllNonSticky();
-            HintEngine.Instance.HintRequested += OnHintEngineHintRequested;
+
+            // HintEngine is a singleton; use a WeakReference capture so this MainWindow
+            // does not stay alive via the singleton's event subscription.
+            _onHintRequested = msg => OnHintEngineHintRequested(msg.Sender, msg.Hint);
+            _broker.Subscribe(_onHintRequested);
+            {
+                var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
+                HintEngine.Instance.HintRequested += (hintSender, hint) =>
+                {
+                    if (localBrokerRef.TryGetTarget(out var b))
+                        b.Publish(new HintRequestedMessage(hintSender, hint));
+                };
+            }
 
             // Capture Shift state once, before any async work, while we're still on the UI thread.
             _startupShiftHeld = Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift);
@@ -1872,7 +1950,18 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ConfigureRestartRequestWatcher {phaseSw.ElapsedMilliseconds}ms.");
 
             // When an AI doc-revision completes, check if a deferred restart can now proceed.
-            MarkdownDocumentWindow.RevisionCompleted += OnDocRevisionCompleted;
+            // MarkdownDocumentWindow.RevisionCompleted is a static event; route it through the
+            // broker via a WeakReference capture to prevent this MainWindow from being retained.
+            _onDocRevisionCompleted = _ => OnDocRevisionCompleted();
+            _broker.Subscribe(_onDocRevisionCompleted);
+            {
+                var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
+                MarkdownDocumentWindow.RevisionCompleted += () =>
+                {
+                    if (localBrokerRef.TryGetTarget(out var b))
+                        b.Publish(new DocRevisionCompletedMessage());
+                };
+            }
 
             phaseSw.Restart();
             await InitializeWorkspace(_startupFolderArgument);
@@ -31252,9 +31341,15 @@ public partial class MainWindow : Window
     {
         try
         {
-            Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-            Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-            InputManager.Current.PreProcessInput -= MainWindow_PreProcessInput;
+            // SystemEvents and InputManager subscriptions are now routed through the broker via
+            // WeakReference lambdas; the broker's dead-ref pruning handles GC safety.
+            // Unsubscribe the broker handler fields so they are released immediately on close.
+            if (_onUserPreferenceChanged is not null)   _broker.Unsubscribe(_onUserPreferenceChanged);
+            if (_onPowerModeChanged is not null)         _broker.Unsubscribe(_onPowerModeChanged);
+            if (_onMainPreProcessInput is not null)      _broker.Unsubscribe(_onMainPreProcessInput);
+            if (_onGlobalPreProcessInput is not null)    _broker.Unsubscribe(_onGlobalPreProcessInput);
+            if (_onHintRequested is not null)            _broker.Unsubscribe(_onHintRequested);
+            if (_onDocRevisionCompleted is not null)     _broker.Unsubscribe(_onDocRevisionCompleted);
             DetachDispatcherDiagnostics();
             _isClosing = true;
             StopPttCtrlPollTimer();
