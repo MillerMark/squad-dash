@@ -41,6 +41,9 @@
     <Compile Include="..\SquadDash\Screenshots\ScreenshotComparator.cs" Link="Source\ScreenshotComparator.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotComparisonResult.cs" Link="Source\ScreenshotComparisonResult.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotDefinitionRegistry.cs" Link="Source\ScreenshotDefinitionRegistry.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotDefinition.cs" Link="Source\ScreenshotDefinition.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotHealthChecker.cs" Link="Source\ScreenshotHealthChecker.cs" />
+    <Compile Include="..\SquadDash\Screenshots\ScreenshotHealthResult.cs" Link="Source\ScreenshotHealthResult.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotFixture.cs" Link="Source\ScreenshotFixture.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotManifest.cs" Link="Source\ScreenshotManifest.cs" />
     <Compile Include="..\SquadDash\Screenshots\ScreenshotNamingHelper.cs" Link="Source\ScreenshotNamingHelper.cs" />
@@ -93,6 +96,7 @@
     <Compile Include="..\SquadDash\QuickReplyOptionParser.cs" Link="Source\QuickReplyOptionParser.cs" />
     <Compile Include="..\SquadDash\ApplicationSettingsStore.cs" Link="Source\ApplicationSettingsStore.cs" />
     <Compile Include="..\SquadDash\SettingsSnapshotManager.cs" Link="Source\SettingsSnapshotManager.cs" />
+    <Compile Include="..\SquadDash\ScreenshotService.cs" Link="Source\ScreenshotService.cs" />
     <Compile Include="..\SquadDash\SoundNotificationService.cs" Link="Source\SoundNotificationService.cs" />
     <Compile Include="..\SquadDash\ITtsProvider.cs" Link="Source\ITtsProvider.cs" />
     <Compile Include="..\SquadDash\AzureTtsProvider.cs" Link="Source\AzureTtsProvider.cs" />

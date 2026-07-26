@@ -487,8 +487,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly PostedUiActionTracker _postedUiActionTracker;
     private readonly UiActionReplayRegistry _uiActionReplayRegistry;
     private readonly FixtureLoaderRegistry _fixtureLoaderRegistry;
-    private Screenshots.ScreenshotDefinitionRegistry? _cachedDefinitionRegistry;
-    public  Screenshots.ScreenshotHealthChecker ScreenshotHealthChecker { get; private set; } = null!;
+    private ScreenshotService _screenshotService = null!;
     private readonly Queue<DelegationOutcomeTelemetry> _recentDelegationOutcomes = new();
     private readonly Dictionary<string, CoordinatorToolFailureTraceState> _coordinatorToolFailureTraces =
         new(StringComparer.Ordinal);
@@ -800,6 +799,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _fixtureLoaderRegistry = serviceProvider?.GetRequiredService<FixtureLoaderRegistry>() ?? new FixtureLoaderRegistry();
         _workspacePaths = workspacePaths ?? WorkspacePathsProvider.Discover();
         _screenshotRefreshOptions = screenshotRefreshOptions ?? ScreenshotRefreshOptions.None;
+        _screenshotService = new ScreenshotService(_workspacePaths, _uiActionReplayRegistry, _fixtureLoaderRegistry, this);
         var ctorSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "Constructor: begin.");
         AgentArtifactStore.CleanupExpiredArchives(
@@ -1920,7 +1920,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Pre-warm the definition registry so right-click "Refresh screenshot" is
             // available immediately without an async lookup delay.
-            _ = WarmDefinitionRegistryCacheAsync();
+            _ = _screenshotService.WarmDefinitionRegistryCacheAsync();
         }
         catch (Exception ex)
         {
@@ -1973,29 +1973,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private async Task WarmDefinitionRegistryCacheAsync()
-    {
-        try
-        {
-            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
-            _cachedDefinitionRegistry = await Screenshots.ScreenshotDefinitionRegistry
-                                                         .LoadAsync(screenshotsDir)
-                                                         .ConfigureAwait(true);
-
-            // Construct (or refresh) the health checker now that the definition registry
-            // is loaded.  All fixture loaders are already registered at this point.
-            ScreenshotHealthChecker = new Screenshots.ScreenshotHealthChecker(
-                _cachedDefinitionRegistry,
-                _uiActionReplayRegistry,
-                _fixtureLoaderRegistry,
-                this,
-                screenshotsDir);
-        }
-        catch (Exception ex)
-        {
-            SquadDashTrace.Write("Screenshot", $"WarmDefinitionRegistryCacheAsync failed: {ex.Message}");
-        }
-    }
+    private Task WarmDefinitionRegistryCacheAsync()
+        => _screenshotService.WarmDefinitionRegistryCacheAsync();
 
     /// <summary>
     /// Runs a single-definition screenshot refreshfrom the right-click context menu,
@@ -2011,7 +1990,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Always reload from disk so we have the latest definition state.
             var definitions = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir)
                                                .ConfigureAwait(true);
-            _cachedDefinitionRegistry = definitions;
+            _screenshotService.CachedDefinitionRegistry = definitions;
 
             // "Refresh screenshot" from the right-click menu always re-captures in the
             // currently visible theme.  If the stored definition says a different theme,
@@ -2023,7 +2002,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 definitions.AddOrUpdate(existingDef with { Theme = _activeThemeName });
                 await definitions.SaveAsync().ConfigureAwait(true);
-                _cachedDefinitionRegistry = definitions;
+                _screenshotService.CachedDefinitionRegistry = definitions;
             }
 
             var runner = new Screenshots.ScreenshotRefreshRunner(
@@ -35404,7 +35383,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!string.IsNullOrEmpty(resolvedPath) && !string.IsNullOrEmpty(_currentDocPath))
         {
             var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
-            var def = _cachedDefinitionRegistry?.TryGetByDocImagePath(resolvedPath, screenshotsDir);
+            var def = _screenshotService.CachedDefinitionRegistry?.TryGetByDocImagePath(resolvedPath, screenshotsDir);
             if (def is not null)
             {
                 refreshItem.IsEnabled = true;
@@ -35519,34 +35498,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
             // Sync the definition's Theme to the current active theme so "Refresh screenshot"
             // will recapture in the same theme as the image the user just pasted in.
-            _ = SyncDefinitionThemeForDocImageAsync(capturedFullImagePath, capturedThemeName);
+            _ = _screenshotService.SyncDefinitionThemeAsync(capturedFullImagePath, capturedThemeName);
         };
         OpenEditorModeless(editor);
-    }
-
-    /// <summary>
-    /// When the user replaces a doc screenshot via clipboard paste, updates the matching
-    /// <see cref="Screenshots.ScreenshotDefinition"/> to use <paramref name="themeName"/>
-    /// so that a subsequent "Refresh screenshot" captures in the same theme.
-    /// </summary>
-    private async Task SyncDefinitionThemeForDocImageAsync(string fullDocImagePath, string themeName)
-    {
-        try
-        {
-            var screenshotsDir = _workspacePaths.ScreenshotsDirectory;
-            var registry = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir)
-                                                                          .ConfigureAwait(true);
-            var def = registry.TryGetByDocImagePath(fullDocImagePath, screenshotsDir);
-            if (def is null) return;
-
-            registry.AddOrUpdate(def with { Theme = themeName });
-            await registry.SaveAsync().ConfigureAwait(true);
-            _cachedDefinitionRegistry = registry;
-        }
-        catch (Exception ex)
-        {
-            SquadDashTrace.Write("Screenshot", $"SyncDefinitionTheme failed: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -37437,7 +37391,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_screenshotHealthWindow is null)
         {
             SquadDashTrace.Write("UI", "Showing screenshot health popup.");
-            _screenshotHealthWindow = new ScreenshotHealthWindow(ScreenshotHealthChecker);
+            _screenshotHealthWindow = new ScreenshotHealthWindow(_screenshotService.HealthChecker);
             if (CanShowOwnedWindow())
                 _screenshotHealthWindow.Owner = this;
 
@@ -41139,7 +41093,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         var saveDir     = Path.Combine(_workspacePaths.ScreenshotsDirectory, "baseline");
-        var initialDesc = ExtractDocImageDescription(_currentDocPath, imagePath);
+        var initialDesc = ScreenshotService.ExtractDocImageDescription(_currentDocPath, imagePath);
         var overlay     = new ScreenshotOverlayWindow(this, saveDir, _activeThemeName, _settingsSnapshot.SpeechRegion ?? string.Empty, initialDesc);
 
         overlay.ScreenshotSaved += (sender, e) =>
@@ -41150,53 +41104,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             AppendLine($"[screenshot error] {error}", ThemeBrush("SystemErrorText")));
         overlay.Closed += (_, _) => ResetPttState();
         overlay.Show();
-    }
-
-    /// <summary>
-    /// Returns a pre-fill description for the screenshot overlay by reading
-    /// <paramref name="docPath"/> and extracting, in preference order:
-    /// (1) the 📸 blockquote description on the line immediately after the image tag, or
-    /// (2) the alt text from the image tag itself.
-    /// Returns an empty string if neither is found or if the file cannot be read.
-    /// </summary>
-    private static string ExtractDocImageDescription(string docPath, string imagePath)
-    {
-        if (!File.Exists(docPath)) return string.Empty;
-
-        string text;
-        try { text = File.ReadAllText(docPath); }
-        catch { return string.Empty; }
-
-        var normalizedTarget = imagePath.Replace('\\', '/');
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-
-        for (var i = 0; i < lines.Length; i++)
-        {
-            if (!lines[i].Replace('\\', '/').Contains(normalizedTarget)) continue;
-
-            // Prefer the 📸 blockquote description on the next line.
-            if (i + 1 < lines.Length)
-            {
-                var next = lines[i + 1].Trim();
-                if (next.Contains("📸") || next.Contains("Screenshot needed"))
-                {
-                    // Strip "> 📸 *Screenshot needed: " prefix and trailing "*"
-                    var stripped = System.Text.RegularExpressions.Regex.Replace(
-                        next, @"^>\s*📸\s*\*?Screenshot needed:\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).TrimEnd('*').Trim();
-                    if (!string.IsNullOrWhiteSpace(stripped)) return stripped;
-                }
-            }
-
-            // Fall back to alt text.
-            var altMatch = System.Text.RegularExpressions.Regex.Match(
-                lines[i], @"!\[([^\]]*)\]\(" + System.Text.RegularExpressions.Regex.Escape(normalizedTarget) + @"\)");
-            if (altMatch.Success)
-                return altMatch.Groups[1].Value.Trim();
-
-            break;
-        }
-
-        return string.Empty;
     }
 
     // ── Interactive capture completion ───────────────────────────────────────
@@ -41327,7 +41234,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var registry = await Screenshots.ScreenshotDefinitionRegistry.LoadAsync(screenshotsDir);
             registry.AddOrUpdate(definition);
             await registry.SaveAsync();
-            _cachedDefinitionRegistry = registry;  // keep warm for right-click Refresh
+            _screenshotService.CachedDefinitionRegistry = registry;  // keep warm for right-click Refresh
 
             // ── Step 7b: Doc-placeholder post-processing ──────────────────────
             if (!string.IsNullOrEmpty(docImagePath) && !string.IsNullOrEmpty(_currentDocPath))
