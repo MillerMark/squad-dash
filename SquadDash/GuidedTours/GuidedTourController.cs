@@ -45,6 +45,7 @@ internal sealed class GuidedTourController
     private readonly Action<int>?                         _saveLastEditorStepIndex;
     private CancellationTokenSource?                      _readingNudgeCts;
     private readonly GuidedTourContextRegistry?           _contextRegistry;
+    private bool                                          _suppressRestartHint;
 
     /// <summary>
     /// Creates a new <see cref="GuidedTourController"/>.
@@ -127,6 +128,15 @@ internal sealed class GuidedTourController
 
     /// <summary>The owner window (used as dialog owner by the step editor).</summary>
     public Window OwnerWindow => _ownerWindow;
+
+    /// <summary>
+    /// Marks the restart hint as suppressed for the current tour run.
+    /// When set, <see cref="StopTourInternal"/> will not call <see cref="ShowRestartHint"/>
+    /// even if it would otherwise do so. The flag is automatically cleared when the tour stops.
+    /// Intended for use as a guided tour step command on the penultimate step of a tour that
+    /// already instructs the user where to find guided tours.
+    /// </summary>
+    public void SuppressRestartHint() => _suppressRestartHint = true;
 
     /// <summary>The layout-capture callback (used by the step editor's Capture Layout button).</summary>
     public Action? CaptureLayout => _savePreTourLayout;
@@ -827,8 +837,10 @@ internal sealed class GuidedTourController
             // Do NOT mark completed here — completion is only recorded when the user
             // reaches the last step via Next() or NextTour(). Stopping mid-tour should
             // not count as having completed it.
-            if (showHint)
+            if (showHint && !_suppressRestartHint)
                 ShowRestartHint();
+
+            _suppressRestartHint = false;
         }
 
         // Clear after restorePreTourLayout so CleanUpTourInjectedThreads can still read the list.

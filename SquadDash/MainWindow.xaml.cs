@@ -17532,6 +17532,15 @@ public partial class MainWindow : Window
             var onComplete = parts.Length >= 3 ? parts[2].Trim() : null;
             StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
         });
+
+        _guidedTourCoordinator.CommandRegistry.Register("SuppressRestartHint", () =>
+        {
+            // Prevents the "you can find guided tours in the Help menu" hint callout from
+            // appearing when this tour run is stopped or closed. Intended for use on the
+            // penultimate step of a tour that already tells the user where to re-launch tours.
+            // The suppression is automatically cleared when the tour stops.
+            _guidedTourController?.SuppressRestartHint();
+        });
     }
 
     /// <summary>
