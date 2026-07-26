@@ -93,6 +93,22 @@ internal sealed class DecomposeWorktreePolicyTests
             out var disallowed), Is.False);
         Assert.That(disallowed, Is.EqualTo(new[] { "SquadDash/MainWindow.xaml.cs" }));
     }
+
+    [Test]
+    public void ConfirmedPaths_MatchRegardlessOfOrderSlashOrCase()
+    {
+        Assert.That(DecomposeWorktreePolicy.MatchesConfirmedPaths(
+            ["SquadDash/ScreenshotService.cs", "SquadDash\\MainWindow.xaml.cs"],
+            ["squaddash/mainwindow.xaml.cs", "SquadDash/ScreenshotService.cs"]), Is.True);
+    }
+
+    [Test]
+    public void ConfirmedPaths_RejectAddedOrRemovedFiles()
+    {
+        Assert.That(DecomposeWorktreePolicy.MatchesConfirmedPaths(
+            ["SquadDash/MainWindow.xaml.cs", "SquadDash/ScreenshotService.cs"],
+            ["SquadDash/MainWindow.xaml.cs"]), Is.False);
+    }
 }
 
 [TestFixture]

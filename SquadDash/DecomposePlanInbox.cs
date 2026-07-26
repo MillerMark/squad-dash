@@ -132,7 +132,7 @@ internal static class DecomposePlanInbox
             Actions =
             [
                 BuildAction("Replan Failed Task", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
-                BuildAction("Retry As Written", "retry-as-written", "Reset and execute the same task again."),
+                BuildAction("Continue / Retry Task", "retry-as-written", "Continue preserved work when present; otherwise retry the same task."),
             ],
         };
     }

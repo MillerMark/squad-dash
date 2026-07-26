@@ -26,5 +26,14 @@ internal static class DecomposeWorktreePolicy
         return disallowed.Count == 0;
     }
 
+    internal static bool MatchesConfirmedPaths(
+        IReadOnlyCollection<string> currentPaths,
+        IReadOnlyCollection<string> confirmedPaths)
+    {
+        var current = currentPaths.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var confirmed = confirmedPaths.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return current.SetEquals(confirmed);
+    }
+
     private static string Normalize(string path) => path.Replace('\\', '/').TrimStart('.', '/');
 }

@@ -360,6 +360,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
     private string?                 _decomposeIterationBaselineCommit;
+    private string?                 _decomposeContinuationTaskId;
+    private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
     private bool                    _decomposeRepairPending;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
@@ -5046,7 +5048,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         else
                         {
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
-                            TryApplyDecomposeRecoveryFromResponse(rawResponse);
+                            _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
                         }
 
                         if (_decomposeRepairPending && !hasTasksPayload)
@@ -5782,7 +5784,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var isExecutingPlan = _activeDecomposeGroupId is not null;
         if (isExecutingPlan)
-            await PrepareExecutingPlanIterationAsync();
+        {
+            var continuationContext = await PrepareExecutingPlanIterationAsync();
+            if (!string.IsNullOrWhiteSpace(continuationContext))
+                prompt = continuationContext + "\n\n" + prompt;
+        }
         var loopMdPath = isExecutingPlan
             ? Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop-executing-plan.md")
             : GetEffectiveLoopMdPath();
@@ -7263,6 +7269,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _CodeHealthGroupRunner?.ClearCurrentStep();
         _CodeHealthGroupRunner = null;
         _activeDecomposeGroupId = null;
+        _decomposeContinuationTaskId = null;
+        _decomposeContinuationPaths = [];
     }
 
     private void ClearExecutingPlanState()
@@ -7359,10 +7367,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string groupId,
         DecomposedTaskGroup? group = null,
         int resumeFromIteration = 0,
-        string? expectedRevision = null)
+        string? expectedRevision = null,
+        string? continuationTaskId = null,
+        IReadOnlyList<string>? continuationPaths = null)
     {
         if (_currentWorkspace is null) return false;
-        await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
+        var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
+                                      continuationPaths is { Count: > 0 };
+        if (!isConfirmedContinuation)
+            await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
 
         var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
         LoopMdConfig? config = File.Exists(loopPath) ? LoopMdParser.Parse(loopPath) : null;
@@ -7441,6 +7454,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         _loopResumeSuppressed = false;
         _activeDecomposeGroupId = groupId;
+        _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
+        _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
         _conversationManager.UpdateActiveLoopExecutionState(
             new ActiveLoopExecutionState(loopPath, groupId, groupId, revision));
 
@@ -7686,26 +7701,32 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    private void TryApplyDecomposeRecoveryFromResponse(string? rawResponse)
+    private async Task ApplyDecomposeRecoveryFromResponseSafelyAsync(string? rawResponse)
+    {
+        try { await TryApplyDecomposeRecoveryFromResponseAsync(rawResponse); }
+        catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
+    }
+
+    private async Task<bool> TryApplyDecomposeRecoveryFromResponseAsync(string? rawResponse)
     {
         if (!DecomposeRecoveryDecisionParser.TryParse(rawResponse, out var decision) || decision is null)
-            return;
-        if (_currentWorkspace is null) return;
+            return false;
+        if (_currentWorkspace is null) return false;
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) return;
+        if (!File.Exists(tasksPath)) return false;
         var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
         if (!parsed.DecomposeGroups.TryGetValue(decision.GroupId, out var group))
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} is no longer in tasks.md.");
-            return;
+            return false;
         }
 
         var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
         if (!string.Equals(revision, decision.Revision, StringComparison.Ordinal))
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} has changed since that response.");
-            return;
+            return false;
         }
 
         var blockedTask = parsed.OpenGroups
@@ -7716,16 +7737,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (blockedTask?.TaskId is null)
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} does not have a failed or partial step.");
-            return;
+            return false;
         }
 
         var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
         if (decision.Action == "replan-failed-task")
+        {
             QueueDecomposeReplan(plan, blockedTask.TaskId);
+            return true;
+        }
         else
-            Dispatcher.InvokeAsync(
-                async () => await RetryDecomposeTaskAsync(plan, blockedTask.TaskId),
-                System.Windows.Threading.DispatcherPriority.Background);
+            return await RetryDecomposeTaskAsync(plan, blockedTask.TaskId);
     }
 
     private void QueueDecomposeReplan(PendingDecomposePlan plan, string taskId)
@@ -7752,9 +7774,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncSendButton();
     }
 
-    private async Task RetryDecomposeTaskAsync(PendingDecomposePlan plan, string taskId)
+    private async Task<bool> RetryDecomposeTaskAsync(PendingDecomposePlan plan, string taskId)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null) return false;
         if (_isPromptRunning || _loopController.IsRunning)
             throw new InvalidOperationException("Wait for the current prompt or loop to finish before retrying the plan.");
 
@@ -7766,11 +7788,41 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("The plan changed after these recovery controls were created.");
 
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, currentGroup.Branch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Plan {currentGroup.GroupId} requires branch '{currentGroup.Branch}', but '{activeBranch}' is active.");
+
+        var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+        var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
+        DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var preservedPaths);
+        if (preservedPaths.Count > 0)
+        {
+            var pathList = string.Join("\n", preservedPaths.Select(path => $"  • {path}"));
+            var confirmation = MessageBox.Show(
+                this,
+                $"Task {taskId} left these uncommitted files:\n\n{pathList}\n\n" +
+                "Continue this same task from the preserved work? SquadDash will verify that the files have not changed " +
+                "before starting, and it will require one clean, verified commit before advancing the plan.",
+                "Continue Preserved Plan Work",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+            if (confirmation != MessageBoxResult.Yes)
+                return false;
+        }
+
         var writer = new DecomposedTasksWriter();
         if (!writer.ResetTaskPending(tasksPath, taskId))
             throw new InvalidOperationException($"Task {taskId} could not be reset to pending.");
         LoadTasksPanel();
-        await StartBackloggedDecomposeGroupAsync(currentGroup with { HostRevision = currentRevision });
+        await StartBackloggedDecomposeGroupAsync(
+            currentGroup with { HostRevision = currentRevision },
+            preservedPaths.Count > 0 ? taskId : null,
+            preservedPaths);
+        return true;
     }
 
     private async Task ApplyDecomposeDecisionSafelyAsync(PendingDecomposePlan plan, string action, string? branchOverride)
@@ -7950,7 +8002,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private async Task PrepareExecutingPlanIterationAsync()
+    private async Task<string?> PrepareExecutingPlanIterationAsync()
     {
         if (_currentWorkspace is null || _activeDecomposeGroupId is null || _CodeHealthGroupRunner is null)
             throw new InvalidOperationException("The active plan execution state is incomplete.");
@@ -7970,9 +8022,44 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             throw new InvalidOperationException(
                 $"Plan {_activeDecomposeGroupId} requires branch '{group.Branch}', but '{activeBranch}' is active.");
 
-        await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
+        string? continuationContext = null;
+        if (_decomposeContinuationTaskId is not null)
+        {
+            if (!string.Equals(
+                    _decomposeContinuationTaskId,
+                    _CodeHealthGroupRunner.CurrentStepId,
+                    StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Preserved work belongs to task {_decomposeContinuationTaskId}, but the next eligible task is " +
+                    $"{_CodeHealthGroupRunner.CurrentStepId}.");
+
+            var status = await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                "status --porcelain --untracked-files=all");
+            var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(_currentWorkspace.FolderPath);
+            var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
+            DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var currentPaths);
+            if (!DecomposeWorktreePolicy.MatchesConfirmedPaths(currentPaths, _decomposeContinuationPaths))
+                throw new InvalidOperationException(
+                    "The preserved worktree changed after recovery was confirmed. Reopen the recovery action and review the files again.");
+
+            var taskId = _decomposeContinuationTaskId;
+            var paths = _decomposeContinuationPaths;
+            _decomposeContinuationTaskId = null;
+            _decomposeContinuationPaths = [];
+            continuationContext =
+                $"RECOVERY CONTEXT (host-owned): Continue task {taskId} from the existing uncommitted work in these paths:\n" +
+                string.Join("\n", paths.Select(path => $"- {path}")) +
+                "\nInspect the existing diff and repository build configuration, finish the task without discarding valid work, " +
+                "and commit all validated task changes in exactly one atomic commit. Do not commit tasks.md.";
+        }
+        else
+        {
+            await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
+        }
         _decomposeIterationBaselineCommit =
             (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
+        return continuationContext;
     }
 
     private async Task FinalizeExecutingPlanIterationAsync()
@@ -8144,7 +8231,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         AddAction("Replan Failed Task", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
-        AddAsyncAction("Retry As Written", "Reset this step to pending and execute the exact same task again.",
+        AddAsyncAction("Continue / Retry Task", "Continue preserved work when present; otherwise retry the exact same task.",
             async () => await RetryDecomposeTaskAsync(plan, taskId));
         AddAction("View Plan", "Open the plan and dependency graph.",
             () => OpenDecomposePlanViewer(plan), removeAfterAction: false);
@@ -38891,8 +38978,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (string.Equals(action.RouteMode, DecomposePlanInbox.RecoveryRouteMode, StringComparison.OrdinalIgnoreCase))
             {
-                _inboxStore?.MarkActionUsed(message.Id, action.Label);
-                TryApplyDecomposeRecoveryFromResponse(action.Prompt);
+                var actionKey = message.Id + "\u001f" + action.Label;
+                if (!_decomposeInboxActionsInProgress.Add(actionKey))
+                    return;
+                try
+                {
+                    if (await TryApplyDecomposeRecoveryFromResponseAsync(action.Prompt))
+                        _inboxStore?.MarkActionUsed(message.Id, action.Label);
+                }
+                finally
+                {
+                    _decomposeInboxActionsInProgress.Remove(actionKey);
+                }
                 return;
             }
 
@@ -40569,7 +40666,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }
 
-    private async Task StartBackloggedDecomposeGroupAsync(DecomposedTaskGroup group)
+    private async Task StartBackloggedDecomposeGroupAsync(
+        DecomposedTaskGroup group,
+        string? continuationTaskId = null,
+        IReadOnlyList<string>? continuationPaths = null)
     {
         if (_currentWorkspace is null) return;
         if (!TasksJsonParser.TryParse(
@@ -40582,9 +40682,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var workspace = _currentWorkspace.FolderPath;
         var targetBranch = group.Branch.Trim();
-        await PrepareDecomposeBranchAsync(workspace, targetBranch, allowOnlyTasksFileDirty: true);
+        var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
+                                      continuationPaths is { Count: > 0 };
+        if (isConfirmedContinuation)
+        {
+            var activeBranch = ReadGitBranch(workspace);
+            if (!string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Plan {group.GroupId} requires branch '{targetBranch}', but '{activeBranch}' is active.");
+        }
+        else
+        {
+            await PrepareDecomposeBranchAsync(workspace, targetBranch, allowOnlyTasksFileDirty: true);
+        }
 
-        if (!await StartDecomposeLoopAsync(group.GroupId, group))
+        if (!await StartDecomposeLoopAsync(
+                group.GroupId,
+                group,
+                continuationTaskId: continuationTaskId,
+                continuationPaths: continuationPaths))
             throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
     }
 
