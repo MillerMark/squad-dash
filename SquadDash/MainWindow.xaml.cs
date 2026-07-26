@@ -35,7 +35,7 @@ using Shapes = System.Windows.Shapes;
 
 namespace SquadDash;
 
-public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState, ITranscriptRenderSink, IAgentRosterView
+public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext, IPromptBoxState, IAgentRosterView
 {
     private const string PostInstallPrompt =
         "Take a look at my code base and suggest a starting Squad team.";
@@ -460,6 +460,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private AgentThreadRegistry _agentThreadRegistry = null!;
     private BackgroundTaskPresenter _backgroundTaskPresenter = null!;
     private TranscriptConversationManager _conversationManager = null!;
+    private TranscriptPanelController _transcriptPanelController = null!;
     private MarkdownDocumentRenderer _markdownRenderer = null!;
     private TranscriptScrollController _coordinatorScrollController = null!;
     private bool _modelObservedThisSession;
@@ -1305,6 +1306,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         };
 
+        _transcriptPanelController = new TranscriptPanelController(
+            beginTranscriptTurn:         prompt => BeginTranscriptTurn(prompt),
+            finalizeCurrentTurnResponse: () => FinalizeCurrentTurnResponse(),
+            appendLine:                  (text, brush) => AppendLine(text, brush),
+            selectTranscriptThread:      thread => PecSelectTranscriptThread(thread),
+            getCoordinatorThread:        () => CoordinatorThread,
+            getLastQuickReplyEntry:      () => _lastQuickReplyEntry,
+            clearLastQuickReplyEntry:    () => ClearActiveQuickReplyState(),
+            renderResponseEntry:         entry => RenderResponseEntry(entry),
+            ensureThreadFooterAtEnd:     thread => EnsureThreadFooterAtEnd(thread),
+            scrollToEndIfAtBottom:       () => ScrollToEndIfAtBottom(),
+            getToolEntries:              () => _agentThreadRegistry.ToolEntries.Values,
+            renderToolEntry:             entry => RenderToolEntry(entry),
+            updateToolSpinnerState:      () => UpdateToolSpinnerState());
+
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
@@ -1326,7 +1342,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     BuildApprovalGroupLaunchContext()),
             workspaceContext: this,
             promptBoxState:   this,
-            transcriptSink:   this,
+            transcriptSink:   _transcriptPanelController,
             agentRosterView:  this,
             conversationManager: _conversationManager,
             backgroundTaskPresenter: _backgroundTaskPresenter,
@@ -23907,21 +23923,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncQueuePanel();
         _ = DrainQueueIfNeededAsync();
     }
-
-    // ── ITranscriptRenderSink ─────────────────────────────────────────────
-    TranscriptTurnView ITranscriptRenderSink.BeginTranscriptTurn(string prompt) => BeginTranscriptTurn(prompt);
-    void ITranscriptRenderSink.FinalizeCurrentTurnResponse() => FinalizeCurrentTurnResponse();
-    void ITranscriptRenderSink.AppendLine(string text, Brush? brush) => AppendLine(text, brush);
-    void ITranscriptRenderSink.SelectTranscriptThread(TranscriptThreadState thread) => PecSelectTranscriptThread(thread);
-    TranscriptThreadState ITranscriptRenderSink.CoordinatorThread => CoordinatorThread;
-    TranscriptResponseEntry? ITranscriptRenderSink.LastQuickReplyEntry => _lastQuickReplyEntry;
-    void ITranscriptRenderSink.ClearLastQuickReplyEntry() => ClearActiveQuickReplyState();
-    void ITranscriptRenderSink.RenderResponseEntry(TranscriptResponseEntry entry) => RenderResponseEntry(entry);
-    void ITranscriptRenderSink.EnsureThreadFooterAtEnd(TranscriptThreadState thread) => EnsureThreadFooterAtEnd(thread);
-    void ITranscriptRenderSink.ScrollToEndIfAtBottom() => ScrollToEndIfAtBottom();
-    IEnumerable<ToolTranscriptEntry> ITranscriptRenderSink.GetToolEntries() => _agentThreadRegistry.ToolEntries.Values;
-    void ITranscriptRenderSink.RenderToolEntry(ToolTranscriptEntry entry) => RenderToolEntry(entry);
-    void ITranscriptRenderSink.UpdateToolSpinnerState() => UpdateToolSpinnerState();
 
     // ── IAgentRosterView ──────────────────────────────────────────────────
     IReadOnlyList<AgentStatusCard> IAgentRosterView.GetAgents() => _agents;

@@ -134,6 +134,7 @@
     <Compile Include="..\SquadDash\IWorkspaceContext.cs" Link="Source\IWorkspaceContext.cs" />
     <Compile Include="..\SquadDash\IPromptBoxState.cs" Link="Source\IPromptBoxState.cs" />
     <Compile Include="..\SquadDash\ITranscriptRenderSink.cs" Link="Source\ITranscriptRenderSink.cs" />
+    <Compile Include="..\SquadDash\TranscriptPanelController.cs" Link="Source\TranscriptPanelController.cs" />
     <Compile Include="..\SquadDash\IAgentRosterView.cs" Link="Source\IAgentRosterView.cs" />
     <Compile Include="..\SquadDash\IPromptInstructionProvider.cs" Link="Source\IPromptInstructionProvider.cs" />
     <Compile Include="..\SquadDash\PromptInstructionSet.cs" Link="Source\PromptInstructionSet.cs" />
