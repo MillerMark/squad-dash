@@ -196,6 +196,7 @@ public class SimpleMarkdownViewer : Control {
                             var s = mo.Value;
                             if (s.StartsWith("**") && s.EndsWith("**") && s.Length > 4) return s[2..^2];
                             if (s.StartsWith('*')  && s.EndsWith('*')  && s.Length > 2)  return s[1..^1];
+                            if (s.StartsWith("{dot:")) return "";
                             return s;
                         });
                         var typeface = new Typeface(FontFamily, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
@@ -338,6 +339,7 @@ public class SimpleMarkdownViewer : Control {
                 var s = m.Value;
                 if (s.StartsWith("**") && s.EndsWith("**") && s.Length > 4) return s[2..^2];
                 if (s.StartsWith('*')  && s.EndsWith('*')  && s.Length > 2)  return s[1..^1];
+                if (s.StartsWith("{dot:")) return "";
                 return s;
             });
 
@@ -399,9 +401,9 @@ public class SimpleMarkdownViewer : Control {
         return paragraph;
     }
 
-    // Splits on **bold** and *italic* spans (bold checked first so ** isn't consumed as two *)
+    // Splits on **bold**, *italic*, and {dot:color} spans (bold checked first so ** isn't consumed as two *)
     private static readonly Regex InlineMarkupRegex = new(
-        @"(\*\*[^*]+?\*\*|\*[^*]+?\*)",
+        @"(\*\*[^*]+?\*\*|\*[^*]+?\*|\{dot:[^}]+\})",
         RegexOptions.Compiled);
 
     private static IEnumerable<Inline> ParseInlines(string text)
@@ -412,9 +414,36 @@ public class SimpleMarkdownViewer : Control {
                 yield return new Bold(new Run(part[2..^2]));
             else if (part.StartsWith('*') && part.EndsWith('*') && part.Length > 2)
                 yield return new Italic(new Run(part[1..^1]));
+            else if (part.StartsWith("{dot:") && part.EndsWith("}") && part.Length > 6)
+                yield return CreateDotInline(part[5..^1]);
             else
                 yield return new Run(part);
         }
+    }
+
+    private static Inline CreateDotInline(string colorName) {
+        Brush brush;
+        try {
+            brush = colorName.ToLowerInvariant() switch {
+                "red"          => new SolidColorBrush(Color.FromRgb(0xE0, 0x30, 0x30)),
+                "green"        => new SolidColorBrush(Color.FromRgb(0x30, 0xB0, 0x50)),
+                "gray" or "grey" => new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80)),
+                "blue"         => new SolidColorBrush(Color.FromRgb(0x30, 0x80, 0xD0)),
+                "yellow"       => new SolidColorBrush(Color.FromRgb(0xD0, 0xB0, 0x20)),
+                "orange"       => new SolidColorBrush(Color.FromRgb(0xE0, 0x70, 0x20)),
+                _              => new SolidColorBrush((Color)ColorConverter.ConvertFromString(colorName)),
+            };
+        }
+        catch {
+            brush = Brushes.Gray;
+        }
+        var ellipse = new System.Windows.Shapes.Ellipse {
+            Width  = 10,
+            Height = 10,
+            Fill   = brush,
+            Margin = new Thickness(1, 0, 3, 0),
+        };
+        return new InlineUIContainer(ellipse) { BaselineAlignment = BaselineAlignment.Center };
     }
 
     private void ScaleListMargin() {

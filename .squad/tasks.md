@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition -->
+﻿<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition | revision: 4356959cdf9fba89 -->
 <!-- decompose-revision: 4356959cdf9fba89 -->
 **[GODCLASS-20260725] MainWindow God Class Decomposition**
 > Extract responsibilities from MainWindow.xaml.cs (41,284 lines) in safe phases. Each step leaves the build green. Phase 1 is three independent no-XAML extractions. Phase 2 depends on all of Phase 1. Phase 3 panel controllers depend on all of Phase 2. Phase 4 interface segregation depends on all of Phase 3. Phase 5 event broker depends on Phase 4.
@@ -50,42 +50,50 @@
   dependsOn: GODCLASS-20260725-015
   parentTaskId: GODCLASS-20260725-003
 
-- [ ] **[GODCLASS-20260725-004]** Extract ScreenshotService
+- [x] **[GODCLASS-20260725-004]** Extract ScreenshotService
+  (SquadDash status: Completed by SquadDash — commit 127cced: Extracted ScreenshotService from MainWindow: moved WarmDefinitionRegistryCacheAsync, SyncDefinitionThemeAsync, ExtractDocImageDescription, CachedDefinitionRegistry, and HealthChecker into new ScreenshotService class. Added ScreenshotServiceTests.cs (8 tests). Also added ScreenshotHealthChecker/ScreenshotDefinition/ScreenshotHealthResult to test project compile items.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate the screenshot capture block in MainWindow.xaml.cs (~200 lines). Move capture logic, file naming, and error handling into SquadDash/ScreenshotService.cs. MainWindow calls the service via a clean method. No XAML changes required. Build must be green. Unit tests ship. Owner: arjun-sen.
   dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
-- [ ] **[GODCLASS-20260725-005]** Extract GuidedTourCoordinator
+- [x] **[GODCLASS-20260725-005]** Extract GuidedTourCoordinator
+  (SquadDash status: Completed by SquadDash — commit c09b372: Extracted GuidedTourCoordinator from MainWindow: moved all _tour* fields and recovery state machine into new GuidedTourCoordinator class. MainWindow delegates all tour state through the coordinator. Unit tests added, 3026 tests green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate the 15+ _tour* fields and their recovery state machine in MainWindow.xaml.cs (_tourMenuRecoveryRunning, _tourIntelliSenseRecoveryRunning, etc.). Move all tour state and transitions into SquadDash/GuidedTourCoordinator.cs. MainWindow wires the coordinator into the UI event chain but owns no tour state. Build must be green. Unit tests ship covering state transitions and recovery scenarios. Owner: arjun-sen.
   dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
-- [ ] **[GODCLASS-20260725-006]** Extract PromptQueueCoordinator
+- [x] **[GODCLASS-20260725-006]** Extract PromptQueueCoordinator
+  (SquadDash status: Completed by SquadDash — commit a8db34c: Extracted PromptQueueCoordinator from MainWindow: moved _promptQueue field, _promptQueueSeq counter, and OnQueueItemRemoved handler into new PromptQueueCoordinator class. MainWindow delegates all queue state through the coordinator via a computed property for backward-compatible call sites. 9 new unit tests, 3036 total green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate _promptQueue and all OnQueue* event handlers in MainWindow.xaml.cs. Move into SquadDash/PromptQueueCoordinator.cs. This reduces the 380+ direct event subscriptions in MainWindow and lays the foundation for the Phase 5 event broker. Build must be green. Vesper unit tests ship covering enqueue/dequeue and event handler wiring. Owner: arjun-sen.
   dependsOn: GODCLASS-20260725-001, GODCLASS-20260725-002, GODCLASS-20260725-016
 
-- [ ] **[GODCLASS-20260725-007]** Extract TranscriptPanelController
+- [x] **[GODCLASS-20260725-007]** Extract TranscriptPanelController
+  (SquadDash status: Completed by SquadDash — commit ee9632e: Extracted TranscriptPanelController from MainWindow: new class implements ITranscriptRenderSink via 13 injected delegates. MainWindow no longer directly implements the interface; delegates through _transcriptPanelController. 22 new tests (13 null-guard + 9 delegate-routing), 3058 total green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate all ITranscriptRenderSink implementation logic in MainWindow.xaml.cs. Move into SquadDash/TranscriptPanelController.cs. MainWindow holds the controller and routes events to it. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
   dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
 
-- [ ] **[GODCLASS-20260725-008]** Extract AgentRosterController
+- [x] **[GODCLASS-20260725-008]** Extract AgentRosterController
+  (SquadDash status: Completed by SquadDash — commit ad8908f: Extracted AgentRosterController from MainWindow: new class implements IAgentRosterView via 2 injected delegates. MainWindow no longer directly implements the interface; delegates through _agentRosterController. 7 new tests, 3065 total green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate all IAgentRosterView implementation logic in MainWindow.xaml.cs. Move into SquadDash/AgentRosterController.cs. MainWindow holds the controller and delegates roster updates through it. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
   dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
 
-- [ ] **[GODCLASS-20260725-009]** Extract InboxPanelController
+- [x] **[GODCLASS-20260725-009]** Extract InboxPanelController
+  (SquadDash status: Completed by SquadDash — commit 09e7341: Extended InboxPanelController with panel visibility state (_inboxPanelVisible, _inboxAgentSuggestions), Show/Hide/Toggle/HandleFilterTextChanged/HandleUnreadOnlyChanged delegate-injected API. MainWindow delegates all inbox state through the controller. 24 new unit tests.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Locate inbox panel state and event logic in MainWindow.xaml.cs. Move into SquadDash/InboxPanelController.cs. MainWindow delegates all inbox state changes through the controller. XAML binding adjustments required. Build must be green. Unit tests ship. Owner: lyra-morn.
   dependsOn: GODCLASS-20260725-004, GODCLASS-20260725-005, GODCLASS-20260725-006
 
-- [ ] **[GODCLASS-20260725-010]** Interface segregation — remove direct IXxx impls from MainWindow
+- [x] **[GODCLASS-20260725-010]** Interface segregation — remove direct IXxx impls from MainWindow
+  (SquadDash status: Completed by SquadDash — commit 7c94732: Removed direct ILiveElementLocator, IWorkspaceContext, IPromptBoxState, ITranscriptRenderSink, and IAgentRosterView implementations from MainWindow. Created WorkspaceContextController, PromptBoxStateController, and LiveElementLocatorAdapter. MainWindow class declaration reduced to Window only. 47 lines of direct interface impls deleted. Build green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: After Phase 3 extractions, remove MainWindow's direct implementations of ILiveElementLocator, IWorkspaceContext, IPromptBoxState, ITranscriptRenderSink, and IAgentRosterView. Each interface is satisfied by the controller extracted in Phase 3. Wire MainWindow → controller → interface. Confirm with a build that MainWindow has zero direct IXxx implementations. Owner: arjun-sen.
   dependsOn: GODCLASS-20260725-007, GODCLASS-20260725-008, GODCLASS-20260725-009
 
-- [ ] **[GODCLASS-20260725-011]** Replace direct event subscriptions with event broker
+- [x] **[GODCLASS-20260725-011]** Replace direct event subscriptions with event broker
+  (SquadDash status: Completed by SquadDash — commit 6b039cb: Introduced WeakEventBroker (thread-safe, WeakReference-based pub-sub). Added SquadBrokerMessages.cs with 12 domain message types. Migrated 12 representative MainWindow event subscriptions across static/singleton events, bridge events, and TranscriptSelectionController events. 15 broker unit tests, 3104 total green.)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Replace remaining direct event subscriptions in MainWindow (380+ total, reduced by prior phases) with a lightweight pub-sub event broker class. Eliminates memory-leak risk from undisposed handlers and decouples senders from receivers. Vesper unit tests assert correct event delivery and that no references are leaked after unsubscribe. Owner: arjun-sen.
   dependsOn: GODCLASS-20260725-010
