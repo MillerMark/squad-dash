@@ -351,11 +351,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private const string SystemTranscriptStatusPrefix = "[SQUADDASH_SYSTEM_STATUS] ";
     private bool _bridgeRestartForSettingsPending;
-    private readonly PromptQueue _promptQueue;
+    private readonly PromptQueueCoordinator _promptQueueCoordinator;
+    private PromptQueue _promptQueue => _promptQueueCoordinator.Queue;
     private bool _queueManuallyPaused;
     private bool _queuePausePending;
     private bool _bridgeStallShowing;
-    private int _promptQueueSeq;
     private int    _queueDayCounter;      // per-day, per-workspace queue sequence number
     private string _queueCounterDate = ""; // local date string "yyyy-MM-dd" for _queueDayCounter
     private readonly HostCommandRegistry _hostCommandRegistry;
@@ -751,8 +751,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             new ClipboardEditorStateStore(Path.Combine(
                 SquadDashPaths.WorkspaceStateDirectory((workspacePaths ?? WorkspacePathsProvider.Discover()).ApplicationRoot),
                 "clipboard-editors"));
-        _promptQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
-        _promptQueue.ItemRemoved += OnQueueItemRemoved;
+        var rawQueue = serviceProvider?.GetRequiredService<PromptQueue>() ?? new PromptQueue();
+        _promptQueueCoordinator = new PromptQueueCoordinator(rawQueue);
+        _promptQueueCoordinator.BranchIndicatorUpdateRequested +=
+            () => Dispatcher.InvokeAsync(UpdateBranchIndicator, System.Windows.Threading.DispatcherPriority.Normal);
         _hostCommandRegistry = serviceProvider?.GetRequiredService<HostCommandRegistry>() ?? new HostCommandRegistry();
         _postedUiActionTracker = serviceProvider?.GetRequiredService<PostedUiActionTracker>() ?? new PostedUiActionTracker();
         _uiActionReplayRegistry = serviceProvider?.GetRequiredService<UiActionReplayRegistry>() ?? new UiActionReplayRegistry();
@@ -2424,7 +2426,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         var item = new PromptQueueItem {
             Text             = text,
-            SequenceNumber   = ++_promptQueueSeq,
+            SequenceNumber   = _promptQueueCoordinator.NextSequenceNumber(),
             QueueNumber      = NextQueueNumber(),
             IsSystemInjected = isSystemInjected,
         };
@@ -2453,7 +2455,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var isDictated = _promptHasVoiceInput;
         _promptHasVoiceInput = false;
 
-        _promptQueue.Enqueue(text, ++_promptQueueSeq, isDictated);
+        _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isDictated);
         var item = _promptQueue.Items[^1];
         item.QueueNumber = NextQueueNumber();
         SquadDashTrace.Write("Queue", $"Enqueued current prompt {DescribeQueueItemForTrace(item)}queueCount={_promptQueue.Count}");
@@ -2475,7 +2477,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EnqueueRcPrompt(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
-        _promptQueue.Enqueue(text, ++_promptQueueSeq, isFromRemote: true);
+        _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isFromRemote: true);
         _promptQueue.Items[^1].QueueNumber = NextQueueNumber();
         SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(_promptQueue.Items[^1])} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
@@ -2486,7 +2488,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void EnqueueRcPrompt(string text, List<FollowUpAttachment> attachments)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
-        _promptQueue.Enqueue(text, ++_promptQueueSeq, isFromRemote: true);
+        _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isFromRemote: true);
         var queued = _promptQueue.Items[^1];
         queued.QueueNumber = NextQueueNumber();
         if (attachments.Count > 0)
@@ -2515,7 +2517,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var isDictated = _promptHasVoiceInput;
             _promptHasVoiceInput = false;
 
-            var item = _promptQueue.EnqueueAtFront(text, ++_promptQueueSeq);
+            var item = _promptQueue.EnqueueAtFront(text, _promptQueueCoordinator.NextSequenceNumber());
             item.QueueNumber = NextQueueNumber();
             _promptQueue.RenumberSequentially();
 
@@ -2575,7 +2577,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void AddEmptyQueueSlot()
     {
-        _promptQueue.EnqueueAtFront(string.Empty, ++_promptQueueSeq);
+        _promptQueue.EnqueueAtFront(string.Empty, _promptQueueCoordinator.NextSequenceNumber());
         var item = _promptQueue.Items[0];
         item.QueueNumber = NextQueueNumber();
         SyncQueuePanel();
@@ -2587,7 +2589,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     // Appends to the TAIL of the internal list, which SyncQueuePanel renders as the leftmost tab.
     private void AddEmptyQueueSlotAtEnd()
     {
-        _promptQueue.Enqueue(string.Empty, ++_promptQueueSeq);
+        _promptQueue.Enqueue(string.Empty, _promptQueueCoordinator.NextSequenceNumber());
         var item = _promptQueue.Items[^1];
         item.QueueNumber = NextQueueNumber();
         SyncQueuePanel();
@@ -5031,7 +5033,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                                 if (descriptor.ResultBehavior == HostCommandResultBehavior.InjectResultAsContext && result.HasOutput)
                                 {
-                                    _promptQueue.EnqueueAtFront(result.Output!, ++_promptQueueSeq);
+                                    _promptQueue.EnqueueAtFront(result.Output!, _promptQueueCoordinator.NextSequenceNumber());
                                     SyncQueuePanel();
                                     SyncSendButton();
                                 }
@@ -7525,7 +7527,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                      DecomposePlanningInstructions.LoadSpecification();
         _promptQueue.EnqueueAtFront(
             prompt,
-            ++_promptQueueSeq,
+            _promptQueueCoordinator.NextSequenceNumber(),
             sourceTag: "decompose-repair",
             isSystemInjected: true);
         SyncQueuePanel();
@@ -7718,7 +7720,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DecomposePlanningInstructions.LoadSpecification();
         _promptQueue.EnqueueAtFront(
             prompt,
-            ++_promptQueueSeq,
+            _promptQueueCoordinator.NextSequenceNumber(),
             sourceTag: "decompose-replan",
             isSystemInjected: true);
         SyncQueuePanel();
@@ -16111,7 +16113,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     Text           = $"[Tour Demo Item {existingCount + i}]",
                     InitialText    = $"[Tour Demo Item {existingCount + i}]",
-                    SequenceNumber = ++_promptQueueSeq,
+                    SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
                     QueueNumber    = NextQueueNumber(),
                     SourceTag      = DummyTag
                 };
@@ -16164,7 +16166,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Text           = text,
                 IsEditing      = true,
                 CaretIndex     = caretPos,
-                SequenceNumber = ++_promptQueueSeq,
+                SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
                 QueueNumber    = NextQueueNumber(),
                 SourceTag      = TourTypeTag
             };
@@ -16614,7 +16616,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     Text           = fullText,
                     InitialText    = fullText,
-                    SequenceNumber = ++_promptQueueSeq,
+                    SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
                     QueueNumber    = NextQueueNumber(),
                     SourceTag      = DummyTag
                 };
@@ -17745,7 +17747,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             Text           = string.Empty,
             IsEditing      = true,
-            SequenceNumber = ++_promptQueueSeq,
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
             QueueNumber    = NextQueueNumber(),
             SourceTag      = TourTypeTag
         };
@@ -22618,14 +22620,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _queueManuallyPaused = savedQueuePaused;
         if (savedEntries is { Count: > 0 })
         {
-            _promptQueueSeq = 0;
+            _promptQueueCoordinator.ResetSequenceNumber();
             // Read held/active state BEFORE SyncQueuePanel(), which calls UpdateQueuedPromptsState
             // and overwrites QueueRightmostHeld/QueueActiveTabIndex with the current (null) tab state.
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
             var savedActiveTabIndex = _conversationManager.ConversationState.QueueActiveTabIndex;
             foreach (var entry in savedEntries)
             {
-                _promptQueue.Enqueue(entry.Text, ++_promptQueueSeq, entry.IsDictated, isSystemInjected: entry.IsSystemInjected, sourceTag: entry.SourceTag);
+                _promptQueue.Enqueue(entry.Text, _promptQueueCoordinator.NextSequenceNumber(), entry.IsDictated, isSystemInjected: entry.IsSystemInjected, sourceTag: entry.SourceTag);
                 var restoredItem = _promptQueue.Items[^1];
                 restoredItem.QueueNumber = entry.QueueNumber > 0 ? entry.QueueNumber : NextQueueNumber();
                 if (entry.IsSimEntry)
@@ -22716,12 +22718,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         else if (savedLegacy is { Count: > 0 })
         {
-            _promptQueueSeq = 0;
+            _promptQueueCoordinator.ResetSequenceNumber();
             // Read held/active state BEFORE SyncQueuePanel() overwrites them.
             bool wasHeld = _conversationManager.ConversationState.QueueRightmostHeld == true;
             var savedActiveTabIndex = _conversationManager.ConversationState.QueueActiveTabIndex;
             foreach (var text in savedLegacy)
-                _promptQueue.Enqueue(text, ++_promptQueueSeq);
+                _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber());
             SyncQueuePanel();
 
             // Restore active tab selection before held/drain decision so label logic sees correct state.
@@ -23899,7 +23901,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     string IPromptBoxState.PromptBoxText => PromptTextBox.Text;
     void IPromptBoxState.SetPromptBoxText(string text) => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft");
     void IPromptBoxState.EnqueueSimItem(PromptQueueItem item) {
-        item.SequenceNumber = ++_promptQueueSeq;
+        item.SequenceNumber = _promptQueueCoordinator.NextSequenceNumber();
         item.QueueNumber    = NextQueueNumber();
         _promptQueue.EnqueueItem(item);
         SyncQueuePanel();
@@ -28170,7 +28172,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var item = new PromptQueueItem
         {
             Text = text,
-            SequenceNumber = ++_promptQueueSeq,
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
             CaretIndex = text.Length,
             IsEditing = true
         };
@@ -32459,12 +32461,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             return string.Empty;
         }
-    }
-
-    private void OnQueueItemRemoved(PromptQueueItem item)
-    {
-        if (item.SourceTag == "branch-indicator")
-            Dispatcher.InvokeAsync(() => UpdateBranchIndicator(), System.Windows.Threading.DispatcherPriority.Normal);
     }
 
     private async Task RefreshBranchIfChangedAsync()
@@ -37912,7 +37908,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         const string prompt = "Initialize a git repository and create an initial commit";
         if (_isPromptRunning || IsNativeLoopRunning)
         {
-            _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "branch-indicator");
+            _promptQueue.EnqueueAtFront(prompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
             _promptQueue.RenumberSequentially();
             SyncQueuePanel();
             _ = DrainQueueIfNeededAsync();
@@ -37967,7 +37963,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", ++_promptQueueSeq, sourceTag: "branch-indicator");
+                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
                         _promptQueue.RenumberSequentially();
                         SyncQueuePanel();
                         _ = DrainQueueIfNeededAsync();
@@ -38005,7 +38001,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
                         BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", ++_promptQueueSeq, sourceTag: "branch-indicator");
+                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
                         _promptQueue.RenumberSequentially();
                         SyncQueuePanel();
                         _ = DrainQueueIfNeededAsync();
@@ -38059,7 +38055,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     const string prompt = "Create a new GitHub repository for this workspace and push the current branch";
                     if (_isPromptRunning || IsNativeLoopRunning)
                     {
-                        _promptQueue.EnqueueAtFront(prompt, ++_promptQueueSeq, sourceTag: "branch-indicator");
+                        _promptQueue.EnqueueAtFront(prompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
                         _promptQueue.RenumberSequentially();
                         SyncQueuePanel();
                         _ = DrainQueueIfNeededAsync();

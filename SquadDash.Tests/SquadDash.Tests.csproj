@@ -15,6 +15,7 @@
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourAdvanceTriggerRegistry.cs" Link="Source\GuidedTourAdvanceTriggerRegistry.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourContextRegistry.cs" Link="Source\GuidedTourContextRegistry.cs" />
     <Compile Include="..\SquadDash\UiTimingConstants.cs" Link="Source\UiTimingConstants.cs" />
+    <Compile Include="..\SquadDash\PromptQueueCoordinator.cs" Link="Source\PromptQueueCoordinator.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
   </ItemGroup>
