@@ -128,36 +128,77 @@ internal sealed class TasksPanelController {
     }
 
     /// <summary>
-    /// Returns a decompose group only when every currently visible open task belongs to
-    /// that same group. This lets the Tasks-panel action preserve dependency-aware execution
-    /// without changing the behavior for ordinary or mixed task selections.
+    /// Resolves the visible Tasks-panel rows into an execution target. Structured plan rows
+    /// never fall through to the generic filtered-task loop: mixed, missing, or malformed
+    /// plan selections are rejected explicitly.
     /// </summary>
-    internal bool TryGetSingleVisibleDecomposeGroup(
-        out DecomposedTaskGroup? group,
-        out bool containsBlockedTask) {
-
-        group = null;
-        containsBlockedTask = false;
+    internal TasksPanelExecutionSelection ResolveVisibleExecutionSelection() {
         var visible = _activePanel.Children
             .OfType<Border>()
             .Where(row => row.Visibility == Visibility.Visible)
             .Select(row => row.Tag)
             .OfType<TaskItem>()
             .ToList();
-        if (visible.Count == 0) return false;
+        if (visible.Count == 0)
+            return new TasksPanelExecutionSelection(
+                TasksPanelExecutionKind.NoTasks,
+                null,
+                false,
+                0,
+                "No open tasks match the current filter.");
 
-        var groupId = visible[0].DecomposeGroupId;
-        if (string.IsNullOrWhiteSpace(groupId) ||
-            visible.Any(item => !string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal)))
-            return false;
+        var planItems = visible
+            .Where(item => !string.IsNullOrWhiteSpace(item.DecomposeGroupId))
+            .ToList();
+        if (planItems.Count == 0)
+            return new TasksPanelExecutionSelection(
+                TasksPanelExecutionKind.GenericTasks,
+                null,
+                false,
+                visible.Count,
+                null);
 
-        containsBlockedTask = _activePanel.Children
+        if (planItems.Count != visible.Count)
+            return new TasksPanelExecutionSelection(
+                TasksPanelExecutionKind.InvalidPlanSelection,
+                null,
+                false,
+                visible.Count,
+                "The filter mixes structured plan tasks with ordinary backlog tasks. Narrow the filter to one plan.");
+
+        var groupIds = planItems
+            .Select(item => item.DecomposeGroupId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (groupIds.Length != 1)
+            return new TasksPanelExecutionSelection(
+                TasksPanelExecutionKind.InvalidPlanSelection,
+                null,
+                false,
+                visible.Count,
+                "The filter includes more than one structured plan. Narrow the filter to one plan.");
+
+        var groupId = groupIds[0];
+        if (!_decomposeGroups.TryGetValue(groupId, out var group))
+            return new TasksPanelExecutionSelection(
+                TasksPanelExecutionKind.InvalidPlanSelection,
+                null,
+                false,
+                visible.Count,
+                $"Plan {groupId} could not be reconstructed from tasks.md.");
+
+        var containsBlockedTask = _activePanel.Children
             .OfType<Border>()
             .Select(row => row.Tag)
             .OfType<TaskItem>()
             .Any(item => (item.IsFailed || item.IsPartial) &&
                          string.Equals(item.DecomposeGroupId, groupId, StringComparison.Ordinal));
-        return _decomposeGroups.TryGetValue(groupId, out group);
+        return new TasksPanelExecutionSelection(
+            TasksPanelExecutionKind.DecomposeGroup,
+            group,
+            containsBlockedTask,
+            visible.Count,
+            null);
     }
 
     // ── Panel context menu────────────────────────────────────────────────────
@@ -685,3 +726,17 @@ internal sealed class TasksPanelController {
             _reloadPanel();
     }
 }
+
+internal enum TasksPanelExecutionKind {
+    NoTasks,
+    GenericTasks,
+    DecomposeGroup,
+    InvalidPlanSelection,
+}
+
+internal sealed record TasksPanelExecutionSelection(
+    TasksPanelExecutionKind Kind,
+    DecomposedTaskGroup? Group,
+    bool ContainsBlockedTask,
+    int VisibleTaskCount,
+    string? Error);

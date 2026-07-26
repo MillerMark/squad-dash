@@ -1433,20 +1433,24 @@ internal sealed class TranscriptConversationManager {
         };
     }
 
-    internal void UpdateActiveExecutingPlanState(string? groupId) {
-        var normalized = string.IsNullOrWhiteSpace(groupId) ? null : groupId.Trim();
-        if (string.Equals(
+    internal void UpdateActiveLoopExecutionState(ActiveLoopExecutionState? execution) {
+        var normalized = ActiveLoopExecutionState.Normalize(execution);
+        if (Equals(_conversationState.ActiveLoopExecution, normalized) &&
+            string.Equals(
                 _conversationState.ActiveExecutingPlanGroupId,
-                normalized,
+                normalized?.DecomposeGroupId,
                 StringComparison.Ordinal))
             return;
 
         _conversationState = _conversationState with {
-            ActiveExecutingPlanGroupId = normalized,
+            ActiveLoopExecution = normalized,
+            // Keep the legacy field synchronized so an older build can still resume a plan
+            // through the dedicated execution path rather than a generic loop.
+            ActiveExecutingPlanGroupId = normalized?.DecomposeGroupId,
         };
         PersistConversationStateInBackground(
             _conversationState,
-            nameof(UpdateActiveExecutingPlanState));
+            nameof(UpdateActiveLoopExecutionState));
     }
 
     internal void NavigateHistory(int direction) {

@@ -5741,6 +5741,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-stopped");
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _conversationManager.UpdateActiveLoopExecutionState(null);
         _loopCurrentIteration = 0;
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
@@ -5755,6 +5756,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-error");
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _conversationManager.UpdateActiveLoopExecutionState(null);
         _loopCurrentIteration = 0;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
@@ -7197,6 +7199,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private async Task QueueOrStartLoopAsync(LoopMode mode)
     {
         _activeLoopMode = mode;
+        var queuedExecution = BuildGeneralLoopExecutionState();
+        _conversationManager.UpdateActiveLoopExecutionState(queuedExecution);
         if (mode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
         {
             QueueLoopResumeAfterQueueDrain(_loopCurrentIteration, "manual-start", updateUi: false);
@@ -7207,7 +7211,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         await StartLoopImmediateAsync();
     }
 
-    private async Task StartLoopImmediateAsync(int resumeFromIteration = 0)
+    private async Task StartLoopImmediateAsync(
+        int resumeFromIteration = 0,
+        ActiveLoopExecutionState? resumeExecution = null)
     {
         if (_currentWorkspace is null) return;
         if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
@@ -7216,9 +7222,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return;
         }
         _loopResumeSuppressedByExplicitStop = false;
-        ClearExecutingPlanState();
+        ClearExecutingPlanRuntimeState();
         BackupAndClearLoopOutput();
-        var loopMdPath = GetEffectiveLoopMdPath();
+        var loopMdPath = !string.IsNullOrWhiteSpace(resumeExecution?.LoopPath)
+            ? resumeExecution.LoopPath
+            : GetEffectiveLoopMdPath();
+        var filterText = resumeExecution?.FilterText ?? TasksFilterBox?.Text?.Trim() ?? "";
+        var activeExecution = new ActiveLoopExecutionState(loopMdPath, filterText);
+        _conversationManager.UpdateActiveLoopExecutionState(activeExecution);
 
         if (_activeLoopMode == LoopMode.NativeAgents)
         {
@@ -7228,7 +7239,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 OpenLoopConfigFlyout(loopMdPath, LoopConfigFlyoutMode.Configure, existingConfig: null);
                 return;
             }
-            var filterText = TasksFilterBox?.Text?.Trim() ?? "";
             await _loopController.StartAsync(config, _settingsSnapshot.LoopContinuousContext, _currentWorkspace?.FolderPath, resumeFromIteration, filterText, _featureGroupStore?.Load());
         }
         else
@@ -7238,12 +7248,24 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
     }
 
-    private void ClearExecutingPlanState()
+    private ActiveLoopExecutionState BuildGeneralLoopExecutionState()
+    {
+        var loopPath = GetEffectiveLoopMdPath();
+        var filterText = TasksFilterBox?.Text?.Trim() ?? "";
+        return new ActiveLoopExecutionState(loopPath, filterText);
+    }
+
+    private void ClearExecutingPlanRuntimeState()
     {
         _CodeHealthGroupRunner?.ClearCurrentStep();
         _CodeHealthGroupRunner = null;
         _activeDecomposeGroupId = null;
-        _conversationManager.UpdateActiveExecutingPlanState(null);
+    }
+
+    private void ClearExecutingPlanState()
+    {
+        ClearExecutingPlanRuntimeState();
+        _conversationManager.UpdateActiveLoopExecutionState(null);
     }
 
     private void SuppressLoopResumeAfterExplicitStop(string reason)
@@ -7254,7 +7276,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopInterruptedByQueue = false;
         _loopPausedForQuickReply = false;
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-        _conversationManager.UpdateActiveExecutingPlanState(null);
+        _conversationManager.UpdateActiveLoopExecutionState(null);
         _conversationManager.UpdateQueuedPromptsState(
             _promptQueue.Items, _followUpAttachments,
             queueRightmostHeld: IsRightmostQueueTabActive(),
@@ -7268,21 +7290,39 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private async Task ResumeLoopImmediateAsync(int resumeFromIteration)
     {
-        var planGroupId = _activeDecomposeGroupId ??
-            _conversationManager.ConversationState.ActiveExecutingPlanGroupId;
-        if (!string.IsNullOrWhiteSpace(planGroupId))
+        var resume = LoopResumeExecutionPolicy.Resolve(
+            _conversationManager.ConversationState.ActiveLoopExecution,
+            _activeDecomposeGroupId,
+            _conversationManager.ConversationState.ActiveExecutingPlanGroupId);
+        if (resume.Kind == LoopResumeExecutionKind.ExecutingPlan)
         {
-            await StartDecomposeLoopAsync(planGroupId, resumeFromIteration: resumeFromIteration);
+            await StartDecomposeLoopAsync(
+                resume.GroupId!,
+                resumeFromIteration: resumeFromIteration,
+                expectedRevision: resume.Revision);
             return;
         }
 
-        await StartLoopImmediateAsync(resumeFromIteration);
+        if (resume.Kind == LoopResumeExecutionKind.Refuse)
+        {
+            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+            AppendLoopOutputLine(
+                "⏹ Loop was not resumed because its exact path and filter were not persisted.",
+                LoopLifecycleBrush);
+            SquadDashTrace.Write(
+                "Loop",
+                $"Refused unsafe loop resume without persisted execution state resumeFromIteration={resumeFromIteration}.");
+            return;
+        }
+
+        await StartLoopImmediateAsync(resumeFromIteration, resume.Execution);
     }
 
     private async Task<bool> StartDecomposeLoopAsync(
         string groupId,
         DecomposedTaskGroup? group = null,
-        int resumeFromIteration = 0)
+        int resumeFromIteration = 0,
+        string? expectedRevision = null)
     {
         if (_currentWorkspace is null) return false;
         await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
@@ -7300,12 +7340,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         }
 
-        _loopResumeSuppressedByExplicitStop = false;
-        _activeDecomposeGroupId = groupId;
-        _conversationManager.UpdateActiveExecutingPlanState(groupId);
+        var tasksPath = System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         _CodeHealthGroupRunner = new CodeHealthGroupRunner(
             new DecomposedTasksWriter(),
-            System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"));
+            tasksPath);
 
         // When the full group object is available, run cycle detection and write the group to
         // tasks.md before starting the loop.  If a cycle is detected, surface an inbox message
@@ -7318,21 +7356,56 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SquadDashTrace.Write(TraceCategory.General,
                 $"StartDecomposeLoopAsync: cycle detected in group '{groupId}' — aborting loop start.");
             _CodeHealthGroupRunner  = null;
-            _activeDecomposeGroupId  = null;
-            _conversationManager.UpdateActiveExecutingPlanState(null);
+            _conversationManager.UpdateActiveLoopExecutionState(null);
             if (inboxErrorJson is not null)
                 TrySaveInboxMessageFromResponse(inboxErrorJson);
             return false;
         }
 
+        string? revision;
         if (group is not null)
         {
-            var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
+            revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
             new DecomposedTasksWriter().EnsureGroupRevision(
-                Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md"),
+                tasksPath,
                 groupId,
                 revision);
         }
+        else
+        {
+            var persisted = File.Exists(tasksPath)
+                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                : null;
+            if (persisted is null || !persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
+            {
+                _CodeHealthGroupRunner = null;
+                _conversationManager.UpdateActiveLoopExecutionState(null);
+                SquadDashTrace.Write(
+                    "Loop",
+                    $"Refused Executing Plan resume because group '{groupId}' is missing from tasks.md.");
+                return false;
+            }
+            revision = persistedGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedRevision) &&
+            !string.Equals(expectedRevision, revision, StringComparison.Ordinal))
+        {
+            _CodeHealthGroupRunner = null;
+            _conversationManager.UpdateActiveLoopExecutionState(null);
+            SquadDashTrace.Write(
+                "Loop",
+                $"Refused stale Executing Plan resume group={groupId} persistedRevision={expectedRevision} currentRevision={revision}.");
+            AppendLoopOutputLine(
+                $"⏹ Plan {groupId} was not resumed because its revision changed.",
+                LoopLifecycleBrush);
+            return false;
+        }
+
+        _loopResumeSuppressedByExplicitStop = false;
+        _activeDecomposeGroupId = groupId;
+        _conversationManager.UpdateActiveLoopExecutionState(
+            new ActiveLoopExecutionState(loopPath, groupId, groupId, revision));
 
         _activeLoopMode = LoopMode.NativeAgents;
         _loopPanelVisible = true;
@@ -40366,13 +40439,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var workspaceFolder = _currentWorkspace?.FolderPath;
             if (string.IsNullOrEmpty(workspaceFolder)) return;
 
-            // Shift+click: show a "Do these with…" context menu listing all loop files.
-            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-            {
-                ShowDoTheseWithMenu(sender as FrameworkElement);
-                return;
-            }
-
             // If the loop is already running, don't start another one
             if (IsLoopRunning)
             {
@@ -40384,12 +40450,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 return;
             }
 
-            if (_tasksPanelController?.TryGetSingleVisibleDecomposeGroup(
-                    out var decomposeGroup,
-                    out var containsBlockedTask) == true &&
-                decomposeGroup is not null)
+            var selection = _tasksPanelController?.ResolveVisibleExecutionSelection();
+            SquadDashTrace.Write(
+                "Loop",
+                $"Tasks Do these resolved kind={selection?.Kind.ToString() ?? "Unavailable"} visible={selection?.VisibleTaskCount ?? 0} filter='{TasksFilterBox?.Text?.Trim() ?? ""}' group={selection?.Group?.GroupId ?? "(none)"}.");
+
+            if (selection is null ||
+                selection.Kind is TasksPanelExecutionKind.NoTasks or TasksPanelExecutionKind.InvalidPlanSelection)
             {
-                if (containsBlockedTask)
+                MessageBox.Show(
+                    selection?.Error ?? "SquadDash could not determine which tasks are visible.",
+                    "Nothing Safe to Run",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (selection.Kind == TasksPanelExecutionKind.DecomposeGroup && selection.Group is { } decomposeGroup)
+            {
+                if (selection.ContainsBlockedTask)
                 {
                     MessageBox.Show(
                         "This plan contains a failed or partial task. Use its recovery actions to replan or retry it.",
@@ -40400,6 +40479,14 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
 
                 await StartBackloggedDecomposeGroupAsync(decomposeGroup);
+                return;
+            }
+
+            // Shift+click remains available for ordinary backlog tasks only. Structured plans
+            // always use the dedicated dependency-aware Executing Plan engine.
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                ShowDoTheseWithMenu(sender as FrameworkElement);
                 return;
             }
 
@@ -42212,13 +42299,3 @@ public sealed class DocViewerScriptingBridge
         _window.Dispatcher.BeginInvoke(() => _window.ScrollDocSourceToLine(lineHint));
     }
 }
-
-
-
-
-
-
-
-
-
-

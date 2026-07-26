@@ -389,7 +389,8 @@ internal sealed class WorkspaceConversationStore {
                state.PromptHistory.Count > 0 ||
                state.Turns.Count > 0 ||
                state.GetThreads().Count > 0 ||
-               !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId);
+               !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId) ||
+               state.ActiveLoopExecution is not null;
     }
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
@@ -469,6 +470,7 @@ internal sealed class WorkspaceConversationStore {
             ActiveExecutingPlanGroupId = string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId)
                 ? null
                 : state.ActiveExecutingPlanGroupId.Trim(),
+            ActiveLoopExecution       = ActiveLoopExecutionState.Normalize(state.ActiveLoopExecution),
             ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
             ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
@@ -831,6 +833,11 @@ internal sealed record WorkspaceConversationState(
     /// general-purpose loop with an empty task filter.
     /// </summary>
     public string? ActiveExecutingPlanGroupId { get; init; }
+    /// <summary>
+    /// Immutable identity of the loop that may resume after a queue pause or process restart.
+    /// This is deliberately separate from the mutable Tasks-panel filter and selected loop UI.
+    /// </summary>
+    public ActiveLoopExecutionState? ActiveLoopExecution { get; init; }
     /// <summary>Sim response for the active-draft tab set by /test-queue $ActiveDraft$. Null when not in sim mode.</summary>
     public string? ActiveDraftSimResponse { get; init; }
     /// <summary>Delay in seconds for the active-draft sim entry. Only meaningful when ActiveDraftSimResponse is non-null.</summary>
@@ -849,6 +856,34 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<TranscriptThreadRecord> GetThreads() => Threads ?? Array.Empty<TranscriptThreadRecord>();
 
     public IReadOnlyList<string> GetRecentSessionIds() => RecentSessionIds ?? Array.Empty<string>();
+}
+
+internal sealed record ActiveLoopExecutionState(
+    string LoopPath,
+    string FilterText,
+    string? DecomposeGroupId = null,
+    string? DecomposeRevision = null)
+{
+    internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
+
+    internal static ActiveLoopExecutionState? Normalize(ActiveLoopExecutionState? state)
+    {
+        if (state is null)
+            return null;
+
+        var loopPath = state.LoopPath?.Trim() ?? string.Empty;
+        var filter = state.FilterText?.Trim() ?? string.Empty;
+        var groupId = string.IsNullOrWhiteSpace(state.DecomposeGroupId)
+            ? null
+            : state.DecomposeGroupId.Trim();
+        var revision = string.IsNullOrWhiteSpace(state.DecomposeRevision)
+            ? null
+            : state.DecomposeRevision.Trim();
+        if (loopPath.Length == 0 && groupId is null)
+            return null;
+
+        return new ActiveLoopExecutionState(loopPath, filter, groupId, revision);
+    }
 }
 
 internal sealed record QueuedPromptEntry(

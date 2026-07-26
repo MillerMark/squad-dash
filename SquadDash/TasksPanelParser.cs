@@ -186,7 +186,11 @@ internal static class TasksPanelParser {
         var consumed = new bool[lines.Length];
         int index = 0;
         while (index < lines.Length) {
-            var header = DecomposeHeaderRegex.Match(lines[index].Trim());
+            // StreamReader normally consumes a UTF-8 BOM, but callers can also provide
+            // already-decoded strings containing U+FEFF. Never let that turn a plan into
+            // an unstructured backlog block.
+            var headerLine = lines[index].Trim().TrimStart('\uFEFF');
+            var header = DecomposeHeaderRegex.Match(headerLine);
             if (!header.Success) {
                 index++;
                 continue;

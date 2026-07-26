@@ -679,6 +679,32 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsActiveLoopExecutionIdentity()
+    {
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveLoopExecution = new ActiveLoopExecutionState(
+                    "  D:/repo/.squad/loop-executing-plan.md  ",
+                    "  GODCLASS-20260725  ",
+                    "  GODCLASS-20260725  ",
+                    "  revision-123  "),
+            });
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                loaded.ActiveLoopExecution?.LoopPath,
+                Is.EqualTo("D:/repo/.squad/loop-executing-plan.md"));
+            Assert.That(loaded.ActiveLoopExecution?.FilterText, Is.EqualTo("GODCLASS-20260725"));
+            Assert.That(loaded.ActiveLoopExecution?.DecomposeGroupId, Is.EqualTo("GODCLASS-20260725"));
+            Assert.That(loaded.ActiveLoopExecution?.DecomposeRevision, Is.EqualTo("revision-123"));
+        });
+    }
+
+    [Test]
     public void Clear_ThenDraftSave_DoesNotRecoverOldTranscriptBackup() {
         _store.Save(
             _workspacePath,

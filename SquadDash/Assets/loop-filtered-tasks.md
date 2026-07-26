@@ -52,6 +52,11 @@ You are running as part of a SquadDash autonomous loop. **Each iteration must co
 
 Read `.squad/tasks.md`. Find the **first unchecked (`- [ ]`) item** that is NOT owned by `*(Owner: User)*` and that contains the words or otherwise matches the filter instructions specified below. Work top-to-bottom; higher sections (🔴 High, 🟡 Mid) take priority over lower ones (🟢 Low).
 
+Never execute an item inside a `<!-- decompose-group: ... -->` block or an item carrying
+`Group: ... | Branch: ... | Priority: ...` metadata. Those tasks are host-owned structured plans
+and may run only through SquadDash's **Executing Plan** engine. If every matching item belongs to
+a structured plan, follow Step 2 and stop this generic loop.
+
 [**FILTER**]
 
 ## Step 2 — If NO actionable tasks remain

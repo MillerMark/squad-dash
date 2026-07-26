@@ -205,6 +205,8 @@ internal sealed class LoopTemplatePreprocessingTests
         Assert.That(template, Does.Contain("Do **not** stop the loop after a successful task"));
         Assert.That(template, Does.Contain("Only emit `stop_loop` in this no-actionable-task case"));
         Assert.That(template, Does.Contain("Do **not** append `HOST_COMMAND_JSON` after completing a task"));
+        Assert.That(template, Does.Contain("Never execute an item inside a `<!-- decompose-group: ... -->` block"));
+        Assert.That(template, Does.Contain("**Executing Plan** engine"));
         Assert.That(template, Does.Not.Contain("then stop. The next iteration"));
     }
 
