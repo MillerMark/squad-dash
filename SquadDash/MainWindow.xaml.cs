@@ -7150,7 +7150,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         }
 
-        var combined = new TaskParseResult(parseResult.OpenGroups, allCompleted);
+        // Preserve structured plan metadata while merging completed-task history. Dropping
+        // DecomposeGroups here leaves visible plan rows without an executable group lookup.
+        var combined = parseResult.WithCompletedItems(allCompleted);
         _tasksPanelController.Refresh(combined);
     }
 

@@ -448,6 +448,9 @@ internal sealed class TaskParseResult(
     internal IReadOnlyList<TaskItem>          CompletedItems { get; } = completedItems;
     internal IReadOnlyDictionary<string, DecomposedTaskGroup> DecomposeGroups { get; } =
         decomposeGroups ?? new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
+
+    internal TaskParseResult WithCompletedItems(IReadOnlyList<TaskItem> completedItems) =>
+        new(OpenGroups, completedItems, DecomposeGroups);
 }
 
 internal sealed class TaskPriorityGroup(

@@ -10,7 +10,11 @@ internal sealed class TasksPanelExecutionSelectionTests
     [Test]
     public void ResolveVisibleExecutionSelection_SingleFilteredPlan_UsesDecomposeEngine()
     {
-        var controller = CreateController(TasksPanelParser.Parse(PlanLines()));
+        var parsed = TasksPanelParser.Parse(PlanLines());
+        // MainWindow merges completed-tasks.md history before refreshing the controller.
+        // That merge must retain the structured group lookup used by "Do these".
+        var combined = parsed.WithCompletedItems([.. parsed.CompletedItems]);
+        var controller = CreateController(combined);
 
         controller.SetFilter("God");
         var selection = controller.ResolveVisibleExecutionSelection();
@@ -21,6 +25,16 @@ internal sealed class TasksPanelExecutionSelectionTests
             Assert.That(selection.Group?.GroupId, Is.EqualTo("GODCLASS-20260725"));
             Assert.That(selection.VisibleTaskCount, Is.EqualTo(2));
         });
+    }
+
+    [Test]
+    public void WithCompletedItems_PreservesDecomposeGroups()
+    {
+        var parsed = TasksPanelParser.Parse(PlanLines());
+
+        var combined = parsed.WithCompletedItems([.. parsed.CompletedItems]);
+
+        Assert.That(combined.DecomposeGroups.ContainsKey("GODCLASS-20260725"), Is.True);
     }
 
     [Test]
