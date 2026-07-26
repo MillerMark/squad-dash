@@ -15604,11 +15604,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                                             .ToList(),
             getLastEditorTourName:  () => _settingsSnapshot.LastGuidedTourEditorTourName,
-            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-            saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name),
+            saveLastEditorTourName: name => { _settingsManager.Replace(_settingsStore.SaveLastGuidedTourEditorTourName(name)); _settingsSnapshot = _settingsManager.Current; },
             getLastEditorStepIndex: () => _settingsSnapshot.LastGuidedTourEditorStepIndex,
-            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-            saveLastEditorStepIndex: idx => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorStepIndex(idx),
+            saveLastEditorStepIndex: idx => { _settingsManager.Replace(_settingsStore.SaveLastGuidedTourEditorStepIndex(idx)); _settingsSnapshot = _settingsManager.Current; },
             contextRegistry:         _tourContextRegistry);
     }
 
@@ -34974,8 +34972,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeSaturation = e.NewValue;
                 if (_currentWorkspace is not null)
-                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                    _settingsSnapshot = _settingsStore.SaveWorkspaceSaturation(_currentWorkspace.FolderPath, e.NewValue);
+                {
+                    _settingsManager.Replace(_settingsStore.SaveWorkspaceSaturation(_currentWorkspace.FolderPath, e.NewValue));
+                    _settingsSnapshot = _settingsManager.Current;
+                }
                 ScheduleSliderApply();
             }
             catch (Exception ex) { HandleUiCallbackException("SaturationSlider_ValueChanged", ex); }
@@ -35027,8 +35027,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeContrast = e.NewValue;
                 if (_currentWorkspace is not null)
-                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                    _settingsSnapshot = _settingsStore.SaveWorkspaceContrast(_currentWorkspace.FolderPath, e.NewValue);
+                {
+                    _settingsManager.Replace(_settingsStore.SaveWorkspaceContrast(_currentWorkspace.FolderPath, e.NewValue));
+                    _settingsSnapshot = _settingsManager.Current;
+                }
                 ScheduleSliderApply();
             }
             catch (Exception ex) { HandleUiCallbackException("ContrastSlider_ValueChanged", ex); }
@@ -35829,11 +35831,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _workspacePaths.RoleIconAssetsDirectory,
             (agentKey, imagePath) =>
             {
-                // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                _settingsSnapshot = _settingsStore.SaveAgentImagePath(
+                _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
                     _currentWorkspace.FolderPath,
                     agentKey,
-                    imagePath);
+                    imagePath));
+                _settingsSnapshot = _settingsManager.Current;
             });
         if (submission is null)
             return null;
@@ -36215,8 +36217,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
                             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
                             initialFontSize:   _inboxFontSize,
-                            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+                            onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); _settingsSnapshot = _settingsManager.Current; },
                             openDecomposePlan: OpenDecomposePlanAttachment);
                         win.Owner = this;
                         _openInboxWindows.Add(win);
@@ -37779,8 +37780,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
-            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+            onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); _settingsSnapshot = _settingsManager.Current; },
             openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
@@ -37821,8 +37821,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
-            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-            onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
+            onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); _settingsSnapshot = _settingsManager.Current; },
             openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
@@ -38358,8 +38357,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             setHomeItem.Click += (_, _) =>
             {
-                // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                _settingsSnapshot = _settingsStore.SaveHomeBranch(workspaceFolder, branch);
+                _settingsManager.Replace(_settingsStore.SaveHomeBranch(workspaceFolder, branch));
+                _settingsSnapshot = _settingsManager.Current;
                 UpdateBranchIndicator();
             };
             menu.Items.Add(setHomeItem);
@@ -38620,8 +38619,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onSortOrderChanged:  order => {
                     var st = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
                     _docsPanelState = st with { NotesSortOrder = order };
-                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
-                    _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+                    _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                    _settingsSnapshot = _settingsManager.Current;
                 },
                 newSharedNote:       () => CreateNewSharedNote());
             _notesPanel.ClearFilterAction = () => { if (NotesFilterBox is not null) NotesFilterBox.Text = string.Empty; };

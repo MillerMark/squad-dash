@@ -124,4 +124,80 @@ internal sealed class SettingsSnapshotManagerTests
             Assert.That(localSnapshot, Is.SameAs(manager.Current));
         });
     }
+
+    // GODCLASS-015 focused tests — external injection and multi-replace ordering
+
+    [Test]
+    public void Replace_FromExternalInjection_UpdatesCurrent()
+    {
+        // Simulates the PreferencesWindow injection pattern (GODCLASS-015):
+        //   prefsWindow.OnApply = snapshot => { _settingsManager.Replace(snapshot); _settingsSnapshot = _settingsManager.Current; };
+        // Verifies that an externally-supplied snapshot immediately becomes Current.
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, ApplicationSettingsSnapshot.Empty);
+
+        var externalSnapshot = ApplicationSettingsSnapshot.Empty with { UserName = "InjectedByPrefs" };
+
+        // Simulate external injection (e.g., PreferencesWindow callback)
+        manager.Replace(externalSnapshot);
+        var localSnapshot = manager.Current;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(manager.Current.UserName, Is.EqualTo("InjectedByPrefs"));
+            Assert.That(localSnapshot, Is.SameAs(externalSnapshot));
+            Assert.That(localSnapshot, Is.SameAs(manager.Current));
+        });
+    }
+
+    [Test]
+    public void Replace_CalledMultipleTimes_CurrentIsAlwaysLatest()
+    {
+        // Verifies that repeated Replace() calls produce no stale state — Current always
+        // reflects the most recent call, regardless of order (GODCLASS-015).
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, ApplicationSettingsSnapshot.Empty);
+
+        var snap1 = ApplicationSettingsSnapshot.Empty with { UserName = "First" };
+        var snap2 = ApplicationSettingsSnapshot.Empty with { UserName = "Second" };
+        var snap3 = ApplicationSettingsSnapshot.Empty with { UserName = "Third" };
+
+        manager.Replace(snap1);
+        Assert.That(manager.Current.UserName, Is.EqualTo("First"));
+
+        manager.Replace(snap2);
+        Assert.That(manager.Current.UserName, Is.EqualTo("Second"));
+
+        manager.Replace(snap3);
+        Assert.That(manager.Current.UserName, Is.EqualTo("Third"));
+
+        Assert.That(manager.Current, Is.SameAs(snap3));
+    }
+
+    [Test]
+    public void Replace_WithSnapshot_CurrentAlwaysEqualsIt()
+    {
+        // Verifies the invariant: after Replace(x), Current == x — the safeguard
+        // that makes the sync line (_settingsSnapshot = _settingsManager.Current)
+        // always correct (GODCLASS-015).
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, ApplicationSettingsSnapshot.Empty);
+
+        var snapshots = new[]
+        {
+            ApplicationSettingsSnapshot.Empty with { UserName = "A" },
+            ApplicationSettingsSnapshot.Empty with { UserName = "B" },
+            ApplicationSettingsSnapshot.Empty with { UserName = "C" },
+        };
+
+        foreach (var snap in snapshots)
+        {
+            manager.Replace(snap);
+            Assert.That(manager.Current, Is.SameAs(snap),
+                $"After Replace, Current must be exactly the supplied snapshot (UserName={snap.UserName})");
+        }
+    }
 }
