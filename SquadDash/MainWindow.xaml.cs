@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -190,20 +190,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly InstanceActivationChannel _instanceActivationChannel;
     private PreferencesWindow? _preferencesWindow;
     private GuidedTourController? _guidedTourController;
-    private readonly GuidedTourCommandRegistry _tourCommandRegistry = new();
-    private readonly GuidedTourAdvanceTriggerRegistry _tourAdvanceTriggerRegistry = new();
-    private readonly GuidedTourContextRegistry _tourContextRegistry = new();
-    private readonly List<Block> _tourInjectedCoordinatorBlocks = new();
-    private readonly Dictionary<string, FrameworkElement> _tourNamedElements = new();
-    private readonly List<(FrameworkElement El, Window Overlay, Action Reposition)> _tourHighlightOverlays = new();
-    private readonly HashSet<Window> _tourHighlightTrackedWindows = new();
-    private DispatcherTimer? _tourHighlightZTimer;
-    private readonly List<MenuItem> _tourKeptOpenMenuItems = new();
-    private string? _tourKeptOpenMenuPath;
-    private bool _tourMenuRecoveryRunning;
-    private string? _tourKeptOpenIntelliSenseTrigger;  // "slash" or "at", null if not tracking
-    private bool _tourIntelliSenseRecoveryRunning;
-    private int _tourMenuTrackingGeneration;
+    private readonly GuidedTourCoordinator _guidedTourCoordinator;
     private readonly PushNotificationService _pushNotificationService;
     internal SoundNotificationService SoundNotifications { get; private set; } = null!;
     private readonly ObservableCollection<AgentStatusCard> _agents = [];
@@ -279,28 +266,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private TranscriptResponseEntry? _lastQuickReplyEntry;
     private TranscriptResponseEntry? _routingIssueQuickReplyEntry;
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
-    private event Action? _tourQuickReplySelected;
-    private event Action? _tourSimulatedSendClicked;
-    private AgentStatusCard? _tourFirstInactiveAgentCard;  // the idle card selected for the tour
-    private AgentStatusCard? _tourSimulatedAgentCard;       // non-null only if we created a synthetic card
-    private readonly Dictionary<string, (AgentStatusCard Card, TranscriptThreadState Thread)> _tourNamedDemoAgents = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DispatcherTimer> _tourDemoAgentSpinnerTimers = new(StringComparer.OrdinalIgnoreCase);
-    private event EventHandler? _tourCycleCaseForward;
-    private event EventHandler? _tourCycleCaseReverse;
-    private event EventHandler? _tourFullScreenTranscript;
-    private event EventHandler? _tourExitFullScreenTranscript;
-    private event EventHandler? _tourFullScreenPromptPeek;
-    private event Action? _tourPreferencesWindowShown;
-    private event Action? _tourPreferencesWindowClosed;
-    private event Action? _tourNewQueueSlotAtFront;
-    private event Action? _tourEnvironmentFontZoomed;
-    private event Action? _tourWorkspaceOpenedInExplorer;
-    private event Action? _tourAllAttachmentsRemoved;
-    private event Action? _tourSecondaryTranscriptCollapsedToOne;
-    private event Action<string>? _tourPreferencePageSelected;
-    private bool _tourTypeItemIsSimulated;
-    private bool _tourPrefsWindowEnterLetThrough;
-    private bool _tourQuickReplyIntelliSenseEnterLetThrough;
     private string? _lastMissingUtilityAgentNoticeKey;
     private string? _pendingQuickReplyRoutingInstruction;
     private PendingQuickReplyLaunchState? _pendingQuickReplyLaunch;
@@ -734,11 +699,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private bool _voiceStartedWithSendEnabled;
     private bool _dictationStartedForQuickReply; // set at PTT start when quick replies visible and box empty
 
-    // ── Tour shortcut routing ─────────────────────────────────────────────────
-    // When a tour step needs keyboard shortcuts (e.g. Shift+F3) to reach a specific
-    // control while the tour navigator window has focus, this field names the intended
-    // target.  SetShortcutTarget / ClearShortcutTarget tour commands manage it.
-    private UIElement? _tourShortcutTarget;
     private bool _pttLostFocusDuringRecording;   // set when another window stole focus mid-PTT
     private IInputElement? _lastFocusedTextElement;
     private DispatcherTimer? _pttCtrlPollTimer;   // polls GetAsyncKeyState while window is inactive
@@ -818,6 +778,18 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
+        _guidedTourCoordinator = new GuidedTourCoordinator(
+            dispatcher: Dispatcher,
+            isIntelliSensePopupOpen: () => IntelliSensePopup.IsOpen,
+            clearIntelliSenseStateIfNeeded: () =>
+            {
+                if (_intelliSenseState is not null)
+                {
+                    _intelliSenseState = null;
+                    _intelliSenseOwnerBox = null;
+                    UpdateIntelliSensePopup();
+                }
+            });
         InitializeComponent();
         _watchHealthAutoRefreshTimer.Interval = UiTimingConstants.WatchHealthAutoRefreshInterval;
         _watchHealthAutoRefreshTimer.Tick += WatchHealthAutoRefreshTimer_Tick;
@@ -2370,11 +2342,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 // Intercept: a step is subscribed to SimulatedSend and the active tab is a
                 // tour-typed item → fire the trigger instead of dispatching to AI.
-                if (_tourSimulatedSendClicked != null &&
+                if (_guidedTourCoordinator.HasSimulatedSendClickedHandler &&
                     _promptQueue.Items.Any(i => i.Id == _activeTabId && i.SourceTag == TourTypeTag))
                 {
-                    StopTypeIntoPromptAnimation(); // removes the TourTypeTag item and resets _tourTypeItemIsSimulated
-                    _tourSimulatedSendClicked?.Invoke();
+                    StopTypeIntoPromptAnimation(); // removes the TourTypeTag item and resets _guidedTourCoordinator.TypeItemIsSimulated
+                    _guidedTourCoordinator.RaiseSimulatedSendClicked();
                     return;
                 }
 
@@ -2609,7 +2581,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncQueuePanel();
         OnQueueTabClicked(item.Id);
         PromptTextBox.Focus();
-        _tourNewQueueSlotAtFront?.Invoke();
+        _guidedTourCoordinator.RaiseNewQueueSlotAtFront();
     }
 
     // Appends to the TAIL of the internal list, which SyncQueuePanel renders as the leftmost tab.
@@ -10241,7 +10213,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 _fontSizeApplyPending = false;
                 ApplyFontSizeScale();
-                _tourEnvironmentFontZoomed?.Invoke();
+                _guidedTourCoordinator.RaiseEnvironmentFontZoomed();
                 // Graph window can wait until after the font layout pass settles.
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
                     () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
@@ -10906,7 +10878,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DocSourceTextBox.SelectRange(_docCycleSelStart, nextVariant.Length);
             }
             e.Handled = true;
-            _tourCycleCaseForward?.Invoke(this, EventArgs.Empty);
+            _guidedTourCoordinator.RaiseCycleCaseForward(this);
             return;
         }
 
@@ -10947,7 +10919,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DocSourceTextBox.SelectRange(_docCycleSelStart, prevVariant.Length);
             }
             e.Handled = true;
-            _tourCycleCaseReverse?.Invoke(this, EventArgs.Empty);
+            _guidedTourCoordinator.RaiseCycleCaseReverse(this);
             return;
         }
 
@@ -11159,7 +11131,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     PromptTextBox.SelectionLength = nextVariant.Length;
                 }
                 e.Handled = true;
-                _tourCycleCaseForward?.Invoke(this, EventArgs.Empty);
+                _guidedTourCoordinator.RaiseCycleCaseForward(this);
                 return;
             }
 
@@ -11200,7 +11172,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     PromptTextBox.SelectionLength = prevVariant.Length;
                 }
                 e.Handled = true;
-                _tourCycleCaseReverse?.Invoke(this, EventArgs.Empty);
+                _guidedTourCoordinator.RaiseCycleCaseReverse(this);
                 return;
             }
 
@@ -11352,8 +11324,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Shift+F3 case-cycling), ensure that control has keyboard focus so the
             // keystroke reaches its normal handler instead of being swallowed by the
             // tour navigator window.
-            if (_tourShortcutTarget is not null && !_tourShortcutTarget.IsKeyboardFocusWithin)
-                _tourShortcutTarget.Focus();
+            if (_guidedTourCoordinator.ShortcutTarget is not null && !_guidedTourCoordinator.ShortcutTarget.IsKeyboardFocusWithin)
+                _guidedTourCoordinator.ShortcutTarget.Focus();
 
             // ── Enter advances guided tour when editor does not have focus ────────
             // Allows the user to step through a running tour by pressing Enter while
@@ -11363,7 +11335,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 && Keyboard.Modifiers == ModifierKeys.None
                 && _guidedTourController is { IsActive: true }
                 && !_guidedTourController.IsEditorFocused
-                && !(_tourQuickReplyIntelliSenseEnterLetThrough && _intelliSenseState?.TriggerChar == '['))
+                && !(_guidedTourCoordinator.QuickReplyIntelliSenseEnterLetThrough && _intelliSenseState?.TriggerChar == '['))
             {
                 _guidedTourController.Next();
                 e.Handled = true;
@@ -13336,7 +13308,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_intelliSenseState is null || _intelliSenseState.FilteredSuggestions.Count == 0)
         {
             IntelliSensePopup.IsOpen = false;
-            _tourNamedElements.Remove("IntelliSensePopup");
+            _guidedTourCoordinator.NamedElements.Remove("IntelliSensePopup");
             return;
         }
 
@@ -13361,7 +13333,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         };
         IntelliSensePopup.IsOpen = true;
         if (IntelliSensePopup.Child is FrameworkElement popupChild)
-            _tourNamedElements["IntelliSensePopup"] = popupChild;
+            _guidedTourCoordinator.NamedElements["IntelliSensePopup"] = popupChild;
     }
 
     private void ApplyIntelliSenseAccept(bool andSubmit)
@@ -15599,8 +15571,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void LaunchTour(GuidedTour tour, List<GuidedTour>? allTours = null)
     {
         EnsureGuidedTourController();
-        _tourInjectedCoordinatorBlocks.Clear();
-        _tourNamedElements.Clear();
+        _guidedTourCoordinator.InjectedCoordinatorBlocks.Clear();
+        _guidedTourCoordinator.NamedElements.Clear();
         _guidedTourController!.StartTour(tour, allTours);
     }
 
@@ -15614,7 +15586,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ownerWindow:             this,
             elementLocator:          name =>
             {
-                if (_tourNamedElements.TryGetValue(name, out var namedEl)) return namedEl;
+                if (_guidedTourCoordinator.NamedElements.TryGetValue(name, out var namedEl)) return namedEl;
 
                 // Lazy-resolve FirstInactiveAgentCard / FirstActiveAgentCard — positional,
                 // team-agnostic targets useful for generic guided tours.
@@ -15665,7 +15637,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var liveBorder = FindAgentCardBorderForCard(liveCard);
                         if (liveBorder is not null)
                         {
-                            _tourNamedElements[name] = liveBorder;
+                            _guidedTourCoordinator.NamedElements[name] = liveBorder;
                             return liveBorder;
                         }
                     }
@@ -15684,7 +15656,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         if (liveBorder is not null)
                         {
                             var spinner = VisualTreeSearch.FindChild<ActivitySpinner>(liveBorder);
-                            if (spinner is not null) { _tourNamedElements[name] = spinner; return spinner; }
+                            if (spinner is not null) { _guidedTourCoordinator.NamedElements[name] = spinner; return spinner; }
                         }
                     }
                 }
@@ -15702,7 +15674,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         if (liveBorder is not null)
                         {
                             var nameText = VisualTreeSearch.FindChildByName<TextBlock>(liveBorder, "AgentNameText");
-                            if (nameText is not null) { _tourNamedElements[name] = nameText; return nameText; }
+                            if (nameText is not null) { _guidedTourCoordinator.NamedElements[name] = nameText; return nameText; }
                         }
                     }
                 }
@@ -15711,10 +15683,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (name.StartsWith("TourDemoAgentTranscriptTitle_", StringComparison.Ordinal))
                 {
                     var agentName = name.Substring("TourDemoAgentTranscriptTitle_".Length);
-                    if (_tourNamedDemoAgents.TryGetValue(agentName, out var demoEntry))
+                    if (_guidedTourCoordinator.NamedDemoAgents.TryGetValue(agentName, out var demoEntry))
                     {
                         var se = _secondaryTranscripts.FirstOrDefault(e => e.Agent == demoEntry.Card);
-                        if (se is not null) { _tourNamedElements[name] = se.TitleBlock; return se.TitleBlock; }
+                        if (se is not null) { _guidedTourCoordinator.NamedElements[name] = se.TitleBlock; return se.TitleBlock; }
                     }
                 }
 
@@ -15727,7 +15699,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 }
                 // Also search popup trees registered by OpenMenu (e.g. HelpMenuItem_Popup).
                 // This allows a callout to target a MenuItem that lives in an open menu dropdown.
-                foreach (var popupRoot in _tourNamedElements.Values)
+                foreach (var popupRoot in _guidedTourCoordinator.NamedElements.Values)
                 {
                     var inPopup = VisualTreeSearch.FindByName(popupRoot, name) as FrameworkElement;
                     if (inPopup is not null) return inPopup;
@@ -15738,29 +15710,29 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             restorePreTourLayout:    () =>
             {
                 // Layout restore: reload the active layout from workspace
-                UnhighlightAllMenuItems();
+                _guidedTourCoordinator.UnhighlightAllMenuItems();
                 CleanUpTourInjectedThreads();
                 CleanUpTourInjectedCoordinatorBlocks();
                 CleanUpTourQueueItems();
             },
             executePreAction:        (kind, arg) => { /* no-op for initial release */ },
             workspaceFolderProvider: () => _currentWorkspace?.FolderPath,
-            commandRegistry:         _tourCommandRegistry,
+            commandRegistry:         _guidedTourCoordinator.CommandRegistry,
             onStepChanging:          () =>
             {
                 FreezeTypeIntoPromptAnimation();
-                StopKeepingTourMenusOpen();
-                StopKeepingTourIntelliSenseOpen();
-                _tourPrefsWindowEnterLetThrough = false;
-                _tourQuickReplyIntelliSenseEnterLetThrough = false;
+                _guidedTourCoordinator.StopKeepingTourMenusOpen();
+                _guidedTourCoordinator.StopKeepingTourIntelliSenseOpen();
+                _guidedTourCoordinator.PrefsWindowEnterLetThrough = false;
+                _guidedTourCoordinator.QuickReplyIntelliSenseEnterLetThrough = false;
             },
-            onCalloutShown:           ReassertTourHighlightOverlays,
-            triggerRegistry:         _tourAdvanceTriggerRegistry,
+            onCalloutShown:           _guidedTourCoordinator.ReassertTourHighlightOverlays,
+            triggerRegistry:         _guidedTourCoordinator.AdvanceTriggerRegistry,
             isTypeAnimationRunning:  () => _typeIntoPromptTimer != null,
             extraPickWindowsProvider: () => _preferencesWindow is { IsVisible: true }
                                             ? [(Window)_preferencesWindow]
                                             : null,
-            elementNamesProvider: () => _tourNamedElements.Keys
+            elementNamesProvider: () => _guidedTourCoordinator.NamedElements.Keys
                                             .Concat(PreferencesWindow.NavElementNames)
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                                             .ToList(),
@@ -15768,120 +15740,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             saveLastEditorTourName: name => { _settingsManager.Replace(_settingsStore.SaveLastGuidedTourEditorTourName(name)); },
             getLastEditorStepIndex: () => _settingsSnapshot.LastGuidedTourEditorStepIndex,
             saveLastEditorStepIndex: idx => { _settingsManager.Replace(_settingsStore.SaveLastGuidedTourEditorStepIndex(idx)); },
-            contextRegistry:         _tourContextRegistry);
+            contextRegistry:         _guidedTourCoordinator.ContextRegistry);
     }
-
-    private void UnhighlightAllMenuItems()
-    {
-        _tourHighlightZTimer?.Stop();
-        _tourHighlightZTimer = null;
-        foreach (var (_, overlay, _) in _tourHighlightOverlays)
-            overlay.Close();
-        // Unsubscribe visibility handlers before clearing the list
-        foreach (var (el, _, _) in _tourHighlightOverlays)
-            el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
-        _tourHighlightOverlays.Clear();
-        foreach (var w in _tourHighlightTrackedWindows)
-            w.LocationChanged -= OnTourHighlightWindowMoved;
-        _tourHighlightTrackedWindows.Clear();
-    }
-
-    private void OnTourHighlightWindowMoved(object? sender, EventArgs e) =>
-        RefreshTourHighlightRects();
-
-    private void OnTourHighlightElementVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if ((bool)e.NewValue) return; // became visible — nothing to clean up
-        if (sender is not FrameworkElement el) return;
-        _ = Dispatcher.InvokeAsync(async () =>
-        {
-            // Showing a no-activate callout can still make WPF briefly tear down and recreate
-            // menu popup HWNDs. Give the active OpenMenu path time to recover before deciding
-            // that the highlighted element is genuinely gone.
-            await Task.Delay(UiTimingConstants.TourCalloutVisibilitySettleMs);
-            bool isRendered = el.IsVisible
-                           || (el.ActualWidth > 0 && el.ActualHeight > 0
-                               && PresentationSource.FromVisual(el) is not null);
-            if (isRendered) return;
-
-            el.IsVisibleChanged -= OnTourHighlightElementVisibilityChanged;
-            var toRemove = _tourHighlightOverlays.Where(r => ReferenceEquals(r.El, el)).ToList();
-            foreach (var (_, overlay, _) in toRemove)
-                overlay.Close();
-            _tourHighlightOverlays.RemoveAll(r => ReferenceEquals(r.El, el));
-
-            if (_tourHighlightOverlays.Count == 0)
-            {
-                _tourHighlightZTimer?.Stop();
-                _tourHighlightZTimer = null;
-                foreach (var w in _tourHighlightTrackedWindows)
-                    w.LocationChanged -= OnTourHighlightWindowMoved;
-                _tourHighlightTrackedWindows.Clear();
-            }
-        }, DispatcherPriority.Send);
-    }
-
-    private void RefreshTourHighlightRects()
-    {
-        foreach (var (_, _, reposition) in _tourHighlightOverlays)
-            reposition();
-    }
-
-    private void ReassertTourHighlightOverlays()
-    {
-        if (_tourKeptOpenMenuItems.Any(menuItem => !menuItem.IsSubmenuOpen))
-            RecoverKeptOpenTourMenuPath();
-        if (_tourKeptOpenIntelliSenseTrigger is not null && !IntelliSensePopup.IsOpen)
-            RecoverKeptOpenTourIntelliSense();
-        RefreshTourHighlightRects();
-        foreach (var (_, overlay, _) in _tourHighlightOverlays)
-            BringHighlightOverlayToFront(overlay);
-    }
-
-    // ── Win32 z-order helper ─────────────────────────────────────────────────
-    // Using SetWindowPos with HWND_TOPMOST + SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE
-    // re-asserts z-order WITHOUT triggering WPF's per-monitor DPI recalculation,
-    // which is the side-effect that caused the overlay to shift when toggling
-    // the managed Topmost property.
-    [DllImport("user32.dll", SetLastError = false)]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
-        int X, int Y, int cx, int cy, uint uFlags);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
-
-    [DllImport("gdi32.dll")]
-    private static extern int CombineRgn(IntPtr hrgnDst, IntPtr hrgnSrc1, IntPtr hrgnSrc2, int fnCombineMode);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr hObject);
-
-    private static readonly IntPtr HWND_TOPMOST_VALUE  = new(-1);
-    private const uint SWP_NOSIZE     = 0x0001;
-    private const uint SWP_NOMOVE     = 0x0002;
-    private const uint SWP_NOACTIVATE = 0x0010;
-    private const uint SWP_SHOWWINDOW = 0x0040;
-    private const int  RGN_DIFF       = 4;
-
-    // ── Win32 monitor-DPI helpers ─────────────────────────────────────────────
-    // Keep each small overlay in the target's physical screen coordinate space. Unlike a
-    // virtual-screen-sized HWND, its DPI ownership cannot change when a callout appears.
 
     /// <summary>
-    /// Resolves a named element for the tour highlight system.  Searches _tourNamedElements,
+    /// Resolves a named element for the tour highlight system.  Searches _guidedTourCoordinator.NamedElements,
     /// the main window visual tree, any registered popup roots, and the Preferences window.
     /// </summary>
     private FrameworkElement? ResolveTourHighlightElement(string name)
     {
-        if (_tourNamedElements.TryGetValue(name, out var namedEl))
+        if (_guidedTourCoordinator.NamedElements.TryGetValue(name, out var namedEl))
             return namedEl;
         var el = VisualTreeSearch.FindByName(this, name) as FrameworkElement;
         if (el is null)
         {
-            foreach (var root in _tourNamedElements.Values)
+            foreach (var root in _guidedTourCoordinator.NamedElements.Values)
             {
                 el = VisualTreeSearch.FindByName(root, name) as FrameworkElement;
                 if (el is not null) break;
@@ -15890,141 +15763,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (el is null && _preferencesWindow is { IsVisible: true })
             el = VisualTreeSearch.FindByName(_preferencesWindow, name) as FrameworkElement;
         return el;
-    }
-
-    private static void PositionTourHighlightOverlay(FrameworkElement el, Window overlay)
-    {
-        Point screenTL;
-        Point screenBR;
-        DpiScale targetDpi;
-        try
-        {
-            screenTL = el.PointToScreen(new Point(0, 0));
-            screenBR = el.PointToScreen(new Point(el.ActualWidth, el.ActualHeight));
-            targetDpi = VisualTreeHelper.GetDpi(el);
-        }
-        catch { return; }
-
-        const double inset = 4.5; // pad (2) + stroke thickness (2.5), in target DIPs
-        int insetX = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleX));
-        int insetY = Math.Max(1, (int)Math.Ceiling(inset * targetDpi.DpiScaleY));
-        int left   = (int)Math.Floor(screenTL.X) - insetX;
-        int top    = (int)Math.Floor(screenTL.Y) - insetY;
-        int width  = Math.Max(1, (int)Math.Ceiling(screenBR.X) - left + insetX);
-        int height = Math.Max(1, (int)Math.Ceiling(screenBR.Y) - top + insetY);
-
-        var hwnd = new WindowInteropHelper(overlay).Handle;
-        if (hwnd == IntPtr.Zero) return;
-
-        SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height,
-            SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-        // If this is a MenuItem with an open submenu, punch out the submenu overlap
-        // so the overlay rect doesn't obscure the submenu popup.
-        if (TryGetSubmenuPopupScreenRect(el, out int pLeft, out int pTop, out int pRight, out int pBottom))
-        {
-            int ix      = Math.Max(0, pLeft - left);
-            int iy      = Math.Max(0, pTop - top);
-            int iRight  = Math.Min(width, pRight - left);
-            int iBottom = Math.Min(height, pBottom - top);
-            int iw      = iRight - ix;
-            int ih      = iBottom - iy;
-
-            if (iw > 0 && ih > 0)
-            {
-                SquadDashTrace.Write(TraceCategory.GuidedTour,
-                    $"HighlightClip: punching out overlay region ix={ix},iy={iy},iw={iw},ih={ih}");
-                var rgn  = CreateRectRgn(0, 0, width, height);
-                var clip = CreateRectRgn(ix, iy, iRight, iBottom);
-                CombineRgn(rgn, rgn, clip, RGN_DIFF);
-                DeleteObject(clip);
-                SetWindowRgn(hwnd, rgn, true);
-                // Note: SetWindowRgn takes ownership of rgn — do NOT call DeleteObject(rgn).
-                return;
-            }
-        }
-        // No submenu overlap — clear any previously applied clip region.
-        SetWindowRgn(hwnd, IntPtr.Zero, true);
-    }
-
-    /// <summary>
-    /// Positions a highlight overlay using explicit screen pixel coordinates rather than
-    /// deriving them from a single element.  Used for range highlights that span multiple
-    /// elements.  DPI scale is taken from <paramref name="anchor"/>.
-    /// </summary>
-    private static void PositionTourHighlightOverlayAtScreenRect(
-        FrameworkElement anchor, Window overlay,
-        double screenLeft, double screenTop, double screenRight, double screenBottom)
-    {
-        DpiScale dpi;
-        try { dpi = VisualTreeHelper.GetDpi(anchor); }
-        catch { return; }
-
-        const double inset = 4.5;
-        int insetX = Math.Max(1, (int)Math.Ceiling(inset * dpi.DpiScaleX));
-        int insetY = Math.Max(1, (int)Math.Ceiling(inset * dpi.DpiScaleY));
-        int left   = (int)Math.Floor(screenLeft)  - insetX;
-        int top    = (int)Math.Floor(screenTop)   - insetY;
-        int width  = Math.Max(1, (int)Math.Ceiling(screenRight)  - left + insetX);
-        int height = Math.Max(1, (int)Math.Ceiling(screenBottom) - top  + insetY);
-
-        var hwnd = new WindowInteropHelper(overlay).Handle;
-        if (hwnd == IntPtr.Zero) return;
-        SetWindowPos(hwnd, HWND_TOPMOST_VALUE, left, top, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        SetWindowRgn(hwnd, IntPtr.Zero, true);
-    }
-
-    private static DateTime _tourClipLastTrace = DateTime.MinValue;
-
-    private static bool TryGetSubmenuPopupScreenRect(FrameworkElement el,
-        out int popupLeft, out int popupTop, out int popupRight, out int popupBottom)
-    {
-        popupLeft = popupTop = popupRight = popupBottom = 0;
-        bool trace = (DateTime.UtcNow - _tourClipLastTrace).TotalSeconds >= 2;
-        if (trace) _tourClipLastTrace = DateTime.UtcNow;
-
-        if (el is not MenuItem mi || !mi.IsSubmenuOpen) return false;
-        try
-        {
-            // Use FindTourMenuPopup which also tries "SubMenuPopup" and visual-tree fallback.
-            var popup = FindTourMenuPopup(mi);
-            if (popup is not { IsOpen: true })
-            {
-                if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                    $"HighlightClip: {mi.Name} IsSubmenuOpen=true but popup not found/open (popup={popup?.GetType().Name ?? "null"})");
-                return false;
-            }
-
-            var child = popup.Child as FrameworkElement;
-            if (child is null || child.ActualWidth == 0 || child.ActualHeight == 0)
-            {
-                if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                    $"HighlightClip: {mi.Name} popup open but child not rendered (child={child?.GetType().Name ?? "null"} W={child?.ActualWidth} H={child?.ActualHeight})");
-                return false;
-            }
-
-            var tl = child.PointToScreen(new Point(0, 0));
-            var br = child.PointToScreen(new Point(child.ActualWidth, child.ActualHeight));
-            popupLeft   = (int)Math.Floor(tl.X);
-            popupTop    = (int)Math.Floor(tl.Y);
-            popupRight  = (int)Math.Ceiling(br.X);
-            popupBottom = (int)Math.Ceiling(br.Y);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            if (trace) SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"HighlightClip: exception for {mi?.Name}: {ex.Message}");
-            return false;
-        }
-    }
-
-    private static void BringHighlightOverlayToFront(Window overlay)
-    {
-        var hwnd = new WindowInteropHelper(overlay).Handle;
-        if (hwnd != IntPtr.Zero)
-            SetWindowPos(hwnd, HWND_TOPMOST_VALUE, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
     private void CleanUpTourInjectedThreads(IEnumerable<string>? injectedThreadIds = null)
@@ -16050,15 +15788,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncAgentCardsWithThreads();
         CleanUpTourSimulatedAgentCard();
         CleanUpAllNamedDemoAgents();
-        _tourFirstInactiveAgentCard = null;
+        _guidedTourCoordinator.FirstInactiveAgentCard = null;
     }
 
     private void CleanUpTourSimulatedAgentCard()
     {
-        if (_tourSimulatedAgentCard is null) return;
-        var card = _tourSimulatedAgentCard;
-        _tourSimulatedAgentCard = null;
-        _tourFirstInactiveAgentCard = null;
+        if (_guidedTourCoordinator.SimulatedAgentCard is null) return;
+        var card = _guidedTourCoordinator.SimulatedAgentCard;
+        _guidedTourCoordinator.SimulatedAgentCard = null;
+        _guidedTourCoordinator.FirstInactiveAgentCard = null;
 
         // Close any open secondary panel for this card
         var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
@@ -16072,15 +15810,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void CleanUpAllNamedDemoAgents()
     {
-        if (_tourNamedDemoAgents.Count == 0) return;
+        if (_guidedTourCoordinator.NamedDemoAgents.Count == 0) return;
 
-        foreach (var (name, timer) in _tourDemoAgentSpinnerTimers)
+        foreach (var (name, timer) in _guidedTourCoordinator.DemoAgentSpinnerTimers)
             timer.Stop();
-        _tourDemoAgentSpinnerTimers.Clear();
+        _guidedTourCoordinator.DemoAgentSpinnerTimers.Clear();
 
         var threadsToRemove = new List<TranscriptThreadState>();
 
-        foreach (var (name, (card, thread)) in _tourNamedDemoAgents)
+        foreach (var (name, (card, thread)) in _guidedTourCoordinator.NamedDemoAgents)
         {
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null) CloseSecondaryPanel(secondaryEntry);
@@ -16088,16 +15826,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _inactiveAgentCards.Remove(card);
             _agents.Remove(card);
 
-            _tourNamedElements.Remove($"TourDemoAgent_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgent_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTitle_{name}");
 
             threadsToRemove.Add(thread);
         }
 
-        _tourNamedDemoAgents.Clear();
+        _guidedTourCoordinator.NamedDemoAgents.Clear();
 
         if (threadsToRemove.Count > 0)
         {
@@ -16110,15 +15848,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void CleanUpTourInjectedCoordinatorBlocks()
     {
-        if (_tourInjectedCoordinatorBlocks.Count == 0) return;
+        if (_guidedTourCoordinator.InjectedCoordinatorBlocks.Count == 0) return;
 
         var doc = CoordinatorThread.Document;
-        foreach (var block in _tourInjectedCoordinatorBlocks)
+        foreach (var block in _guidedTourCoordinator.InjectedCoordinatorBlocks)
         {
             try { doc.Blocks.Remove(block); } catch { /* block may have already been removed */ }
         }
-        _tourInjectedCoordinatorBlocks.Clear();
-        _tourNamedElements.Clear();
+        _guidedTourCoordinator.InjectedCoordinatorBlocks.Clear();
+        _guidedTourCoordinator.NamedElements.Clear();
     }
 
     /// <summary>
@@ -16202,7 +15940,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 wp.Name == "TourQuickReplyPanel")
             {
                 try { doc.Blocks.Remove(blocks[i]); } catch { /* already gone */ }
-                _tourInjectedCoordinatorBlocks.Remove(blocks[i]);
+                _guidedTourCoordinator.InjectedCoordinatorBlocks.Remove(blocks[i]);
                 _currentQuickReplyOptions = [];
                 _currentQuickReplyPayloads = [];
                 return;
@@ -16212,118 +15950,118 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void RegisterTourAdvanceTriggers()
     {
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "MenuOpened",
             new MenuOpenedAdvanceTrigger(name => VisualTreeSearch.FindByName(this, name)),
             hasParameter: true);
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "QuickReplySelected",
             new QuickReplySelectedAdvanceTrigger(
-                addHandler:    h => _tourQuickReplySelected += h,
-                removeHandler: h => _tourQuickReplySelected -= h));
+                addHandler:    h => _guidedTourCoordinator.QuickReplySelected += h,
+                removeHandler: h => _guidedTourCoordinator.QuickReplySelected -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "SimulatedSend",
             new SimulatedSendAdvanceTrigger(
-                addHandler:    h => _tourSimulatedSendClicked += h,
-                removeHandler: h => _tourSimulatedSendClicked -= h));
+                addHandler:    h => _guidedTourCoordinator.SimulatedSendClicked += h,
+                removeHandler: h => _guidedTourCoordinator.SimulatedSendClicked -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "PreferencesShown",
             new PreferencesWindowShownAdvanceTrigger(
-                addHandler:    h => _tourPreferencesWindowShown += h,
-                removeHandler: h => _tourPreferencesWindowShown -= h));
+                addHandler:    h => _guidedTourCoordinator.PreferencesWindowShown += h,
+                removeHandler: h => _guidedTourCoordinator.PreferencesWindowShown -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "PreferencesClosed",
             new PreferencesWindowClosedAdvanceTrigger(
-                addHandler:    h => _tourPreferencesWindowClosed += h,
-                removeHandler: h => _tourPreferencesWindowClosed -= h));
+                addHandler:    h => _guidedTourCoordinator.PreferencesWindowClosed += h,
+                removeHandler: h => _guidedTourCoordinator.PreferencesWindowClosed -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "PreferencePageSelected",
             new PreferencePageSelectedAdvanceTrigger(
-                addHandler:    h => _tourPreferencePageSelected += h,
-                removeHandler: h => _tourPreferencePageSelected -= h),
+                addHandler:    h => _guidedTourCoordinator.PreferencePageSelected += h,
+                removeHandler: h => _guidedTourCoordinator.PreferencePageSelected -= h),
             hasParameter: true);
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "PromptQueued",
             new PromptQueuedAdvanceTrigger(_promptQueue));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "KeyboardShortcut",
             new KeyboardShortcutAdvanceTrigger(this),
             hasParameter: true);
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "CycleCaseForward",
             new CycleCaseForwardAdvanceTrigger(
-                addHandler:    h => _tourCycleCaseForward += h,
-                removeHandler: h => _tourCycleCaseForward -= h),
+                addHandler:    h => _guidedTourCoordinator.CycleCaseForward += h,
+                removeHandler: h => _guidedTourCoordinator.CycleCaseForward -= h),
             hasParameter: true);
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "CycleCaseReverse",
             new CycleCaseReverseAdvanceTrigger(
-                addHandler:    h => _tourCycleCaseReverse += h,
-                removeHandler: h => _tourCycleCaseReverse -= h),
+                addHandler:    h => _guidedTourCoordinator.CycleCaseReverse += h,
+                removeHandler: h => _guidedTourCoordinator.CycleCaseReverse -= h),
             hasParameter: true);
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "FullScreenTranscript",
             new FullScreenTranscriptAdvanceTrigger(
-                addHandler:    h => _tourFullScreenTranscript += h,
-                removeHandler: h => _tourFullScreenTranscript -= h));
+                addHandler:    h => _guidedTourCoordinator.FullScreenTranscript += h,
+                removeHandler: h => _guidedTourCoordinator.FullScreenTranscript -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "ExitFullScreenTranscript",
             new ExitFullScreenTranscriptAdvanceTrigger(
-                addHandler:    h => _tourExitFullScreenTranscript += h,
-                removeHandler: h => _tourExitFullScreenTranscript -= h));
+                addHandler:    h => _guidedTourCoordinator.ExitFullScreenTranscript += h,
+                removeHandler: h => _guidedTourCoordinator.ExitFullScreenTranscript -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "FullScreenPromptPeek",
             new FullScreenPromptPeekAdvanceTrigger(
-                addHandler:    h => _tourFullScreenPromptPeek += h,
-                removeHandler: h => _tourFullScreenPromptPeek -= h));
+                addHandler:    h => _guidedTourCoordinator.FullScreenPromptPeek += h,
+                removeHandler: h => _guidedTourCoordinator.FullScreenPromptPeek -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "NewQueueSlotAtFront",
             new NewQueueSlotAdvanceTrigger(
-                addHandler:    h => _tourNewQueueSlotAtFront += h,
-                removeHandler: h => _tourNewQueueSlotAtFront -= h));
+                addHandler:    h => _guidedTourCoordinator.NewQueueSlotAtFront += h,
+                removeHandler: h => _guidedTourCoordinator.NewQueueSlotAtFront -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "EnvironmentFontZoomed",
             new EnvironmentFontZoomedAdvanceTrigger(
-                addHandler:    h => _tourEnvironmentFontZoomed += h,
-                removeHandler: h => _tourEnvironmentFontZoomed -= h));
+                addHandler:    h => _guidedTourCoordinator.EnvironmentFontZoomed += h,
+                removeHandler: h => _guidedTourCoordinator.EnvironmentFontZoomed -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "WorkspaceOpenedInExplorer",
             new WorkspaceOpenedInExplorerAdvanceTrigger(
-                addHandler:    h => _tourWorkspaceOpenedInExplorer += h,
-                removeHandler: h => _tourWorkspaceOpenedInExplorer -= h));
+                addHandler:    h => _guidedTourCoordinator.WorkspaceOpenedInExplorer += h,
+                removeHandler: h => _guidedTourCoordinator.WorkspaceOpenedInExplorer -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "AllAttachmentsRemoved",
             new AllAttachmentsRemovedAdvanceTrigger(
-                addHandler:    h => _tourAllAttachmentsRemoved += h,
-                removeHandler: h => _tourAllAttachmentsRemoved -= h));
+                addHandler:    h => _guidedTourCoordinator.AllAttachmentsRemoved += h,
+                removeHandler: h => _guidedTourCoordinator.AllAttachmentsRemoved -= h));
 
-        _tourAdvanceTriggerRegistry.Register(
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
             "SecondaryTranscriptCollapsedToOne",
             new SecondaryTranscriptCollapsedToOneAdvanceTrigger(
-                addHandler:    h => _tourSecondaryTranscriptCollapsedToOne += h,
-                removeHandler: h => _tourSecondaryTranscriptCollapsedToOne -= h));
+                addHandler:    h => _guidedTourCoordinator.SecondaryTranscriptCollapsedToOne += h,
+                removeHandler: h => _guidedTourCoordinator.SecondaryTranscriptCollapsedToOne -= h));
     }
 
     private void RegisterTourContexts()
     {
         // TargetIsVisible: true if the step's TargetControlId resolves to a visible element.
-        _tourContextRegistry.Register("TargetIsVisible", () =>
+        _guidedTourCoordinator.ContextRegistry.Register("TargetIsVisible", () =>
         {
             var step = _guidedTourController?.PublicCurrentStep;
             if (step is null || string.IsNullOrWhiteSpace(step.TargetControlId)) return false;
@@ -16332,7 +16070,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         });
 
         // WorkspaceHasRepository: true if the current workspace folder contains a git repository.
-        _tourContextRegistry.Register("WorkspaceHasRepository", () =>
+        _guidedTourCoordinator.ContextRegistry.Register("WorkspaceHasRepository", () =>
         {
             var folder = _currentWorkspace?.FolderPath;
             if (string.IsNullOrEmpty(folder)) return false;
@@ -16341,7 +16079,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // AzureSpeechProviderSelected: true when the Preferences window is open and the
         // Azure Cognitive Services radio button on the Provider page is selected.
-        _tourContextRegistry.Register("AzureSpeechProviderSelected", () =>
+        _guidedTourCoordinator.ContextRegistry.Register("AzureSpeechProviderSelected", () =>
             _preferencesWindow is { IsVisible: true } &&
             _preferencesWindow.IsAzureSpeechProviderSelected);
     }
@@ -16352,173 +16090,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private static bool IsTourOrSimTag(string? tag) =>
         tag == TourDummyTag || tag == TourTypeTag;
 
-    private static System.Windows.Controls.Primitives.Popup? FindTourMenuPopup(MenuItem menuItem)
-    {
-        menuItem.ApplyTemplate();
-        return menuItem.Template?.FindName("SubMenuPopup", menuItem) as System.Windows.Controls.Primitives.Popup
-            ?? menuItem.Template?.FindName("PART_Popup", menuItem) as System.Windows.Controls.Primitives.Popup
-            ?? VisualTreeSearch.FindChild<System.Windows.Controls.Primitives.Popup>(menuItem);
-    }
-
-    private static FrameworkElement? GetRenderedTourMenuPopupChild(MenuItem menuItem)
-    {
-        var popup = FindTourMenuPopup(menuItem);
-        if (!menuItem.IsSubmenuOpen || popup is not { IsOpen: true, Child: FrameworkElement child })
-            return null;
-
-        return child.ActualWidth > 0 && child.ActualHeight > 0 && PresentationSource.FromVisual(child) is not null
-            ? child
-            : null;
-    }
-
-    private async Task<FrameworkElement?> OpenTourMenuItemAsync(MenuItem menuItem, string name)
-    {
-        const int maxAttempts = 3;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++)
-        {
-            menuItem.ApplyTemplate();
-            menuItem.UpdateLayout();
-            if (GetRenderedTourMenuPopupChild(menuItem) is { } existingChild)
-                return existingChild;
-
-            var opened = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            RoutedEventHandler submenuOpened = (_, _) => opened.TrySetResult(true);
-            var popupBeforeOpen = FindTourMenuPopup(menuItem);
-            EventHandler popupOpened = (_, _) => opened.TrySetResult(true);
-            menuItem.SubmenuOpened += submenuOpened;
-            if (popupBeforeOpen is not null)
-                popupBeforeOpen.Opened += popupOpened;
-
-            try
-            {
-                // Recover from the inconsistent state where IsSubmenuOpen is true but the
-                // Popup HWND was never created (or was already dismissed).
-                if (menuItem.IsSubmenuOpen)
-                {
-                    menuItem.IsSubmenuOpen = false;
-                    await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                }
-
-                menuItem.IsSubmenuOpen = true;
-                await Task.WhenAny(opened.Task, Task.Delay(UiTimingConstants.TourMenuOpenTimeoutMs));
-                await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-                await menuItem.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-                // Require the popup to remain open across a short settling interval. This
-                // catches opens that WPF immediately cancels because menu focus/capture moved.
-                await Task.Delay(UiTimingConstants.TourMenuSettleMs);
-                if (GetRenderedTourMenuPopupChild(menuItem) is { } child)
-                    return child;
-            }
-            finally
-            {
-                menuItem.SubmenuOpened -= submenuOpened;
-                if (popupBeforeOpen is not null)
-                    popupBeforeOpen.Opened -= popupOpened;
-            }
-
-            SquadDashTrace.Write(TraceCategory.UI,
-                $"[TourOpenMenu] '{name}' did not reach a rendered-open state (attempt {attempt}/{maxAttempts}).");
-            menuItem.IsSubmenuOpen = false;
-            await Task.Delay(UiTimingConstants.TourBetweenAttemptsMs);
-        }
-
-        return null;
-    }
-
-    private void StopKeepingTourMenusOpen()
-    {
-        _tourMenuTrackingGeneration++;
-        ClearTourMenuTracking(closeMenus: true);
-    }
-
-    private void StopKeepingTourIntelliSenseOpen()
-    {
-        _tourKeptOpenIntelliSenseTrigger = null;
-        if (_intelliSenseState is not null)
-        {
-            _intelliSenseState = null;
-            _intelliSenseOwnerBox = null;
-            UpdateIntelliSensePopup();
-        }
-    }
-
-    private void ClearTourMenuTracking(bool closeMenus)
-    {
-        foreach (var menuItem in _tourKeptOpenMenuItems)
-            menuItem.SubmenuClosed -= OnKeptOpenTourMenuClosed;
-        if (closeMenus)
-            for (int i = _tourKeptOpenMenuItems.Count - 1; i >= 0; i--)
-                _tourKeptOpenMenuItems[i].IsSubmenuOpen = false;
-        _tourKeptOpenMenuItems.Clear();
-        _tourKeptOpenMenuPath = null;
-    }
-
-    private void KeepTourMenuPathOpen(string path, IReadOnlyList<MenuItem> menuItems)
-    {
-        ClearTourMenuTracking(closeMenus: false);
-        _tourKeptOpenMenuPath = path;
-        foreach (var menuItem in menuItems)
-        {
-            if (_tourKeptOpenMenuItems.Contains(menuItem)) continue;
-            _tourKeptOpenMenuItems.Add(menuItem);
-            menuItem.SubmenuClosed += OnKeptOpenTourMenuClosed;
-        }
-    }
-
-    private void OnKeptOpenTourMenuClosed(object sender, RoutedEventArgs e) =>
-        RecoverKeptOpenTourMenuPath();
-
-    private void RecoverKeptOpenTourIntelliSense()
-    {
-        if (_tourIntelliSenseRecoveryRunning || _tourKeptOpenIntelliSenseTrigger is null) return;
-        if (IntelliSensePopup.IsOpen) return;
-        string trigger = _tourKeptOpenIntelliSenseTrigger;
-        _tourIntelliSenseRecoveryRunning = true;
-        _ = Dispatcher.InvokeAsync(() =>
-        {
-            try
-            {
-                if (_tourKeptOpenIntelliSenseTrigger != trigger) return;
-                SquadDashTrace.Write(TraceCategory.UI,
-                    $"[TourIntelliSense] IntelliSense closed during tour step; reopening (trigger={trigger}).");
-                var commandName = trigger == "slash" ? "ShowSlashIntelliSense" : "ShowAtIntelliSense";
-                _ = _tourCommandRegistry.ExecuteAsync(commandName);
-            }
-            finally
-            {
-                _tourIntelliSenseRecoveryRunning = false;
-            }
-        }, DispatcherPriority.Send);
-    }
-
-    private void RecoverKeptOpenTourMenuPath()
-    {
-        if (_tourMenuRecoveryRunning || string.IsNullOrWhiteSpace(_tourKeptOpenMenuPath)) return;
-        string path = _tourKeptOpenMenuPath;
-        int generation = _tourMenuTrackingGeneration;
-        _tourMenuRecoveryRunning = true;
-        _ = Dispatcher.InvokeAsync(async () =>
-        {
-            try
-            {
-                if (!string.Equals(_tourKeptOpenMenuPath, path, StringComparison.Ordinal)) return;
-                SquadDashTrace.Write(TraceCategory.UI,
-                    $"[TourOpenMenu] Menu path '{path}' closed during its tour step; reopening it.");
-                await _tourCommandRegistry.ExecuteAsync($"OpenMenu: {path}");
-                if (_tourMenuTrackingGeneration != generation)
-                {
-                    ClearTourMenuTracking(closeMenus: true);
-                    return;
-                }
-                ReassertTourHighlightOverlays();
-            }
-            finally
-            {
-                _tourMenuRecoveryRunning = false;
-            }
-        }, DispatcherPriority.Send);
-    }
 
     private void RegisterTourCommands()
     {
@@ -16548,28 +16119,28 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
             SyncQueuePanel();
         }
-        _tourCommandRegistry.Register("Add Dummy Queue Items", () => AddDummyQueueItems(string.Empty));
-        _tourCommandRegistry.RegisterParameterized("Add Dummy Queue Items", AddDummyQueueItems);
+        _guidedTourCoordinator.CommandRegistry.Register("Add Dummy Queue Items", () => AddDummyQueueItems(string.Empty));
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("Add Dummy Queue Items", AddDummyQueueItems);
 
-        _tourCommandRegistry.Register("Remove Dummy Queue Items", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("Remove Dummy Queue Items", () =>
         {
             CleanUpTourQueueItems();
         });
 
-        _tourCommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("TypeIntoPrompt", arg =>
         {
             // Format: "text to type|Mode|OnCompleteCommand"
             // Mode: "Sim" or "Draft" (defaults to Draft)
             // OnCompleteCommand: optional tour command to execute after all characters are typed (e.g. "ShowAtIntelliSense")
             var parts = arg.Split('|');
             var text = parts[0];
-            _tourTypeItemIsSimulated = parts.Length >= 2 &&
+            _guidedTourCoordinator.TypeItemIsSimulated = parts.Length >= 2 &&
                 string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
             var onComplete = parts.Length >= 3 ? parts[2].Trim() : null;
             StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
         });
 
-        _tourCommandRegistry.RegisterParameterized("CaretPromptText", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("CaretPromptText", arg =>
         {
             // Sets the prompt box text immediately (no animation), placing the caret at <caret>.
             // Format: "text to set<caret>" — caret lands at the marker; marker is stripped from the text.
@@ -16602,7 +16173,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             OnQueueTabClicked(item.Id);
         });
 
-        _tourCommandRegistry.Register("ShowSlashIntelliSense", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ShowSlashIntelliSense", () =>
         {
             var current = PromptTextBox.Text;
             if (string.IsNullOrEmpty(current) || current[0] == '/')
@@ -16610,11 +16181,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (string.IsNullOrEmpty(current))
                     SetPromptTextBoxLogicalBuffer("/", 1, reason: "tour-slash-intellisense");
                 TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
-                _tourKeptOpenIntelliSenseTrigger = "slash";
+                _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "slash";
             }
         });
 
-        _tourCommandRegistry.Register("ShowAtIntelliSense", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ShowAtIntelliSense", () =>
         {
             var current = PromptTextBox.Text;
             if (!current.EndsWith('@'))
@@ -16623,12 +16194,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SetPromptTextBoxLogicalBuffer(newText, newText.Length, reason: "tour-at-intellisense");
             }
             TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
-            _tourKeptOpenIntelliSenseTrigger = "at";
+            _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "at";
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("OpenMenu", async arg =>
         {
-            int menuGeneration = _tourMenuTrackingGeneration;
+            int menuGeneration = _guidedTourCoordinator.MenuTrackingGeneration;
             // Format: "MenuItemName" or "MenuItemName|SubMenuItemName|..."
             // Opens each named MenuItem in sequence so a callout can point at it / its children.
             // After each level opens, subsequent names are searched inside the opened popup
@@ -16639,8 +16210,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             DependencyObject searchRoot = this;   // start search in main window visual tree
             foreach (var name in names)
             {
-                _tourNamedElements.Remove($"{name}_Popup");
-                var el = _tourNamedElements.TryGetValue(name, out var namedEl) ? namedEl
+                _guidedTourCoordinator.NamedElements.Remove($"{name}_Popup");
+                var el = _guidedTourCoordinator.NamedElements.TryGetValue(name, out var namedEl) ? namedEl
                        : VisualTreeSearch.FindByName(searchRoot, name)
                        ?? (searchRoot != this ? VisualTreeSearch.FindByName(this, name) : null);
                 if (el is not MenuItem mi)
@@ -16651,7 +16222,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     break;
                 }
 
-                var child = await OpenTourMenuItemAsync(mi, name);
+                var child = await _guidedTourCoordinator.OpenTourMenuItemAsync(mi, name);
                 if (child is null)
                 {
                     SquadDashTrace.Write(TraceCategory.UI,
@@ -16662,19 +16233,19 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 // Popup content is hosted in a separate HwndSource. Register that live root
                 // so nested menu names, highlights, and the tour callout can resolve it.
-                _tourNamedElements[$"{name}_Popup"] = child;
+                _guidedTourCoordinator.NamedElements[$"{name}_Popup"] = child;
                 searchRoot = child;
                 openedMenuItems.Add(mi);
             }
 
-            if (openedEntirePath && _tourMenuTrackingGeneration == menuGeneration)
-                KeepTourMenuPathOpen(string.Join('|', names), openedMenuItems);
-            else if (_tourMenuTrackingGeneration != menuGeneration)
+            if (openedEntirePath && _guidedTourCoordinator.MenuTrackingGeneration == menuGeneration)
+                _guidedTourCoordinator.KeepTourMenuPathOpen(string.Join('|', names), openedMenuItems);
+            else if (_guidedTourCoordinator.MenuTrackingGeneration != menuGeneration)
                 foreach (var menuItem in openedMenuItems)
                     menuItem.IsSubmenuOpen = false;
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("HighlightMenuItem", async arg =>
         {
             // arg formats:
             //   "ElementName"                     — single element highlight (original behaviour)
@@ -16760,13 +16331,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                         var rbr1 = el1.PointToScreen(new Point(el1.ActualWidth, el1.ActualHeight));
                         var rtl2 = el2.PointToScreen(new Point(0, 0));
                         var rbr2 = el2.PointToScreen(new Point(el2.ActualWidth, el2.ActualHeight));
-                        PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay,
+                        GuidedTourCoordinator.PositionTourHighlightOverlayAtScreenRect(el1, rangeOverlay,
                             Math.Min(rtl1.X, rtl2.X), rtl1.Y,
                             Math.Max(rbr1.X, rbr2.X), rbr2.Y);
                     }
                     catch { }
                 }
-                _tourHighlightOverlays.Add((el1, rangeOverlay, RepositionRange));
+                _guidedTourCoordinator.HighlightOverlays.Add((el1, rangeOverlay, RepositionRange));
                 rangeOverlay.Show();
                 RepositionRange();
                 rangeOverlay.Opacity = 1;
@@ -16774,17 +16345,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 rangeOverlay.DpiChanged += (_, _) =>
                     _ = Dispatcher.InvokeAsync(RepositionRange, DispatcherPriority.Loaded);
 
-                if (_tourHighlightZTimer is null)
+                if (_guidedTourCoordinator.HighlightZTimer is null)
                 {
-                    _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
-                    _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
-                    _tourHighlightZTimer.Start();
+                    _guidedTourCoordinator.HighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
+                    _guidedTourCoordinator.HighlightZTimer.Tick += (_, _) => _guidedTourCoordinator.ReassertTourHighlightOverlays();
+                    _guidedTourCoordinator.HighlightZTimer.Start();
                 }
 
-                el1.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
+                el1.IsVisibleChanged += _guidedTourCoordinator.OnTourHighlightElementVisibilityChanged;
                 var parentWinRange = Window.GetWindow(el1);
-                if (parentWinRange is not null && _tourHighlightTrackedWindows.Add(parentWinRange))
-                    parentWinRange.LocationChanged += OnTourHighlightWindowMoved;
+                if (parentWinRange is not null && _guidedTourCoordinator.HighlightTrackedWindows.Add(parentWinRange))
+                    parentWinRange.LocationChanged += _guidedTourCoordinator.OnTourHighlightWindowMoved;
                 return;
             }
 
@@ -16858,31 +16429,31 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             sTL = textBox.PointToScreen(new Point(caretR.Left, caretR.Top));
                             sBR = textBox.PointToScreen(new Point(caretR.Right, caretR.Bottom));
                         }
-                        PositionTourHighlightOverlayAtScreenRect(textBox, selOverlay,
+                        GuidedTourCoordinator.PositionTourHighlightOverlayAtScreenRect(textBox, selOverlay,
                             sTL.X - offsetPx, sTL.Y - offsetPx,
                             sBR.X + offsetPx, sBR.Y + offsetPx);
                     }
                     catch { }
                 }
 
-                _tourHighlightOverlays.Add((textBox, selOverlay, RepositionSelectionTarget));
+                _guidedTourCoordinator.HighlightOverlays.Add((textBox, selOverlay, RepositionSelectionTarget));
                 selOverlay.Show();
                 RepositionSelectionTarget();
                 selOverlay.Opacity = 1;
                 selOverlay.DpiChanged += (_, _) =>
                     _ = Dispatcher.InvokeAsync(RepositionSelectionTarget, DispatcherPriority.Loaded);
 
-                if (_tourHighlightZTimer is null)
+                if (_guidedTourCoordinator.HighlightZTimer is null)
                 {
-                    _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
-                    _tourHighlightZTimer.Tick += (_, _) => ReassertTourHighlightOverlays();
-                    _tourHighlightZTimer.Start();
+                    _guidedTourCoordinator.HighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
+                    _guidedTourCoordinator.HighlightZTimer.Tick += (_, _) => _guidedTourCoordinator.ReassertTourHighlightOverlays();
+                    _guidedTourCoordinator.HighlightZTimer.Start();
                 }
 
-                textBox.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
+                textBox.IsVisibleChanged += _guidedTourCoordinator.OnTourHighlightElementVisibilityChanged;
                 var parentWinSel = Window.GetWindow(textBox);
-                if (parentWinSel is not null && _tourHighlightTrackedWindows.Add(parentWinSel))
-                    parentWinSel.LocationChanged += OnTourHighlightWindowMoved;
+                if (parentWinSel is not null && _guidedTourCoordinator.HighlightTrackedWindows.Add(parentWinSel))
+                    parentWinSel.LocationChanged += _guidedTourCoordinator.OnTourHighlightWindowMoved;
                 return;
             }
 
@@ -16932,53 +16503,53 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 Height                = Math.Max(1, el.ActualHeight + 9),
                 Content               = rect,
             };
-            _tourHighlightOverlays.Add((el, overlay, () => PositionTourHighlightOverlay(el, overlay)));
+            _guidedTourCoordinator.HighlightOverlays.Add((el, overlay, () => GuidedTourCoordinator.PositionTourHighlightOverlay(el, overlay)));
             overlay.Show();
-            PositionTourHighlightOverlay(el, overlay);
+            GuidedTourCoordinator.PositionTourHighlightOverlay(el, overlay);
             overlay.Opacity = 1;
             overlay.DpiChanged += (_, _) =>
                 _ = Dispatcher.InvokeAsync(
-                    () => PositionTourHighlightOverlay(el, overlay), DispatcherPriority.Loaded);
+                    () => GuidedTourCoordinator.PositionTourHighlightOverlay(el, overlay), DispatcherPriority.Loaded);
 
             // WPF popup menus (and callout repositioning) can bump the overlay below themselves
             // in the topmost z-band. A periodic Topmost re-assertion keeps the overlay on top
             // for as long as any rects are shown, without relying on a one-shot toggle.
-            if (_tourHighlightZTimer is null)
+            if (_guidedTourCoordinator.HighlightZTimer is null)
             {
-                _tourHighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
-                _tourHighlightZTimer.Tick += (_, _) =>
-                    ReassertTourHighlightOverlays();
-                _tourHighlightZTimer.Start();
+                _guidedTourCoordinator.HighlightZTimer = new DispatcherTimer { Interval = UiTimingConstants.TourHighlightZInterval };
+                _guidedTourCoordinator.HighlightZTimer.Tick += (_, _) =>
+                    _guidedTourCoordinator.ReassertTourHighlightOverlays();
+                _guidedTourCoordinator.HighlightZTimer.Start();
             }
 
             // Auto-remove the highlight rect when the element becomes invisible
             // (e.g. when a popup menu is dismissed by the user).
-            el.IsVisibleChanged += OnTourHighlightElementVisibilityChanged;
+            el.IsVisibleChanged += _guidedTourCoordinator.OnTourHighlightElementVisibilityChanged;
 
             // Subscribe to the parent window's LocationChanged so the rect tracks window drags.
             var parentWin = Window.GetWindow(el);
-            if (parentWin is not null && _tourHighlightTrackedWindows.Add(parentWin))
-                parentWin.LocationChanged += OnTourHighlightWindowMoved;
+            if (parentWin is not null && _guidedTourCoordinator.HighlightTrackedWindows.Add(parentWin))
+                parentWin.LocationChanged += _guidedTourCoordinator.OnTourHighlightWindowMoved;
         });
         // Alias — "HighlightElement" is the preferred name; "HighlightMenuItem" kept for backward compatibility.
-        _tourCommandRegistry.RegisterParameterizedAsync("HighlightElement",
-            arg => _tourCommandRegistry.ExecuteAsync($"HighlightMenuItem: {arg}"));
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("HighlightElement",
+            arg => _guidedTourCoordinator.CommandRegistry.ExecuteAsync($"HighlightMenuItem: {arg}"));
 
-        _tourCommandRegistry.Register("UnhighlightMenuItems", UnhighlightAllMenuItems);
+        _guidedTourCoordinator.CommandRegistry.Register("UnhighlightMenuItems", _guidedTourCoordinator.UnhighlightAllMenuItems);
         // Alias — "UnhighlightElements" is the preferred name going forward; both work.
-        _tourCommandRegistry.Register("UnhighlightElements", UnhighlightAllMenuItems);
+        _guidedTourCoordinator.CommandRegistry.Register("UnhighlightElements", _guidedTourCoordinator.UnhighlightAllMenuItems);
 
         // Diagnostic command: logs current highlight overlay state to trace and shows a callout.
         // Usage:  DiagHighlight
         // Writes [HighlightDiag] entries to the trace log; also injects a short text callout.
-        _tourCommandRegistry.Register("DiagHighlight", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("DiagHighlight", () =>
         {
-            if (_tourHighlightOverlays.Count == 0)
+            if (_guidedTourCoordinator.HighlightOverlays.Count == 0)
             {
                 SquadDashTrace.Write(TraceCategory.Callouts, "[HighlightDiag] overlay not created yet.");
                 return;
             }
-            var (el, overlay, _) = _tourHighlightOverlays[0];
+            var (el, overlay, _) = _guidedTourCoordinator.HighlightOverlays[0];
             try
             {
                 var elTL = el.PointToScreen(new Point(0, 0));
@@ -16986,7 +16557,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var overlayTL = ((FrameworkElement)overlay.Content).PointToScreen(new Point(0, 0));
                 var overlayDpi = VisualTreeHelper.GetDpi(overlay);
                 SquadDashTrace.Write(TraceCategory.UI,
-                    $"[HighlightDiag] count={_tourHighlightOverlays.Count} " +
+                    $"[HighlightDiag] count={_guidedTourCoordinator.HighlightOverlays.Count} " +
                     $"element=({elTL.X:F1},{elTL.Y:F1})-({elBR.X:F1},{elBR.Y:F1}) " +
                     $"overlayOrigin=({overlayTL.X:F1},{overlayTL.Y:F1}) " +
                     $"overlayDpi=({overlayDpi.DpiScaleX:F3},{overlayDpi.DpiScaleY:F3})");
@@ -16997,10 +16568,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             }
         });
 
-        _tourCommandRegistry.Register("ShowPreferences", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ShowPreferences", () =>
             PreferencesMenuItem_Click(this, new RoutedEventArgs()));
 
-        _tourCommandRegistry.RegisterParameterized("SelectPreferencesPage", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("SelectPreferencesPage", arg =>
         {
             // Idempotent: opens preferences if not already open, then navigates to the named page.
             // arg = page label, e.g. "Hints", "Model", "General"
@@ -17009,7 +16580,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _preferencesWindow?.NavigateToByLabel(arg);
         });
 
-        _tourCommandRegistry.RegisterParameterized("SelectPromptText", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("SelectPromptText", arg =>
         {
             // Format: "text to show" — adds a dummy queue item with the text (never touches the
             //   real prompt box), then selects that tab so the text is visible in the prompt box,
@@ -17091,7 +16662,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             UpdateFollowUpStrip();
         });
 
-        _tourCommandRegistry.RegisterParameterized("AttachText", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("AttachText", arg =>
         {
             // Format: "content" or "label|content"
             var sep   = arg.IndexOf('|');
@@ -17106,7 +16677,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // AttachTextToActive: same as AttachText but targets the currently active tab
         // (demo/dummy queue item OR the draft), rather than always targeting the draft.
-        _tourCommandRegistry.RegisterParameterized("AttachTextToActive", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("AttachTextToActive", arg =>
         {
             // Format: "content" or "label|content"
             var sep   = arg.IndexOf('|');
@@ -17119,7 +16690,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncQueuePanel();
         });
 
-        _tourCommandRegistry.RegisterParameterized("AttachImage", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("AttachImage", arg =>
         {
             var path = arg.Trim();
             if (!System.IO.Path.IsPathRooted(path) && _currentWorkspace?.FolderPath is string folder)
@@ -17136,7 +16707,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncQueuePanel();
         });
 
-        _tourCommandRegistry.RegisterParameterized("AttachImageAsset", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("AttachImageAsset", arg =>
         {
             // Resolves relative to the application directory, not the workspace.
             // Format: "relative/path/to/image.png" or "label|relative/path/to/image.png"
@@ -17158,7 +16729,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             SyncQueuePanel();
         });
 
-        _tourCommandRegistry.Register("ClearAttachments", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ClearAttachments", () =>
         {
             foreach (var list in _followUpAttachments.Values)
                 list.Clear();
@@ -17170,23 +16741,23 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Tour steps can route specific keyboard shortcuts (e.g. Shift+F3) to a
         // named control so the shortcut reaches its normal handler even while the
         // tour navigator window is focused.
-        _tourCommandRegistry.RegisterParameterized("SetShortcutTarget", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("SetShortcutTarget", arg =>
         {
-            _tourShortcutTarget = arg.Trim() switch
+            _guidedTourCoordinator.ShortcutTarget = arg.Trim() switch
             {
                 "PromptTextBox" => PromptTextBox,
                 _ => null
             };
         });
-        _tourCommandRegistry.Register("ClearShortcutTarget", () => _tourShortcutTarget = null);
+        _guidedTourCoordinator.CommandRegistry.Register("ClearShortcutTarget", () => _guidedTourCoordinator.ShortcutTarget = null);
 
-        _tourCommandRegistry.Register("ClearInjectedTranscriptText", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ClearInjectedTranscriptText", () =>
         {
             CleanUpTourInjectedCoordinatorBlocks();
             CleanUpTourInjectedThreads();
         });
 
-        _tourCommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("InjectTranscriptText", arg =>
         {
             // Format: "markdown text" or "markdown text|agentName"
             var sep       = arg.IndexOf('|');
@@ -17196,7 +16767,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             InjectTourTranscriptText(text, string.IsNullOrWhiteSpace(agentName) ? null : agentName);
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTextWithReplies", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectTranscriptTextWithReplies", async arg =>
         {
             // Format: "message text|Button Label 1|Button Label 2|..."
             var parts        = arg.Split('|');
@@ -17205,7 +16776,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await InjectTourTranscriptTextWithReplies(text, buttonLabels);
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTurn", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectTranscriptTurn", async arg =>
         {
             // Format: "user prompt text|agent response text|AgentName"
             // AgentName is optional; \n in either text field is expanded to real newlines.
@@ -17277,7 +16848,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ScrollToEndIfAtBottom(targetThread);
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectAgentResponse", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectAgentResponse", async arg =>
         {
             // Format: "agent response text|AgentName"
             // Response only (no user prompt bubble). \n is expanded to real newlines.
@@ -17348,7 +16919,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ScrollToEndIfAtBottom(targetThread);
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectTranscriptTools", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectTranscriptTools", async arg =>
         {
             // Format: toolName:description:output[;toolName:description:output...]
             // Each spec uses ':' as delimiter (max 3 parts; output may itself contain ':').
@@ -17358,10 +16929,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         // ── First-inactive-agent tour commands ─────────────────────────────
 
-        _tourCommandRegistry.RegisterAsync("PrepareFirstInactiveAgent", async () =>
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("PrepareFirstInactiveAgent", async () =>
         {
             // If we already have a card set, skip re-preparation
-            if (_tourFirstInactiveAgentCard is not null) return;
+            if (_guidedTourCoordinator.FirstInactiveAgentCard is not null) return;
 
             AgentStatusCard? card = _inactiveAgentCards.Count > 0 ? _inactiveAgentCards[0] : null;
 
@@ -17386,10 +16957,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
 
                 card = _inactiveAgentCards.Count > 0 ? _inactiveAgentCards[0] : null;
-                _tourSimulatedAgentCard = card;
+                _guidedTourCoordinator.SimulatedAgentCard = card;
             }
 
-            _tourFirstInactiveAgentCard = card;
+            _guidedTourCoordinator.FirstInactiveAgentCard = card;
 
             // Register the card's AgentCardBorder for tour targeting
             if (card is not null)
@@ -17397,11 +16968,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
                 var border = FindAgentCardBorderForCard(card);
                 if (border is not null)
-                    _tourNamedElements["TourFirstInactiveAgentCard"] = border;
+                    _guidedTourCoordinator.NamedElements["TourFirstInactiveAgentCard"] = border;
             }
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectFirstInactiveAgentTurn", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectFirstInactiveAgentTurn", async arg =>
         {
             // Format: "userText|agentText" or "userText|agentText|main" or "userText|agentText|parallel" (default = parallel)
             var parts     = arg.Split('|');
@@ -17410,9 +16981,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var mode      = parts.Length > 2 ? parts[2].Trim().ToLowerInvariant() : "parallel";
 
             // Ensure card is prepared
-            if (_tourFirstInactiveAgentCard is null)
-                await _tourCommandRegistry.ExecuteAsync("PrepareFirstInactiveAgent");
-            var card = _tourFirstInactiveAgentCard;
+            if (_guidedTourCoordinator.FirstInactiveAgentCard is null)
+                await _guidedTourCoordinator.CommandRegistry.ExecuteAsync("PrepareFirstInactiveAgent");
+            var card = _guidedTourCoordinator.FirstInactiveAgentCard;
             if (card is null) return;
 
             // Resolve thread for this card (match by display name stored in card.Name)
@@ -17448,12 +17019,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
-                _tourNamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
+                _guidedTourCoordinator.NamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
         });
 
-        _tourCommandRegistry.RegisterAsync("OpenFirstInactiveAgentPanel", async () =>
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("OpenFirstInactiveAgentPanel", async () =>
         {
-            var card = _tourFirstInactiveAgentCard;
+            var card = _guidedTourCoordinator.FirstInactiveAgentCard;
             if (card is null) return;
 
             var thread = _agentThreadRegistry.ThreadOrder.FirstOrDefault(t =>
@@ -17467,38 +17038,38 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
-                _tourNamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
+                _guidedTourCoordinator.NamedElements["TourFirstInactiveAgentTranscript"] = secondaryEntry.PanelBorder;
         });
 
-        _tourCommandRegistry.Register("CloseFirstInactiveAgentPanel", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("CloseFirstInactiveAgentPanel", () =>
         {
-            var card = _tourFirstInactiveAgentCard;
+            var card = _guidedTourCoordinator.FirstInactiveAgentCard;
             if (card is null) return;
 
             var entry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (entry is not null)
                 CloseSecondaryPanel(entry);
 
-            _tourNamedElements.Remove("TourFirstInactiveAgentTranscript");
+            _guidedTourCoordinator.NamedElements.Remove("TourFirstInactiveAgentTranscript");
         });
 
-        _tourCommandRegistry.Register("RemoveTourSimulatedAgent", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("RemoveTourSimulatedAgent", () =>
         {
             CleanUpTourSimulatedAgentCard();
-            _tourNamedElements.Remove("TourFirstInactiveAgentCard");
-            _tourNamedElements.Remove("TourFirstInactiveAgentTranscript");
+            _guidedTourCoordinator.NamedElements.Remove("TourFirstInactiveAgentCard");
+            _guidedTourCoordinator.NamedElements.Remove("TourFirstInactiveAgentTranscript");
         });
 
         // ── Named demo agent tour commands ────────────────────────────────
 
-        _tourCommandRegistry.RegisterParameterizedAsync("CreateDemoAgent", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("CreateDemoAgent", async arg =>
         {
             // Format: "AgentName" or "AgentName|#RRGGBB"
             var parts = arg.Split('|', 2);
             var name = parts[0].Trim();
             var accentHex = parts.Length > 1 ? parts[1].Trim() : null;
             if (string.IsNullOrEmpty(name)) return;
-            if (_tourNamedDemoAgents.ContainsKey(name)) return;
+            if (_guidedTourCoordinator.NamedDemoAgents.ContainsKey(name)) return;
 
             var agentId = "tour-demo-" + name.ToLowerInvariant().Replace(' ', '-');
             var thread = _agentThreadRegistry.GetOrCreateAgentThread(
@@ -17532,25 +17103,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (!string.IsNullOrWhiteSpace(accentHex))
                 ApplyAgentAccent(card, accentHex, persist: false);
 
-            _tourNamedDemoAgents[name] = (card, thread);
+            _guidedTourCoordinator.NamedDemoAgents[name] = (card, thread);
 
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var border = FindAgentCardBorderForCard(card);
             if (border is not null)
-                _tourNamedElements[$"TourDemoAgent_{name}"] = border;
+                _guidedTourCoordinator.NamedElements[$"TourDemoAgent_{name}"] = border;
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("ActivateDemoAgent", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("ActivateDemoAgent", async arg =>
         {
             var name = arg.Trim();
-            if (!_tourNamedDemoAgents.TryGetValue(name, out var entry)) return;
+            if (!_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var entry)) return;
             var (card, thread) = entry;
 
             OpenSecondaryPanel(card, thread, isAutoOpenedInMultiMode: false);
 
             // Move the card into the active column.  EnsureDynamicAgentCards (called by
             // SyncAgentCardsWithThreads) rebuilds dynamic cards on every sync, so the
-            // card object stored in _tourNamedDemoAgents may be stale by the time
+            // card object stored in _guidedTourCoordinator.NamedDemoAgents may be stale by the time
             // ActivateDemoAgent runs.  Refreshing LastObservedActivityAt and calling
             // SyncAgentCardsWithThreads guarantees (a) a fresh card object exists,
             // (b) the thread qualifies as active, and (c) the card lands in the active
@@ -17566,20 +17137,20 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (latestCard is not null && !ReferenceEquals(latestCard, card))
             {
                 card = latestCard;
-                _tourNamedDemoAgents[name] = (card, thread);
+                _guidedTourCoordinator.NamedDemoAgents[name] = (card, thread);
 
                 // Re-register the card-border element so tour highlights target the new card.
                 var freshBorder = FindAgentCardBorderForCard(card);
                 if (freshBorder is not null)
-                    _tourNamedElements[$"TourDemoAgent_{name}"] = freshBorder;
+                    _guidedTourCoordinator.NamedElements[$"TourDemoAgent_{name}"] = freshBorder;
             }
 
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Loaded);
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
             {
-                _tourNamedElements[$"TourDemoAgentTranscript_{name}"] = secondaryEntry.PanelBorder;
-                _tourNamedElements[$"TourDemoAgentTranscriptTitle_{name}"] = secondaryEntry.TitleBlock;
+                _guidedTourCoordinator.NamedElements[$"TourDemoAgentTranscript_{name}"] = secondaryEntry.PanelBorder;
+                _guidedTourCoordinator.NamedElements[$"TourDemoAgentTranscriptTitle_{name}"] = secondaryEntry.TitleBlock;
             }
 
             // Register the spinner and name label inside the card's visual container.
@@ -17591,16 +17162,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     // Slow the tour demo spinner to ~1 rotation/sec (7 rad/s ≈ 3× slower than the 20 rad/s default)
                     spinner.MaxAngularVelocityCap = 7.0;
-                    _tourNamedElements[$"TourDemoAgentSpinner_{name}"] = spinner;
+                    _guidedTourCoordinator.NamedElements[$"TourDemoAgentSpinner_{name}"] = spinner;
                 }
 
                 var nameText = VisualTreeSearch.FindChildByName<TextBlock>(cardContainer, "AgentNameText");
                 if (nameText is not null)
-                    _tourNamedElements[$"TourDemoAgentTitle_{name}"] = nameText;
+                    _guidedTourCoordinator.NamedElements[$"TourDemoAgentTitle_{name}"] = nameText;
             }
 
             // Start an animated spinner so the demo card looks like it's actively working.
-            if (!_tourDemoAgentSpinnerTimers.ContainsKey(name))
+            if (!_guidedTourCoordinator.DemoAgentSpinnerTimers.ContainsKey(name))
             {
                 var rng   = new Random();
                 var timer = new DispatcherTimer(DispatcherPriority.Background);
@@ -17615,25 +17186,25 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             ? SpinnerActivityKind.Reading
                             : SpinnerActivityKind.Writing;
 
-                    if (_tourNamedDemoAgents.TryGetValue(name, out var current))
+                    if (_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var current))
                         current.Card.FireActivityPulse(kind);
 
                     // Randomize next interval for an organic feel
                     timer.Interval = TimeSpan.FromMilliseconds(rng.Next(600, 1200));
                 };
                 timer.Start();
-                _tourDemoAgentSpinnerTimers[name] = timer;
+                _guidedTourCoordinator.DemoAgentSpinnerTimers[name] = timer;
             }
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTurn", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTurn", async arg =>
         {
             var parts     = arg.Split('|');
             var name      = parts.Length > 0 ? parts[0].Trim() : string.Empty;
             var userText  = (parts.Length > 1 ? parts[1] : string.Empty).Replace(@"\n", "\n");
             var agentText = (parts.Length > 2 ? parts[2] : string.Empty).Replace(@"\n", "\n");
 
-            if (!_tourNamedDemoAgents.TryGetValue(name, out var demoEntry)) return;
+            if (!_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var demoEntry)) return;
             var (card, thread) = demoEntry;
 
             var idleDeadline = Environment.TickCount64 + 10_000;
@@ -17657,7 +17228,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ScrollToEndIfAtBottom(thread);
         });
 
-        _tourCommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTools", async arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("InjectDemoAgentTools", async arg =>
         {
             // Format: "agentName|toolName:description:output[;toolName:description:output...]"
             // The agent name is the first pipe-delimited segment; the rest is the same
@@ -17667,7 +17238,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             var name     = arg[..pipeIdx].Trim();
             var toolsArg = arg[(pipeIdx + 1)..];
 
-            if (!_tourNamedDemoAgents.TryGetValue(name, out var demoEntry)) return;
+            if (!_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var demoEntry)) return;
             var (card, thread) = demoEntry;
 
             var specs = toolsArg.Split(';', StringSplitOptions.RemoveEmptyEntries);
@@ -17689,7 +17260,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             thinkingBlock.HeaderTextBlock.Inlines.Clear();
             thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("Tooling... ") { FontWeight = FontWeights.SemiBold });
             thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("(simulated)") { FontStyle = FontStyles.Italic, FontWeight = FontWeights.Normal });
-            _tourNamedElements[$"TourDemoAgentTools_{name}"] = thinkingBlock.Expander;
+            _guidedTourCoordinator.NamedElements[$"TourDemoAgentTools_{name}"] = thinkingBlock.Expander;
 
             foreach (var spec in specs)
             {
@@ -17726,37 +17297,37 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             ScrollToEndIfAtBottom(thread);
         });
 
-        _tourCommandRegistry.RegisterParameterized("DeactivateDemoAgent", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("DeactivateDemoAgent", arg =>
         {
             var name = arg.Trim();
-            if (!_tourNamedDemoAgents.TryGetValue(name, out var entry)) return;
+            if (!_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var entry)) return;
             var (card, _) = entry;
 
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
             if (secondaryEntry is not null)
                 CloseSecondaryPanel(secondaryEntry);
 
-            _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTitle_{name}");
         });
 
-        _tourCommandRegistry.Register("RemoveAllDemoAgents", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("RemoveAllDemoAgents", () =>
         {
             CleanUpAllNamedDemoAgents();
         });
 
-        _tourCommandRegistry.RegisterParameterized("RemoveDemoAgent", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("RemoveDemoAgent", arg =>
         {
             var name = arg.Trim();
-            if (!_tourNamedDemoAgents.TryGetValue(name, out var entry)) return;
+            if (!_guidedTourCoordinator.NamedDemoAgents.TryGetValue(name, out var entry)) return;
             var (card, thread) = entry;
 
-            if (_tourDemoAgentSpinnerTimers.TryGetValue(name, out var timer))
+            if (_guidedTourCoordinator.DemoAgentSpinnerTimers.TryGetValue(name, out var timer))
             {
                 timer.Stop();
-                _tourDemoAgentSpinnerTimers.Remove(name);
+                _guidedTourCoordinator.DemoAgentSpinnerTimers.Remove(name);
             }
 
             var secondaryEntry = _secondaryTranscripts.FirstOrDefault(e => e.Agent == card);
@@ -17765,56 +17336,56 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _inactiveAgentCards.Remove(card);
             _agents.Remove(card);
 
-            _tourNamedElements.Remove($"TourDemoAgent_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTranscript_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentSpinner_{name}");
-            _tourNamedElements.Remove($"TourDemoAgentTitle_{name}");
-            _tourNamedDemoAgents.Remove(name);
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgent_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscript_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTranscriptTitle_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentSpinner_{name}");
+            _guidedTourCoordinator.NamedElements.Remove($"TourDemoAgentTitle_{name}");
+            _guidedTourCoordinator.NamedDemoAgents.Remove(name);
 
             RemovePrimaryAgentTranscriptHosts([thread]);
             _agentThreadRegistry.RemoveThreads([thread]);
             SyncAgentCardsWithThreads();
         });
 
-        _tourCommandRegistry.Register("EnterFullScreenTranscript", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("EnterFullScreenTranscript", () =>
         {
             // Idempotent: only transitions to full-screen if not already there.
             if (!_transcriptFullScreenEnabled)
                 SetTranscriptFullScreen(true);
         });
 
-        _tourCommandRegistry.Register("ExitFullScreenTranscript", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ExitFullScreenTranscript", () =>
         {
             // Idempotent: only exits full-screen if currently in it.
             if (_transcriptFullScreenEnabled)
                 SetTranscriptFullScreen(false);
         });
 
-        _tourCommandRegistry.Register("ShowAgentsAndTopPanels", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("ShowAgentsAndTopPanels", () =>
         {
             // Idempotent: exits focus mode only when it is currently hiding the status panel.
             if (_agentsPanelFocusModeEnabled)
                 SetAgentsPanelFocusMode(false);
         });
 
-        _tourCommandRegistry.Register("OptionsPageCloseHasPriorityOnEnter", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("OptionsPageCloseHasPriorityOnEnter", () =>
         {
             // When this command is active for a step, pressing Enter while the Preferences
             // window is open will close it (normal WPF behaviour) instead of advancing the tour.
             // The flag is automatically cleared when the step changes or the tour stops.
-            _tourPrefsWindowEnterLetThrough = true;
+            _guidedTourCoordinator.PrefsWindowEnterLetThrough = true;
         });
 
-        _tourCommandRegistry.Register("QuickReplyIntelliSenseEnterHasPriority", () =>
+        _guidedTourCoordinator.CommandRegistry.Register("QuickReplyIntelliSenseEnterHasPriority", () =>
         {
             // When this command is active for a step, pressing Enter while the quick-reply
             // intellisense popup is open ([ trigger) will accept the selected item instead
             // of advancing the tour. The flag is cleared when the step changes or tour stops.
-            _tourQuickReplyIntelliSenseEnterLetThrough = true;
+            _guidedTourCoordinator.QuickReplyIntelliSenseEnterLetThrough = true;
         });
 
-        _tourCommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>
+        _guidedTourCoordinator.CommandRegistry.RegisterParameterized("PeekPromptIfEmpty", arg =>
         {
             // Only peeks the prompt box if we are in full-screen AND the prompt is not
             // already visible (i.e. the user already typed something on their own).
@@ -17831,7 +17402,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // Type text with the same animation path as TypeIntoPrompt.
             var parts = arg.Split('|');
             var text = parts[0];
-            _tourTypeItemIsSimulated = parts.Length >= 2 &&
+            _guidedTourCoordinator.TypeItemIsSimulated = parts.Length >= 2 &&
                 string.Equals(parts[1].Trim(), "Sim", StringComparison.OrdinalIgnoreCase);
             var onComplete = parts.Length >= 3 ? parts[2].Trim() : null;
             StartTypeIntoPromptAnimation(text, string.IsNullOrWhiteSpace(onComplete) ? null : onComplete);
@@ -17889,7 +17460,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         thinkingBlock.HeaderTextBlock.Inlines.Clear();
         thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("Tooling... ") { FontWeight = FontWeights.SemiBold });
         thinkingBlock.HeaderTextBlock.Inlines.Add(new Run("(simulated)") { FontStyle = FontStyles.Italic, FontWeight = FontWeights.Normal });
-        _tourNamedElements["TourInjectedToolingBlock"] = thinkingBlock.Expander;
+        _guidedTourCoordinator.NamedElements["TourInjectedToolingBlock"] = thinkingBlock.Expander;
 
         foreach (var spec in specs)
         {
@@ -17925,11 +17496,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Register the overall last tool entry and the last entry for each tool name
         // so tour steps can target e.g. "TourInjectedLastToolEntry_edit" directly.
         if (thinkingBlock.ToolEntries.Count > 0)
-            _tourNamedElements["TourInjectedLastToolEntry"] = thinkingBlock.ToolEntries[^1].Expander;
+            _guidedTourCoordinator.NamedElements["TourInjectedLastToolEntry"] = thinkingBlock.ToolEntries[^1].Expander;
         foreach (var toolEntry in thinkingBlock.ToolEntries)
         {
             var key = "TourInjectedLastToolEntry_" + toolEntry.Descriptor.ToolName.Trim().ToLowerInvariant();
-            _tourNamedElements[key] = toolEntry.Expander;
+            _guidedTourCoordinator.NamedElements[key] = toolEntry.Expander;
         }
 
         if (!ReferenceEquals(CoordinatorThread.CurrentTurn, turn))
@@ -18012,7 +17583,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var allBlocks = CoordinatorThread.Document.Blocks.ToList();
         for (int i = previousCount; i < allBlocks.Count; i++)
-            _tourInjectedCoordinatorBlocks.Add(allBlocks[i]);
+            _guidedTourCoordinator.InjectedCoordinatorBlocks.Add(allBlocks[i]);
     }
 
     private static IEnumerable<string> SplitIntoWordChunks(string text, int minWords = 3, int maxWords = 5)
@@ -18122,12 +17693,12 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _currentQuickReplyPayloads = [];
         SquadDashTrace.Write("Tour", $"Tour quick reply selected: '{payload.Option}'");
         InjectTourTranscriptText($"*🎓 (Tour) You selected: {payload.Option}*", null);
-        _tourQuickReplySelected?.Invoke();
+        _guidedTourCoordinator.RaiseQuickReplySelected();
     }
 
     private void StopTypeIntoPromptAnimation()
     {
-        _tourTypeItemIsSimulated = false;
+        _guidedTourCoordinator.TypeItemIsSimulated = false;
 
         // Stop the timer if it's still running (it self-nulls when the text is fully typed,
         // but TourTypeTag items may still be in the queue after that — handle both cases).
@@ -18233,7 +17804,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     SetPromptTextBoxLogicalBuffer(item.Text, item.Text.Length, reason: "tour-type");
                     SyncQueuePanel();
                     if (charIndex == text.Length && !string.IsNullOrWhiteSpace(onCompleteCommand))
-                        _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
+                        _ = _guidedTourCoordinator.CommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
                     else
                         ScheduleNext();
                 }
@@ -18242,7 +17813,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         if (text.Length == 0 && !string.IsNullOrWhiteSpace(onCompleteCommand))
-            _ = _tourCommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
+            _ = _guidedTourCoordinator.CommandRegistry.ExecuteAsync(onCompleteCommand.Trim());
         else
             ScheduleNext();
     }
@@ -18760,7 +18331,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (_preferencesWindow is { IsVisible: true })
             {
                 _preferencesWindow.Activate();
-                _tourPreferencesWindowShown?.Invoke();
+                _guidedTourCoordinator.RaisePreferencesWindowShown();
                 return;
             }
 
@@ -18808,11 +18379,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     ? _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath)
                     : null,
                 onWorkHoursSaved: settings => _commitActivityGraphWindow?.SetWorkHours(settings),
-                tourHasEnterPriority: () => _guidedTourController is { IsActive: true } && !_tourPrefsWindowEnterLetThrough,
+                tourHasEnterPriority: () => _guidedTourController is { IsActive: true } && !_guidedTourCoordinator.PrefsWindowEnterLetThrough,
                 advanceTourStep: () => _guidedTourController?.Next());
-            _preferencesWindow.PageSelected += label => _tourPreferencePageSelected?.Invoke(label);
-            _preferencesWindow.Closed += (_, _) => _tourPreferencesWindowClosed?.Invoke();
-            _tourPreferencesWindowShown?.Invoke();
+            _preferencesWindow.PageSelected += label => _guidedTourCoordinator.RaisePreferencePageSelected(label);
+            _preferencesWindow.Closed += (_, _) => _guidedTourCoordinator.RaisePreferencesWindowClosed();
+            _guidedTourCoordinator.RaisePreferencesWindowShown();
         }
         catch (Exception ex)
         {
@@ -19009,9 +18580,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _fullScreenPromptVisible = false; // reset peek state on any fullscreen transition
 
         if (enabled)
-            _tourFullScreenTranscript?.Invoke(this, EventArgs.Empty);
+            _guidedTourCoordinator.RaiseFullScreenTranscript(this);
         else
-            _tourExitFullScreenTranscript?.Invoke(this, EventArgs.Empty);
+            _guidedTourCoordinator.RaiseExitFullScreenTranscript(this);
 
         if (enabled)
         {
@@ -19279,7 +18850,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void ShowFullScreenPrompt()
     {
         _fullScreenPromptVisible = true;
-        _tourFullScreenPromptPeek?.Invoke(this, EventArgs.Empty);
+        _guidedTourCoordinator.RaiseFullScreenPromptPeek(this);
         if (PromptBorder is not null)
             PromptBorder.Visibility = Visibility.Visible;
         // Focus after layout so the caret appears inside the text box.
@@ -25007,7 +24578,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         SyncThreadChip(entry.Thread);
         int newVisibleTotal = _secondaryTranscripts.Count + (_mainTranscriptVisible ? 1 : 0);
         if (prevVisibleTotal >= 2 && newVisibleTotal == 1)
-            _tourSecondaryTranscriptCollapsedToOne?.Invoke();
+            _guidedTourCoordinator.RaiseSecondaryTranscriptCollapsedToOne();
         if (_secondaryTranscripts.Count == 0)
             _transcriptTitleRefreshTimer?.Stop();
         sw.Restart();
@@ -31378,15 +30949,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 {
                     Process.Start("explorer.exe", folder);
                     SquadDashTrace.Write(TraceCategory.GuidedTour,
-                        $"WorkspaceTitleText_MouseLeftButtonUp: opened folder in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={_tourWorkspaceOpenedInExplorer is not null})");
-                    _tourWorkspaceOpenedInExplorer?.Invoke();
+                        $"WorkspaceTitleText_MouseLeftButtonUp: opened folder in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={true})");
+                    _guidedTourCoordinator.RaiseWorkspaceOpenedInExplorer();
                 }
                 return;
             }
             Process.Start("explorer.exe", $"/select,\"{path}\"");
             SquadDashTrace.Write(TraceCategory.GuidedTour,
-                $"WorkspaceTitleText_MouseLeftButtonUp: opened solution in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={_tourWorkspaceOpenedInExplorer is not null})");
-            _tourWorkspaceOpenedInExplorer?.Invoke();
+                $"WorkspaceTitleText_MouseLeftButtonUp: opened solution in Explorer, invoking _tourWorkspaceOpenedInExplorer (hasSubscribers={true})");
+            _guidedTourCoordinator.RaiseWorkspaceOpenedInExplorer();
             e.Handled = true;
         }
         catch (Exception ex)
@@ -38018,7 +37589,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     e.Handled = true;
                     var l = GetOrCreateFollowUpList(_activeTabId ?? "");
                     l.Remove(capturedAtt);
-                    if (l.Count == 0) _tourAllAttachmentsRemoved?.Invoke();
+                    if (l.Count == 0) _guidedTourCoordinator.RaiseAllAttachmentsRemoved();
                     UpdateFollowUpStrip();
                     SyncQueuePanel();
                     if (_activeTabId is null) PersistDraftFollowUp();
@@ -38200,21 +37771,21 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
                 row.Children.Add(label);
                 FollowUpItemsPanel.Children.Add(row);
-                _tourNamedElements[$"FollowUpAttachmentRow{i}"]     = row;
-                _tourNamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
+                _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
+                _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
             }
             FollowUpStrip.Visibility = Visibility.Visible;
-            _tourNamedElements["FollowUpStrip"] = FollowUpStrip;
+            _guidedTourCoordinator.NamedElements["FollowUpStrip"] = FollowUpStrip;
         }
         else
         {
             FollowUpItemsPanel.Children.Clear();
             FollowUpStrip.Visibility = Visibility.Collapsed;
-            var staleKeys = _tourNamedElements.Keys
+            var staleKeys = _guidedTourCoordinator.NamedElements.Keys
                 .Where(k => k.StartsWith("FollowUpAttachmentRow", StringComparison.Ordinal)
                          || k.StartsWith("FollowUpAttachmentDismiss", StringComparison.Ordinal))
                 .ToList();
-            foreach (var k in staleKeys) _tourNamedElements.Remove(k);
+            foreach (var k in staleKeys) _guidedTourCoordinator.NamedElements.Remove(k);
         }
     }
 
@@ -38581,7 +38152,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var hadAttachments = _followUpAttachments.TryGetValue(_activeTabId ?? "", out var existing) && existing.Count > 0;
         _followUpAttachments.Remove(_activeTabId ?? "");
-        if (hadAttachments) _tourAllAttachmentsRemoved?.Invoke();
+        if (hadAttachments) _guidedTourCoordinator.RaiseAllAttachmentsRemoved();
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();

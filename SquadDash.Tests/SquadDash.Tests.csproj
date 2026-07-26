@@ -10,6 +10,11 @@
 
   <ItemGroup>
     <Compile Include="..\SquadDash\GuidedTours\NativeDragContinuationPolicy.cs" Link="Source\NativeDragContinuationPolicy.cs" />
+    <Compile Include="..\SquadDash\GuidedTourCoordinator.cs" Link="Source\GuidedTourCoordinator.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourCommandRegistry.cs" Link="Source\GuidedTourCommandRegistry.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourAdvanceTriggerRegistry.cs" Link="Source\GuidedTourAdvanceTriggerRegistry.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourContextRegistry.cs" Link="Source\GuidedTourContextRegistry.cs" />
+    <Compile Include="..\SquadDash\UiTimingConstants.cs" Link="Source\UiTimingConstants.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
   </ItemGroup>
