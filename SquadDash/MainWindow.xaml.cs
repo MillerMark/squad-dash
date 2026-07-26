@@ -360,7 +360,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
     private string?                 _decomposeIterationBaselineCommit;
-    private bool                    _loopResumeSuppressedByExplicitStop;
+    private bool                    _loopResumeSuppressed;
     private bool                    _decomposeRepairPending;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -3135,6 +3135,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 AppendLoopOutputLine(
                     $"⏹ Executing Plan stopped — group {_activeDecomposeGroupId} is {groupState.ToString().ToLowerInvariant()}.",
                     LoopLifecycleBrush);
+                SuppressLoopResume($"plan-{groupState.ToString().ToLowerInvariant()}");
                 _loopController.RequestStop();
             }
         }
@@ -5853,7 +5854,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         int stoppedIteration = _loopCurrentIteration;
         bool hasInterrupt = _loopInterruptedByQueue;
         var resumeDecision = LoopStopResumePolicy.Resolve(
-            explicitStop: _loopResumeSuppressedByExplicitStop,
+            resumeSuppressed: _loopResumeSuppressed,
             restartPending: _restartPending,
             interruptedByQueue: hasInterrupt,
             queueHasReadyItems: _promptQueue.HasReadyItems,
@@ -5879,7 +5880,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             if (shouldPreserveForRestart)
                 _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, stoppedIteration);
-            SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending preserve={shouldPreserveForRestart} explicitStop={_loopResumeSuppressedByExplicitStop} resumeFromIteration={_loopQueuedResumeFromIteration} group={_activeDecomposeGroupId ?? "(none)"} queueCount={_promptQueue.Count}");
+            SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending preserve={shouldPreserveForRestart} resumeSuppressed={_loopResumeSuppressed} resumeFromIteration={_loopQueuedResumeFromIteration} group={_activeDecomposeGroupId ?? "(none)"} queueCount={_promptQueue.Count}");
             SyncLoopPanel();
             return;
         }
@@ -5894,7 +5895,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
-        _loopResumeSuppressedByExplicitStop = false;
+        _loopResumeSuppressed = false;
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
         TryFireDeferredCodeHealth();
@@ -5914,7 +5915,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopInterruptedByQueue = false; // abort — don't auto-resume
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
         ClearExecutingPlanState();
-        _loopResumeSuppressedByExplicitStop = false;
+        _loopResumeSuppressed = false;
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         SyncLoopPanel();
         if (blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
@@ -7223,7 +7224,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             QueueLoopResumeAfterQueueDrain(resumeFromIteration, "start-loop-immediate-guard");
             return;
         }
-        _loopResumeSuppressedByExplicitStop = false;
+        _loopResumeSuppressed = false;
         ClearExecutingPlanRuntimeState();
         BackupAndClearLoopOutput();
         var loopMdPath = !string.IsNullOrWhiteSpace(resumeExecution?.LoopPath)
@@ -7270,9 +7271,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _conversationManager.UpdateActiveLoopExecutionState(null);
     }
 
-    private void SuppressLoopResumeAfterExplicitStop(string reason)
+    private void SuppressLoopResume(string reason)
     {
-        _loopResumeSuppressedByExplicitStop = true;
+        _loopResumeSuppressed = true;
         _loopQueued = false;
         _loopQueuedResumeFromIteration = 0;
         _loopInterruptedByQueue = false;
@@ -7287,8 +7288,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             activeTabIndex: GetActiveQueueTabIndex());
         SquadDashTrace.Write(
             "Loop",
-            $"Loop auto-resume suppressed by explicit stop reason={reason} restartPending={_restartPending} group={_activeDecomposeGroupId ?? "(none)"}");
+            $"Loop auto-resume suppressed reason={reason} restartPending={_restartPending} group={_activeDecomposeGroupId ?? "(none)"}");
     }
+
+    private void SuppressLoopResumeAfterExplicitStop(string reason) =>
+        SuppressLoopResume(reason);
 
     private async Task ResumeLoopImmediateAsync(int resumeFromIteration)
     {
@@ -7318,6 +7322,37 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
 
         await StartLoopImmediateAsync(resumeFromIteration, resume.Execution);
+    }
+
+    private async Task ResumeLoopAfterRestartSafelyAsync(int resumeFromIteration)
+    {
+        if (_isClosing || _restartPending) return;
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        try
+        {
+            AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
+            await ResumeLoopImmediateAsync(resumeFromIteration);
+        }
+        catch (Exception ex)
+        {
+            // A restart can expose unfinished source changes from an interrupted plan
+            // iteration. Refusing to run is correct, but it is a controlled pause—not an
+            // unobserved TaskScheduler failure and not permission to select other work.
+            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+            ClearExecutingPlanState();
+            AppendLoopOutputLine($"⏸ Loop was not resumed: {ex.Message}", LoopLifecycleBrush);
+            SquadDashTrace.Write("Loop", $"Startup loop resume refused: {ex}");
+            SyncLoopPanel();
+
+            if (!string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
+            {
+                ScheduleDecomposeSystemEntry(
+                    $"Plan {execution.DecomposeGroupId} was not resumed after restart. {ex.Message}",
+                    execution.DecomposeGroupId,
+                    execution.DecomposeRevision);
+            }
+        }
     }
 
     private async Task<bool> StartDecomposeLoopAsync(
@@ -7404,7 +7439,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             return false;
         }
 
-        _loopResumeSuppressedByExplicitStop = false;
+        _loopResumeSuppressed = false;
         _activeDecomposeGroupId = groupId;
         _conversationManager.UpdateActiveLoopExecutionState(
             new ActiveLoopExecutionState(loopPath, groupId, groupId, revision));
@@ -7985,6 +8020,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         var state = _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId);
         if (state == DecomposeGroupExecutionState.Complete)
         {
+            SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
         }
@@ -8049,6 +8085,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         string revision,
         string reason)
     {
+        SuppressLoopResume("plan-blocked");
         _loopController.RequestStop();
         AppendLoopOutputLine($"⏹ Plan blocked at {taskId}: {reason}", LoopLifecycleBrush);
         ScheduleDecomposeSystemEntry(
@@ -23179,12 +23216,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 // Clear only for an immediate start. Queued/paused resumes keep LoopActiveOnExit
                 // intact so another restart still knows the loop was active.
                 _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-                _ = Dispatcher.InvokeAsync(async () =>
-                {
-                    if (_isClosing || _restartPending) return;
-                    AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
-                    await ResumeLoopImmediateAsync(loopResumeIteration);
-                }, System.Windows.Threading.DispatcherPriority.Background);
+                _ = Dispatcher.InvokeAsync(
+                    () => _ = ResumeLoopAfterRestartSafelyAsync(loopResumeIteration),
+                    System.Windows.Threading.DispatcherPriority.Background);
             }
         }
 

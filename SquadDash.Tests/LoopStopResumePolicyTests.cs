@@ -7,7 +7,7 @@ internal sealed class LoopStopResumePolicyTests
     public void ExplicitStop_WithRestartPending_DoesNotPreserveOrResume()
     {
         var result = LoopStopResumePolicy.Resolve(
-            explicitStop: true,
+            resumeSuppressed: true,
             restartPending: true,
             interruptedByQueue: false,
             queueHasReadyItems: false,
@@ -25,7 +25,7 @@ internal sealed class LoopStopResumePolicyTests
     public void ExplicitStop_WithQueuedWork_StillDoesNotResumeLoop()
     {
         var result = LoopStopResumePolicy.Resolve(
-            explicitStop: true,
+            resumeSuppressed: true,
             restartPending: false,
             interruptedByQueue: true,
             queueHasReadyItems: true,
@@ -38,7 +38,7 @@ internal sealed class LoopStopResumePolicyTests
     public void QueueInterruption_PreservesExecutionAndResumesAfterDrain()
     {
         var result = LoopStopResumePolicy.Resolve(
-            explicitStop: false,
+            resumeSuppressed: false,
             restartPending: false,
             interruptedByQueue: true,
             queueHasReadyItems: true,
@@ -56,7 +56,7 @@ internal sealed class LoopStopResumePolicyTests
     public void RestartInterruption_PreservesExecutionWithoutQueueResume()
     {
         var result = LoopStopResumePolicy.Resolve(
-            explicitStop: false,
+            resumeSuppressed: false,
             restartPending: true,
             interruptedByQueue: false,
             queueHasReadyItems: false,
@@ -68,5 +68,18 @@ internal sealed class LoopStopResumePolicyTests
             Assert.That(result.PreserveForRestart, Is.True);
             Assert.That(result.ResumeAfterQueue, Is.False);
         });
+    }
+
+    [Test]
+    public void TerminalPlanStop_WithRestartPending_DoesNotPreserveOrResume()
+    {
+        var result = LoopStopResumePolicy.Resolve(
+            resumeSuppressed: true,
+            restartPending: true,
+            interruptedByQueue: false,
+            queueHasReadyItems: false,
+            loopAlreadyQueued: false);
+
+        Assert.That(result, Is.EqualTo(new LoopStopResumeDecision(false, false, false)));
     }
 }
