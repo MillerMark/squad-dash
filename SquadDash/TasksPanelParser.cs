@@ -266,9 +266,22 @@ internal static class TasksPanelParser {
                 description = StripOwner(description, out var owner);
 
                 var emoji = PriorityToEmoji(priority);
-                var hover = BuildDecomposeHover(groupId, title, branch, summary, taskId, priority, dependsOn, status == "!");
+                var hover = BuildDecomposeHover(
+                    groupId,
+                    title,
+                    branch,
+                    summary,
+                    taskId,
+                    taskTitle,
+                    description,
+                    priority,
+                    dependsOn,
+                    status == "!");
                 var item = new TaskItem(
-                    Text: description,
+                    // Structured plans provide a compact, human-readable title separately
+                    // from the implementation brief. Keep the Tasks panel scannable and
+                    // expose the full brief through the existing hover/details surface.
+                    Text: taskTitle,
                     Owner: owner,
                     IsUserOwned: owner?.Contains("you", StringComparison.OrdinalIgnoreCase) == true,
                     IsChecked: status == "x",
@@ -340,6 +353,8 @@ internal static class TasksPanelParser {
         string branch,
         string summary,
         string taskId,
+        string taskTitle,
+        string description,
         string priority,
         IReadOnlyList<string> dependsOn,
         bool failed) {
@@ -348,10 +363,11 @@ internal static class TasksPanelParser {
         var failure = failed ? "\n\n**Status:** Failed — reset or edit this task before rerunning the plan." : string.Empty;
         var summaryText = string.IsNullOrWhiteSpace(summary) ? string.Empty : $"\n\n{summary}";
         return $"**Plan:** {title} (`{groupId}`)  \n" +
-               $"**Task:** `{taskId}`  \n" +
+               $"**Task:** {taskTitle} (`{taskId}`)  \n" +
                $"**Branch:** `{branch}`  \n" +
                $"**Priority:** {priority}  \n" +
-               $"**Depends on:** {dependencies}" + summaryText + failure;
+               $"**Depends on:** {dependencies}\n\n" +
+               description + summaryText + failure;
     }
 
     private static string PriorityToEmoji(string priority) => priority.Trim().ToLowerInvariant() switch {

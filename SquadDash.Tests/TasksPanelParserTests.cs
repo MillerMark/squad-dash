@@ -445,6 +445,27 @@ internal sealed class TasksPanelParserTests {
     }
 
     [Test]
+    public void Parse_DecomposeBlock_DisplaysTitleAndKeepsImplementationBriefInDetails() {
+        string[] lines = [
+            "<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition -->",
+            "**[GODCLASS-20260725] Split MainWindow responsibilities**",
+            "> Extract cohesive services without breaking behavior.",
+            "- [ ] **[GODCLASS-20260725-004]** Extract ScreenshotService",
+            "  Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high",
+            "  description: Move capture logic, file naming, and error handling out of MainWindow. Owner: arjun-sen.",
+            "  dependsOn: GODCLASS-20260725-001",
+        ];
+
+        var item = TasksPanelParser.Parse(lines).OpenGroups.Single().Items.Single();
+
+        Assert.Multiple(() => {
+            Assert.That(item.Text, Is.EqualTo("Extract ScreenshotService"));
+            Assert.That(item.Description, Does.Contain("Move capture logic, file naming, and error handling out of MainWindow."));
+            Assert.That(item.Description, Does.Contain("GODCLASS-20260725-004"));
+        });
+    }
+
+    [Test]
     public void Parse_MultipleDecomposeBlocks_RemainSeparatePlanGroups() {
         string[] lines = [
             "<!-- decompose-group: FIRST-20260725 | branch: codex/first -->",
