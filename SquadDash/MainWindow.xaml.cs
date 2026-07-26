@@ -3408,7 +3408,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Save true when paused, false (not null) when resuming. Using null would cause the
         // merge logic in SaveDocsPanelState to preserve any stale "true" from a prior session.
         _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? (bool?)true : false };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void SyncPromptTextBoxSimBorder()
@@ -4678,7 +4679,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 !string.Equals(_settingsSnapshot.LastUsedModel, model, StringComparison.Ordinal))
             {
                 _modelObservedThisSession = true;
-                _settingsSnapshot = _settingsStore.SaveLastUsedModel(model);
+                _settingsManager.Replace(_settingsStore.SaveLastUsedModel(model));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             }
         }
 
@@ -5708,7 +5710,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void HandleLoopStarted(SquadSdkEvent evt)
     {
         _pec.SetIsLoopRunning(true);
-        _settingsSnapshot = _settingsStore.SaveLoopActive(true);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _loopCurrentIteration = 0;
         _loopQueued = false;
         _conversationManager.UpdateQueuedPromptsState(
@@ -5740,7 +5743,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-stopped");
-        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _loopCurrentIteration = 0;
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
@@ -5754,7 +5758,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-error");
-        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _loopCurrentIteration = 0;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
         var errorLabel = string.IsNullOrWhiteSpace(evt.Message)
@@ -5840,7 +5845,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _CodeHealthGroupRunner?.TrackFirstEligibleStep(_activeDecomposeGroupId);
         _loopIsWaiting = false;
         _pec.SetIsLoopRunning(true);
-        _settingsSnapshot = _settingsStore.SaveLoopActive(true);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         AppendLoopOutputLine($"▶ Round {iteration} started — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"↩ Round {iteration}");
         SyncLoopPanel();
@@ -5866,7 +5872,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
         if (!resumeDecision.PreserveExecution)
         {
-            _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             ClearExecutingPlanState();
         }
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
@@ -5910,7 +5917,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
-        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         ClearExecutingPlanState();
         _loopResumeSuppressedByExplicitStop = false;
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
@@ -5928,7 +5936,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void OnNativeLoopIterationCompleted(int iteration)
     {
-        _settingsSnapshot = _settingsStore.SaveLoopIteration(iteration);
+        _settingsManager.Replace(_settingsStore.SaveLoopIteration(iteration));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"  ✓ Round {iteration} complete");
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
@@ -6195,14 +6204,17 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void HandleRcStarted(SquadSdkEvent evt)
     {
         _remoteAccessActive = true;
-        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(true);
+        _settingsManager.Replace(_settingsStore.SaveRemoteAccessActive(true));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         if (!string.IsNullOrWhiteSpace(evt.RcToken))
-            _settingsSnapshot = _settingsStore.SaveRcToken(evt.RcToken);
+            _settingsManager.Replace(_settingsStore.SaveRcToken(evt.RcToken));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         UpdateRemoteAccessMenuHeader();
         var port = evt.RcPort is int p ? p : 0;
         _rcActivePort = port;
         if (port > 0)
-            _settingsSnapshot = _settingsStore.SaveRcPort(port);
+            _settingsManager.Replace(_settingsStore.SaveRcPort(port));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         var baseUrl = evt.RcLanUrl ?? evt.RcUrl ?? $"http://localhost:{port}";
         _rcPanelUrl = string.IsNullOrEmpty(evt.RcToken) ? baseUrl : $"{baseUrl}?token={Uri.EscapeDataString(evt.RcToken)}";
 
@@ -6401,7 +6413,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void HandleRcStopped(SquadSdkEvent evt)
     {
         _remoteAccessActive = false;
-        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+        _settingsManager.Replace(_settingsStore.SaveRemoteAccessActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         UpdateRemoteAccessMenuHeader();
         _rcPanelUrl = null;
         _rcTunnelUrl = null;
@@ -6530,7 +6543,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void RegenerateRcToken()
     {
         var newToken = Guid.NewGuid().ToString("N");
-        _settingsSnapshot = _settingsStore.SaveRcToken(newToken);
+        _settingsManager.Replace(_settingsStore.SaveRcToken(newToken));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _rcRegeneratingToken = true;
         _ = _bridge.StopRemoteAsync();
     }
@@ -6538,7 +6552,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void HandleRcError(SquadSdkEvent evt)
     {
         _remoteAccessActive = false;
-        _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+        _settingsManager.Replace(_settingsStore.SaveRemoteAccessActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         UpdateRemoteAccessMenuHeader();
         _rcPanel?.Close();
         _rcPanel = null;
@@ -6765,14 +6780,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { TasksPanelVisible = _tasksPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void PersistLoopPanelVisible()
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { LoopPanelVisible = _loopPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void PopulateLoopFilePicker()
@@ -6851,7 +6868,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { SelectedLoopFile = _selectedLoopMdPath };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void RefreshLoopOptionsPanel()
@@ -7253,7 +7271,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         _loopQueuedResumeFromIteration = 0;
         _loopInterruptedByQueue = false;
         _loopPausedForQuickReply = false;
-        _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _conversationManager.UpdateActiveExecutingPlanState(null);
         _conversationManager.UpdateQueuedPromptsState(
             _promptQueue.Items, _followUpAttachments,
@@ -8736,8 +8755,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void LoopContinuousContextCheckBox_Click(object sender, RoutedEventArgs e)
     {
-        _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(
-            LoopContinuousContextCheckBox.IsChecked == true);
+        _settingsManager.Replace(_settingsStore.SaveLoopContinuousContext(
+            LoopContinuousContextCheckBox.IsChecked == true));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         _conversationManager.UpdateLoopSettingsState(_activeLoopMode, _settingsSnapshot.LoopContinuousContext);
     }
 
@@ -9773,7 +9793,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 TranscriptFontSizeMin,
                 TranscriptFontSizeMax);
             ApplyTranscriptFontSize();
-            _settingsSnapshot = _settingsStore.SaveTranscriptFontSize(_transcriptFontSize);
+            _settingsManager.Replace(_settingsStore.SaveTranscriptFontSize(_transcriptFontSize));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
 
             // After layout, scroll so the anchor stays under the mouse
             if (anchor is not null)
@@ -10475,7 +10496,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 PromptFontSizeMax);
 
             ApplyPromptFontSize();
-            _settingsSnapshot = _settingsStore.SavePromptFontSize(_promptFontSize);
+            _settingsManager.Replace(_settingsStore.SavePromptFontSize(_promptFontSize));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             e.Handled = true;
         }
         catch (Exception ex)
@@ -10663,7 +10685,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DocSourceFontSizeMax);
 
             ApplyDocSourceFontSize();
-            _settingsSnapshot = _settingsStore.SaveDocSourceFontSize(_docSourceFontSize);
+            _settingsManager.Replace(_settingsStore.SaveDocSourceFontSize(_docSourceFontSize));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             e.Handled = true;
         }
         catch (Exception ex)
@@ -15581,8 +15604,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                                             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)
                                             .ToList(),
             getLastEditorTourName:  () => _settingsSnapshot.LastGuidedTourEditorTourName,
+            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
             saveLastEditorTourName: name => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorTourName(name),
             getLastEditorStepIndex: () => _settingsSnapshot.LastGuidedTourEditorStepIndex,
+            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
             saveLastEditorStepIndex: idx => _settingsSnapshot = _settingsStore.SaveLastGuidedTourEditorStepIndex(idx),
             contextRegistry:         _tourContextRegistry);
     }
@@ -18481,10 +18506,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (sender is not MenuItem { Tag: string tag }) return;
             var value = Enum.TryParse<DeveloperStartupIssueSimulation>(tag, out var parsed)
                 ? parsed : DeveloperStartupIssueSimulation.None;
-            _settingsSnapshot = _settingsStore.SaveDeveloperIssueSimulation(
+            _settingsManager.Replace(_settingsStore.SaveDeveloperIssueSimulation(
                 _currentWorkspace!.FolderPath,
                 value,
-                _settingsSnapshot.GetRuntimeIssueSimulation(_currentWorkspace.FolderPath));
+                _settingsSnapshot.GetRuntimeIssueSimulation(_currentWorkspace.FolderPath)));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             SyncSimulationMenuCheckmarks();
             RefreshInstallationState();
         }
@@ -18498,10 +18524,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (sender is not MenuItem { Tag: string tag }) return;
             var value = Enum.TryParse<DeveloperRuntimeIssueSimulation>(tag, out var parsed)
                 ? parsed : DeveloperRuntimeIssueSimulation.None;
-            _settingsSnapshot = _settingsStore.SaveDeveloperIssueSimulation(
+            _settingsManager.Replace(_settingsStore.SaveDeveloperIssueSimulation(
                 _currentWorkspace!.FolderPath,
                 _settingsSnapshot.GetStartupIssueSimulation(_currentWorkspace.FolderPath),
-                value);
+                value));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             SyncSimulationMenuCheckmarks();
             RefreshDeveloperRuntimeIssuePreview();
         }
@@ -18970,7 +18997,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Persist fullscreen state per workspace.
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { FullScreenTranscript = enabled };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void FocusModeMenuItem_Click(object sender, RoutedEventArgs e)
@@ -19006,7 +19034,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 if (!_settingsSnapshot.ShowAgentAvatars)
                 {
                     AgentStatusCard.AvatarsSettingEnabled = true;
-                    _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(true);
+                    _settingsManager.Replace(_settingsStore.SaveShowAgentAvatars(true));
+                    _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
                 }
                 return;
             }
@@ -19018,11 +19047,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 SetAgentsPanelFocusMode(false);
                 AgentStatusCard.AvatarsSettingEnabled = true;
-                _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(true);
+                _settingsManager.Replace(_settingsStore.SaveShowAgentAvatars(true));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
                 return;
             }
             AgentStatusCard.AvatarsSettingEnabled = show;
-            _settingsSnapshot = _settingsStore.SaveShowAgentAvatars(show);
+            _settingsManager.Replace(_settingsStore.SaveShowAgentAvatars(show));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ShowAgentAvatarsMenuItem_Click), ex); }
     }
@@ -19148,7 +19179,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Persist per workspace.
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { PromptPanelOnTop = onTop };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void ViewDocumentationMenuItem_Click(object sender, RoutedEventArgs e)
@@ -20033,7 +20065,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (InboxFilterClearButton is not null)
                 InboxFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxFilterText = text.Length > 0 ? text : string.Empty };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxFilterBox_TextChanged), ex); }
     }
@@ -20053,7 +20086,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try {
             _inboxPanel?.SetUnreadOnly(true);
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxShowUnreadOnly = true };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Checked), ex); }
     }
@@ -20063,7 +20097,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try {
             _inboxPanel?.SetUnreadOnly(false);
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxShowUnreadOnly = false };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Unchecked), ex); }
     }
@@ -20118,7 +20153,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 _docsPanelState = existingState is not null
                     ? existingState with { Open = true }
                     : new WorkspaceDocsPanelState { Open = true };
-                _settingsSnapshot = _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
+                _settingsManager.Replace(_settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             }
         }
         else if (persistChange)
@@ -20152,7 +20188,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SourceWidth = docsSourceWidth,
                 SourceLayoutTopBottom = _docSourceLayoutTopBottom ? true : null,
             };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(workspaceFolder, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
     }
 
@@ -20977,7 +21014,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             SourceLayoutTopBottom = _docSourceLayoutTopBottom ? true : null,
         };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void DocSourceSideBySideButton_Click(object sender, RoutedEventArgs e)
@@ -23055,9 +23093,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Restore per-workspace loop settings (override global app settings).
         var savedState = _conversationManager.ConversationState;
         if (savedState.LoopMode is { } savedLoopMode)
-            _settingsSnapshot = _settingsStore.SaveLoopMode(savedLoopMode);
+            _settingsManager.Replace(_settingsStore.SaveLoopMode(savedLoopMode));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         if (savedState.LoopContinuousContext is { } savedContinuous)
-            _settingsSnapshot = _settingsStore.SaveLoopContinuousContext(savedContinuous);
+            _settingsManager.Replace(_settingsStore.SaveLoopContinuousContext(savedContinuous));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
 
         // Auto-resume the loop if it was active when the app last exited.
         // Clear the flag first so a crash-loop can't occur if the loop fails to start.
@@ -23104,7 +23144,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             {
                 // Clear only for an immediate start. Queued/paused resumes keep LoopActiveOnExit
                 // intact so another restart still knows the loop was active.
-                _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+                _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
                 _ = Dispatcher.InvokeAsync(async () =>
                 {
                     if (_isClosing || _restartPending) return;
@@ -23118,7 +23159,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Clear the flag first to prevent crash-loops.
         if (_settingsSnapshot.RemoteAccessActiveOnExit)
         {
-            _settingsSnapshot = _settingsStore.SaveRemoteAccessActive(false);
+            _settingsManager.Replace(_settingsStore.SaveRemoteAccessActive(false));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             // Optimistically show "Stop" immediately — HandleRcStarted will confirm,
             // HandleRcError will revert if startup fails.
             _remoteAccessActive = true;
@@ -25403,7 +25445,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     TranscriptFontSizeMin,
                     TranscriptFontSizeMax);
                 ApplyTranscriptFontSize();
-                _settingsSnapshot = _settingsStore.SaveTranscriptFontSize(_transcriptFontSize);
+                _settingsManager.Replace(_settingsStore.SaveTranscriptFontSize(_transcriptFontSize));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
                 e.Handled = true;
             }
             catch (Exception ex) { HandleUiCallbackException("SecondaryPanel.PreviewMouseWheel", ex); }
@@ -30571,9 +30614,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_currentWorkspace is null)
             return;
 
-        _settingsSnapshot = _settingsStore.SaveIgnoredRoutingIssueFingerprint(
+        _settingsManager.Replace(_settingsStore.SaveIgnoredRoutingIssueFingerprint(
             _currentWorkspace.FolderPath,
-            fingerprint);
+            fingerprint));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void ClearIgnoredRoutingIssueFingerprintIfResolved()
@@ -31042,7 +31086,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 break;
 
             case WorkspaceIssueActionKind.SwitchModelToAuto:
-                _settingsSnapshot = _settingsStore.SaveModelSettings(ModelProvider.GitHubCopilot, "auto");
+                _settingsManager.Replace(_settingsStore.SaveModelSettings(ModelProvider.GitHubCopilot, "auto"));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
                 _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(_settingsSnapshot);
                 SetInstallStatus("Model switched to 'auto'. Retry your prompt.");
                 ClearRuntimeIssue();
@@ -31758,7 +31803,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             // new instance picks up where we left off and shows Stop/Abort instead of Start Loop.
             // A crash or kill signal never reaches this handler, so the flag also stays true there.
             if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
-                _settingsSnapshot = _settingsStore.SaveLoopActive(false);
+                _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             // RC is intentionally NOT cleared on clean shutdown — we always want RC to auto-resume
             // on the next launch with the same token so the phone's saved link keeps working.
             // Users who want to stop RC should use "Stop Remote Access" explicitly (which clears
@@ -31801,7 +31847,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                     InboxPanelVisible = _inboxPanelVisible,
                     OpenInboxMessageIds = openIds.Count > 0 ? openIds : [],
                 };
-                _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+                _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             }
 
             // Capture docs panel state (only when panel is open; closed state is already
@@ -31967,14 +32014,15 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 return;
 
-            _settingsSnapshot = _settingsStore.SaveWindowPlacement(
+            _settingsManager.Replace(_settingsStore.SaveWindowPlacement(
                 _currentWorkspace.FolderPath,
                 new WorkspaceWindowPlacement(
                     bounds.Left,
                     bounds.Top,
                     bounds.Width,
                     bounds.Height,
-                    WindowState == WindowState.Maximized));
+                    WindowState == WindowState.Maximized)));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch
         {
@@ -34926,6 +34974,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeSaturation = e.NewValue;
                 if (_currentWorkspace is not null)
+                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                     _settingsSnapshot = _settingsStore.SaveWorkspaceSaturation(_currentWorkspace.FolderPath, e.NewValue);
                 ScheduleSliderApply();
             }
@@ -34978,6 +35027,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 UpdateSliderLabel(valueLabel, e.NewValue);
                 _activeContrast = e.NewValue;
                 if (_currentWorkspace is not null)
+                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                     _settingsSnapshot = _settingsStore.SaveWorkspaceContrast(_currentWorkspace.FolderPath, e.NewValue);
                 ScheduleSliderApply();
             }
@@ -35404,7 +35454,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void SetThemePreference(string preference)
     {
         _themePreference = preference;
-        _settingsSnapshot = _settingsStore.SaveTheme(preference);
+        _settingsManager.Replace(_settingsStore.SaveTheme(preference));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         var resolved = string.Equals(preference, "Auto", StringComparison.OrdinalIgnoreCase)
             ? GetWindowsTheme()
             : preference;
@@ -35778,6 +35829,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _workspacePaths.RoleIconAssetsDirectory,
             (agentKey, imagePath) =>
             {
+                // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                 _settingsSnapshot = _settingsStore.SaveAgentImagePath(
                     _currentWorkspace.FolderPath,
                     agentKey,
@@ -35790,10 +35842,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         {
             foreach (var candidate in HireAgentWindow.BuildImageKeyCandidates(submission.AgentName))
             {
-                _settingsSnapshot = _settingsStore.SaveAgentImagePath(
+                _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
                     _currentWorkspace.FolderPath,
                     candidate,
-                    submission.ImagePath);
+                    submission.ImagePath));
+                _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             }
         }
 
@@ -36162,6 +36215,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                             onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
                             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
                             initialFontSize:   _inboxFontSize,
+                            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
                             openDecomposePlan: OpenDecomposePlanAttachment);
                         win.Owner = this;
@@ -37725,6 +37779,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
+            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
             openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -37766,6 +37821,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
+            // TODO GODCLASS-014: lambda/callback site — migrate in task 015
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsSnapshot = _settingsStore.SaveInboxFontSize(size); },
             openDecomposePlan: OpenDecomposePlanAttachment);
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -38302,6 +38358,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             setHomeItem.Click += (_, _) =>
             {
+                // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                 _settingsSnapshot = _settingsStore.SaveHomeBranch(workspaceFolder, branch);
                 UpdateBranchIndicator();
             };
@@ -38471,7 +38528,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 DraftFollowUpOriginalPrompt = null,
             };
         }
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private string ApplyFollowUpHeader(string text, string tabId)
@@ -38529,7 +38587,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private void PersistApprovalPanelVisible()    {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { ApprovalPanelVisible = _approvalPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     // ── Notes panel ───────────────────────────────────────────────────────────
@@ -38561,6 +38620,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 onSortOrderChanged:  order => {
                     var st = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
                     _docsPanelState = st with { NotesSortOrder = order };
+                    // TODO GODCLASS-014: lambda/callback site — migrate in task 015
                     _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
                 },
                 newSharedNote:       () => CreateNewSharedNote());
@@ -38582,7 +38642,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { NotesPanelVisible = _notesPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void SyncCodeHealthPanel()
@@ -38653,14 +38714,16 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { CodeHealthPanelVisible = _codeHealthPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void PersistWatchHealthPanelVisible()
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { WatchHealthPanelVisible = _watchHealthPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void ShowInboxPanel()
@@ -38756,7 +38819,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { InboxPanelVisible = _inboxPanelVisible };
-        _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private TaskItem? LookupTaskById(string taskId)
@@ -40229,7 +40293,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 ApprovalFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _approvalPanel?.SetFilter(text);
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { ApprovalsPanelFilter = text.Length > 0 ? text : string.Empty };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ApprovalFilterBox_TextChanged), ex); }
     }
@@ -40301,7 +40366,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             _tasksPanelController?.SetFilter(filterText);
             ScheduleLoopPreviewRefreshFromFilter();
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { TasksPanelFilter = text.Length > 0 ? text : string.Empty };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
     }
@@ -40656,7 +40722,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 NotesFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             _notesPanel?.SetFilter(text);
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { NotesPanelFilter = text.Length > 0 ? text : string.Empty };
-            _settingsSnapshot = _settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState);
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(NotesFilterBox_TextChanged), ex); }
     }
@@ -41133,7 +41200,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var enabled = SquadBridgeDiagnosticsMenuItem?.IsChecked == true;
-            _settingsSnapshot = _settingsStore.SaveBridgeDiagnosticsEnabled(enabled);
+            _settingsManager.Replace(_settingsStore.SaveBridgeDiagnosticsEnabled(enabled));
+            _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
             _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
             RefreshBridgeDiagnosticsMenuCheckmark();
             RestartBridgeForSettingsWhenIdle("bridge-diagnostics-changed");
@@ -41257,10 +41325,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!persist || _currentWorkspace is null)
             return;
 
-        _settingsSnapshot = _settingsStore.SaveAgentAccentColor(
+        _settingsManager.Replace(_settingsStore.SaveAgentAccentColor(
             _currentWorkspace.FolderPath,
             agentCard.AccentStorageKey,
-            accentHex);
+            accentHex));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private string? ResolveAgentImagePath(AgentStatusCard card)
@@ -41316,10 +41385,11 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (!persist || _currentWorkspace is null)
             return;
 
-        _settingsSnapshot = _settingsStore.SaveAgentImagePath(
+        _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
             _currentWorkspace.FolderPath,
             card.AccentStorageKey,
-            imagePath);
+            imagePath));
+        _settingsSnapshot = _settingsManager.Current; // keep in sync during migration
     }
 
     private void UpdateAvatarSizes()

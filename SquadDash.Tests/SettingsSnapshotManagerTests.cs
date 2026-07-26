@@ -71,4 +71,57 @@ internal sealed class SettingsSnapshotManagerTests
             Assert.That(localSnapshot, Is.EqualTo(manager.Current));
         });
     }
+
+    // GODCLASS-014 regression tests — verify the Replace-based persistence pattern
+
+    [Test]
+    public void Replace_UpdatesCurrent()
+    {
+        // Verifies that Replace() changes Current to the supplied snapshot.
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, ApplicationSettingsSnapshot.Empty);
+
+        var replacement = ApplicationSettingsSnapshot.Empty with { UserName = "Replaced" };
+        manager.Replace(replacement);
+
+        Assert.That(manager.Current.UserName, Is.EqualTo("Replaced"));
+    }
+
+    [Test]
+    public void Replace_CurrentEqualsReplacedValue()
+    {
+        // Verifies that Current is reference-equal to the exact snapshot passed to Replace().
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, ApplicationSettingsSnapshot.Empty);
+
+        var replacement = ApplicationSettingsSnapshot.Empty with { UserName = "ExactMatch" };
+        manager.Replace(replacement);
+
+        Assert.That(manager.Current, Is.SameAs(replacement));
+    }
+
+    [Test]
+    public void Replace_PersistenceFlow_CurrentUpdatedAfterStoreReturnsNewSnapshot()
+    {
+        // Simulates the GODCLASS-014 migration pattern:
+        //   _settingsManager.Replace(_settingsStore.SaveXxx(args));
+        //   _settingsSnapshot = _settingsManager.Current; // keep in sync
+        // Verifies both the manager and the local copy reflect the persisted value.
+        using var workspace = new TestWorkspace();
+        var store   = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var manager = new SettingsSnapshotManager(store, store.Load());
+
+        var newSnapshot = store.SaveUserName("PersistenceFlowUser");
+        manager.Replace(newSnapshot);
+        var localSnapshot = manager.Current; // mirrors _settingsSnapshot = _settingsManager.Current
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(manager.Current.UserName, Is.EqualTo("PersistenceFlowUser"));
+            Assert.That(localSnapshot.UserName,   Is.EqualTo("PersistenceFlowUser"));
+            Assert.That(localSnapshot, Is.SameAs(manager.Current));
+        });
+    }
 }
