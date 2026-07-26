@@ -37,6 +37,17 @@ internal sealed class InboxPanelController
     private readonly Action<InboxMessage>?    _addAsNote;
     private Func<string, TaskItem?>?          _lookupTask;
 
+    // ── Panel visibility and filter-persistence delegates ─────────────────────
+    private bool    _panelVisible;
+    private string[] _agentSuggestions = [];
+    private readonly Action<bool>?  _syncBorderVisibility;
+    private readonly Action?        _flashPanel;
+    private readonly Action<bool>?  _setMenuChecked;
+    private readonly Action?        _persistVisibility;
+    private readonly Action<string>? _onFilterPersisted;
+    private readonly Action<bool>?  _onUnreadOnlyPersisted;
+    private readonly Action?        _onFilterChangedForIntelliSense;
+
     private readonly HashSet<string> _selectedIds = new();
     private string? _anchorId;
     private string? _lastSingleClickId;
@@ -67,11 +78,20 @@ internal sealed class InboxPanelController
         WrapPanel                viewerActionsPanel,
         Action<InboxAction, InboxMessage> onActionClicked,
         Action<InboxMessage, Action?> openMessageWindow,
-        Func<string, TaskItem?>? lookupTask = null,
-        Action<InboxMessage>?    addToChat  = null,
-        Action<InboxMessage>?    addToNewChat = null,
-        Action<InboxAttachment>? openDecomposePlan = null,
-        Action<InboxMessage>?    addAsNote = null)
+        Func<string, TaskItem?>?  lookupTask                     = null,
+        Action<InboxMessage>?     addToChat                      = null,
+        Action<InboxMessage>?     addToNewChat                   = null,
+        Action<InboxAttachment>?  openDecomposePlan              = null,
+        Action<InboxMessage>?     addAsNote                      = null,
+        bool                      initialPanelVisible            = false,
+        Action<bool>?             syncBorderVisibility           = null,
+        Action?                   flashPanel                     = null,
+        Action<bool>?             setMenuChecked                 = null,
+        Action?                   persistVisibility              = null,
+        Action<string>?           onFilterPersisted              = null,
+        Action<bool>?             onUnreadOnlyPersisted          = null,
+        Action?                   onFilterChangedForIntelliSense = null,
+        string[]?                 agentSuggestions               = null)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -92,8 +112,17 @@ internal sealed class InboxPanelController
         _openDecomposePlan      = openDecomposePlan;
         _addAsNote              = addAsNote;
         _lookupTask             = lookupTask;
+        _panelVisible                    = initialPanelVisible;
+        _agentSuggestions                = agentSuggestions ?? [];
+        _syncBorderVisibility            = syncBorderVisibility;
+        _flashPanel                      = flashPanel;
+        _setMenuChecked                  = setMenuChecked;
+        _persistVisibility               = persistVisibility;
+        _onFilterPersisted               = onFilterPersisted;
+        _onUnreadOnlyPersisted           = onUnreadOnlyPersisted;
+        _onFilterChangedForIntelliSense  = onFilterChangedForIntelliSense;
 
-        _listScrollContainer.IsKeyboardFocusWithinChanged += (_, _) =>
+        _listScrollContainer.IsKeyboardFocusWithinChanged+= (_, _) =>
         {
             _listHasFocus = _listScrollContainer.IsKeyboardFocusWithin;
             RefreshRowHighlights();
@@ -123,6 +152,67 @@ internal sealed class InboxPanelController
         _viewModel.UnreadOnly = unreadOnly;
         ApplyFilter();
     }
+
+    // ── Panel visibility ──────────────────────────────────────────────────────
+
+    /// <summary>Whether the inbox panel border is currently visible.</summary>
+    public bool PanelVisible => _panelVisible;
+
+    /// <summary>Shows the panel. Calls the border-sync, menu, persistence, and flash delegates.</summary>
+    public void Show(bool flash = true)
+    {
+        _panelVisible = true;
+        _syncBorderVisibility?.Invoke(true);
+        _setMenuChecked?.Invoke(true);
+        _persistVisibility?.Invoke();
+        if (flash) _flashPanel?.Invoke();
+    }
+
+    /// <summary>Hides the panel. Calls the border-sync, menu, and persistence delegates.</summary>
+    public void Hide()
+    {
+        _panelVisible = false;
+        _syncBorderVisibility?.Invoke(false);
+        _setMenuChecked?.Invoke(false);
+        _persistVisibility?.Invoke();
+    }
+
+    /// <summary>Toggles panel visibility. Shows without flash when transitioning to visible.</summary>
+    public void Toggle()
+    {
+        if (_panelVisible) Hide();
+        else Show(flash: false);
+    }
+
+    // ── Filter and unread-state orchestration ────────────────────────────────
+
+    /// <summary>
+    /// Called when the filter text box changes. Applies the filter, persists the text,
+    /// and notifies the intellisense callback.
+    /// </summary>
+    public void HandleFilterTextChanged(string text)
+    {
+        SetFilter(text);
+        _onFilterPersisted?.Invoke(text);
+        _onFilterChangedForIntelliSense?.Invoke();
+    }
+
+    /// <summary>
+    /// Called when the unread-only checkbox changes. Applies the filter and persists the state.
+    /// </summary>
+    public void HandleUnreadOnlyChanged(bool value)
+    {
+        SetUnreadOnly(value);
+        _onUnreadOnlyPersisted?.Invoke(value);
+    }
+
+    // ── Agent suggestions ─────────────────────────────────────────────────────
+
+    /// <summary>Agent display names available for @ intellisense in the inbox filter box.</summary>
+    public string[] AgentSuggestions => _agentSuggestions;
+
+    /// <summary>Replaces the agent suggestions list (called when the roster changes).</summary>
+    public void SetAgentSuggestions(string[] suggestions) => _agentSuggestions = suggestions;
 
     // ── List construction ────────────────────────────────────────────────────
 

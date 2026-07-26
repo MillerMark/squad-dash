@@ -259,7 +259,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private Dictionary<string, string> _agentHandleByDisplayName = new(StringComparer.OrdinalIgnoreCase);
     private string[] _agentDisplayNames = [];
     private string[] _tasksAgentSuggestions = [];
-    private string[] _inboxAgentSuggestions = [];
     private string[] _currentQuickReplyOptions = [];
     private QuickReplyButtonPayload[] _currentQuickReplyPayloads = [];
     private DateTime _quickRepliesShownAt = DateTime.MinValue;
@@ -317,7 +316,6 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     private readonly HashSet<string>    _renderedSidecarPaths = new(StringComparer.OrdinalIgnoreCase);
     private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
-    private bool                        _inboxPanelVisible = false;
     private readonly HashSet<string>    _inboxLaunchedAgentHandles = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
@@ -13124,7 +13122,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         }
         _agentHandleByDisplayName = dict;
         _agentDisplayNames = [.. dict.Keys.OrderBy(k => k)];
-        _inboxAgentSuggestions = _agentDisplayNames;
+        _inboxPanel?.SetAgentSuggestions(_agentDisplayNames);
     }
 
     /// <summary>
@@ -13228,9 +13226,10 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         if (_intelliSenseState is not null) return;
 
         var atPos = FindAtTriggerPosition(text, caret);
-        if (atPos >= 0 && _inboxAgentSuggestions.Length > 0)
+        var inboxSuggestions = _inboxPanel?.AgentSuggestions ?? [];
+        if (atPos >= 0 && inboxSuggestions.Length > 0)
         {
-            var activated = IntelliSenseController.TryActivate('@', atPos, _inboxAgentSuggestions);
+            var activated = IntelliSenseController.TryActivate('@', atPos, inboxSuggestions);
             if (activated is not null)
             {
                 _intelliSenseOwnerBox = InboxFilterBox;
@@ -18447,7 +18446,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
             if (ViewLoopPanelMenuItem       is not null) ViewLoopPanelMenuItem.IsChecked       = _loopPanelVisible;
             if (ViewTasksMenuItem           is not null) ViewTasksMenuItem.IsChecked           = _tasksPanelVisible;
             if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
-            if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanelVisible;
+            if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanel?.PanelVisible ?? false;
             if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
             if (ViewWatchHealthMenuItem    is not null) ViewWatchHealthMenuItem.IsChecked    = _watchHealthPanelVisible;
@@ -19779,11 +19778,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            _inboxPanelVisible = !_inboxPanelVisible;
-            SyncInboxPanel();
-            if (ViewInboxMenuItem is not null)
-                ViewInboxMenuItem.IsChecked = _inboxPanelVisible;
-            PersistInboxPanelVisible();
+            EnsureInboxPanelCreated();
+            _inboxPanel!.Toggle();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewInboxMenuItem_Click), ex); }
     }
@@ -19792,11 +19788,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
     {
         try
         {
-            _inboxPanelVisible = false;
-            SyncInboxPanel();
-            if (ViewInboxMenuItem is not null)
-                ViewInboxMenuItem.IsChecked = false;
-            PersistInboxPanelVisible();
+            _inboxPanel?.Hide();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxPanelCloseButton_Click), ex); }
     }
@@ -19806,12 +19798,9 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         try
         {
             var text = InboxFilterBox?.Text ?? string.Empty;
-            _inboxPanel?.SetFilter(text);
-            TryUpdateInboxIntelliSense();
             if (InboxFilterClearButton is not null)
                 InboxFilterClearButton.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxFilterText = text.Length > 0 ? text : string.Empty };
-            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            _inboxPanel?.HandleFilterTextChanged(text);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxFilterBox_TextChanged), ex); }
     }
@@ -19828,21 +19817,13 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void InboxUnreadOnlyCheckBox_Checked(object sender, RoutedEventArgs e)
     {
-        try {
-            _inboxPanel?.SetUnreadOnly(true);
-            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxShowUnreadOnly = true };
-            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
-        }
+        try { _inboxPanel?.HandleUnreadOnlyChanged(true); }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Checked), ex); }
     }
 
     private void InboxUnreadOnlyCheckBox_Unchecked(object sender, RoutedEventArgs e)
     {
-        try {
-            _inboxPanel?.SetUnreadOnly(false);
-            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxShowUnreadOnly = false };
-            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
-        }
+        try { _inboxPanel?.HandleUnreadOnlyChanged(false); }
         catch (Exception ex) { HandleUiCallbackException(nameof(InboxUnreadOnlyCheckBox_Unchecked), ex); }
     }
 
@@ -31553,7 +31534,7 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 var inboxState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
                 _docsPanelState = inboxState with
                 {
-                    InboxPanelVisible = _inboxPanelVisible,
+                    InboxPanelVisible = _inboxPanel?.PanelVisible ?? false,
                     OpenInboxMessageIds = openIds.Count > 0 ? openIds : [],
                 };
                 _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
@@ -35852,10 +35833,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         // Restore inbox panel visibility.
         if (_docsPanelState.InboxPanelVisible == true)
         {
-            _inboxPanelVisible = true;
-            SyncInboxPanel();
-            if (ViewInboxMenuItem is not null)
-                ViewInboxMenuItem.IsChecked = true;
+            EnsureInboxPanelCreated();
+            _inboxPanel!.Show(flash: false);
         }
 
         // Restore watch health panel visibility — re-run the health check so content is fresh.
@@ -38393,20 +38372,8 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
 
     private void ShowInboxPanel()
     {
-        _inboxPanelVisible = true;
-        SyncInboxPanel();
-        if (ViewInboxMenuItem is not null)
-            ViewInboxMenuItem.IsChecked = true;
-        PersistInboxPanelVisible();
-
-        // Flash the inbox panel border so the user knows where it appeared (or is already open).
-        if (InboxPanelBorder is not null)
-        {
-            var accentColor = GetActiveAgentAccentColor();
-            // Use a layout pass so the border is visible before the animation starts.
-            _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
-                () => FlashGlowHighlight(InboxPanelBorder, accentColor));
-        }
+        EnsureInboxPanelCreated();
+        _inboxPanel!.Show(flash: true);
     }
 
     /// <summary>Returns the workspace tint accent color used for active-panel chrome
@@ -38419,72 +38386,94 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
         return System.Windows.Media.Colors.CornflowerBlue;
     }
 
-    private void SyncInboxPanel()
+    /// <summary>
+    /// Lazily creates <see cref="_inboxPanel"/> (and its <see cref="_inboxStore"/>) if it has
+    /// not been created yet. Wires all state-management delegates so the controller owns
+    /// panel visibility, filter persistence, and intellisense coordination.
+    /// Idempotent — safe to call multiple times.
+    /// </summary>
+    private void EnsureInboxPanelCreated()
     {
-        if (InboxPanelBorder is null) return;
-        InboxPanelBorder.Visibility = _inboxPanelVisible ? Visibility.Visible : Visibility.Collapsed;
-        _dockingService?.OnPanelVisibilityChanged("inbox", _inboxPanelVisible);
-        UpdateMainGridSideMargins();
-        if (!_inboxPanelVisible) return;
+        if (_inboxPanel is not null) return;
 
         var workspacePath = _currentWorkspace?.FolderPath;
+        _inboxStore ??= workspacePath is not null
+            ? new InboxStore(System.IO.Path.Combine(workspacePath, ".squad"))
+            : new InboxStore(string.Empty);
 
-        if (_inboxPanel is null)
+        _inboxPanel = new InboxPanelController(
+            listPanel:              InboxListPanel!,
+            listScrollContainer:    (FrameworkElement)InboxListPanel!.Parent,
+            viewerBorder:           InboxViewerBorder!,
+            viewerSubjectLabel:     InboxViewerSubjectLabel!,
+            viewerMetaLabel:        InboxViewerMetaLabel!,
+            viewerAttachmentsPanel: InboxViewerAttachmentsPanel!,
+            viewerBody:             InboxViewerBody!,
+            markRead:               id => _inboxStore?.MarkRead(id),
+            markUnread:             id => _inboxStore?.MarkUnread(id),
+            archive:                id => _inboxStore?.Archive(id),
+            delete:                 id => _inboxStore?.Delete(id),
+            viewerActionsPanel:     InboxViewerActionsPanel!,
+            onActionClicked:        DispatchInboxAction,
+            openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
+            lookupTask:             LookupTaskById,
+            addToChat:              msg => AttachInboxMessageFollowUp(msg),
+            addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },
+            openDecomposePlan:      OpenDecomposePlanAttachment,
+            addAsNote:              msg => AddNoteFromTextWithTitle(msg.Subject, msg.Body ?? string.Empty),
+            syncBorderVisibility:   visible => {
+                                        if (InboxPanelBorder is null) return;
+                                        InboxPanelBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                                        _dockingService?.OnPanelVisibilityChanged("inbox", visible);
+                                        UpdateMainGridSideMargins();
+                                    },
+            flashPanel:             () => {
+                                        if (InboxPanelBorder is null) return;
+                                        var accentColor = GetActiveAgentAccentColor();
+                                        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                                            () => FlashGlowHighlight(InboxPanelBorder, accentColor));
+                                    },
+            setMenuChecked:         isChecked => { if (ViewInboxMenuItem is not null) ViewInboxMenuItem.IsChecked = isChecked; },
+            persistVisibility:      () => {
+                                        var s = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+                                        _docsPanelState = s with { InboxPanelVisible = _inboxPanel?.PanelVisible ?? false };
+                                        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                                    },
+            onFilterPersisted:      text => {
+                                        _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxFilterText = text.Length > 0 ? text : string.Empty };
+                                        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                                    },
+            onUnreadOnlyPersisted:  v => {
+                                        _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { InboxShowUnreadOnly = v };
+                                        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                                    },
+            onFilterChangedForIntelliSense: () => TryUpdateInboxIntelliSense(),
+            agentSuggestions:       _agentDisplayNames);
+
+        _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
+
+        // Wire dynamic max-width hint so splitter snap targets content width.
+        if (InboxPanelBorder is { } ipb)
+            ipb.MaximumUsefulSizeProvider = orientation => orientation switch
+            {
+                DockResizeOrientation.Horizontal => _inboxPanel.GetMaximumUsefulWidth(),
+                DockResizeOrientation.Vertical   => _inboxPanel.GetMaximumUsefulHeight(),
+                _                                => null
+            };
+
+        var messages = _inboxStore?.LoadAll() ?? [];
+        _inboxPanel.Refresh(messages);
+
+        var inboxWorkspaceState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        if (inboxWorkspaceState.InboxShowUnreadOnly == true)
         {
-            _inboxStore ??= workspacePath is not null
-                ? new InboxStore(System.IO.Path.Combine(workspacePath, ".squad"))
-                : new InboxStore(string.Empty);
-
-            _inboxPanel = new InboxPanelController(
-                listPanel:              InboxListPanel!,
-                listScrollContainer:    (FrameworkElement)InboxListPanel!.Parent,
-                viewerBorder:           InboxViewerBorder!,
-                viewerSubjectLabel:     InboxViewerSubjectLabel!,
-                viewerMetaLabel:        InboxViewerMetaLabel!,
-                viewerAttachmentsPanel: InboxViewerAttachmentsPanel!,
-                viewerBody:             InboxViewerBody!,
-                markRead:               id => _inboxStore?.MarkRead(id),
-                markUnread:             id => _inboxStore?.MarkUnread(id),
-                archive:                id => _inboxStore?.Archive(id),
-                delete:                 id => _inboxStore?.Delete(id),
-                viewerActionsPanel:     InboxViewerActionsPanel!,
-                onActionClicked:        DispatchInboxAction,
-                openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
-                lookupTask:             LookupTaskById,
-                addToChat:              msg => AttachInboxMessageFollowUp(msg),
-                addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },
-                openDecomposePlan:      OpenDecomposePlanAttachment,
-                addAsNote:              msg => AddNoteFromTextWithTitle(msg.Subject, msg.Body ?? string.Empty));
-            _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
-
-            // Wire dynamic max-width hint so splitter snap targets content width
-            if (InboxPanelBorder is { } ipb)
-                ipb.MaximumUsefulSizeProvider = orientation => orientation switch
-                {
-                    DockResizeOrientation.Horizontal => _inboxPanel.GetMaximumUsefulWidth(),
-                    DockResizeOrientation.Vertical   => _inboxPanel.GetMaximumUsefulHeight(),
-                    _                                => null
-                };
-
-            var messages = _inboxStore?.LoadAll() ?? [];
-            _inboxPanel.Refresh(messages);
-
-            var inboxWorkspaceState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-            if (inboxWorkspaceState.InboxShowUnreadOnly == true) {
-                InboxUnreadOnlyCheckBox.IsChecked = true;
-                _inboxPanel.SetUnreadOnly(true);
-            }
-            if (inboxWorkspaceState.InboxFilterText is { Length: > 0 } savedFilter) {
-                if (InboxFilterBox is not null) InboxFilterBox.Text = savedFilter;
-            }
+            InboxUnreadOnlyCheckBox.IsChecked = true;
+            _inboxPanel.SetUnreadOnly(true);
         }
-    }
-
-    private void PersistInboxPanelVisible()
-    {
-        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-        _docsPanelState = state with { InboxPanelVisible = _inboxPanelVisible };
-        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        if (inboxWorkspaceState.InboxFilterText is { Length: > 0 } savedFilter)
+        {
+            if (InboxFilterBox is not null) InboxFilterBox.Text = savedFilter;
+        }
     }
 
     private TaskItem? LookupTaskById(string taskId)
@@ -41379,9 +41368,22 @@ public partial class MainWindow : Window, ILiveElementLocator, IWorkspaceContext
                 SyncCodeHealthPanel();
                 if (ViewCodeHealthMenuItem is not null) ViewCodeHealthMenuItem.IsChecked = _codeHealthPanelVisible;
 
-                _inboxPanelVisible = ids.Contains("inbox");
-                SyncInboxPanel();
-                if (ViewInboxMenuItem is not null) ViewInboxMenuItem.IsChecked = _inboxPanelVisible;
+                if (ids.Contains("inbox"))
+                {
+                    EnsureInboxPanelCreated();
+                    if (!_inboxPanel!.PanelVisible) _inboxPanel.Show(flash: false);
+                }
+                else
+                {
+                    if (_inboxPanel is not null && _inboxPanel.PanelVisible)
+                        _inboxPanel.Hide();
+                    else if (InboxPanelBorder is not null)
+                    {
+                        InboxPanelBorder.Visibility = Visibility.Collapsed;
+                        _dockingService?.OnPanelVisibilityChanged("inbox", false);
+                        UpdateMainGridSideMargins();
+                    }
+                }
 
                 // watch-health requires an async refresh to populate results; close it if not in preset.
                 if (ids.Contains("watch-health") && !_watchHealthPanelVisible)

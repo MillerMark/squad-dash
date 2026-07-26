@@ -304,6 +304,7 @@
     <Compile Include="..\SquadDash\FilterEmptyStateHelper.cs" Link="Source\FilterEmptyStateHelper.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelViewModel.cs" Link="Source\CodeHealthPanelViewModel.cs" />
     <Compile Include="..\SquadDash\InboxPanelViewModel.cs" Link="Source\InboxPanelViewModel.cs" />
+    <Compile Include="..\SquadDash\InboxPanelController.cs" Link="Source\InboxPanelController.cs" />
     <Compile Include="..\SquadDash\TasksPanelViewModel.cs" Link="Source\TasksPanelViewModel.cs" />
     <Compile Include="..\SquadDash\NotesPanelViewModel.cs" Link="Source\NotesPanelViewModel.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelUiState.cs" Link="Source\CodeHealthPanelUiState.cs" />
