@@ -26,25 +26,25 @@
   dependsOn: (none)
   parentTaskId: GODCLASS-20260725-003
 
-- [ ] **[GODCLASS-20260725-013]** Migrate non-persisted settings mutations
+- [x] **[GODCLASS-20260725-013]** Migrate non-persisted settings mutations — commit b2cdb70 (no with-expression sites found beyond prior step; 2 new tests added)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Route direct in-memory _settingsSnapshot with-expression mutations through SettingsSnapshotManager without changing persistence timing. Add focused tests for representative update paths and leave the build green. Do not migrate store-returning persistence calls in this step.
   dependsOn: GODCLASS-20260725-012
   parentTaskId: GODCLASS-20260725-003
 
-- [ ] **[GODCLASS-20260725-014]** Migrate settings persistence call sites
+- [x] **[GODCLASS-20260725-014]** Migrate settings persistence call sites — commit 80989f9 (60 SaveXxx sites migrated; 10 lambda sites deferred to 015; 3 regression tests; 2984 tests green)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Route MainWindow call sites that assign ApplicationSettingsStore Save* return values through SettingsSnapshotManager so the manager remains the single owner after persistence. Preserve every existing save boundary and add regression tests for representative persistence paths.
   dependsOn: GODCLASS-20260725-013
   parentTaskId: GODCLASS-20260725-003
 
-- [ ] **[GODCLASS-20260725-015]** Migrate dispatcher and external settings injection paths
+- [x] **[GODCLASS-20260725-015]** Migrate dispatcher and external settings injection paths — commit dfa49e4 (all 10 deferred lambda/callback sites migrated; 3 focused tests; 2987 tests green)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Move dispatcher callbacks, lambdas, PreferencesWindow injection, and other externally supplied snapshot replacements to SettingsSnapshotManager. Prove ordering and thread-affinity behavior with focused tests and keep MainWindow behavior unchanged.
   dependsOn: GODCLASS-20260725-014
   parentTaskId: GODCLASS-20260725-003
 
-- [ ] **[GODCLASS-20260725-016]** Remove legacy snapshot ownership and verify the extraction
+- [x] **[GODCLASS-20260725-016]** Remove legacy snapshot ownership and verify the extraction — commit 153264f (_settingsSnapshot converted to get-only property; 7 stale mutations fixed; ~70 sync lines removed; 2987 tests green)
   Group: GODCLASS-20260725 | Branch: refactor/mainwindow-decomposition | Priority: high
   description: Remove MainWindow's duplicate _settingsSnapshot ownership after all call sites use SettingsSnapshotManager, expose only the minimum read interface MainWindow still needs, run the full test suite and solution build, and verify there are no direct settings snapshot mutations left in MainWindow.
   dependsOn: GODCLASS-20260725-015
