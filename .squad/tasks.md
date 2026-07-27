@@ -1,3 +1,88 @@
+﻿<!-- decompose-group: WATCHMERGE-20260727 | branch: feature/watch-health-in-tasks-panel | revision: c3c398fba755e41a -->
+**[WATCHMERGE-20260727] Merge Watch Health into Tasks Panel**
+> Move Watch Health from a standalone dockable panel into a collapsible section at the bottom of the Tasks panel. Three sequential phases: (1) add Watch Health section to TasksPanelController + Tasks XAML, wired to the existing SquadWatchHealthService; (2) remove the standalone WatchHealthPanelBorder, View menu item, docking registration, and dead MainWindow fields; (3) update docs. Each phase leaves the build usable.
+
+- [x] **[WATCHMERGE-20260727-001]** Add Watch Health collapsible section to Tasks panel
+  (SquadDash status: Completed by SquadDash — commit 605b610: Added Watch Health collapsible section to TasksPanelController. AttachWatchHealth() builds a separator + header row (status dot, chevron, last-check time) + collapsible body (Refresh/Copy/Start/Stop buttons, interval/execute/notify options, scrollable output). SyncWatchHealthSection() and auto-refresh timer mirror existing MainWindow logic. Collapse state persisted via WatchHealthSectionExpanded in WorkspaceDocsPanelState. MainWindow.xaml.cs calls AttachWatchHealth after TasksPanelController creation. Existing standalone panel is untouched.)
+  Group: WATCHMERGE-20260727 | Branch: feature/watch-health-in-tasks-panel | Priority: high
+  description: Add a collapsible 'Watch Health' section at the bottom of the Tasks panel. Implementation notes:
+
+**TasksPanelController.cs** — add a `BuildWatchHealthSection()` method that returns a `Border` containing:
+- A section header row: toggle chevron + status dot (🟢/⚪/🔴 using `{dot:green}` / `{dot:gray}` / `{dot:red}` or a small Ellipse) + label 'Watch Health' + last-check timestamp label. Clicking the header row toggles collapse.
+- When expanded: a controls row with Refresh, Copy, Start, Stop buttons; below that: interval TextBox (default '5'), Execute CheckBox, NotifyLevel ComboBox (all/important/none). Below controls: a ScrollViewer containing a StackPanel for output lines.
+- `SyncWatchHealthSection()` — mirrors existing `SyncWatchHealthPanel()` logic: updates status dot, output lines, last-check time, button enabled states. Call `SyncWatchHealthControls()` pattern for enable/disable.
+- `SyncWatchHealthAutoRefresh()` — starts/stops a `DispatcherTimer` (15 s interval) when IsRunning changes.
+- All event handlers: Refresh, Start, Stop, Copy — delegate to the same `SquadWatchHealthService` calls as in MainWindow. Inject `SquadWatchHealthService` and `Func<string?> getCurrentWorkspacePath` via constructor or new `AttachWatchHealth(...)` method on TasksPanelController.
+- Collapse state persisted: add `WatchHealthSectionExpanded` bool to `ApplicationSettingsStore` (or workspace settings via `WorkspaceDocsPanelState`) — load on init, save on toggle. Collapsed by default (first-run default = false).
+- Status dot visible in header even when section is collapsed for ambient awareness.
+- Use `SetResourceReference` for all brushes; no hardcoded colors.
+
+**MainWindow.xaml / TasksPanelController** — append the Watch Health section to the Tasks panel's root StackPanel (below task groups). If Tasks panel is built procedurally in TasksPanelController, add the section there; if it has an XAML root container, use that.
+
+**MainWindow.xaml.cs** — call `AttachWatchHealth(_watchHealthService, () => _currentWorkspace?.FolderPath)` (or equivalent) when wiring up TasksPanelController. Do NOT remove any existing watch-health code yet — both implementations coexist until task 002.
+
+**Build and test:** `$env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR='C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\'; $env:MSBuildExtensionsPath='C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\'; dotnet build SquadDash\SquadDash.csproj -c Debug --no-restore -v quiet` then `dotnet test SquadDash.Tests\SquadDash.Tests.csproj -c Debug --no-restore -v quiet`. Run from `D:\Drive\Source\SquadDash-public`.
+  dependsOn: (none)
+
+- [ ] **[WATCHMERGE-20260727-002]** Remove standalone Watch Health panel and menu item
+  Group: WATCHMERGE-20260727 | Branch: feature/watch-health-in-tasks-panel | Priority: high
+  description: Remove all standalone Watch Health panel infrastructure from MainWindow. Depends on task 001 (the section in Tasks panel must be working first).
+
+**MainWindow.xaml** — delete the entire `WatchHealthPanelBorder` XAML block (the standalone panel Border and all its children). Remove `ViewWatchHealthMenuItem` from the View/Tools menu.
+
+**MainWindow.xaml.cs** — remove:
+- `_watchHealthPanelVisible` field and all references
+- `_watchHealthResult` field (now owned by TasksPanelController)
+- `_watchHealthAutoRefreshTimer` field (now owned by TasksPanelController)
+- `_watchHealthCommandInFlight` field (now owned by TasksPanelController)
+- `SyncWatchHealthPanel()` method
+- `SyncWatchHealthControls()` method
+- `SyncWatchHealthAutoRefresh()` method
+- `WatchHealthMenuItem_Click()` handler
+- `ViewWatchHealthMenuItem_Click()` handler
+- `RefreshWatchHealthPanelAsync()` method
+- `CloseWatchHealthPanel()` method
+- `WatchHealthPanelCloseButton_Click()` handler
+- `WatchHealthRefreshButton_Click()` handler
+- `WatchHealthCopyButton_Click()` handler
+- `WatchHealthStartButton_Click()` handler
+- `WatchHealthStopButton_Click()` handler
+- `WatchHealthAutoRefreshTimer_Tick()` handler
+- `ReadWatchHealthIntervalMinutes()` helper
+- `ReadWatchHealthNotifyLevel()` helper
+- `PersistWatchHealthPanelVisible()` method
+- `_watchHealthService` field (move ownership to TasksPanelController, or keep in MainWindow and inject)
+- The `['watch-health'] = WatchHealthPanelBorder` entry from the docking registry dictionary (line ~850)
+- The `('watch-health', WatchHealthPanelBorder)` entry from docking panel list (line ~33985)
+- The `case 'watch-health'` branch in the panel-lookup switch (line ~34024)
+- The `ViewWatchHealthMenuItem.IsChecked` sync call (line ~18639)
+- The preset application logic for `watch-health` (lines ~41563-41568)
+- The workspace load code that calls `RefreshWatchHealthPanelAsync()` on `WatchHealthPanelVisible` (line ~36016)
+- The workspace context-menu `watchHealthMenuItem` (line ~32315)
+
+**WorkspaceDocsPanelState** — mark `WatchHealthPanelVisible` as `[Obsolete]` or remove it; if removed, add a migration shim that ignores the key on deserialization (so saved settings don't crash on load). Prefer `[Obsolete]` + keep reading it (just don't act on it) to avoid breaking existing saved workspaces.
+
+**Docking** — if `'watch-health'` appears in saved dock layouts, it must be silently ignored on load (not throw). Add a guard in the docking restore path if not already present.
+
+**Build and test** as in task 001.
+  dependsOn: WATCHMERGE-20260727-001
+
+- [ ] **[WATCHMERGE-20260727-003]** Update documentation for Watch Health in Tasks panel
+  Group: WATCHMERGE-20260727 | Branch: feature/watch-health-in-tasks-panel | Priority: mid
+  description: Update the docs to reflect that Watch Health is now part of the Tasks panel, not a standalone panel.
+
+**`docs/panels/Tasks.md`** — add a '## Watch Health' subsection (or '## Squad Watch') near the bottom explaining: the collapsible Watch Health section surfaces the `squad watch` CLI process; it shows running status, last-check time, output lines; controls include Refresh, Copy, Start (with interval/execute/notify-level options), and Stop. Include the screenshot placeholder format:
+  `![Screenshot: Watch Health section in Tasks panel](images/tasks-watch-health.png)`
+  `> 📸 *Screenshot needed: The Tasks panel with Watch Health section expanded, showing the status dot, controls row, and output lines.*`
+
+**`docs/panels/Tools.md`** (or whatever file lists all panels) — remove Watch Health from the panel table/list if present.
+
+**`docs/SUMMARY.md`** — remove any standalone Watch Health entry if present.
+
+Do NOT commit tasks.md. Commit only the doc files. Build verification is not required for doc-only changes, but do a quick `dotnet build` to confirm the previous tasks haven't left anything broken.
+  dependsOn: WATCHMERGE-20260727-002
+
+
 <!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition | revision: 4356959cdf9fba89 -->
 <!-- decompose-revision: 4356959cdf9fba89 -->
 **[GODCLASS-20260725] MainWindow God Class Decomposition**
