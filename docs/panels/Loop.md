@@ -1,7 +1,7 @@
 ---
 title: Loop Panel
 nav_order: 2
-parent: Panels
+parent: Tools
 ---
 
 # Loop Panel

@@ -1,7 +1,7 @@
 ---
 title: Code Health Panel
 nav_order: 5
-parent: Panels
+parent: Tools
 ---
 
 # Code Health Panel

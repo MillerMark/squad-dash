@@ -1,7 +1,7 @@
 ---
 title: Live Tasks Window
 nav_order: 2
-parent: Panels
+parent: Tools
 ---
 
 # Live Tasks Window

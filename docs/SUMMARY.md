@@ -37,7 +37,7 @@
   * [Inbox Panel](features/inbox.md)
   * [Attach Inbox Selection to Chat](features/inbox-selection-attach.md)
 
-## Panels
+## Tools
 
 * [Tools](panels/Tools.md)
 

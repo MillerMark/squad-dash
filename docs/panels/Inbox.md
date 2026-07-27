@@ -1,7 +1,7 @@
 ---
 title: Inbox Panel
 nav_order: 6
-parent: Panels
+parent: Tools
 ---
 
 # Inbox Panel

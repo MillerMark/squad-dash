@@ -1,7 +1,7 @@
 ---
 title: Notes Panel
 nav_order: 4
-parent: Panels
+parent: Tools
 ---
 
 # Notes Panel

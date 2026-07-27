@@ -1,7 +1,7 @@
 ---
 title: Approvals Panel
 nav_order: 3
-parent: Panels
+parent: Tools
 ---
 
 # Approvals Panel
