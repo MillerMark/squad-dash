@@ -25,6 +25,9 @@ internal sealed class PlansPanelController
     private bool _panelVisible;
     internal bool PanelVisible => _panelVisible;
 
+    // Cached plan list for targeted live updates — avoids a full store reload on each event.
+    private List<Plan> _currentPlans = [];
+
     // ── Construction ─────────────────────────────────────────────────────────
 
     internal PlansPanelController(
@@ -52,39 +55,31 @@ internal sealed class PlansPanelController
 
     internal void Refresh(IReadOnlyList<Plan> plans)
     {
-        _activePanel.Children.Clear();
-        _completedPanel.Children.Clear();
+        _currentPlans = [.. plans];
+        RebuildPanels();
+    }
 
-        var active    = plans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
-        var completed = plans.Where(p => PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
-
-        if (active.Count == 0 && completed.Count == 0)
-        {
-            ShowEmpty(_activePanel, "No plans");
-        }
+    /// <summary>
+    /// Applies a live plan update without a full store reload.
+    /// Replaces or inserts the updated plan in the cached list and rebuilds only the panels.
+    /// Dispatcher-safe: must be called on the UI thread.
+    /// </summary>
+    internal void OnPlanChanged(Plan updatedPlan)
+    {
+        var idx = _currentPlans.FindIndex(p =>
+            string.Equals(p.PlanId, updatedPlan.PlanId, StringComparison.Ordinal));
+        if (idx >= 0)
+            _currentPlans[idx] = updatedPlan;
         else
-        {
-            foreach (var plan in active)
-                _activePanel.Children.Add(BuildRow(plan));
-
-            if (active.Count == 0)
-                ShowEmpty(_activePanel, "No active plans");
-        }
-
-        foreach (var plan in completed)
-            _completedPanel.Children.Add(BuildRow(plan));
-
-        _completedSection.Visibility =
-            _viewModel.ShowCompleted && completed.Count > 0
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            _currentPlans.Add(updatedPlan);
+        RebuildPanels();
     }
 
     internal void SetShowCompleted(bool show)
     {
         _viewModel.ShowCompleted = show;
         // Toggle completed section visibility without a full rebuild.
-        var anyCompleted = _completedPanel.Children.Count > 0;
+        var anyCompleted = _currentPlans.Any(p => PlanLifecycleStatus.IsTerminal(p.LifecycleStatus));
         _completedSection.Visibility =
             show && anyCompleted ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -113,6 +108,36 @@ internal sealed class PlansPanelController
     internal double GetMaximumUsefulHeight() => 520.0;
 
     // ── Row building ──────────────────────────────────────────────────────────
+
+    private void RebuildPanels()
+    {
+        _activePanel.Children.Clear();
+        _completedPanel.Children.Clear();
+
+        var active    = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
+        var completed = _currentPlans.Where(p => PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
+
+        if (active.Count == 0 && completed.Count == 0)
+        {
+            ShowEmpty(_activePanel, "No plans");
+        }
+        else
+        {
+            foreach (var plan in active)
+                _activePanel.Children.Add(BuildRow(plan));
+
+            if (active.Count == 0)
+                ShowEmpty(_activePanel, "No active plans");
+        }
+
+        foreach (var plan in completed)
+            _completedPanel.Children.Add(BuildRow(plan));
+
+        _completedSection.Visibility =
+            _viewModel.ShowCompleted && completed.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
 
     private Border BuildRow(Plan plan)
     {

@@ -326,6 +326,7 @@ public partial class MainWindow : Window
     private List<NoteItem> _noteItems = [];
     private PlanStore? _planStore;
     private PlansPanelController? _plansPanelController;
+    private Action<PlanProgressEvent>? _onPlanProgressEvent;
     private CodeHealthPanelController? _codeHealthPanel;
     private IdleDetectionService?       _idleDetectionService;
     private CodeHealthRunner?          _CodeHealthRunner;
@@ -1298,6 +1299,9 @@ public partial class MainWindow : Window
         _broker.Subscribe(_onUserPreferenceChanged);
         _onPowerModeChanged = msg => OnPowerModeChanged(msg.Sender, msg.Args);
         _broker.Subscribe(_onPowerModeChanged);
+        _onPlanProgressEvent = evt =>
+            Dispatcher.BeginInvoke(() => _plansPanelController?.OnPlanChanged(evt.UpdatedPlan));
+        _broker.Subscribe(_onPlanProgressEvent);
         {
             var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
             Microsoft.Win32.SystemEvents.UserPreferenceChanged += (sender, e) =>
@@ -7563,6 +7567,8 @@ public partial class MainWindow : Window
         _conversationManager.UpdateActiveLoopExecutionState(
             new ActiveLoopExecutionState(loopPath, groupId, groupId, revision));
 
+        TryPublishPlanStarted(groupId, group, revision);
+
         _activeLoopMode = LoopMode.NativeAgents;
         _loopPanelVisible = true;
         SyncLoopPanel();
@@ -8209,6 +8215,7 @@ public partial class MainWindow : Window
         }
 
         var state = _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId);
+        TryPublishPlanStepAccepted(groupId, state);
         if (state == DecomposeGroupExecutionState.Complete)
         {
             SuppressLoopResume("plan-complete");
@@ -8284,6 +8291,7 @@ public partial class MainWindow : Window
             groupId,
             revision,
             taskId);
+        TryPublishPlanBlocked(groupId, taskId);
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
     }
 
@@ -38296,6 +38304,126 @@ public partial class MainWindow : Window
             OpenDecomposePlanViewer(pending);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(OpenPlanFromStore), ex); }
+    }
+
+    // ── Plan lifecycle event helpers ──────────────────────────────────────────
+
+    /// <summary>
+    /// Persists an updated Plan and fires a <see cref="PlanProgressEvent"/> so the
+    /// Plans panel updates without a manual refresh.
+    /// </summary>
+    private void PublishPlanProgress(Plan plan)
+    {
+        try
+        {
+            _planStore?.Save(plan);
+            _broker.Publish(new PlanProgressEvent(plan.PlanId, plan));
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanProgress: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when a decompose loop starts or resumes. Creates or updates the Plan in
+    /// <see cref="PlanStore"/> and fires a progress event so the panel reflects
+    /// <see cref="PlanLifecycleStatus.Executing"/>.
+    /// </summary>
+    private void TryPublishPlanStarted(string groupId, DecomposedTaskGroup? group, string revision)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+            var parsed    = File.Exists(tasksPath)
+                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                : null;
+            var resolvedGroup = group
+                ?? (parsed?.DecomposeGroups.TryGetValue(groupId, out var g) == true ? g : null);
+            if (resolvedGroup is null) return;
+
+            var items    = GetGroupTaskItems(parsed, groupId);
+            var existing = _planStore.Load(groupId);
+            var updated  = PlanStoreUpdater.ApplyExecutionStarted(
+                existing, resolvedGroup, revision, items,
+                _CodeHealthGroupRunner?.CurrentStepId);
+            PublishPlanProgress(updated);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanStarted: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called after a step result is accepted. Updates progress and fires a progress event.
+    /// <paramref name="groupState"/> tells us whether the plan is now complete or still has
+    /// eligible steps.
+    /// </summary>
+    private void TryPublishPlanStepAccepted(string groupId, DecomposeGroupExecutionState groupState)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var existing = _planStore.Load(groupId);
+            if (existing is null) return;
+
+            Plan updated;
+            if (groupState == DecomposeGroupExecutionState.Complete)
+            {
+                updated = PlanStoreUpdater.ApplyCompleted(existing);
+            }
+            else
+            {
+                var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+                var parsed    = File.Exists(tasksPath)
+                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                    : null;
+                var items   = GetGroupTaskItems(parsed, groupId);
+                var nextId  = groupState == DecomposeGroupExecutionState.Eligible
+                    ? _CodeHealthGroupRunner?.CurrentStepId
+                    : null;
+                updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextId);
+            }
+
+            PublishPlanProgress(updated);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanStepAccepted: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when a plan is blocked. Transitions the Plan to
+    /// <see cref="PlanLifecycleStatus.Blocked"/> and fires a progress event.
+    /// </summary>
+    private void TryPublishPlanBlocked(string groupId, string taskId)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var existing = _planStore.Load(groupId);
+            if (existing is null) return;
+            var updated = PlanStoreUpdater.ApplyBlocked(existing, taskId);
+            PublishPlanProgress(updated);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanBlocked: {ex.Message}");
+        }
+    }
+
+    /// <summary>Extracts task items belonging to a specific decompose group from the parse result.</summary>
+    private static IReadOnlyList<TaskItem> GetGroupTaskItems(TaskParseResult? parsed, string groupId)
+    {
+        if (parsed is null) return [];
+        return parsed.OpenGroups
+            .SelectMany(g => g.Items)
+            .Concat(parsed.CompletedItems)
+            .Where(i => string.Equals(i.DecomposeGroupId, groupId, StringComparison.Ordinal))
+            .ToList();
     }
 
     private void SyncCodeHealthPanel()
