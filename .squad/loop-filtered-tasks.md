@@ -12,7 +12,7 @@ You are running as part of a SquadDash autonomous loop. **Each iteration must co
 
 > Iteration: {{iteration}}
 
-The iteration number above tells you which iteration this is. In the sequence. Elsewhere I may have a setting that tells you the maximum of iterations. You can compare this number against Max, and if it is you can issue a stop command.
+The number above tells you which iteration this is in the sequence. Elsewhere I may have a setting that specifies maximum iterations. You can compare this number against the upper limit, and if it is equal or greater you can issue a stop_loop command.
 
 ## Step 1 — Find the next **filtered** task
 

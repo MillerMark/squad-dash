@@ -1,16 +1,17 @@
 ---
 configured: true
-interval: 1
+interval: 0.1
 timeout: 60
-description: "Filtered Task Runner — picks the top open task, implements it, marks it done, repeats"
+description: "Filtered Tasks — picks the top open task, implements it, marks it done, repeats"
 commands: [stop_loop]
 ---
 
-# Filtered Task Loop
+# Filtered Tasks
 
 You are running as part of a SquadDash autonomous loop. **Each iteration must complete exactly one task** from `.squad/tasks.md`, then end this iteration's response. Do **not** stop the loop after a successful task; the next iteration will pick up the next task.
 
 > Iteration: {{iteration}}
+The number above tells you which iteration this is in the sequence. Elsewhere I may have a setting that specifies maximum iterations. You can compare this number against the upper limit, and if it is equal or greater you can issue a stop_loop command.
 
 ## Step 1 — Find the next **filtered** task
 
@@ -40,7 +41,7 @@ No unchecked tasks remain (or all remaining tasks are Owner: User). Do the follo
 ## Step 3 — If a task IS found, implement it fully
 
 1. Read `.squad/routing.md` to identify the correct owner/agent for this task.
-2. Delegate to or become that agent. Complete the work — implementation, decisions, tests, as appropriate.
+2. Delegate to that agent and have them complete the work — implementation, decisions, tests, as appropriate.
 3. For **"define…" or "decide…" or "architecture" tasks**: document the decision in `.squad/decisions.md` (create if missing) and update relevant architecture docs, then consider the task done.
 4. For **implementation tasks**:
    - Run the auto-detected `{{build_command}}` when it is available and verify the build passes.

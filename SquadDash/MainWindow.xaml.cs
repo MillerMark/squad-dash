@@ -559,6 +559,7 @@ public partial class MainWindow : Window
     private bool _loopQueued;
     private int _loopQueuedResumeFromIteration;
     private LoopMode _activeLoopMode = LoopMode.NativeAgents; // set at loop start; Shift+click overrides to SquadCli
+    private LoopCliProjection? _activeLoopCliProjection;
     private bool _loopInterruptedByQueue; // set when user enqueues a prompt while native loop is running
     private bool _loopPausedForQuickReply; // set at startup when loop resume is held for pending quick replies
     private int _activeTintStop;                       // 0 = natural; 1–7 = hue offsets at 45° steps
@@ -5820,6 +5821,7 @@ public partial class MainWindow : Window
 
     private void HandleLoopStopped(SquadSdkEvent evt)
     {
+        CleanupActiveLoopCliProjection("loop-stopped");
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-stopped");
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
@@ -5835,6 +5837,7 @@ public partial class MainWindow : Window
 
     private void HandleLoopError(SquadSdkEvent evt)
     {
+        CleanupActiveLoopCliProjection("loop-error");
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-error");
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
@@ -5848,6 +5851,18 @@ public partial class MainWindow : Window
         AppendLine(errorLabel, ThemeBrush("SystemErrorText"));
         SquadDashTrace.Write("UI", $"Loop error message={evt.Message ?? "(none)"}");
         SyncLoopPanel();
+    }
+
+    private void CleanupActiveLoopCliProjection(string reason)
+    {
+        var projection = _activeLoopCliProjection;
+        if (projection is null) return;
+
+        _activeLoopCliProjection = null;
+        SquadDashTrace.Write(
+            "Loop",
+            $"Cleaning Squad CLI loop projection reason={reason} source={projection.SourcePath} projection={projection.FilePath}");
+        projection.Dispose();
     }
 
     // ── Native-loop controller callbacks (LoopMode.NativeAgents) ───────────
@@ -7364,8 +7379,31 @@ public partial class MainWindow : Window
         }
         else
         {
-            await _bridge.RunLoopAsync(loopMdPath, _currentWorkspace.FolderPath,
-                _conversationManager.CurrentSessionId);
+            var config = LoopMdParser.Parse(loopMdPath)
+                ?? throw new InvalidDataException($"Could not parse loop file for Squad CLI: {loopMdPath}");
+
+            CleanupActiveLoopCliProjection("replace-before-start");
+            var projection = LoopCliProjection.Create(
+                sourcePath: loopMdPath,
+                config,
+                workspacePath: _currentWorkspace.FolderPath,
+                filterText,
+                featureGroups: _featureGroupStore?.Load());
+            _activeLoopCliProjection = projection;
+            try
+            {
+                await _bridge.RunLoopAsync(
+                    projection.FilePath,
+                    _currentWorkspace.FolderPath,
+                    _conversationManager.CurrentSessionId,
+                    displayLoopMdPath: loopMdPath);
+            }
+            catch
+            {
+                if (ReferenceEquals(_activeLoopCliProjection, projection))
+                    CleanupActiveLoopCliProjection("start-failed");
+                throw;
+            }
         }
     }
 
@@ -31404,6 +31442,7 @@ public partial class MainWindow : Window
             _responseRenderTimer.Stop();
             _uiResponsivenessTimer.Stop();
             _teamRefreshDebounceTimer.Stop();
+            CleanupActiveLoopCliProjection("window-closed");
             _speechService?.Dispose();
             _speechService = null;
             var pendingPlacement = _pendingWindowPlacement;

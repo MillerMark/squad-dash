@@ -70,6 +70,7 @@ type RunLoopRequest = {
     type: "run_loop";
     requestId?: string;
     loopMdPath: string;
+    displayLoopMdPath?: string;
     cwd: string;
     sessionId?: string;
 };
@@ -468,11 +469,13 @@ function tryParseRunLoopRequest(parsed: Partial<RunLoopRequest>): RunLoopRequest
 
     const requestId = extractRequiredOrUUID(parsed.requestId);
     const sessionId = extractOptionalString(parsed.sessionId);
+    const displayLoopMdPath = extractOptionalString(parsed.displayLoopMdPath);
 
     return {
         type: "run_loop",
         requestId,
         loopMdPath,
+        displayLoopMdPath,
         cwd,
         sessionId
     };
@@ -814,6 +817,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
 
 async function handleRunLoop(request: RunLoopRequest): Promise<void> {
     const { requestId, sessionId, loopMdPath, cwd } = request;
+    const eventLoopMdPath = request.displayLoopMdPath ?? loopMdPath;
 
     return new Promise<void>((resolve, reject) => {
         let proc: ReturnType<typeof spawn>;
@@ -834,7 +838,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                 type: "loop_error",
                 requestId,
                 sessionId,
-                loopMdPath,
+                loopMdPath: eventLoopMdPath,
                 loopStatus: "error",
                 message: err instanceof Error ? err.message : String(err)
             });
@@ -846,7 +850,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
             type: "loop_started",
             requestId,
             sessionId,
-            loopMdPath,
+            loopMdPath: eventLoopMdPath,
             loopStatus: "running"
         });
 
@@ -859,7 +863,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                     type: "loop_output",
                     requestId,
                     sessionId,
-                    loopMdPath,
+                    loopMdPath: eventLoopMdPath,
                     outputLine: `[stderr] ${line}`
                 });
             }
@@ -870,7 +874,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                 type: "loop_output",
                 requestId,
                 sessionId,
-                loopMdPath,
+                loopMdPath: eventLoopMdPath,
                 outputLine: line
             });
 
@@ -884,7 +888,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                         type: "loop_iteration",
                         requestId,
                         sessionId,
-                        loopMdPath,
+                        loopMdPath: eventLoopMdPath,
                         loopStatus: "running",
                         loopIteration: iterNum
                     });
@@ -900,7 +904,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                 type: "loop_error",
                 requestId,
                 sessionId,
-                loopMdPath,
+                loopMdPath: eventLoopMdPath,
                 loopStatus: "error",
                 message: err.message
             });
@@ -914,7 +918,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                     type: "loop_stopped",
                     requestId,
                     sessionId,
-                    loopMdPath,
+                    loopMdPath: eventLoopMdPath,
                     loopStatus: "stopped"
                 });
             }
@@ -923,7 +927,7 @@ async function handleRunLoop(request: RunLoopRequest): Promise<void> {
                     type: "loop_error",
                     requestId,
                     sessionId,
-                    loopMdPath,
+                    loopMdPath: eventLoopMdPath,
                     loopStatus: "error",
                     message: `squad loop exited with code ${code}`
                 });

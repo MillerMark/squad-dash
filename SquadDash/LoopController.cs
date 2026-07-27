@@ -16,6 +16,8 @@ internal enum LoopStopState { None, StopRequested, Aborted }
 /// </summary>
 internal sealed class LoopController {
 
+    internal const string CopilotTrailer = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>";
+
     private readonly Func<string, string?, Task> _executePromptAsync;
     private readonly Action                      _abortPrompt;
     private readonly Action<int>                 _onIterationStarted;
@@ -276,7 +278,7 @@ internal sealed class LoopController {
 
         // System variables
         text = text.Replace("{{iteration}}", iteration.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
-        text = text.Replace("{{copilot_trailer}}", "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>", StringComparison.Ordinal);
+        text = text.Replace("{{copilot_trailer}}", CopilotTrailer, StringComparison.Ordinal);
         text = text.Replace("{{workspace_path}}", workspacePath ?? string.Empty, StringComparison.Ordinal);
         text = text.Replace("{{build_command}}", DetectBuildCommand(workspacePath), StringComparison.Ordinal);
         text = text.Replace("{{feature_groups}}", BuildFeatureGroupsBlock(featureGroups), StringComparison.Ordinal);
@@ -287,13 +289,13 @@ internal sealed class LoopController {
         return text;
     }
 
-    private static string BuildFeatureGroupsBlock(IReadOnlyList<string>? featureGroups) {
+    internal static string BuildFeatureGroupsBlock(IReadOnlyList<string>? featureGroups) {
         if (featureGroups is null || featureGroups.Count == 0)
             return string.Empty;
         return string.Join("\n", featureGroups.Select(g => $"- {g}"));
     }
 
-    private static string DetectBuildCommand(string? workspacePath) {
+    internal static string DetectBuildCommand(string? workspacePath) {
         if (workspacePath == null || !Directory.Exists(workspacePath))
             return string.Empty;
         if (Directory.GetFiles(workspacePath, "*.sln").Length > 0 ||

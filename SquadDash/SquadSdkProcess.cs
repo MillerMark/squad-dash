@@ -1126,7 +1126,11 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
-    public async Task RunLoopAsync(string loopMdPath, string cwd, string? sessionId = null) {
+    public async Task RunLoopAsync(
+        string loopMdPath,
+        string cwd,
+        string? sessionId = null,
+        string? displayLoopMdPath = null) {
         if (string.IsNullOrWhiteSpace(loopMdPath))
             throw new ArgumentException("Loop markdown path cannot be empty.", nameof(loopMdPath));
         if (string.IsNullOrWhiteSpace(cwd))
@@ -1135,7 +1139,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         var requestId = Guid.NewGuid().ToString("N");
         SquadDashTrace.Write("Bridge", $"RunLoopAsync loopMdPath={loopMdPath} cwd={cwd} sessionId={sessionId ?? "(auto)"}");
 
-        await SendBridgeRequestWithRestartAsync(new SquadSdkRunLoopRequest(loopMdPath.Trim(), cwd.Trim(), requestId, sessionId?.Trim()))
+        await SendBridgeRequestWithRestartAsync(new SquadSdkRunLoopRequest(
+                loopMdPath.Trim(),
+                cwd.Trim(),
+                requestId,
+                sessionId?.Trim(),
+                displayLoopMdPath?.Trim()))
             .ConfigureAwait(false);
     }
 
@@ -1692,10 +1701,16 @@ internal sealed record SquadSdkRunLoopRequest(
     [property: JsonPropertyName("loopMdPath")] string LoopMdPath,
     [property: JsonPropertyName("cwd")] string Cwd,
     [property: JsonPropertyName("requestId")] string? RequestId,
-    [property: JsonPropertyName("sessionId")] string? SessionId)
+    [property: JsonPropertyName("sessionId")] string? SessionId,
+    [property: JsonPropertyName("displayLoopMdPath"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DisplayLoopMdPath)
 {
-    public SquadSdkRunLoopRequest(string loopMdPath, string cwd, string? requestId, string? sessionId)
-        : this("run_loop", loopMdPath, cwd, requestId, sessionId) { }
+    public SquadSdkRunLoopRequest(
+        string loopMdPath,
+        string cwd,
+        string? requestId,
+        string? sessionId,
+        string? displayLoopMdPath = null)
+        : this("run_loop", loopMdPath, cwd, requestId, sessionId, displayLoopMdPath) { }
 }
 
 internal sealed record SquadSdkRunLoopStopRequest(

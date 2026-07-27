@@ -112,6 +112,7 @@
     <Compile Include="..\SquadDash\ModelProviderProbeService.cs" Link="Source\ModelProviderProbeService.cs" />
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
+    <Compile Include="..\SquadDash\LoopCliProjection.cs" Link="Source\LoopCliProjection.cs" />
     <Compile Include="..\SquadDash\LoopStartupResumePolicy.cs" Link="Source\LoopStartupResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopStopResumePolicy.cs" Link="Source\LoopStopResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopResumeExecutionPolicy.cs" Link="Source\LoopResumeExecutionPolicy.cs" />

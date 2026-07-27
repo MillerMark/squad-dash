@@ -115,11 +115,17 @@ internal sealed class SquadSdkProcessSerializationTests {
 
     [Test]
     public void RunLoopRequest_UsesCorrectJsonPropertyNames() {
-        var json = JsonSerializer.Serialize(new SquadSdkRunLoopRequest("C:\\workspace\\loop.md", "C:\\workspace", null, null));
+        var json = JsonSerializer.Serialize(new SquadSdkRunLoopRequest(
+            "C:\\temp\\loop-cli-123.md",
+            "C:\\workspace",
+            null,
+            null,
+            "C:\\workspace\\.squad\\loop.md"));
 
         Assert.Multiple(() => {
             Assert.That(json, Does.Contain("\"type\":\"run_loop\""));
-            Assert.That(json, Does.Contain("\"loopMdPath\":\"C:\\\\workspace\\\\loop.md\""));
+            Assert.That(json, Does.Contain("\"loopMdPath\":\"C:\\\\temp\\\\loop-cli-123.md\""));
+            Assert.That(json, Does.Contain("\"displayLoopMdPath\":\"C:\\\\workspace\\\\.squad\\\\loop.md\""));
             Assert.That(json, Does.Contain("\"cwd\":\"C:\\\\workspace\""));
             Assert.That(json, Does.Not.Contain("\"Type\""));
             Assert.That(json, Does.Not.Contain("\"LoopMdPath\""));
