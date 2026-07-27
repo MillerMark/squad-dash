@@ -73,11 +73,11 @@ internal sealed class TranscriptTextUtilitiesTests {
 
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
 
-        Assert.That(sanitized, Is.EqualTo("""
+        Assert.That(sanitized.ReplaceLineEndings("\n"), Is.EqualTo("""
             Example:
 
             The real response continues here.
-            """));
+            """.ReplaceLineEndings("\n")));
     }
 
     [Test]
@@ -138,11 +138,11 @@ internal sealed class TranscriptTextUtilitiesTests {
 
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
 
-        Assert.That(sanitized, Is.EqualTo("""
+        Assert.That(sanitized.ReplaceLineEndings("\n"), Is.EqualTo("""
             Here is the proposed plan.
 
             This trailing explanation remains visible.
-            """));
+            """.ReplaceLineEndings("\n")));
     }
 
     [Test]
@@ -179,7 +179,7 @@ internal sealed class TranscriptTextUtilitiesTests {
             { "groupId": "PLAN-20260725" }
             ```
             """;
-        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo(text));
+        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text).ReplaceLineEndings("\n"), Is.EqualTo(text.ReplaceLineEndings("\n")));
     }
 
     [Test]
