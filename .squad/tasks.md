@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: WATCHMERGE-20260727 | branch: feature/watch-health-in-tasks-panel | revision: c3c398fba755e41a -->
+<!-- decompose-group: WATCHMERGE-20260727 | branch: feature/watch-health-in-tasks-panel | revision: c3c398fba755e41a -->
 **[WATCHMERGE-20260727] Merge Watch Health into Tasks Panel**
 > Move Watch Health from a standalone dockable panel into a collapsible section at the bottom of the Tasks panel. Three sequential phases: (1) add Watch Health section to TasksPanelController + Tasks XAML, wired to the existing SquadWatchHealthService; (2) remove the standalone WatchHealthPanelBorder, View menu item, docking registration, and dead MainWindow fields; (3) update docs. Each phase leaves the build usable.
 
@@ -24,7 +24,7 @@
 **Build and test:** `$env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR='C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\'; $env:MSBuildExtensionsPath='C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\'; dotnet build SquadDash\SquadDash.csproj -c Debug --no-restore -v quiet` then `dotnet test SquadDash.Tests\SquadDash.Tests.csproj -c Debug --no-restore -v quiet`. Run from `D:\Drive\Source\SquadDash-public`.
   dependsOn: (none)
 
-- [ ] **[WATCHMERGE-20260727-002]** Remove standalone Watch Health panel and menu item
+- [x] **[WATCHMERGE-20260727-002]** Remove standalone Watch Health panel and menu item
   Group: WATCHMERGE-20260727 | Branch: feature/watch-health-in-tasks-panel | Priority: high
   description: Remove all standalone Watch Health panel infrastructure from MainWindow. Depends on task 001 (the section in Tasks panel must be working first).
 
