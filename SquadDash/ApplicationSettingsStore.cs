@@ -998,7 +998,6 @@ internal sealed class ApplicationSettingsStore {
                 LoopPanelVisible = state.LoopPanelVisible ?? existing.LoopPanelVisible,
                 CodeHealthPanelVisible = state.CodeHealthPanelVisible ?? existing.CodeHealthPanelVisible,
                 InboxPanelVisible = state.InboxPanelVisible ?? existing.InboxPanelVisible,
-                WatchHealthPanelVisible = state.WatchHealthPanelVisible ?? existing.WatchHealthPanelVisible,
                 WatchHealthSectionExpanded = state.WatchHealthSectionExpanded ?? existing.WatchHealthSectionExpanded,
                 OpenInboxMessageIds = state.OpenInboxMessageIds ?? existing.OpenInboxMessageIds,
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
@@ -1079,6 +1078,7 @@ internal sealed record WorkspaceDocsPanelState
     /// Whether the Watch Health inline panel was visible.
     /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
     /// </summary>
+    [Obsolete("Watch Health is now embedded in the Tasks panel. This field is no longer written; retained for settings migration only.")]
     public bool? WatchHealthPanelVisible { get; init; }
 
     /// <summary>
