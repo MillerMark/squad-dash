@@ -150,13 +150,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var gateCenter = new Point((sourceRight + targetLeft) / 2, centers.Average());
             gates.Add((gateCenter, targets, dependencies));
 
+            var maxDepLevel    = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
+            var maxTargetLevel = targets.Max(t => levels[t.Id]);
+            var gateSkip = maxTargetLevel - maxDepLevel - 1;
+
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source = positions[dependency];
                 AddConnector(canvas,
                     new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
                     new Point(gateCenter.X - 20, gateCenter.Y),
-                    arrowHead: false);
+                    arrowHead: false,
+                    skipCount: gateSkip);
             }
             foreach (var target in targets)
             {
@@ -164,7 +169,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 AddConnector(canvas,
                     new Point(gateCenter.X + 20, gateCenter.Y),
                     new Point(targetPoint.X, targetPoint.Y + NodeHeight / 2),
-                    arrowHead: true);
+                    arrowHead: true,
+                    skipCount: gateSkip);
             }
         }
 
@@ -172,12 +178,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             foreach (var dependency in task.DependsOn.Where(positions.ContainsKey))
             {
-                var source = positions[dependency];
-                var target = positions[task.Id];
+                var source    = positions[dependency];
+                var target    = positions[task.Id];
+                var skipCount = levels[task.Id] - levels[dependency] - 1;
                 AddConnector(canvas,
                     new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
                     new Point(target.X, target.Y + NodeHeight / 2),
-                    arrowHead: true);
+                    arrowHead: true,
+                    skipCount: skipCount);
             }
         }
 
@@ -322,8 +330,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return levels;
     }
 
-    private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead)
+    private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
     {
+        var brush = new SolidColorBrush(ConnectorColor(skipCount));
         var line = new Line
         {
             X1 = from.X,
@@ -331,8 +340,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             X2 = to.X,
             Y2 = to.Y,
             StrokeThickness = 2,
+            Stroke = brush,
         };
-        line.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
         canvas.Children.Add(line);
         if (!arrowHead) return;
 
@@ -345,6 +354,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var basePoint = to + vector * length;
         var arrow = new Polygon
         {
+            Fill   = brush,
             Points =
             [
                 to,
@@ -352,7 +362,37 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 basePoint - perpendicular * halfWidth,
             ],
         };
-        arrow.SetResourceReference(Shape.FillProperty, "ActivePanelTitle");
         canvas.Children.Add(arrow);
+    }
+
+    // Base hue for adjacent-stage connectors. Each skipped stage rotates the hue by 45°.
+    private const double ConnectorBaseHue = 210.0;
+    private const double ConnectorSaturation = 0.70;
+    private const double ConnectorLightness  = 0.45;
+
+    private static Color ConnectorColor(int skipCount)
+    {
+        var hue = (ConnectorBaseHue + skipCount * 45.0) % 360.0;
+        return HslToRgb(hue, ConnectorSaturation, ConnectorLightness);
+    }
+
+    private static Color HslToRgb(double hue, double saturation, double lightness)
+    {
+        var c = (1 - Math.Abs(2 * lightness - 1)) * saturation;
+        var x = c * (1 - Math.Abs(hue / 60 % 2 - 1));
+        var m = lightness - c / 2;
+
+        double r, g, b;
+        if      (hue < 60)  { r = c; g = x; b = 0; }
+        else if (hue < 120) { r = x; g = c; b = 0; }
+        else if (hue < 180) { r = 0; g = c; b = x; }
+        else if (hue < 240) { r = 0; g = x; b = c; }
+        else if (hue < 300) { r = x; g = 0; b = c; }
+        else                { r = c; g = 0; b = x; }
+
+        return Color.FromRgb(
+            (byte)Math.Round((r + m) * 255),
+            (byte)Math.Round((g + m) * 255),
+            (byte)Math.Round((b + m) * 255));
     }
 }
