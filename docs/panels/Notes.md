@@ -12,9 +12,7 @@ The Notes Panel is a lightweight scratchpad built into SquadDash. It lets you sa
 
 ## Opening the Panel
 
-**View** menu → **Notes** (toggles visibility). The menu item has a checkmark when the panel is open. Visibility is persisted per workspace.
-
-Close the panel with its **×** button.
+**Tools** → **Notes** menu item (toggles visibility).
 
 ---
 

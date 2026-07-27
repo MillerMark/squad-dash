@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "name": "right2zone-splitter-scroll-viewer-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-07-27T14:41:17.7649116Z",
+  "bounds": {
+    "x": 2270,
+    "y": 41,
+    "width": 280,
+    "height": 171,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "Right2ZoneSplitter",
+      "Right2ZoneScrollViewer",
+      "Right2ZonePanel",
+      "LoopPanelBorder",
+      "Right3ZonePanel"
+    ],
+    "needsName": false,
+    "elementLeft": 2274,
+    "elementTop": 45,
+    "elementWidth": 5,
+    "elementHeight": 1394,
+    "distanceToEdge": 4
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "LoopPanelCloseButton",
+      "border",
+      "LoopContinuousContextCheckBox",
+      "StartLoopButton",
+      "border",
+      "StopLoopButton",
+      "border"
+    ],
+    "needsName": false,
+    "elementLeft": 2524,
+    "elementTop": 54,
+    "elementWidth": 22,
+    "elementHeight": 22,
+    "distanceToEdge": 4
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "Right2ZonePanelRowSplitter0"
+    ],
+    "needsName": false,
+    "elementLeft": 2279,
+    "elementTop": 203,
+    "elementWidth": 280,
+    "elementHeight": 5,
+    "distanceToEdge": 3.680000000000007
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "Right2ZoneSplitter"
+    ],
+    "needsName": false,
+    "elementLeft": 2274,
+    "elementTop": 45,
+    "elementWidth": 5,
+    "elementHeight": 1394,
+    "distanceToEdge": 0
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\panels\\images\\screenshot-41681276.png",
+  "elementInventory": null
+}

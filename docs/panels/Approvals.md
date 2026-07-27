@@ -12,9 +12,7 @@ The Approvals Panel provides a running list of every git commit an agent has mad
 
 ## Opening the Panel
 
-**View** menu → **Approvals Panel** (toggles visibility). The menu item has a checkmark when the panel is open. Visibility is persisted per workspace.
-
-Close the panel with its **×** button.
+**Tools** → **Approvals** menu item (toggles visibility).
 
 ---
 

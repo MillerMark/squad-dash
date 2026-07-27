@@ -339,62 +339,76 @@
       "elementNames": [
         "StatusPanelBorder",
         "StatusAgentPanelsGrid",
-        "TasksPanelBorder"
+        "TopZonePanelsGrid",
+        "InactiveAgentsPanelBorder",
+        "NotesPanelBorder",
+        "WatchHealthPanelBorder",
+        "TopZoneSplitter01",
+        "TopZoneSplitter12",
+        "TopZoneSplitter23",
+        "LoopPanelBorder"
       ],
       "needsName": false,
-      "elementLeft": 13,
-      "elementTop": 53,
-      "elementWidth": 1165,
-      "elementHeight": 353.42,
+      "elementLeft": 571,
+      "elementTop": 46,
+      "elementWidth": 1095.031205235226,
+      "elementHeight": 369.65,
       "distanceToEdge": 6
     },
     "right": {
       "edge": "Right",
       "elementNames": [
-        "TasksPanelBorder"
+        "TopZoneSplitter23"
       ],
       "needsName": false,
-      "elementLeft": 465.2966666666667,
-      "elementTop": 53,
-      "elementWidth": 276.9166666666667,
-      "elementHeight": 353.42,
-      "distanceToEdge": 7.453333333333148
+      "elementLeft": 1652.88,
+      "elementTop": 46,
+      "elementWidth": 4,
+      "elementHeight": 369.65,
+      "distanceToEdge": 0.11999999999989086
     },
     "bottom": {
       "edge": "Bottom",
       "elementNames": [
         "StatusPanelBorder",
         "StatusAgentPanelsGrid",
-        "TasksPanelBorder"
+        "TopZonePanelsGrid",
+        "InactiveAgentsPanelBorder",
+        "NotesPanelBorder",
+        "WatchHealthPanelBorder",
+        "TopZoneSplitter01",
+        "TopZoneSplitter12",
+        "TopZoneSplitter23",
+        "LoopPanelBorder"
       ],
       "needsName": false,
-      "elementLeft": 13,
-      "elementTop": 53,
-      "elementWidth": 1165,
-      "elementHeight": 353.42,
-      "distanceToEdge": 3.579999999999984
+      "elementLeft": 571,
+      "elementTop": 46,
+      "elementWidth": 1095.031205235226,
+      "elementHeight": 369.65,
+      "distanceToEdge": 4.350000000000023
     },
     "left": {
       "edge": "Left",
       "elementNames": [
-        "TasksPanelBorder"
+        "TopZoneSplitter01"
       ],
       "needsName": false,
-      "elementLeft": 465.2966666666667,
-      "elementTop": 53,
-      "elementWidth": 276.9166666666667,
-      "elementHeight": 353.42,
-      "distanceToEdge": 5.9633333333334235
+      "elementLeft": 1068.88,
+      "elementTop": 46,
+      "elementWidth": 4,
+      "elementHeight": 369.65,
+      "distanceToEdge": 0.8800000000001091
     },
     "bounds": {
-      "x": 459.33333333333326,
-      "y": 47,
-      "width": 290.33333333333326,
-      "height": 363,
+      "x": 1068,
+      "y": 40,
+      "width": 589,
+      "height": 380,
       "dpiX": 1,
       "dpiY": 1
     },
-    "docImagePath": "..\\panels\\images\\descriptive-filename.png",
+    "docImagePath": "..\\panels\\images\\panels-docked.png",
     "elementInventory": null
   },
   {
@@ -1236,7 +1250,7 @@
     "elementInventory": null
   },
   {
-    "name": "left-zone-scroll-viewer-light",
+    "name": "left2zone-scroll-viewer-panel-light",
     "description": "",
     "theme": "Light",
     "replayActionId": null,
@@ -1244,45 +1258,41 @@
     "top": {
       "edge": "Top",
       "elementNames": [
-        "LeftZoneScrollViewer",
-        "LeftZonePanel",
+        "Left2ZoneScrollViewer",
+        "Left2ZonePanel",
         "LoopPanelBorder",
-        "LeftZoneSplitter"
+        "Left2ZoneSplitter"
       ],
       "needsName": false,
       "elementLeft": 1,
       "elementTop": 45,
       "elementWidth": 280,
-      "elementHeight": 1394,
-      "distanceToEdge": 4
+      "elementHeight": 774,
+      "distanceToEdge": 2.6666666666666288
     },
     "right": {
       "edge": "Right",
       "elementNames": [
-        "LeftZoneScrollViewer",
-        "LeftZonePanel",
-        "LoopPanelBorder",
-        "LeftZonePanelRowSplitter0",
-        "TasksPanelBorder"
+        "Left2ZoneSplitter"
+      ],
+      "needsName": false,
+      "elementLeft": 281,
+      "elementTop": 45,
+      "elementWidth": 5,
+      "elementHeight": 774,
+      "distanceToEdge": 1
+    },
+    "bottom": {
+      "edge": "Bottom",
+      "elementNames": [
+        "LoopPanelBorder"
       ],
       "needsName": false,
       "elementLeft": 1,
       "elementTop": 45,
       "elementWidth": 280,
-      "elementHeight": 1394,
-      "distanceToEdge": 3.3333333333333712
-    },
-    "bottom": {
-      "edge": "Bottom",
-      "elementNames": [
-        "LeftZonePanelRowSplitter0"
-      ],
-      "needsName": false,
-      "elementLeft": 1,
-      "elementTop": 358.6966666666667,
-      "elementWidth": 280,
-      "elementHeight": 5,
-      "distanceToEdge": 1.3033333333332848
+      "elementHeight": 158,
+      "distanceToEdge": 4.666666666666686
     },
     "left": {
       "edge": "Left",
@@ -1293,15 +1303,15 @@
       "needsName": false,
       "elementLeft": 0,
       "elementTop": 0,
-      "elementWidth": 2560,
-      "elementHeight": 1440,
+      "elementWidth": 3387,
+      "elementHeight": 820,
       "distanceToEdge": 0
     },
     "bounds": {
       "x": 0,
       "y": 41,
-      "width": 285,
-      "height": 326.6966666666667,
+      "width": 290,
+      "height": 166,
       "dpiX": 1,
       "dpiY": 1
     },

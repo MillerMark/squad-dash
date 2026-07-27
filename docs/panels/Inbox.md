@@ -14,9 +14,7 @@ The Inbox Panel shows messages sent to you by agents during maintenance runs or 
 
 ## Opening the Panel
 
-**View** menu → **Inbox** (toggles visibility). Visibility is persisted per workspace.
-
-Close the panel with its **×** button.
+**Tools** → **Inbox** menu item (toggles visibility).
 
 ---
 

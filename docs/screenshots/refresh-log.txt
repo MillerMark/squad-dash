@@ -1,4 +1,4 @@
-[2026-06-23 16:49:19.185Z] [screenshot] Starting: left-zone-scroll-viewer-light
-[2026-06-23 16:49:21.471Z] [screenshot] Comparison: 32.46% match (62946 of 93195 pixels differ) — diff: D:\Drive\Source\SquadDash-public\docs\screenshots\diff\left-zone-scroll-viewer-light-light.png
-[2026-06-23 16:49:21.471Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\left-zone-scroll-viewer-light-light.png
-[2026-06-23 16:49:21.472Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\screenshot-41681276.png
+[2026-07-27 14:43:14.266Z] [screenshot] Starting: left2zone-scroll-viewer-panel-light
+[2026-07-27 14:43:16.473Z] [screenshot] Comparison FAILED for 'left2zone-scroll-viewer-panel-light': dimension mismatch.
+[2026-07-27 14:43:16.474Z] [screenshot] Saved: D:\Drive\Source\SquadDash-public\docs\screenshots\left2zone-scroll-viewer-panel-light-light.png
+[2026-07-27 14:43:16.474Z] [screenshot] Copied to doc image: D:\Drive\Source\SquadDash-public\docs\panels\images\screenshot-41681276.png

@@ -14,9 +14,7 @@ For full details on how Maintenance Mode works (idle detection, safety levels, r
 
 ## Opening the Panel
 
-**View** menu → **Maintenance** (toggles visibility). Visibility is persisted per workspace.
-
-Close the panel with its **×** button.
+**Tools** → **Code Health** menu item (toggles visibility).
 
 ---
 

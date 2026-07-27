@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "left2zone-scroll-viewer-panel-light",
+  "description": "",
+  "theme": "Light",
+  "region": "custom",
+  "capturedAt": "2026-07-27T14:43:02.3881897Z",
+  "bounds": {
+    "x": 0,
+    "y": 41,
+    "width": 290,
+    "height": 166,
+    "dpiX": 1,
+    "dpiY": 1
+  },
+  "top": {
+    "edge": "Top",
+    "elementNames": [
+      "Left2ZoneScrollViewer",
+      "Left2ZonePanel",
+      "LoopPanelBorder",
+      "Left2ZoneSplitter"
+    ],
+    "needsName": false,
+    "elementLeft": 1,
+    "elementTop": 45,
+    "elementWidth": 280,
+    "elementHeight": 774,
+    "distanceToEdge": 2.6666666666666288
+  },
+  "right": {
+    "edge": "Right",
+    "elementNames": [
+      "Left2ZoneSplitter"
+    ],
+    "needsName": false,
+    "elementLeft": 281,
+    "elementTop": 45,
+    "elementWidth": 5,
+    "elementHeight": 774,
+    "distanceToEdge": 1
+  },
+  "bottom": {
+    "edge": "Bottom",
+    "elementNames": [
+      "LoopPanelBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 1,
+    "elementTop": 45,
+    "elementWidth": 280,
+    "elementHeight": 158,
+    "distanceToEdge": 4.666666666666686
+  },
+  "left": {
+    "edge": "Left",
+    "elementNames": [
+      "RootPanel",
+      "WindowFrameBorder"
+    ],
+    "needsName": false,
+    "elementLeft": 0,
+    "elementTop": 0,
+    "elementWidth": 3387,
+    "elementHeight": 820,
+    "distanceToEdge": 0
+  },
+  "replayActionId": null,
+  "fixturePath": null,
+  "docImagePath": "..\\panels\\images\\screenshot-41681276.png",
+  "elementInventory": null
+}

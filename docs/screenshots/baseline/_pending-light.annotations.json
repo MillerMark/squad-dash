@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "description": "The loop panel allows you to control an iteration of looping tasks.",
-  "rawDescription": "The loop panel allows you to control an iteration of looping tasks.",
+  "description": "Two panels docked side by side.",
+  "rawDescription": "Two panels docked side by side.",
   "cursor": null,
   "arrows": []
 }

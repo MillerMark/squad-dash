@@ -12,9 +12,7 @@ The Tasks Panel surfaces the open task backlog from `.squad/tasks.md`. It groups
 
 ## Opening the Panel
 
-**View** menu → **Tasks** (toggles visibility). Visibility is persisted per workspace.
-
-Close the panel with its **×** button.
+**Tools** → **Tasks** menu item (toggles visibility).
 
 ---
 

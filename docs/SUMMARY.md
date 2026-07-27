@@ -11,7 +11,6 @@
   * [Squad Team](concepts/squad-team.md)
   * [Hiring Agents](features/hiring-agents.md)
   * [VS Tooling](getting-started/VS Tooling.md)
-  * [Loop](panels/Loop.md)
   * [Windows Taskbar](getting-started/Windows Taskbar.md)
   * [Stand-alone Installer](getting-started/Stand-alone Installer.md)
 
@@ -39,11 +38,13 @@
 
 ## Panels
 
-* [Panels](panels/README.md)
+* [Tools](panels/Tools.md)
 
+  * [Using Tools](panels/Using Tools.md)
   * [Approvals](panels/Approvals.md)
   * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
+  * [Loop](panels/Loop.md)
   * [Notes](panels/Notes.md)
   * [Tasks](panels/Tasks.md)
 

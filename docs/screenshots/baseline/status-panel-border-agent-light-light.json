@@ -4,12 +4,12 @@
   "description": "",
   "theme": "Light",
   "region": "custom",
-  "capturedAt": "2026-05-10T12:56:37.6220168Z",
+  "capturedAt": "2026-07-27T15:06:47.5345621Z",
   "bounds": {
-    "x": 459.33333333333326,
-    "y": 47,
-    "width": 290.33333333333326,
-    "height": 363,
+    "x": 1068,
+    "y": 40,
+    "width": 589,
+    "height": 380,
     "dpiX": 1,
     "dpiY": 1
   },
@@ -18,55 +18,69 @@
     "elementNames": [
       "StatusPanelBorder",
       "StatusAgentPanelsGrid",
-      "TasksPanelBorder"
+      "TopZonePanelsGrid",
+      "InactiveAgentsPanelBorder",
+      "NotesPanelBorder",
+      "WatchHealthPanelBorder",
+      "TopZoneSplitter01",
+      "TopZoneSplitter12",
+      "TopZoneSplitter23",
+      "LoopPanelBorder"
     ],
     "needsName": false,
-    "elementLeft": 13,
-    "elementTop": 53,
-    "elementWidth": 1165,
-    "elementHeight": 353.42,
+    "elementLeft": 571,
+    "elementTop": 46,
+    "elementWidth": 1095.031205235226,
+    "elementHeight": 369.65,
     "distanceToEdge": 6
   },
   "right": {
     "edge": "Right",
     "elementNames": [
-      "TasksPanelBorder"
+      "TopZoneSplitter23"
     ],
     "needsName": false,
-    "elementLeft": 465.2966666666667,
-    "elementTop": 53,
-    "elementWidth": 276.9166666666667,
-    "elementHeight": 353.42,
-    "distanceToEdge": 7.453333333333148
+    "elementLeft": 1652.88,
+    "elementTop": 46,
+    "elementWidth": 4,
+    "elementHeight": 369.65,
+    "distanceToEdge": 0.11999999999989086
   },
   "bottom": {
     "edge": "Bottom",
     "elementNames": [
       "StatusPanelBorder",
       "StatusAgentPanelsGrid",
-      "TasksPanelBorder"
+      "TopZonePanelsGrid",
+      "InactiveAgentsPanelBorder",
+      "NotesPanelBorder",
+      "WatchHealthPanelBorder",
+      "TopZoneSplitter01",
+      "TopZoneSplitter12",
+      "TopZoneSplitter23",
+      "LoopPanelBorder"
     ],
     "needsName": false,
-    "elementLeft": 13,
-    "elementTop": 53,
-    "elementWidth": 1165,
-    "elementHeight": 353.42,
-    "distanceToEdge": 3.579999999999984
+    "elementLeft": 571,
+    "elementTop": 46,
+    "elementWidth": 1095.031205235226,
+    "elementHeight": 369.65,
+    "distanceToEdge": 4.350000000000023
   },
   "left": {
     "edge": "Left",
     "elementNames": [
-      "TasksPanelBorder"
+      "TopZoneSplitter01"
     ],
     "needsName": false,
-    "elementLeft": 465.2966666666667,
-    "elementTop": 53,
-    "elementWidth": 276.9166666666667,
-    "elementHeight": 353.42,
-    "distanceToEdge": 5.9633333333334235
+    "elementLeft": 1068.88,
+    "elementTop": 46,
+    "elementWidth": 4,
+    "elementHeight": 369.65,
+    "distanceToEdge": 0.8800000000001091
   },
   "replayActionId": null,
   "fixturePath": null,
-  "docImagePath": "..\\panels\\images\\descriptive-filename.png",
+  "docImagePath": "..\\panels\\images\\panels-docked.png",
   "elementInventory": null
 }
