@@ -44,6 +44,7 @@
   * [Approvals](panels/Approvals.md)
   * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
+  * [Live Tasks](panels/Live Tasks.md)
   * [Loop](panels/Loop.md)
   * [Notes](panels/Notes.md)
   * [Tasks](panels/Tasks.md)

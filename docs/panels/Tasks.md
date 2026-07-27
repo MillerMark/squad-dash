@@ -171,7 +171,7 @@ Right-click any task row to open its context menu.
 
 ## Refreshing the Panel
 
-The panel reloads automatically whenever `.squad/tasks.md` changes on disk. You can also trigger a refresh with the `/tasks` slash command in the prompt box.
+The panel reloads automatically whenever `.squad/tasks.md` changes on disk. You can also open the Live Tasks window with `/tasks` in the prompt box, which also refreshes the display.
 
 ---
 
@@ -183,66 +183,8 @@ The panel reloads automatically whenever `.squad/tasks.md` changes on disk. You 
 
 ---
 
-## Watch Health
-
-The bottom of the Tasks panel contains a collapsible **Watch Health** section that surfaces the `squad watch` CLI process. It consolidates workspace health monitoring alongside the task backlog so you never need to open a separate panel.
-
-![Screenshot: Watch Health section expanded in Tasks panel](images/tasks-watch-health.png)
-> 📸 *Screenshot needed: The Watch Health section expanded inside the Tasks panel — show the header row with chevron (▼), a blue status dot, the "Watch Health" label, and a recent timestamp; below it the Refresh / Copy / Start / Stop buttons, the Interval / Execute / Notify controls, and several lines of scrollable health output.*
-
----
-
-### Header row
-
-The header row is always visible, even when the section is collapsed.
-
-| Element | Description |
-|---|---|
-| **▶ / ▼ chevron** | Indicates collapsed (▶) or expanded (▼) state. Click anywhere on the header to toggle. |
-| **Status dot** | Colored circle: active blue = watch is running, muted/subtle = stopped, red = error. |
-| **"Watch Health" label** | Static section title. |
-| **Timestamp** | Time of the most recent health check, e.g. `14:22:08`. Updates after each refresh. |
-
----
-
-### Controls
-
-The following buttons appear when the section is expanded:
-
-| Button | What it does |
-|---|---|
-| **Refresh** | Re-runs `squad watch --health` and updates the output area with the latest results. |
-| **Copy** | Copies the current health output lines to the clipboard. |
-| **Start** | Starts `squad watch` using the configured Interval, Execute, and Notify options. |
-| **Stop** | Kills the running watch process. |
-
----
-
-### Options
-
-The following options are visible when the section is expanded and are **disabled while a watch is running**:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| **Interval** | Number field | `5` | Minutes between watch cycles. |
-| **Execute** | Checkbox | unchecked | When checked, passes the `--execute` flag to `squad watch`. |
-| **Notify** | Combo box | `important` | Controls notification verbosity. Values: `all`, `important`, `none`. |
-
----
-
-### Auto-refresh
-
-While a watch process is running, the output area refreshes automatically every **15 seconds** — no manual Refresh click required.
-
----
-
-### Collapse state persistence
-
-The expanded or collapsed state of the Watch Health section is saved per workspace and restored when you reopen SquadDash.
-
----
-
 ## Related
 
+- **[Live Tasks Window](Live Tasks.md)** — `/tasks` command: floating window with task summary and Watch Health section
 - **[Loop Panel](Loop.md)** — Run agents in a loop to work through the task backlog automatically
 - **[Slash Commands](../reference/slash-commands.md)** — `/tasks` and `/dropTasks` commands
