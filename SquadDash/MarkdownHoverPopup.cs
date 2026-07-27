@@ -92,6 +92,7 @@ internal static class MarkdownHoverPopup {
             var markdown = getMarkdown();
             if (!string.IsNullOrWhiteSpace(markdown)) {
                 var doc = MarkdownFlowDocumentBuilder.Build(markdown);
+                doc.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
                 postProcessDocument?.Invoke(doc);
                 doc.TextAlignment = TextAlignment.Left;
                 var viewer = new RichTextBox(doc) {
@@ -105,6 +106,7 @@ internal static class MarkdownHoverPopup {
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 };
                 viewer.SetResourceReference(RichTextBox.BackgroundProperty, "PopupSurface");
+                viewer.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
                 contentStack.Children.Add(viewer);
             } else if (header is null) {
                 var noContent = new TextBlock { Text = "No content", FontStyle = FontStyles.Italic, Opacity = 0.6 };
