@@ -28,6 +28,7 @@ internal sealed class TasksPanelController {
     private readonly Action<TaskItem>?  _addToNewChat;
     private readonly Action<TaskItem>?  _addToNotes;
     private readonly Func<IReadOnlyList<SquadTeamMember>>? _getRoster;
+    private readonly StackPanel?     _watchHealthSlot;
 
     private readonly TasksPanelViewModel _viewModel = new();
     internal TasksPanelViewModel ViewModel => _viewModel;
@@ -80,7 +81,8 @@ internal sealed class TasksPanelController {
         Action<TaskItem>?    attachFollowUp = null,
         Action<TaskItem>?    addToNewChat   = null,
         Action<TaskItem>?    addToNotes     = null,
-        Func<IReadOnlyList<SquadTeamMember>>? getRoster = null) {
+        Func<IReadOnlyList<SquadTeamMember>>? getRoster = null,
+        StackPanel? watchHealthSlot = null) {
 
         _activePanel      = activePanel;
         _completedPanel   = completedPanel;
@@ -92,6 +94,7 @@ internal sealed class TasksPanelController {
         _addToNewChat     = addToNewChat;
         _addToNotes       = addToNotes;
         _getRoster        = getRoster;
+        _watchHealthSlot  = watchHealthSlot;
 
         AttachPanelContextMenu(outerBorder);
     }
@@ -142,10 +145,6 @@ internal sealed class TasksPanelController {
             _completedPanel.Children.Add(BuildDoneRow(item));
 
         ApplyFilter();
-
-        // Re-append Watch Health section (it is removed by Children.Clear() above).
-        if (_watchHealthSection is not null)
-            _activePanel.Children.Add(_watchHealthSection);
     }
 
     public void ShowEmpty(string message) => ShowEmptyInPanel(message);
@@ -575,10 +574,6 @@ internal sealed class TasksPanelController {
         empty.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         empty.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         _activePanel.Children.Add(empty);
-
-        // Re-append Watch Health section (it is removed by Children.Clear() above).
-        if (_watchHealthSection is not null)
-            _activePanel.Children.Add(_watchHealthSection);
     }
 
     // ── Width measurement ─────────────────────────────────────────────────────
@@ -781,7 +776,7 @@ internal sealed class TasksPanelController {
         _watchHealthSectionExpanded = initiallyExpanded;
 
         _watchHealthSection = BuildWatchHealthSection();
-        _activePanel.Children.Add(_watchHealthSection);
+        (_watchHealthSlot ?? _activePanel).Children.Add(_watchHealthSection);
 
         _watchHealthAutoRefreshTimer = new DispatcherTimer {
             Interval = UiTimingConstants.WatchHealthAutoRefreshInterval

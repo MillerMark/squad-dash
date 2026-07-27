@@ -7176,7 +7176,8 @@ public partial class MainWindow : Window
                 BuildTaskContentBlock(task)),
             getRoster: () => _currentWorkspace is null
                                  ? []
-                                 : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
+                                 : _teamRosterLoader.Load(_currentWorkspace.FolderPath),
+            watchHealthSlot: TasksWatchHealthSlot);
         _tasksPanelController.ClearFilterAction = () => { if (TasksFilterBox is not null) TasksFilterBox.Text = string.Empty; };
 
         // Wire Watch Health section into Tasks panel (idempotent — only attaches on first call).

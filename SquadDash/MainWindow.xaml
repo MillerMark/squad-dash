@@ -1,4 +1,4 @@
-<Window x:Class="SquadDash.MainWindow"
+﻿<Window x:Class="SquadDash.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
@@ -1757,6 +1757,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />   <!-- Row 3: Watch Health slot -->
                             </Grid.RowDefinitions>
 
                             <!-- Row 0: Title + filter + close button -->
@@ -1838,6 +1839,10 @@
                                     <StackPanel x:Name="TasksCompletedPanel" />
                                 </ScrollViewer>
                             </StackPanel>
+
+                            <!-- Row 3: Watch Health section (always visible, outside scroll area) -->
+                            <StackPanel x:Name="TasksWatchHealthSlot"
+                                        Grid.Row="3" />
                         </Grid>
                     </panelDocking:GripStripBorder>
 
