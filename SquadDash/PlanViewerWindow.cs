@@ -150,27 +150,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var gateCenter = new Point((sourceRight + targetLeft) / 2, centers.Average());
             gates.Add((gateCenter, targets, dependencies));
 
-            var minDepLevel    = dependencies.Where(positions.ContainsKey).Min(id => levels[id]);
-            var maxTargetLevel = targets.Max(t => levels[t.Id]);
-            var gateSkip = maxTargetLevel - minDepLevel - 1;
+            // Each dep leg gets its own skip: how many stages does THIS dep span to reach the targets?
+            var minTargetLevel = targets.Min(t => levels[t.Id]);
+            var maxDepLevel    = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
 
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
-                var source = positions[dependency];
+                var source  = positions[dependency];
+                var depSkip = minTargetLevel - levels[dependency] - 1;
                 AddConnector(canvas,
                     new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
                     new Point(gateCenter.X - 20, gateCenter.Y),
                     arrowHead: false,
-                    skipCount: gateSkip);
+                    skipCount: Math.Max(0, depSkip));
             }
             foreach (var target in targets)
             {
-                var targetPoint = positions[target.Id];
+                var targetPoint  = positions[target.Id];
+                var targetSkip   = levels[target.Id] - maxDepLevel - 1;
                 AddConnector(canvas,
                     new Point(gateCenter.X + 20, gateCenter.Y),
                     new Point(targetPoint.X, targetPoint.Y + NodeHeight / 2),
                     arrowHead: true,
-                    skipCount: gateSkip);
+                    skipCount: Math.Max(0, targetSkip));
             }
         }
 
@@ -180,7 +182,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var source    = positions[dependency];
                 var target    = positions[task.Id];
-                var skipCount = levels[task.Id] - levels[dependency] - 1;
+                var skipCount = Math.Max(0, levels[task.Id] - levels[dependency] - 1);
                 AddConnector(canvas,
                     new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
                     new Point(target.X, target.Y + NodeHeight / 2),
