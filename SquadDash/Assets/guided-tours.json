@@ -297,7 +297,7 @@
       },
       {
         "title": "Branch indicator - has repo.",
-        "markdownText": "This is the **branch** you\u0027re working in.\r\nWhen you\u0027re **outside** your **home branch**, the circle will glow red.\r\nClick for options.",
+        "markdownText": "This is the **branch** you\u0027re working in.\r\nWhen working **outside** your **home branch**, the circle glows red ({dot:red}).\r\nClick for branch options (**merge**, **switch**, etc.).",
         "targetControlId": "BranchIndicatorStrip",
         "calloutPlacement": "West",
         "preAction": "None",
@@ -313,7 +313,7 @@
       },
       {
         "title": "Branch indicator - no repo",
-        "markdownText": "This will show what **branch** you\u0027re in.\r\nClick to initialize a **new repository** for this workspace.",
+        "markdownText": "This will show what **branch** you\u0027re in.\r\nClick to initialize a **new repository** for this workspace.\r\nLater you can click for branch options (**merge**, **switch**, etc.).",
         "targetControlId": "InitializeRepositoryLabel",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -337,7 +337,8 @@
         "commandAfter": "",
         "commandsBefore": [
           "OpenMenu: HelpMenuItem",
-          "HighlightMenuItem: MoreGuidedToursMenuItem"
+          "HighlightMenuItem: MoreGuidedToursMenuItem",
+          "SuppressRestartHint"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -754,7 +755,7 @@
       },
       {
         "title": "Ctrl\u002BB for Bold",
-        "markdownText": "Shortcuts wrap selections here.\r\nPress **Ctrl**\u002B**B** to **bold** important selections.",
+        "markdownText": "Press **Ctrl**\u002B**B** to **bold** important selections.",
         "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -878,7 +879,7 @@
       },
       {
         "title": "Combine Shortcuts",
-        "markdownText": "If you want to **title case** and **quote** a selection, use **Shift**\u002B**F3** and the **quote** key (in any order).",
+        "markdownText": "To **title case** and **quote** a selection, use **Shift**\u002B**F3** and the **quote** key (in any order).",
         "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -896,7 +897,7 @@
       },
       {
         "title": "CamelCase Nav",
-        "markdownText": "**Alt**\u002B**Left** and **Alt**\u002B**Right** arrows navigates across camel case transitions. \r\nAdd the **Shift** key to **select** camel case ranges.",
+        "markdownText": "**Alt**\u002B**Left** and **Alt**\u002B**Right** moves to camel case transitions. \r\nAdd **Shift** to **select**.\r\nUsing only these keys, try to select \u0022**ShoppingCart**\u0022",
         "targetControlId": "PromptTextBox:Selection\u002B12",
         "calloutPlacement": "North",
         "preAction": "None",
