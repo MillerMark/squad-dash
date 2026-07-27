@@ -820,6 +820,10 @@
                               Header="Notes"
                               IsCheckable="True"
                               Click="ViewNotesMenuItem_Click" />
+                    <MenuItem x:Name="ViewPlansMenuItem"
+                              Header="Plans"
+                              IsCheckable="True"
+                              Click="ViewPlansMenuItem_Click" />
                     <MenuItem x:Name="ViewTasksMenuItem"
                               Header="Tasks"
                               IsCheckable="True"
@@ -2377,6 +2381,84 @@
                                                               Background="{DynamicResource TranscriptSurface}" />
                                 </Grid>
                             </Border>
+                        </Grid>
+                    </panelDocking:GripStripBorder>
+
+                    <!-- Plans panel (rank-5 slot, col 17) -->
+                    <panelDocking:GripStripBorder x:Name="PlansPanelBorder"
+                            Grid.Column="17"
+                            MinWidth="200"
+                            DockMinimumWidth="200"
+                            DockMaximumUsefulWidth="360"
+                            DockMaximumUsefulHeight="520"
+                            VerticalAlignment="Top"
+                            Padding="12,8,12,12"
+                            Background="{DynamicResource RosterPanelSurface}"
+                            BorderBrush="{DynamicResource RosterPanelBorder}"
+                            BorderThickness="1"
+                            CornerRadius="16"
+                            Visibility="Collapsed">
+                        <Border.Height>
+                            <MultiBinding Converter="{StaticResource MaxValueConverter}">
+                                <Binding Path="ActualHeight" ElementName="ActiveAgentsPanelBorder" />
+                                <Binding Path="ActualHeight" ElementName="InactiveAgentsPanelBorder" />
+                            </MultiBinding>
+                        </Border.Height>
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Row 0: Title + close button -->
+                            <DockPanel Grid.Row="0" LastChildFill="False">
+                                <Button x:Name="PlansPanelCloseButton"
+                                        DockPanel.Dock="Right"
+                                        Content="×"
+                                        Width="22"
+                                        Height="22"
+                                        FontSize="{DynamicResource FontSizeNormal}"
+                                        VerticalAlignment="Top"
+                                        Style="{StaticResource PanelCloseButtonStyle}"
+                                        ToolTip="Hide Plans panel"
+                                        Click="PlansPanelCloseButton_Click" />
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="Plans"
+                                           FontSize="{DynamicResource FontSizeLarge}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource PanelTitle}"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+
+                            <!-- Row 1: Show completed toggle -->
+                            <CheckBox x:Name="PlansShowCompletedCheckBox"
+                                      Grid.Row="1"
+                                      Content="Show completed"
+                                      Margin="0,6,0,0"
+                                      VerticalAlignment="Center"
+                                      FontSize="{DynamicResource FontSizeSmall}"
+                                      Style="{StaticResource ThemedCheckBoxStyle}"
+                                      Checked="PlansShowCompletedCheckBox_Checked"
+                                      Unchecked="PlansShowCompletedCheckBox_Unchecked" />
+
+                            <!-- Row 2: Plan list (scrollable) -->
+                            <ScrollViewer Grid.Row="2"
+                                          Margin="0,8,0,0"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel>
+                                    <StackPanel x:Name="PlansActivePanel" />
+                                    <StackPanel x:Name="PlansCompletedSection" Visibility="Collapsed">
+                                        <TextBlock Text="Completed"
+                                                   Margin="0,8,0,4"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource SubtleText}" />
+                                        <StackPanel x:Name="PlansCompletedPanel" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Grid>
                     </panelDocking:GripStripBorder>
 

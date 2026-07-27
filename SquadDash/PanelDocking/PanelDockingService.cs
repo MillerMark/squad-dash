@@ -103,6 +103,7 @@ internal sealed class PanelDockingService
         ["notes"]       = 12,
         ["maintenance"] = 14,
         ["inbox"]       = 16,
+        ["plans"]       = 18,
         ["watch-health"] = 18,
     };
 
@@ -960,6 +961,26 @@ internal sealed class PanelDockingService
             s.Zone == zone &&
             _panelRegistry!.TryGetValue(s.PanelId, out var el) &&
             el.Visibility != Visibility.Collapsed);
+
+    /// <summary>
+    /// Ensures <paramref name="panelId"/> has a slot in <see cref="CurrentLayout"/>.
+    /// If the panel is missing (e.g. when loading a layout saved before this panel was added),
+    /// it is appended to the Top zone at the next available order index.
+    /// Call before <see cref="OnPanelVisibilityChanged"/> for newly-introduced panels.
+    /// </summary>
+    public void EnsurePanelSlot(string panelId, DockZone defaultZone = DockZone.Top)
+    {
+        if (CurrentLayout.Slots.Any(s =>
+                string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var maxOrder = CurrentLayout.Slots
+            .Where(s => s.Zone == defaultZone)
+            .Select(s => s.Order)
+            .DefaultIfEmpty(-1)
+            .Max();
+        CurrentLayout.Slots.Add(new PanelSlot(panelId, defaultZone, maxOrder + 1));
+    }
 
     /// <summary>
     /// Called when a panel's visibility is toggled (shown or hidden) without moving it to a

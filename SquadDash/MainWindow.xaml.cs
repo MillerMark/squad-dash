@@ -324,6 +324,8 @@ public partial class MainWindow : Window
     private NotesStore? _notesStore;
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
+    private PlanStore? _planStore;
+    private PlansPanelController? _plansPanelController;
     private CodeHealthPanelController? _codeHealthPanel;
     private IdleDetectionService?       _idleDetectionService;
     private CodeHealthRunner?          _CodeHealthRunner;
@@ -586,6 +588,7 @@ public partial class MainWindow : Window
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
     private bool _notesPanelVisible = false;
+    private bool _plansPanelVisible = false;
     private bool _codeHealthPanelVisible = false;
     private string? _watchCycleId;
     private int _watchFleetSize;
@@ -840,6 +843,7 @@ public partial class MainWindow : Window
                 ["notes"]        = NotesPanelBorder,
                 ["maintenance"]  = CodeHealthPanelBorder,
                 ["inbox"]        = InboxPanelBorder,
+                ["plans"]        = PlansPanelBorder,
             },
             LeftZonePanel,
             RightZonePanel,
@@ -18346,6 +18350,7 @@ public partial class MainWindow : Window
             if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
             if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanel?.PanelVisible ?? false;
             if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
+            if (ViewPlansMenuItem           is not null) ViewPlansMenuItem.IsChecked           = _plansPanelVisible;
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
@@ -18861,6 +18866,44 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ViewPlansMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _plansPanelVisible = !_plansPanelVisible;
+            SyncPlansPanel();
+            if (ViewPlansMenuItem is not null)
+                ViewPlansMenuItem.IsChecked = _plansPanelVisible;
+            PersistPlansPanelVisible();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ViewPlansMenuItem_Click), ex); }
+    }
+
+    private void PlansPanelCloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _plansPanelVisible = false;
+            SyncPlansPanel();
+            if (ViewPlansMenuItem is not null)
+                ViewPlansMenuItem.IsChecked = false;
+            PersistPlansPanelVisible();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PlansPanelCloseButton_Click), ex); }
+    }
+
+    private void PlansShowCompletedCheckBox_Checked(object sender, RoutedEventArgs e)
+    {
+        try { _plansPanelController?.SetShowCompleted(true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PlansShowCompletedCheckBox_Checked), ex); }
+    }
+
+    private void PlansShowCompletedCheckBox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        try { _plansPanelController?.SetShowCompleted(false); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PlansShowCompletedCheckBox_Unchecked), ex); }
+    }
+
     private void LoopPanelCloseButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -19105,6 +19148,7 @@ public partial class MainWindow : Window
             (Border: CodeHealthPanelBorder,    PanelId: "maintenance"),
             (Border: InboxPanelBorder,         PanelId: "inbox"),
             (Border: LoopPanelBorder,          PanelId: "loop"),
+            (Border: PlansPanelBorder,         PanelId: "plans"),
         };
 
         foreach (var (border, panelId) in dockable)
@@ -22344,6 +22388,10 @@ public partial class MainWindow : Window
         _notesStore = new NotesStore(workspaceStateDir);
         _noteItems  = _notesStore.LoadAll();
         _notesPanel?.Refresh(_noteItems);
+
+        _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
+        if (_plansPanelVisible && _plansPanelController is not null)
+            _plansPanelController.Refresh(_planStore.LoadAll());
 
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
 
@@ -33682,6 +33730,7 @@ public partial class MainWindow : Window
             ("notes", NotesPanelBorder),
             ("maintenance", CodeHealthPanelBorder),
             ("inbox", InboxPanelBorder),
+            ("plans", PlansPanelBorder),
             ("watch", WatchPanelBorder),
         };
 
@@ -33720,6 +33769,9 @@ public partial class MainWindow : Window
                 return true;
             case "inbox":
                 element = InboxPanelBorder;
+                return true;
+            case "plans":
+                element = PlansPanelBorder;
                 return true;
             default:
                 element = null!;
@@ -35707,6 +35759,15 @@ public partial class MainWindow : Window
         {
             EnsureInboxPanelCreated();
             _inboxPanel!.Show(flash: false);
+        }
+
+        // Restore plans panel visibility.
+        if (_docsPanelState.PlansPanelVisible == true)
+        {
+            _plansPanelVisible = true;
+            SyncPlansPanel();
+            if (ViewPlansMenuItem is not null)
+                ViewPlansMenuItem.IsChecked = true;
         }
 
         // Restore any inbox viewer windows that were open at last shutdown.
@@ -38163,6 +38224,78 @@ public partial class MainWindow : Window
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { NotesPanelVisible = _notesPanelVisible };
         _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+    }
+
+    private void SyncPlansPanel()
+    {
+        if (PlansPanelBorder is null) return;
+        PlansPanelBorder.Visibility = _plansPanelVisible ? Visibility.Visible : Visibility.Collapsed;
+        _dockingService?.EnsurePanelSlot("plans");
+        _dockingService?.OnPanelVisibilityChanged("plans", _plansPanelVisible);
+        UpdateMainGridSideMargins();
+        if (!_plansPanelVisible) return;
+
+        var workspacePath = _currentWorkspace?.FolderPath;
+        if (workspacePath is null) return;
+
+        if (_plansPanelController is null)
+        {
+            _plansPanelController = new PlansPanelController(
+                activePanel:      PlansActivePanel!,
+                completedPanel:   PlansCompletedPanel!,
+                completedSection: PlansCompletedSection!,
+                openPlan:         plan => OpenPlanFromStore(plan),
+                initialShowCompleted: false,
+                syncBorderVisibility: visible =>
+                {
+                    if (PlansPanelBorder is null) return;
+                    _plansPanelVisible = visible;
+                    PlansPanelBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                    _dockingService?.EnsurePanelSlot("plans");
+                    _dockingService?.OnPanelVisibilityChanged("plans", visible);
+                    UpdateMainGridSideMargins();
+                },
+                setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
+                persistVisibility: PersistPlansPanelVisible);
+
+            if (PlansPanelBorder is { } ppb)
+                ppb.MaximumUsefulSizeProvider = orientation => orientation switch
+                {
+                    DockResizeOrientation.Horizontal => _plansPanelController.GetMaximumUsefulWidth(),
+                    DockResizeOrientation.Vertical   => _plansPanelController.GetMaximumUsefulHeight(),
+                    _                                => null
+                };
+        }
+
+        _planStore ??= _currentWorkspace is not null
+            ? new PlanStore(_currentWorkspace.SquadFolderPath)
+            : null;
+        _plansPanelController.Refresh(_planStore?.LoadAll() ?? []);
+    }
+
+    private void PersistPlansPanelVisible()
+    {
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { PlansPanelVisible = _plansPanelVisible };
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+    }
+
+    private void OpenPlanFromStore(Plan plan)
+    {
+        try
+        {
+            PendingDecomposePlan? pending = null;
+            if (_currentWorkspace is not null)
+            {
+                var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+                pending = store.Load(plan.PlanId);
+            }
+            if (pending is null)
+                pending = PendingDecomposePlanAdapter.FromPlan(plan);
+
+            OpenDecomposePlanViewer(pending);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(OpenPlanFromStore), ex); }
     }
 
     private void SyncCodeHealthPanel()

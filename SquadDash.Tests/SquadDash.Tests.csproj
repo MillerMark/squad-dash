@@ -330,6 +330,7 @@
     <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
     <Compile Include="..\SquadDash\PlanStore.cs" Link="Source\PlanStore.cs" />
     <Compile Include="..\SquadDash\PendingDecomposePlanAdapter.cs" Link="Source\PendingDecomposePlanAdapter.cs" />
+    <Compile Include="..\SquadDash\PlansPanelViewModel.cs" Link="Source\PlansPanelViewModel.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 

@@ -85,7 +85,8 @@ public sealed class DockLayout
             new PanelSlot("notes",       DockZone.Top, 3),
             new PanelSlot("maintenance", DockZone.Top, 4),
             new PanelSlot("inbox",       DockZone.Top, 5),
-            new PanelSlot("watch-health", DockZone.Top, 6),
+            new PanelSlot("plans",       DockZone.Top, 6),
+            new PanelSlot("watch-health", DockZone.Top, 7),
         ]
     };
 }

@@ -998,6 +998,7 @@ internal sealed class ApplicationSettingsStore {
                 LoopPanelVisible = state.LoopPanelVisible ?? existing.LoopPanelVisible,
                 CodeHealthPanelVisible = state.CodeHealthPanelVisible ?? existing.CodeHealthPanelVisible,
                 InboxPanelVisible = state.InboxPanelVisible ?? existing.InboxPanelVisible,
+                PlansPanelVisible = state.PlansPanelVisible ?? existing.PlansPanelVisible,
                 WatchHealthSectionExpanded = state.WatchHealthSectionExpanded ?? existing.WatchHealthSectionExpanded,
                 OpenInboxMessageIds = state.OpenInboxMessageIds ?? existing.OpenInboxMessageIds,
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
@@ -1073,6 +1074,12 @@ internal sealed record WorkspaceDocsPanelState
     /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
     /// </summary>
     public bool? InboxPanelVisible { get; init; }
+
+    /// <summary>
+    /// Whether the Plans inline panel was visible.
+    /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
+    /// </summary>
+    public bool? PlansPanelVisible { get; init; }
 
     /// <summary>
     /// Whether the Watch Health inline panel was visible.
