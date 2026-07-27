@@ -999,6 +999,7 @@ internal sealed class ApplicationSettingsStore {
                 CodeHealthPanelVisible = state.CodeHealthPanelVisible ?? existing.CodeHealthPanelVisible,
                 InboxPanelVisible = state.InboxPanelVisible ?? existing.InboxPanelVisible,
                 WatchHealthPanelVisible = state.WatchHealthPanelVisible ?? existing.WatchHealthPanelVisible,
+                WatchHealthSectionExpanded = state.WatchHealthSectionExpanded ?? existing.WatchHealthSectionExpanded,
                 OpenInboxMessageIds = state.OpenInboxMessageIds ?? existing.OpenInboxMessageIds,
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
                 SelectedLoopFile = state.SelectedLoopFile ?? existing.SelectedLoopFile,
@@ -1079,6 +1080,12 @@ internal sealed record WorkspaceDocsPanelState
     /// <c>null</c> or <c>false</c> = hidden (default). <c>true</c> = user had the panel open.
     /// </summary>
     public bool? WatchHealthPanelVisible { get; init; }
+
+    /// <summary>
+    /// Whether the Watch Health collapsible section in the Tasks panel is expanded.
+    /// <c>null</c> or <c>false</c> = collapsed (default). <c>true</c> = expanded.
+    /// </summary>
+    public bool? WatchHealthSectionExpanded { get; init; }
 
     /// <summary>
     /// IDs of inbox messages that were open in popup viewer windows at shutdown.

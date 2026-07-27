@@ -7229,6 +7229,17 @@ public partial class MainWindow : Window
                                  : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
         _tasksPanelController.ClearFilterAction = () => { if (TasksFilterBox is not null) TasksFilterBox.Text = string.Empty; };
 
+        // Wire Watch Health section into Tasks panel (idempotent — only attaches on first call).
+        _tasksPanelController.AttachWatchHealth(
+            _watchHealthService,
+            () => _currentWorkspace?.FolderPath,
+            expanded => {
+                var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+                _docsPanelState = state with { WatchHealthSectionExpanded = expanded };
+                _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+            },
+            _docsPanelState?.WatchHealthSectionExpanded ?? false);
+
         // Wire dynamic max-width hint so splitter snap targets content width
         if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
             tpb.MaximumUsefulSizeProvider = orientation => orientation switch
