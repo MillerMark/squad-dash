@@ -1757,7 +1757,6 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />   <!-- Row 3: Watch Health slot -->
                             </Grid.RowDefinitions>
 
                             <!-- Row 0: Title + filter + close button -->
@@ -1840,9 +1839,6 @@
                                 </ScrollViewer>
                             </StackPanel>
 
-                            <!-- Row 3: Watch Health section (always visible, outside scroll area) -->
-                            <StackPanel x:Name="TasksWatchHealthSlot"
-                                        Grid.Row="3" />
                         </Grid>
                     </panelDocking:GripStripBorder>
 

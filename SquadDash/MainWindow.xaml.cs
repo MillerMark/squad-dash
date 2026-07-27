@@ -7176,20 +7176,8 @@ public partial class MainWindow : Window
                 BuildTaskContentBlock(task)),
             getRoster: () => _currentWorkspace is null
                                  ? []
-                                 : _teamRosterLoader.Load(_currentWorkspace.FolderPath),
-            watchHealthSlot: TasksWatchHealthSlot);
+                                 : _teamRosterLoader.Load(_currentWorkspace.FolderPath));
         _tasksPanelController.ClearFilterAction = () => { if (TasksFilterBox is not null) TasksFilterBox.Text = string.Empty; };
-
-        // Wire Watch Health section into Tasks panel (idempotent — only attaches on first call).
-        _tasksPanelController.AttachWatchHealth(
-            new SquadWatchHealthService(),
-            () => _currentWorkspace?.FolderPath,
-            expanded => {
-                var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-                _docsPanelState = state with { WatchHealthSectionExpanded = expanded };
-                _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
-            },
-            _docsPanelState?.WatchHealthSectionExpanded ?? false);
 
         // Wire dynamic max-width hint so splitter snap targets content width
         if (TasksPanelBorder is { } tpb && tpb.MaximumUsefulSizeProvider is null)
@@ -36797,6 +36785,15 @@ public partial class MainWindow : Window
             _tasksStatusWindow.Closed += (_, _) => { _tasksStatusWindow = null; _tasksWindowOffset = null; };
             _tasksStatusWindow.LocationChanged += (_, _) => OnTasksWindowMoved();
             _tasksStatusWindow.Show();
+            _tasksStatusWindow.AttachWatchHealth(
+                new SquadWatchHealthService(),
+                () => _currentWorkspace?.FolderPath,
+                expanded => {
+                    var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+                    _docsPanelState = state with { WatchHealthSectionExpanded = expanded };
+                    _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+                },
+                _docsPanelState?.WatchHealthSectionExpanded ?? false);
         }
 
         RefreshTasksStatusWindow(DateTimeOffset.Now);
