@@ -44,7 +44,6 @@
   * [Approvals](panels/Approvals.md)
   * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
-  * [Live Tasks](panels/Live Tasks.md)
   * [Loop](panels/Loop.md)
   * [Notes](panels/Notes.md)
   * [Tasks](panels/Tasks.md)
@@ -87,6 +86,11 @@
 
   * [Tinting and Themes](customization/Tinting and Themes.md)
   * [Saturation and Contrast](customization/Saturation and Contrast.md)
+
+## Diagnostics
+
+* [Live Tasks](panels/Live Tasks.md)
+* [Trace Log](developing/trace-log.md)
 
 ## Reference
 
