@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition | revision: 4356959cdf9fba89 -->
+<!-- decompose-group: GODCLASS-20260725 | branch: refactor/mainwindow-decomposition | revision: 4356959cdf9fba89 -->
 <!-- decompose-revision: 4356959cdf9fba89 -->
 **[GODCLASS-20260725] MainWindow God Class Decomposition**
 > Extract responsibilities from MainWindow.xaml.cs (41,284 lines) in safe phases. Each step leaves the build green. Phase 1 is three independent no-XAML extractions. Phase 2 depends on all of Phase 1. Phase 3 panel controllers depend on all of Phase 2. Phase 4 interface segregation depends on all of Phase 3. Phase 5 event broker depends on Phase 4.
@@ -403,7 +403,7 @@
 
 ## 🟡 Mid Priority — Maintenance Mode (Phase 3 Polish)
 
-- [ ] **[Inbox] Inbox message save lost on shutdown — save INBOX_MESSAGE_JSON earlier** *(Owner: Lyra Morn)*
+- [x] **[Inbox] Inbox message save lost on shutdown — save INBOX_MESSAGE_JSON earlier** *(Owner: Lyra Morn)*
   INBOX_MESSAGE_JSON is currently saved in the `case "done":` bridge event handler. If the app shuts
   down while a turn is in-flight (streaming), the save never runs and the message is silently lost.
   Fix: save the inbox message as soon as the full response text is finalized (or at streaming end),
