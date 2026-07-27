@@ -1,6 +1,7 @@
 # Summary
 
 * [Home](README.md)
+  * [Using Tools](panels/Using Tools.md)
 
 ## Getting Started
 
@@ -40,7 +41,6 @@
 
 * [Tools](panels/Tools.md)
 
-  * [Using Tools](panels/Using Tools.md)
   * [Approvals](panels/Approvals.md)
   * [Code Health](panels/Code Health.md)
   * [Inbox](panels/Inbox.md)
