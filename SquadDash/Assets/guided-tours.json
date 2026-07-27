@@ -77,7 +77,7 @@
       },
       {
         "title": "Transcript",
-        "markdownText": "The **transcript** shows your **prompts** and the agent\u0027s **responses**.",
+        "markdownText": "The **transcript** shows submitted **prompts** and **agent responses**.",
         "targetControlId": "MainTranscriptBorder",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -96,7 +96,7 @@
       },
       {
         "title": "Tooling",
-        "markdownText": "**Tool calls** show what\u0027s happening while agents work.",
+        "markdownText": "**Tool calls** show an agent\u0027s work.",
         "targetControlId": "TourInjectedToolingBlock",
         "calloutPlacement": "North",
         "preAction": "None",
@@ -259,7 +259,7 @@
       },
       {
         "title": "Spinner 1",
-        "markdownText": "The **spinner** gives a sense of how hard an agent works.\r\nThe faster it spins, the more active the agent.",
+        "markdownText": "The **spinner** gives a sense of how hard an agent works.\r\nThe **faster** it spins, the more **active** the agent.",
         "targetControlId": "TourDemoAgentSpinner_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -349,7 +349,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][vspace:0]You just learned the basics of the SquadDash UI.\r\nTry sending a new prompt!\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Introduction to the UI**\r\n[size:1][vspace:0]You just learned the basics of the SquadDash UI.\r\n[size:1]Try **sending a prompt** or take another tour!\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -716,7 +716,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[size:1][lines:2][vspace:0]You just learned how to use the queue to create, send, and browse prompts.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[size:1][lines:2][vspace:0]You just learned how to use the queue to create, send, and browse prompts.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -915,7 +915,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[vspace:0.75]You just learned how to:\r\n* **Cycle case** with **Shift**\u002B**F3**\r\n* **Bold**, **quote**, **paren** and **fence** selections\r\n* **Navigate** and **select camel case ranges**\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[vspace:0.75]You just learned how to:\r\n* **Cycle case** with **Shift**\u002B**F3**\r\n* **Bold**, **quote**, **paren** and **fence** selections\r\n* **Navigate** and **select camel case ranges**\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -1212,7 +1212,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Theme and Appearance**\r\nYou just learned how to use the **View** menu to:\r\n* Toggle **full screen mode** -- **F11**\r\n* Toggle **agents and top panels** -- **Shift**\u002B**F11**\r\n* Toggle **agent avatars** -- **Ctrl**\u002B**F11**\r\n\r\n\r\n* Set the **theme**, **tint**, **saturation**, **contrast**, and **accent color**.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Theme and Appearance**\r\nYou just learned how to use the **View** menu to:\r\n* Toggle **full screen mode** -- **F11**\r\n* Toggle **agents and top panels** -- **Shift**\u002B**F11**\r\n* Toggle **agent avatars** -- **Ctrl**\u002B**F11**\r\n\r\n\r\n* Set the **theme**, **tint**, **saturation**, **contrast**, and **accent color**.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
@@ -1504,7 +1504,7 @@
       },
       {
         "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to **create** and **edit** prompts with voice.\r\n[vspace:0.75]Tour Complete.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Using Voice**\r\n[lines:2][vspace:0]You just learned how to configure and use push-to-talk to **create** and **edit** prompts with voice.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
