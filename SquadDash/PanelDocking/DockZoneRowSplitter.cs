@@ -117,11 +117,24 @@ internal sealed class DockZoneRowSplitter : GridSplitter
     internal static double[] ResizeAdjacent(
         DockResizeParticipant before,
         DockResizeParticipant after,
-        double delta) =>
-        // Chain mode treats growth forced by shrinking the other panel as a consequence. This
-        // lets a user make Loop smaller when Inbox already absorbs unavoidable zone surplus,
-        // while still preventing Loop itself from growing beyond its useful maximum.
-        DockResizeEngine.Resize([before, after], 0, DockResizeMode.Chain, delta);
+        double delta)
+    {
+        // Chain mode's consequence-growth allowance is defined for the participant after the
+        // splitter. Reverse positive drags so the same rule applies when the participant before
+        // the splitter receives space. This keeps the behavior symmetric: an oversized Inbox can
+        // absorb space while Loop is compressed whether Loop is above or below it.
+        if (delta > 0)
+        {
+            var reversed = DockResizeEngine.Resize(
+                [after, before],
+                0,
+                DockResizeMode.Chain,
+                -delta);
+            return [reversed[1], reversed[0]];
+        }
+
+        return DockResizeEngine.Resize([before, after], 0, DockResizeMode.Chain, delta);
+    }
 
     private void CompleteDrag(bool releaseCapture = true)
     {

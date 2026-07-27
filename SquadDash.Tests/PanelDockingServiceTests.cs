@@ -356,6 +356,24 @@ internal sealed class PanelDockingServiceTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_LoopBelowInbox_KeepsLoopAtUsefulHeight()
+    {
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(
+            new List<FrameworkElement> { inbox, loop },
+            availableHeight: 1394);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(weights![inbox], Is.EqualTo(1065).Within(0.001));
+            Assert.That(weights[loop], Is.EqualTo(324).Within(0.001));
+        });
+    }
+
     [Test]
     public void DockZoneRowSplitter_GrowingLoopPastUsefulHeight_IsBlocked()
     {
@@ -376,6 +394,62 @@ internal sealed class PanelDockingServiceTests
             delta: -100);
 
         Assert.That(resized, Is.EqualTo(new[] { 224, 1165 }).Within(0.001));
+    }
+
+    [Test]
+    public void DockZoneRowSplitter_ShrinkingBottomLoop_AllowsTopInboxToAbsorbExistingSurplus()
+    {
+        var resized = DockZoneRowSplitter.ResizeAdjacent(
+            new DockResizeParticipant(CurrentSize: 1065, MinimumSize: 100, MaximumUsefulSize: 600),
+            new DockResizeParticipant(CurrentSize: 324, MinimumSize: 100, MaximumUsefulSize: 324),
+            delta: 100);
+
+        Assert.That(resized, Is.EqualTo(new[] { 1165, 224 }).Within(0.001));
+    }
+
+    [Test]
+    public void DockZoneRowSplitter_GrowingBottomLoopPastUsefulHeight_IsBlocked()
+    {
+        var resized = DockZoneRowSplitter.ResizeAdjacent(
+            new DockResizeParticipant(CurrentSize: 1065, MinimumSize: 100, MaximumUsefulSize: 600),
+            new DockResizeParticipant(CurrentSize: 324, MinimumSize: 100, MaximumUsefulSize: 324),
+            delta: -100);
+
+        Assert.That(resized, Is.EqualTo(new[] { 1065, 324 }).Within(0.001));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ReorderZoneGridPreservingPanelWeights_MovesWeightsWithPanels()
+    {
+        var zone = new Grid();
+        var scrollViewer = new ScrollViewer();
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+        var panels = new List<FrameworkElement> { loop, inbox };
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            panels,
+            scrollViewer,
+            new Dictionary<FrameworkElement, double>
+            {
+                [loop] = 174,
+                [inbox] = 1214,
+            });
+
+        PanelDockingService.ReorderZoneGridPreservingPanelWeights(
+            zone,
+            panels,
+            loop,
+            targetIndex: 1,
+            scrollViewer);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(panels, Is.EqualTo(new[] { inbox, loop }));
+            Assert.That(zone.RowDefinitions[0].Height.Value, Is.EqualTo(1214).Within(0.001));
+            Assert.That(zone.RowDefinitions[2].Height.Value, Is.EqualTo(174).Within(0.001));
+        });
     }
 
     [Test, Apartment(ApartmentState.STA)]

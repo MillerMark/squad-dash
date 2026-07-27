@@ -795,9 +795,12 @@ internal sealed class PanelDockingService
                     var (zoneList, zoneGrid, scrollViewer) = GetZoneContext(targetZone);
                     if (zoneList is not null && zoneGrid is not null)
                     {
-                        zoneList.Remove(el);
-                        zoneList.Insert(Math.Clamp(clampedTarget, 0, zoneList.Count), el);
-                        RebuildZoneGrid(zoneGrid, zoneList, scrollViewer as FrameworkElement);
+                        ReorderZoneGridPreservingPanelWeights(
+                            zoneGrid,
+                            zoneList,
+                            el,
+                            clampedTarget,
+                            scrollViewer as FrameworkElement);
                     }
                 }
             }
@@ -1266,6 +1269,24 @@ internal sealed class PanelDockingService
             weights[zoneList[i]] = star;
         }
         return weights;
+    }
+
+    internal static void ReorderZoneGridPreservingPanelWeights(
+        Grid zoneGrid,
+        List<FrameworkElement> zoneList,
+        FrameworkElement element,
+        int targetIndex,
+        FrameworkElement? scrollViewer)
+    {
+        // The rendered grid has rows only for visible panels. Capture against that same sequence
+        // so a hidden panel earlier in zoneList cannot shift every following panel's row lookup.
+        var renderedPanels = zoneList
+            .Where(panel => panel.Visibility != Visibility.Collapsed)
+            .ToList();
+        var weights = CaptureStarWeights(zoneGrid, renderedPanels);
+        zoneList.Remove(element);
+        zoneList.Insert(Math.Clamp(targetIndex, 0, zoneList.Count), element);
+        RebuildZoneGrid(zoneGrid, zoneList, scrollViewer, weights);
     }
 
     private void RemoveFromTopZone(FrameworkElement element)
