@@ -828,6 +828,10 @@ public partial class MainWindow : Window
                 }
             });
         InitializeComponent();
+        // Dynamic dock-size providers must exist before a workspace layout is restored or a
+        // side-zone visibility change requests its initial height allocation.
+        LoopPanelBorder.MaximumUsefulSizeProvider = orientation =>
+            orientation == DockResizeOrientation.Vertical ? ComputeLoopPanelUsefulHeight() : null;
         _watchHealthAutoRefreshTimer.Interval = UiTimingConstants.WatchHealthAutoRefreshInterval;
         _watchHealthAutoRefreshTimer.Tick += WatchHealthAutoRefreshTimer_Tick;
         BranchIndicatorStrip.ToolTip = MakeThemedToolTip("Click for Branch options");
@@ -6729,6 +6733,7 @@ public partial class MainWindow : Window
     }
 
     private bool _lastSyncedLoopRunning;
+    private double _lastLoopPanelUsefulHeight = double.NaN;
 
     private double ComputeLoopPanelUsefulHeight()
     {
@@ -6759,10 +6764,6 @@ public partial class MainWindow : Window
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("loop", _loopPanelVisible);
         UpdateMainGridSideMargins();
-
-        if (LoopPanelBorder.MaximumUsefulSizeProvider is null)
-            LoopPanelBorder.MaximumUsefulSizeProvider = orientation =>
-                orientation == DockResizeOrientation.Vertical ? ComputeLoopPanelUsefulHeight() : null;
 
         bool running = IsLoopRunning;
 
@@ -6833,6 +6834,29 @@ public partial class MainWindow : Window
 
         if (LoopPanelDequeueMenuItem is not null)
             LoopPanelDequeueMenuItem.Visibility = _loopQueued ? Visibility.Visible : Visibility.Collapsed;
+
+        RefreshLoopPanelUsefulHeightIfChanged();
+    }
+
+    private void RefreshLoopPanelUsefulHeightIfChanged(bool force = false)
+    {
+        var usefulHeight = ComputeLoopPanelUsefulHeight();
+        if (!force && !double.IsNaN(_lastLoopPanelUsefulHeight) &&
+            Math.Abs(usefulHeight - _lastLoopPanelUsefulHeight) < 1)
+        {
+            return;
+        }
+
+        _lastLoopPanelUsefulHeight = usefulHeight;
+        if (_loopPanelVisible)
+            _dockingService?.RefreshPanelUsefulHeight("loop");
+    }
+
+    private void ScheduleLoopPanelUsefulHeightRefresh(bool force = false)
+    {
+        _ = Dispatcher.BeginInvoke(
+            DispatcherPriority.Loaded,
+            () => RefreshLoopPanelUsefulHeightIfChanged(force));
     }
 
     private void SyncTasksPanel()
@@ -6943,13 +6967,25 @@ public partial class MainWindow : Window
         LoopOptionsPanel.Children.Clear();
         LoopOptionsPanel.Visibility = Visibility.Collapsed;
 
-        if (_selectedLoopMdPath is null) return;
+        if (_selectedLoopMdPath is null)
+        {
+            ScheduleLoopPanelUsefulHeightRefresh(force: true);
+            return;
+        }
 
         LoopMdConfig? config;
         try { config = LoopMdParser.Parse(_selectedLoopMdPath); }
-        catch { return; }
+        catch
+        {
+            ScheduleLoopPanelUsefulHeightRefresh(force: true);
+            return;
+        }
 
-        if (config?.Options is not { Count: > 0 }) return;
+        if (config?.Options is not { Count: > 0 })
+        {
+            ScheduleLoopPanelUsefulHeightRefresh(force: true);
+            return;
+        }
 
         bool inGroup = false;
         foreach (var opt in config.Options)
@@ -6985,6 +7021,7 @@ public partial class MainWindow : Window
 
         LoopOptionsPanel.Visibility = Visibility.Visible;
         RefreshLoopMergedView();
+        ScheduleLoopPanelUsefulHeightRefresh(force: true);
     }
 
     private CheckBox CreateBoolOptionControl(LoopOption opt)

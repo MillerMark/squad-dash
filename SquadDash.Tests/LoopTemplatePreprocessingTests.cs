@@ -207,6 +207,12 @@ internal sealed class LoopTemplatePreprocessingTests
         Assert.That(template, Does.Contain("Do **not** append `HOST_COMMAND_JSON` after completing a task"));
         Assert.That(template, Does.Contain("Never execute an item inside a `<!-- decompose-group: ... -->` block"));
         Assert.That(template, Does.Contain("**Executing Plan** engine"));
+        Assert.That(template, Does.Contain("create exactly one atomic commit"));
+        Assert.That(template, Does.Contain("If build or test verification fails, do not commit"));
+        Assert.That(template, Does.Not.Contain("options:"));
+        Assert.That(template, Does.Not.Contain("commit_after_task"));
+        Assert.That(template, Does.Not.Contain("build_verify"));
+        Assert.That(template, Does.Not.Contain("test_after_task"));
         Assert.That(template, Does.Not.Contain("then stop. The next iteration"));
     }
 

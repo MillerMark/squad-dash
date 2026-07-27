@@ -1,43 +1,7 @@
 ---
 configured: true
-options:
-  after_task_header:
-    type: group
-    label: "After Task Completes:"
-  build_verify:
-    value: true
-    type: bool
-    label: "Verify build"
-    hint: "Run the auto-detected build command and confirm it passes before committing"
-  test_after_task:
-    value: true
-    type: bool
-    label: "Write tests"
-    hint: "Write comprehensive tests after each implementation task"
-  commit_after_task:
-    value: ask
-    type: enum
-    choices: [always, never, ask]
-    label: "Commit"
-    hint: "When to automatically commit completed work"
-  loop_params_header:
-    type: group
-    label: "Loop Parameters:"
-  interval:
-    value: 1
-    type: int
-    label: "Interval (min)"
-    hint: "Minutes to wait between iterations"
-  timeout:
-    value: 60
-    type: int
-    label: "Timeout (min)"
-    hint: "Max minutes per iteration before aborting"
-  max_iterations:
-    value: 0
-    type: int
-    label: "Max iterations"
-    hint: "Stop after this many iterations. 0 = unlimited."
+interval: 1
+timeout: 60
 description: "Filtered Task Runner — picks the top open task, implements it, marks it done, repeats"
 commands: [stop_loop]
 ---
@@ -79,23 +43,16 @@ No unchecked tasks remain (or all remaining tasks are Owner: User). Do the follo
 2. Delegate to or become that agent. Complete the work — implementation, decisions, tests, as appropriate.
 3. For **"define…" or "decide…" or "architecture" tasks**: document the decision in `.squad/decisions.md` (create if missing) and update relevant architecture docs, then consider the task done.
 4. For **implementation tasks**:
-   - `build_verify` = `{{build_verify}}` — if `true` and `{{build_command}}` is non-empty, run `{{build_command}}` and verify it passes before committing.
-   {{#if commit_after_task == "always"}}
-   - Commit immediately with a clear, descriptive message. Include the trailer: `{{copilot_trailer}}`
-   {{/if}}
-   {{#if commit_after_task == "ask"}}
-   - Offer a quick reply: **"Commit changes"** / **"Leave uncommitted"** and wait for confirmation before committing.
-   {{/if}}
-   {{#if commit_after_task == "never"}}
-   - Do not commit. Describe the diff in your response instead.
-   {{/if}}
-5. After work is complete, mark the task `[x]` in `.squad/tasks.md` and move it to the "Recently Completed" section at the bottom.
+   - Run the auto-detected `{{build_command}}` when it is available and verify the build passes.
+   - Add or update focused tests when behavior changes, and run the relevant tests before marking the task complete.
+   - If build or test verification fails, do not commit or advance to another task; report the failure and stop this iteration.
+5. After work is verified, mark the task `[x]` in `.squad/tasks.md`, move it to the "Recently Completed" section at the bottom, then create exactly one atomic commit containing the implementation, tests, and task-list update. Use a clear, descriptive message and include the trailer: `{{copilot_trailer}}`
 6. Report a one-line summary of what was done.
 7. Do **not** append `HOST_COMMAND_JSON` after completing a task. Simply finish your response and let SquadDash schedule the next iteration.
 
-## Step 4 — Write tests (if applicable)
+## Step 4 — Verify tests
 
-`test_after_task` = `{{test_after_task}}` — if `true`, write comprehensive test cases for what was built this iteration. If `false`, skip this step.
+Confirm the tests appropriate to this task pass. Do not add tests mechanically when the task has no behavior change, but never skip relevant regression coverage.
 
 ## Step 5 — Surface human decisions
 

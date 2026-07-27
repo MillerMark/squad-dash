@@ -48,6 +48,24 @@ internal sealed class DockResizeEngineTests
             "Loop panel should not declare a static DockMaximumUsefulHeight; use dynamic provider instead");
     }
 
+    [Test]
+    public void MainWindow_RegistersLoopUsefulHeightProviderBeforeDockingService()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var providerIndex = source.IndexOf(
+            "LoopPanelBorder.MaximumUsefulSizeProvider = orientation =>",
+            StringComparison.Ordinal);
+        var dockingServiceIndex = source.IndexOf(
+            "_dockingService = new PanelDockingService(",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(providerIndex, Is.GreaterThanOrEqualTo(0));
+            Assert.That(dockingServiceIndex, Is.GreaterThan(providerIndex));
+        });
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void GripStripBorder_VerticalProviderOverridesNullFallback()
     {

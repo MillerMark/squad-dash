@@ -339,6 +339,110 @@ internal sealed class PanelDockingServiceTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void ComputeIdealHeightWeights_LoopAboveInbox_KeepsLoopAtUsefulHeight()
+    {
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+
+        var weights = PanelDockingService.ComputeIdealHeightWeights(
+            new List<FrameworkElement> { loop, inbox },
+            availableHeight: 1394);
+
+        Assert.That(weights, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(weights![loop], Is.EqualTo(324).Within(0.001));
+            Assert.That(weights[inbox], Is.EqualTo(1065).Within(0.001));
+        });
+    }
+
+    [Test]
+    public void DockZoneRowSplitter_GrowingLoopPastUsefulHeight_IsBlocked()
+    {
+        var resized = DockZoneRowSplitter.ResizeAdjacent(
+            new DockResizeParticipant(CurrentSize: 324, MinimumSize: 100, MaximumUsefulSize: 324),
+            new DockResizeParticipant(CurrentSize: 1065, MinimumSize: 100, MaximumUsefulSize: 600),
+            delta: 900);
+
+        Assert.That(resized, Is.EqualTo(new[] { 324, 1065 }).Within(0.001));
+    }
+
+    [Test]
+    public void DockZoneRowSplitter_ShrinkingLoop_AllowsInboxToAbsorbExistingSurplus()
+    {
+        var resized = DockZoneRowSplitter.ResizeAdjacent(
+            new DockResizeParticipant(CurrentSize: 324, MinimumSize: 100, MaximumUsefulSize: 324),
+            new DockResizeParticipant(CurrentSize: 1065, MinimumSize: 100, MaximumUsefulSize: 600),
+            delta: -100);
+
+        Assert.That(resized, Is.EqualTo(new[] { 224, 1165 }).Within(0.001));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebuildZoneGrid_UsesBoundedSplitterForStackedPanels()
+    {
+        var zone = new Grid { Name = "Left2ZonePanel" };
+        var scrollViewer = new ScrollViewer();
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+
+        PanelDockingService.RebuildZoneGrid(
+            zone,
+            new List<FrameworkElement> { loop, inbox },
+            scrollViewer,
+            new Dictionary<FrameworkElement, double> { [loop] = 324, [inbox] = 1065 },
+            weightsArePixels: true);
+
+        Assert.That(zone.Children.OfType<DockZoneRowSplitter>().Count(), Is.EqualTo(1));
+        Assert.That(zone.Children.OfType<GridSplitter>().Count(), Is.EqualTo(1));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredHeightWeights_PathologicalLoopDominance_IsRejected()
+    {
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+        var panels = new List<FrameworkElement> { loop, inbox };
+
+        var safe = PanelDockingService.AreRestoredHeightWeightsSafe(
+            panels,
+            new Dictionary<FrameworkElement, double> { [loop] = 1289, [inbox] = 100 },
+            availableHeight: 1394);
+
+        Assert.That(safe, Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredHeightWeights_IdealLoopInboxSplit_IsAccepted()
+    {
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+        var panels = new List<FrameworkElement> { loop, inbox };
+
+        var safe = PanelDockingService.AreRestoredHeightWeightsSafe(
+            panels,
+            new Dictionary<FrameworkElement, double> { [loop] = 324, [inbox] = 1065 },
+            availableHeight: 1394);
+
+        Assert.That(safe, Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredHeightWeights_UserMadeLoopSmaller_IsAccepted()
+    {
+        var loop = new HintPanel(maximumUsefulHeight: 324);
+        var inbox = new HintPanel(maximumUsefulHeight: 600);
+        var panels = new List<FrameworkElement> { loop, inbox };
+
+        var safe = PanelDockingService.AreRestoredHeightWeightsSafe(
+            panels,
+            new Dictionary<FrameworkElement, double> { [loop] = 224, [inbox] = 1165 },
+            availableHeight: 1394);
+
+        Assert.That(safe, Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void ComputeIdealHeightWeights_WhenAllPanelsNeedMore_AllocatesProportionallyWithFiveToOneBound()
     {
         var smallDemand = new HintPanel(maximumUsefulHeight: 100);

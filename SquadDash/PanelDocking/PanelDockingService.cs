@@ -1147,10 +1147,20 @@ internal sealed class PanelDockingService
                             restoredWeights[el] = w;
                     }
 
-                    usedSnapshot = true;
-                    SquadDashTrace.Write(TraceCategory.Docking,
-                        $"OnPanelVisibilityChanged: restoring {panelId} from snapshot — " +
-                        $"star={snap.SavedStarWeight:F2} zoneH={currentZoneH:F0} (snap={snap.ZoneActualHeight:F0})");
+                    if (AreRestoredHeightWeightsSafe(zoneList, restoredWeights, currentZoneH))
+                    {
+                        usedSnapshot = true;
+                        SquadDashTrace.Write(TraceCategory.Docking,
+                            $"OnPanelVisibilityChanged: restoring {panelId} from snapshot — " +
+                            $"star={snap.SavedStarWeight:F2} zoneH={currentZoneH:F0} (snap={snap.ZoneActualHeight:F0})");
+                    }
+                    else
+                    {
+                        restoredWeights = null;
+                        SquadDashTrace.Write(TraceCategory.Docking,
+                            $"OnPanelVisibilityChanged: snapshot for {panelId} violates current useful-height bounds; " +
+                            "discarding it and using ideal weights");
+                    }
                 }
                 else
                 {
@@ -1174,6 +1184,39 @@ internal sealed class PanelDockingService
             if (!usedSnapshot)
                 ScheduleInitialZoneHeightAllocation(zoneGrid, zoneList, scrollViewer as FrameworkElement);
         }
+    }
+
+    /// <summary>
+    /// Re-evaluates the ideal heights for the side zone containing <paramref name="panelId"/>.
+    /// Used when dynamic panel content changes its useful-height hint.
+    /// </summary>
+    public void RefreshPanelUsefulHeight(string panelId)
+    {
+        var slot = CurrentLayout.Slots.FirstOrDefault(s =>
+            string.Equals(s.PanelId, panelId, StringComparison.OrdinalIgnoreCase));
+        if (slot is null || slot.Zone == DockZone.Top)
+            return;
+
+        var (zoneList, zoneGrid, scrollViewer) = GetZoneContext(slot.Zone);
+        if (zoneList is null || zoneGrid is null || scrollViewer is not FrameworkElement scrollElement)
+            return;
+        var visible = zoneList.Where(p => p.Visibility != Visibility.Collapsed).ToList();
+        if (visible.Count == 0)
+            return;
+
+        // Preserve a user-selected split when it still satisfies every current size hint. Only
+        // rebalance when changed content makes the existing allocation invalid or before layout
+        // has produced measurable rows.
+        if (scrollElement.ActualHeight > 0 &&
+            AreRestoredHeightWeightsSafe(
+                visible,
+                CaptureStarWeights(zoneGrid, visible),
+                scrollElement.ActualHeight))
+        {
+            return;
+        }
+
+        ScheduleInitialZoneHeightAllocation(zoneGrid, zoneList, scrollElement);
     }
 
     /// <summary>
@@ -1426,6 +1469,68 @@ internal sealed class PanelDockingService
         return result;
     }
 
+    internal static bool AreRestoredHeightWeightsSafe(
+        List<FrameworkElement> panels,
+        IReadOnlyDictionary<FrameworkElement, double> restoredWeights,
+        double availableHeight)
+    {
+        const double splitterHeight = 5.0;
+        const double tolerance = 1.0;
+
+        var visible = panels.Where(p => p.Visibility != Visibility.Collapsed).ToList();
+        if (visible.Count == 0)
+            return false;
+        if (visible.Any(p => !restoredWeights.TryGetValue(p, out var weight) || weight <= 0))
+            return false;
+
+        // During an unmeasured test/startup layout there is no pixel height with which to
+        // validate a snapshot. Unconstrained panels can safely retain their relative weights;
+        // constrained panels wait for the measured ideal-allocation pass.
+        if (availableHeight <= 0)
+            return visible.All(p =>
+                (p as IDockResizeSizeHint)?.GetMaximumUsefulDockSize(DockResizeOrientation.Vertical) is null);
+
+        double contentHeight = availableHeight - Math.Max(0, visible.Count - 1) * splitterHeight;
+        double weightTotal = visible.Sum(p => restoredWeights[p]);
+        if (contentHeight <= 0 || weightTotal <= 0)
+            return false;
+
+        var ideal = ComputeIdealHeightWeights(visible, availableHeight);
+        foreach (var panel in visible)
+        {
+            double restoredHeight = contentHeight * restoredWeights[panel] / weightTotal;
+            double minimum = panel is IDockResizeSizeHint hint
+                ? hint.GetMinimumDockSize(DockResizeOrientation.Vertical)
+                : 100;
+            if (restoredHeight < minimum - tolerance)
+                return false;
+
+            double? usefulMaximum = (panel as IDockResizeSizeHint)?
+                .GetMaximumUsefulDockSize(DockResizeOrientation.Vertical);
+            if (usefulMaximum is not { } max)
+                continue;
+
+            // A zone must fill its available height, so the ideal allocator may deliberately put
+            // unavoidable surplus into one panel. Preserve at most that settled allocation; do not
+            // resurrect a split that grows another panel past both its useful maximum and ideal size.
+            double idealHeight = ideal is not null && ideal.TryGetValue(panel, out var value)
+                ? value
+                : max;
+            if (idealHeight > max + tolerance)
+            {
+                // This panel is the zone's deliberate surplus absorber. It may grow further when
+                // the user makes a compact neighbor smaller; the bounded splitter still protects
+                // every non-absorber from growing past its useful height.
+                continue;
+            }
+            double allowedMaximum = Math.Max(max, idealHeight);
+            if (restoredHeight > allowedMaximum + tolerance)
+                return false;
+        }
+
+        return true;
+    }
+
     private static void AllocateProportionallyWithBound(
         List<FrameworkElement> panels,
         IReadOnlyDictionary<FrameworkElement, double?> maxHeights,
@@ -1498,35 +1603,41 @@ internal sealed class PanelDockingService
 
         for (int i = 0; i < visible.Count; i++)
         {
+            int splitterRowIndex = -1;
             if (i > 0)
             {
                 zone.RowDefinitions.Add(new RowDefinition { Height = new GridLength(5) });
-                var splitter = new GridSplitter
-                {
-                    Name = $"{zone.Name}RowSplitter{i - 1}",
-                    Height = 5,
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    VerticalAlignment   = VerticalAlignment.Center,
-                    ResizeDirection     = GridResizeDirection.Rows,
-                    ResizeBehavior      = GridResizeBehavior.PreviousAndNext,
-                };
-                splitter.SetResourceReference(Control.BackgroundProperty, "AppSurface");
-                splitter.Opacity = 0.25;
-                Grid.SetRow(splitter, zone.RowDefinitions.Count - 1);
-                zone.Children.Add(splitter);
+                splitterRowIndex = zone.RowDefinitions.Count - 1;
             }
 
             double starValue = weights is not null && weights.TryGetValue(visible[i], out double w) ? w : 1.0;
             // MinHeight is only meaningful when a GridSplitter is present (2+ panels) so the user
             // cannot drag a panel to zero.  A solo panel has no splitter and must be allowed to
             // start at zero height (NaN zone) without creating a spurious visible stub.
-            zone.RowDefinitions.Add(new RowDefinition
+            var panelRow = new RowDefinition
             {
                 Height    = new GridLength(starValue, GridUnitType.Star),
                 MinHeight = visible.Count > 1 ? 100 : 0,
-            });
+            };
+            zone.RowDefinitions.Add(panelRow);
             Grid.SetRow(visible[i], zone.RowDefinitions.Count - 1);
             zone.Children.Add(visible[i]);
+
+            if (i > 0)
+            {
+                var beforeRow = zone.RowDefinitions[splitterRowIndex - 1];
+                var splitter = new DockZoneRowSplitter(visible[i - 1], beforeRow, visible[i], panelRow)
+                {
+                    Name = $"{zone.Name}RowSplitter{i - 1}",
+                    Height = 5,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                splitter.SetResourceReference(Control.BackgroundProperty, "AppSurface");
+                splitter.Opacity = 0.25;
+                Grid.SetRow(splitter, splitterRowIndex);
+                zone.Children.Add(splitter);
+            }
         }
 
         // Post-build: verify every non-Collapsed panel in the list got a row.
