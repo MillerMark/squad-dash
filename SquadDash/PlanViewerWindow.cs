@@ -150,9 +150,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var gateCenter = new Point((sourceRight + targetLeft) / 2, centers.Average());
             gates.Add((gateCenter, targets, dependencies));
 
-            var maxDepLevel    = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
+            var minDepLevel    = dependencies.Where(positions.ContainsKey).Min(id => levels[id]);
             var maxTargetLevel = targets.Max(t => levels[t.Id]);
-            var gateSkip = maxTargetLevel - maxDepLevel - 1;
+            var gateSkip = maxTargetLevel - minDepLevel - 1;
 
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
