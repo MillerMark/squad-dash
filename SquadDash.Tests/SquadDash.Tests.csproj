@@ -326,6 +326,10 @@
     <Compile Include="..\SquadDash\PendingDecomposePlanStore.cs" Link="Source\PendingDecomposePlanStore.cs" />
     <Compile Include="..\SquadDash\DecomposePlanInbox.cs" Link="Source\DecomposePlanInbox.cs" />
     <Compile Include="..\SquadDash\DecomposePlanningInstructions.cs" Link="Source\DecomposePlanningInstructions.cs" />
+    <!-- First-class Plans (PLANS-20260727) -->
+    <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
+    <Compile Include="..\SquadDash\PlanStore.cs" Link="Source\PlanStore.cs" />
+    <Compile Include="..\SquadDash\PendingDecomposePlanAdapter.cs" Link="Source\PendingDecomposePlanAdapter.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 
