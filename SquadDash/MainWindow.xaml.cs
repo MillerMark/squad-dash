@@ -5502,7 +5502,7 @@ public partial class MainWindow : Window
 
         SyncThreadChip(thread);
         FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Reading);
-        UpdateAgentCardFromThread(thread, syncBuckets: false);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }
 
@@ -5525,7 +5525,7 @@ public partial class MainWindow : Window
         SyncThreadChip(thread);
         FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Thinking);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_thinking_delta");
-        UpdateAgentCardFromThread(thread, syncBuckets: false);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }
 
@@ -5617,7 +5617,7 @@ public partial class MainWindow : Window
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
         FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
-        UpdateAgentCardFromThread(thread, syncBuckets: false);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_start");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }
@@ -5635,7 +5635,7 @@ public partial class MainWindow : Window
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
         FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
-        UpdateAgentCardFromThread(thread, syncBuckets: false);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_progress");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }
@@ -5661,7 +5661,7 @@ public partial class MainWindow : Window
 
         SyncThreadChip(thread);
         FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
-        UpdateAgentCardFromThread(thread, syncBuckets: false);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_complete");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }

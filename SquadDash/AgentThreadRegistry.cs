@@ -188,9 +188,16 @@ internal sealed class AgentThreadRegistry {
 
         var created = false;
         if (!_agentThreadsByKey.TryGetValue(threadKey, out var thread)) {
-            thread = string.IsNullOrWhiteSpace(toolCallId)
-                ? FindExistingAgentThread(toolCallId, agentId, agentName, agentDisplayName)
-                : null;
+            if (string.IsNullOrWhiteSpace(toolCallId)) {
+                // No toolCallId: search for a matching thread by agentId/name.
+                thread = FindExistingAgentThread(toolCallId, agentId, agentName, agentDisplayName);
+            } else if (!string.IsNullOrWhiteSpace(agentId) &&
+                       _agentThreadsByKey.TryGetValue("agent:" + agentId.Trim(), out var byAgentKey) &&
+                       string.IsNullOrWhiteSpace(byAgentKey.ToolCallId)) {
+                // toolCallId is newly known; reuse a thread previously keyed by agentId alone
+                // (no toolCallId yet) to avoid a duplicate card on backend thread restoration.
+                thread = byAgentKey;
+            }
         }
 
         if (thread is null) {
@@ -953,6 +960,7 @@ internal sealed class AgentThreadRegistry {
             "Failed" => true,
             "Cancelled" => true,
             "Interrupted" => true,
+            "Lost" => true,
             _ => false
         };
     }

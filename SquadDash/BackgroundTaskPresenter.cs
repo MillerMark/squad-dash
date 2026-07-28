@@ -252,8 +252,8 @@ internal sealed class BackgroundTaskPresenter {
         if (thread.IsPlaceholderThread || AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
             return false;
 
-        if (thread.CompletedAt is not null)
-            return false;
+        // CompletedAt alone is not sufficient — a thread may have a timestamp from a previous run
+        // but still be in a non-terminal state. Terminal status above is the authoritative signal.
 
         if (IsThreadBackedBySnapshotBackgroundTask(thread))
             return true;
