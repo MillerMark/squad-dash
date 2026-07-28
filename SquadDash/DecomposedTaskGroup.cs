@@ -25,6 +25,12 @@ internal sealed record DecomposedTaskGroup(
                                                IReadOnlyList<DecomposedGate>? ApprovalGates = null,
     [property: JsonIgnore]                     string? HostRevision = null);
 
+internal sealed record DecomposedAgentAssignment(
+    [property: JsonPropertyName("agentHandle")] string AgentHandle,
+    [property: JsonPropertyName("role")]        string Role,
+    [property: JsonPropertyName("allowGenericChildren")]
+                                                  bool AllowGenericChildren = true);
+
 internal sealed record DecomposedSubTask(
     [property: JsonPropertyName("id")]          string Id,
     [property: JsonPropertyName("description")] string Description,
@@ -33,4 +39,10 @@ internal sealed record DecomposedSubTask(
     [property: JsonPropertyName("title")]       string? Title = null,
     [property: JsonPropertyName("parentTaskId")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? ParentTaskId = null);
+                                                string? ParentTaskId = null,
+    [property: JsonPropertyName("agentAssignments")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<DecomposedAgentAssignment>? AgentAssignments = null,
+    [property: JsonPropertyName("parallelEligible")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                bool? ParallelEligible = null);

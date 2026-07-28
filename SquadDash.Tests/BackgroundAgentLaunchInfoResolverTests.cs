@@ -6,7 +6,7 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class BackgroundAgentLaunchInfoResolverTests {
     [Test]
-    public void TryResolve_MatchesRosterAgentFromTaskNamePrefix() {
+    public void TryResolve_DoesNotTreatRosterLikeTaskNameAsVerifiedAssignment() {
         using var document = JsonDocument.Parse("""
             {
               "name": "wanda-review-3",
@@ -27,9 +27,10 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
         Assert.Multiple(() => {
             Assert.That(resolved!.ToolCallId, Is.EqualTo("tool-1"));
             Assert.That(resolved.TaskName, Is.EqualTo("wanda-review-3"));
-            Assert.That(resolved.DisplayName, Is.EqualTo("Wanda Maximoff"));
-            Assert.That(resolved.AccentKey, Is.EqualTo("wanda-maximoff"));
-            Assert.That(resolved.RoleText, Is.EqualTo("Code Review"));
+            Assert.That(resolved.DisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(resolved.AccentKey, Is.Null);
+            Assert.That(resolved.RoleText, Is.Null);
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.False);
         });
     }
 
@@ -50,7 +51,7 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
 
         Assert.That(resolved, Is.Not.Null);
         Assert.Multiple(() => {
-            Assert.That(resolved!.DisplayName, Is.EqualTo("Wanda"));
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Temporary Agent"));
             Assert.That(resolved.AccentKey, Is.Null);
             Assert.That(resolved.RoleText, Is.Null);
         });
@@ -72,11 +73,11 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
             Array.Empty<TeamAgentDescriptor>());
 
         Assert.That(resolved, Is.Not.Null);
-        Assert.That(resolved!.DisplayName, Is.EqualTo("Code Review"));
+        Assert.That(resolved!.DisplayName, Is.EqualTo("Temporary Agent"));
     }
 
     [Test]
-    public void TryResolve_PrefersRosterMatchFromPromptWhenTaskNameIsInternal() {
+    public void TryResolve_DoesNotTrustRosterNameInFreeFormPrompt() {
         using var document = JsonDocument.Parse("""
             {
               "name": "bruce-banner",
@@ -95,14 +96,15 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
 
         Assert.That(resolved, Is.Not.Null);
         Assert.Multiple(() => {
-            Assert.That(resolved!.DisplayName, Is.EqualTo("Ant Man"));
-            Assert.That(resolved.AccentKey, Is.EqualTo("ant-man"));
-            Assert.That(resolved.RoleText, Is.EqualTo("Research"));
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(resolved.AccentKey, Is.Null);
+            Assert.That(resolved.RoleText, Is.Null);
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.False);
         });
     }
 
     [Test]
-    public void TryResolve_MatchesScribeFromNestedTaskMetadata() {
+    public void TryResolve_DoesNotTrustCharterInstructionWithoutAssignmentEnvelope() {
         using var document = JsonDocument.Parse("""
             {
               "agent_type": "general-purpose",
@@ -123,9 +125,37 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
 
         Assert.That(resolved, Is.Not.Null);
         Assert.Multiple(() => {
-            Assert.That(resolved!.DisplayName, Is.EqualTo("Scribe"));
-            Assert.That(resolved.AccentKey, Is.EqualTo("scribe"));
-            Assert.That(resolved.RoleText, Is.EqualTo("Session Logger"));
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(resolved.AccentKey, Is.Null);
+            Assert.That(resolved.RoleText, Is.Null);
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.False);
+        });
+    }
+
+    [Test]
+    public void TryResolve_VerifiesExactRosterHandleFromAssignmentEnvelope() {
+        using var document = JsonDocument.Parse("""
+            {
+              "agent_type": "general-purpose",
+              "name": "talia-implementation",
+              "description": "Implement SDK work",
+              "prompt": "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{\"taskId\":\"PLAN-20260728-001\",\"revision\":\"rev-1\",\"agentHandle\":\"talia-rune\",\"role\":\"implementer\"}"
+            }
+            """);
+
+        var resolved = BackgroundAgentLaunchInfoResolver.TryResolve(
+            "tool-verified",
+            document.RootElement,
+            [new TeamAgentDescriptor("Talia Rune", "talia-rune", "SDK Bridge")]);
+
+        Assert.That(resolved, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Talia Rune"));
+            Assert.That(resolved.AccentKey, Is.EqualTo("talia-rune"));
+            Assert.That(resolved.AssignedTaskId, Is.EqualTo("PLAN-20260728-001"));
+            Assert.That(resolved.AssignedPlanRevision, Is.EqualTo("rev-1"));
+            Assert.That(resolved.AssignedAgentHandle, Is.EqualTo("talia-rune"));
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.True);
         });
     }
 }

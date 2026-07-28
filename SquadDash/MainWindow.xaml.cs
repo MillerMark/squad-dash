@@ -7653,6 +7653,7 @@ public partial class MainWindow : Window
         }
 
         string? revision;
+        DecomposedTaskGroup? executionGroup = group;
         if (group is not null)
         {
             revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
@@ -7676,6 +7677,7 @@ public partial class MainWindow : Window
                 return false;
             }
             revision = persistedGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
+            executionGroup = persistedGroup;
         }
 
         if (!string.IsNullOrWhiteSpace(expectedRevision) &&
@@ -7724,8 +7726,13 @@ public partial class MainWindow : Window
         {
             var stepTitle       = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentStep;
             var stepDescription = _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty;
+            var assignments = executionGroup?.Tasks
+                .FirstOrDefault(task => string.Equals(task.Id, currentStep, StringComparison.Ordinal))
+                ?.AgentAssignments;
+            if (PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) == PlanAgentRoutingPolicy.Off)
+                assignments = null;
             stepRoutingContext  = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
-                _currentWorkspace.SquadFolderPath, currentStep, stepTitle, stepDescription);
+                _currentWorkspace.SquadFolderPath, currentStep, stepTitle, stepDescription, assignments, revision);
             if (!string.IsNullOrWhiteSpace(stepRoutingContext))
                 SquadDashTrace.Write("PlanRouting",
                     $"Step {currentStep} routed to: {stepRoutingContext[..Math.Min(200, stepRoutingContext.Length)]}");
@@ -7752,6 +7759,15 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write(TraceCategory.General,
                 "TASKS_JSON detected in completed response but parsing or validation failed.");
+            QueueDecomposeRepair();
+            return;
+        }
+
+        if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                group, _currentWorkspace!.SquadFolderPath, out var assignmentCatalogError))
+        {
+            SquadDashTrace.Write("PlanRouting", assignmentCatalogError ?? "Invalid plan agent assignment.");
+            AppendLine($"⚠ Could not stage plan {group.GroupId}: {assignmentCatalogError}");
             QueueDecomposeRepair();
             return;
         }
@@ -8108,6 +8124,9 @@ public partial class MainWindow : Window
         var group = plan.Group;
         if (!TasksJsonParser.TryParse("TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group), out _))
             throw new InvalidOperationException("The saved task plan no longer passes schema validation.");
+        if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                group, _currentWorkspace.SquadFolderPath, out var assignmentCatalogError))
+            throw new InvalidOperationException(assignmentCatalogError ?? "The saved plan has invalid agent assignments.");
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out _))
             throw new InvalidOperationException("The saved task plan contains a dependency cycle.");
         var workspace = _currentWorkspace.FolderPath;
@@ -8362,6 +8381,32 @@ public partial class MainWindow : Window
         var revision = _CodeHealthGroupRunner.CurrentRevision ?? string.Empty;
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
+        IReadOnlyList<DecomposedAgentAssignment>? expectedAssignments = null;
+        string? assignmentError = null;
+
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        if (File.Exists(tasksPath))
+        {
+            var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+            if (persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
+                expectedAssignments = persistedGroup.Tasks
+                    .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal))
+                    ?.AgentAssignments;
+        }
+
+        assignmentError = PlanAgentAssignmentValidator.Validate(
+            taskId,
+            revision,
+            PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) == PlanAgentRoutingPolicy.Off
+                ? null
+                : expectedAssignments,
+            _agentThreadRegistry.LaunchesByToolCallId.Values);
+        if (assignmentError is null &&
+            PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off)
+            assignmentError = PlanAgentAssignmentValidator.ValidateWrapUp(
+                taskId, expectedAssignments, result?.AgentExecutions);
+        if (assignmentError is not null)
+            error = assignmentError;
 
         if (result is not null && !string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
             error = $"The result was for group {result.GroupId}, but SquadDash is executing {groupId}.";
@@ -8376,8 +8421,28 @@ public partial class MainWindow : Window
                 // First failure: attempt one bounded repair.
                 _repairAttemptActive = true;
                 var repairError = error ?? "no result envelope was returned";
-                ScheduleDecomposeSystemEntry($"⚙ SquadDash is requesting the missing result envelope (reason: {repairError})");
                 var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
+                if (assignmentError is not null && expectedAssignments is { Count: > 0 })
+                {
+                    var stepTitle = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId;
+                    var stepDescription = _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty;
+                    var routingContext = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+                        _currentWorkspace.SquadFolderPath,
+                        taskId,
+                        stepTitle,
+                        stepDescription,
+                        expectedAssignments,
+                        revision);
+                    repairPrompt = PlanAssignmentRepairPrompt.Build(
+                        groupId, taskId, revision, expectedAssignments, routingContext, repairError);
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ SquadDash is requesting the missing verified agent assignment (reason: {repairError})");
+                }
+                else
+                {
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ SquadDash is requesting the missing result envelope (reason: {repairError})");
+                }
                 EnqueuePrompt(repairPrompt, isSystemInjected: true);
                 return;
             }

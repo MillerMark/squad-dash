@@ -147,9 +147,14 @@ internal sealed class PlanStepAgentResolver
                     name.Equals("Name", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var isActive    = status.Contains("active", StringComparison.OrdinalIgnoreCase);
-                var handle      = name.ToLowerInvariant().Replace(' ', '-');
+                var isActive    = status.Equals("active", StringComparison.OrdinalIgnoreCase);
                 var charterPath = string.IsNullOrWhiteSpace(charter) || charter == "—" ? null : charter;
+                var charterDirectory = charterPath is null
+                    ? null
+                    : Path.GetFileName(Path.GetDirectoryName(charterPath.Replace('/', Path.DirectorySeparatorChar)));
+                var handle = string.IsNullOrWhiteSpace(charterDirectory)
+                    ? name.ToLowerInvariant().Replace(' ', '-')
+                    : charterDirectory.ToLowerInvariant();
 
                 agents.Add(new RosterAgent(name, handle, charterPath, isActive));
             }

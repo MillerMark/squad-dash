@@ -64,6 +64,11 @@ internal static class PlanRecoveryState
     internal const string Ended                = "ended";
 }
 
+internal sealed record PlanAgentAssignment(
+    [property: JsonPropertyName("agentHandle")] string AgentHandle,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("allowGenericChildren")] bool AllowGenericChildren = true);
+
 // ─── Value objects ─────────────────────────────────────────────────────────────
 
 /// <summary>Immutable task entry inside a Plan.</summary>
@@ -87,7 +92,13 @@ internal sealed record PlanTask(
                                                 DateTimeOffset? CompletedAt = null,
     [property: JsonPropertyName("completionSummary")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? CompletionSummary = null);
+                                                string? CompletionSummary = null,
+    [property: JsonPropertyName("agentAssignments")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanAgentAssignment>? AgentAssignments = null,
+    [property: JsonPropertyName("parallelEligible")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                bool? ParallelEligible = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

@@ -20,9 +20,14 @@ internal sealed record BackgroundAgentLaunchInfo(
     string? RoleText,
     string? Description,
     string? AgentType,
-    string? Prompt);
+    string? Prompt,
+    string? AssignedTaskId,
+    string? AssignedPlanRevision,
+    string? AssignedAgentHandle,
+    bool IsVerifiedRosterAssignment);
 
 internal static class BackgroundAgentLaunchInfoResolver {
+    internal const string AssignmentMarker = "SQUADDASH_AGENT_ASSIGNMENT_JSON:";
     private static readonly HashSet<string> GenericTaskTokens = new(StringComparer.OrdinalIgnoreCase) {
         "agent",
         "code",
@@ -56,8 +61,14 @@ internal static class BackgroundAgentLaunchInfoResolver {
             return null;
         }
 
-        var rosterMatch = FindRosterMatch(taskName, description, prompt, roster);
-        var displayName = rosterMatch?.DisplayName ?? InferDisplayName(taskName, description, agentType);
+        var assignment = TryReadAssignment(prompt);
+        var assignedAgentHandle = assignment?.AgentHandle;
+        var rosterMatch = string.IsNullOrWhiteSpace(assignedAgentHandle)
+            ? null
+            : roster.FirstOrDefault(candidate =>
+                string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(assignedAgentHandle), StringComparison.Ordinal));
+        var verifiedRosterAssignment = rosterMatch is not null;
+        var displayName = rosterMatch?.DisplayName ?? "Temporary Agent";
         if (string.IsNullOrWhiteSpace(displayName))
             return null;
 
@@ -70,7 +81,50 @@ internal static class BackgroundAgentLaunchInfoResolver {
             Normalize(rosterMatch?.RoleText),
             Normalize(description),
             Normalize(agentType),
-            Normalize(prompt));
+            Normalize(prompt),
+            Normalize(assignment?.TaskId),
+            Normalize(assignment?.Revision),
+            Normalize(assignedAgentHandle),
+            verifiedRosterAssignment);
+    }
+
+    private static (string? TaskId, string? Revision, string? AgentHandle)? TryReadAssignment(string? prompt) {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return null;
+
+        var markerIndex = prompt.IndexOf(AssignmentMarker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+            return null;
+
+        var braceStart = prompt.IndexOf('{', markerIndex + AssignmentMarker.Length);
+        if (braceStart < 0)
+            return null;
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var index = braceStart; index < prompt.Length; index++) {
+            var character = prompt[index];
+            if (escaped) { escaped = false; continue; }
+            if (character == '\\' && inString) { escaped = true; continue; }
+            if (character == '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (character == '{') depth++;
+            else if (character == '}' && --depth == 0) {
+                try {
+                    using var document = JsonDocument.Parse(prompt[braceStart..(index + 1)]);
+                    return (
+                        TryGetString(document.RootElement, "taskId"),
+                        TryGetString(document.RootElement, "revision"),
+                        TryGetString(document.RootElement, "agentHandle"));
+                }
+                catch (JsonException) {
+                    return null;
+                }
+            }
+        }
+
+        return null;
     }
 
     public static TeamAgentDescriptor? FindRosterMatch(

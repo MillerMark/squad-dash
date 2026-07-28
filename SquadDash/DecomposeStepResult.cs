@@ -8,6 +8,11 @@ internal sealed record DecomposeStepVerification(
     [property: JsonPropertyName("command")] string? Command,
     [property: JsonPropertyName("summary")] string? Summary);
 
+internal sealed record DecomposeAgentExecution(
+    [property: JsonPropertyName("requestedAgent")] string RequestedAgent,
+    [property: JsonPropertyName("actualPrimaryAgent")] string ActualPrimaryAgent,
+    [property: JsonPropertyName("children")] IReadOnlyList<string>? Children);
+
 internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("groupId")] string GroupId,
     [property: JsonPropertyName("taskId")] string TaskId,
@@ -16,7 +21,10 @@ internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("commit")] string? Commit,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("remainingWork")] IReadOnlyList<string>? RemainingWork,
-    [property: JsonPropertyName("verification")] DecomposeStepVerification? Verification);
+    [property: JsonPropertyName("verification")] DecomposeStepVerification? Verification,
+    [property: JsonPropertyName("agentExecutions")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<DecomposeAgentExecution>? AgentExecutions = null);
 
 internal static class DecomposeStepResultParser
 {

@@ -77,9 +77,18 @@ DECOMPOSE_STEP_RESULT_JSON:
     "status": "passed",
     "command": "exact build or test command",
     "summary": "what passed"
-  }
+  },
+  "agentExecutions": [
+    {
+      "requestedAgent": "exact plan-assigned roster handle",
+      "actualPrimaryAgent": "verified primary roster handle",
+      "children": ["generic child handles, if any"]
+    }
+  ]
 }
 ```
+
+When the task has agent assignments, `agentExecutions` is required and must cover every assigned primary agent. Omit it only for legacy tasks with no structured assignments.
 
 Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
 List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`

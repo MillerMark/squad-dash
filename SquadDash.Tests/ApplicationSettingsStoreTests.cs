@@ -5,6 +5,22 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class ApplicationSettingsStoreTests {
     [Test]
+    public void PlanAgentRoutingPolicy_DefaultsToPlanExecutionAndPersistsAllModes() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        Assert.That(store.Load().PlanAgentRoutingPolicy,
+            Is.EqualTo(PlanAgentRoutingPolicy.PlanExecutionOnly));
+
+        store.SavePlanAgentRoutingPolicy(PlanAgentRoutingPolicy.Always);
+        Assert.That(store.Load().PlanAgentRoutingPolicy, Is.EqualTo(PlanAgentRoutingPolicy.Always));
+
+        store.SavePlanAgentRoutingPolicy("invalid");
+        Assert.That(store.Load().PlanAgentRoutingPolicy,
+            Is.EqualTo(PlanAgentRoutingPolicy.PlanExecutionOnly));
+    }
+
+    [Test]
     public void SaveAgentAccentColor_PersistsPerWorkspaceAndAgent() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");

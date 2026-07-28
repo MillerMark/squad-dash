@@ -2318,7 +2318,9 @@ internal sealed class PromptExecutionController {
         var currentWorkspace = _workspaceContext.GetCurrentWorkspace();
         var decomposePlanningCtx = currentWorkspace is null
             ? null
-            : DecomposePlanningInstructions.BuildOrdinaryPromptContext(currentWorkspace.SquadFolderPath);
+            : DecomposePlanningInstructions.BuildOrdinaryPromptContext(
+                currentWorkspace.SquadFolderPath,
+                _workspaceContext.GetSettingsSnapshot().PlanAgentRoutingPolicy);
         var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, artifactCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, decomposePlanningCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(

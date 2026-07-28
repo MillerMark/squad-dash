@@ -432,6 +432,10 @@
     <Compile Include="..\SquadDash\ThemeRevealWindowRegistry.cs" Link="Source\ThemeRevealWindowRegistry.cs" />
     <Compile Include="..\SquadDash\PlanStepAgentResolver.cs" Link="Source\PlanStepAgentResolver.cs" />
     <Compile Include="..\SquadDash\PlanStepRoutingContext.cs" Link="Source\PlanStepRoutingContext.cs" />
+    <Compile Include="..\SquadDash\PlanAgentAssignmentValidator.cs" Link="Source\PlanAgentAssignmentValidator.cs" />
+    <Compile Include="..\SquadDash\PlanAgentAssignmentCatalogValidator.cs" Link="Source\PlanAgentAssignmentCatalogValidator.cs" />
+    <Compile Include="..\SquadDash\PlanAssignmentRepairPrompt.cs" Link="Source\PlanAssignmentRepairPrompt.cs" />
+    <Compile Include="..\SquadDash\PlanAgentRoutingPolicy.cs" Link="Source\PlanAgentRoutingPolicy.cs" />
     <Compile Include="..\SquadDash\PlanExecutionLog.cs" Link="Source\PlanExecutionLog.cs" />
 
   </ItemGroup>

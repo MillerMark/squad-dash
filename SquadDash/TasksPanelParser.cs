@@ -240,6 +240,8 @@ internal static class TasksPanelParser {
                 var priority    = "medium";
                 IReadOnlyList<string> dependsOn = [];
                 string? parentTaskId = null;
+                IReadOnlyList<DecomposedAgentAssignment>? agentAssignments = null;
+                bool? parallelEligible = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -260,6 +262,18 @@ internal static class TasksPanelParser {
                     }
                     else if (metadata.StartsWith("parentTaskId:", StringComparison.OrdinalIgnoreCase))
                         parentTaskId = metadata["parentTaskId:".Length..].Trim();
+                    else if (metadata.StartsWith("agentAssignments:", StringComparison.OrdinalIgnoreCase)) {
+                        var json = metadata["agentAssignments:".Length..].Trim();
+                        try {
+                            agentAssignments = System.Text.Json.JsonSerializer.Deserialize<DecomposedAgentAssignment[]>(json);
+                        }
+                        catch (System.Text.Json.JsonException) {
+                            agentAssignments = null;
+                        }
+                    }
+                    else if (metadata.StartsWith("parallelEligible:", StringComparison.OrdinalIgnoreCase) &&
+                             bool.TryParse(metadata["parallelEligible:".Length..].Trim(), out var parsedParallel))
+                        parallelEligible = parsedParallel;
                     metadataEnd++;
                 }
 
@@ -297,7 +311,9 @@ internal static class TasksPanelParser {
                     IsPartial: status == "~",
                     IsSuperseded: status == ">");
 
-                tasks.Add(new DecomposedSubTask(taskId, description, dependsOn, priority, taskTitle, parentTaskId));
+                tasks.Add(new DecomposedSubTask(
+                    taskId, description, dependsOn, priority, taskTitle, parentTaskId,
+                    agentAssignments, parallelEligible));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

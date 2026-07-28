@@ -63,6 +63,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly CheckBox _byokOfflineModeCheckBox;
     private readonly TextBlock _byokTestStatusText;
     private readonly TextBox _cleanupPromptBox;
+    private readonly ComboBox _planAgentRoutingPolicyComboBox;
     // ── Sound notification controls ──────────────────────────────────────
     private readonly CheckBox _soundPromptCompleteCheckBox;
     private readonly TextBox  _soundPromptCompletePathBox;
@@ -297,6 +298,28 @@ internal sealed class PreferencesWindow : Window {
         _userNameBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _userNameBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _userNameBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+
+        _planAgentRoutingPolicyComboBox = new ComboBox {
+            Height = 30,
+            Margin = new Thickness(0, 0, 0, 20)
+        };
+        _planAgentRoutingPolicyComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {
+            Content = "Plan execution only (recommended)",
+            Tag = PlanAgentRoutingPolicy.PlanExecutionOnly
+        });
+        _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {
+            Content = "Always",
+            Tag = PlanAgentRoutingPolicy.Always
+        });
+        _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {
+            Content = "Off",
+            Tag = PlanAgentRoutingPolicy.Off
+        });
+        var routingPolicy = PlanAgentRoutingPolicy.Normalize(currentSettings.PlanAgentRoutingPolicy);
+        _planAgentRoutingPolicyComboBox.SelectedItem = _planAgentRoutingPolicyComboBox.Items
+            .Cast<ComboBoxItem>()
+            .First(item => string.Equals(item.Tag as string, routingPolicy, StringComparison.Ordinal));
 
         var currentApiKey = Environment.GetEnvironmentVariable("SQUAD_SPEECH_KEY", EnvironmentVariableTarget.User) ?? string.Empty;
         _apiKeyPasswordBox = new PasswordBox {
@@ -615,6 +638,7 @@ internal sealed class PreferencesWindow : Window {
 
         // ── Auto-save hooks ───────────────────────────────────────────────
         _userNameBox.LostFocus += (_, _) => SaveUserNameNow();
+        _planAgentRoutingPolicyComboBox.SelectionChanged += (_, _) => SavePlanAgentRoutingPolicyNow();
         _speechRegionBox.LostFocus += (_, _) => SaveSpeechRegionNow();
         _speechLanguageComboBox.SelectionChanged += (_, _) => SaveSpeechLanguageNow();
 
@@ -988,6 +1012,16 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(form, "User Name (appears in the Transcript, before user prompts)");
         form.Children.Add(_userNameBox);
+
+        AddLabel(form, "Verified roster-agent routing");
+        form.Children.Add(_planAgentRoutingPolicyComboBox);
+        var routingHelp = new TextBlock {
+            Text = "Controls when SquadDash requires structured, verifiable roster assignments. Generic child workers remain available.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, -12, 0, 12)
+        };
+        routingHelp.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(routingHelp);
 
         return WrapInScrollViewer(form);
     }
@@ -2399,6 +2433,13 @@ internal sealed class PreferencesWindow : Window {
     private void SaveUserNameNow() {
         var userName = _userNameBox.Text.Trim();
         var updated = _settingsStore.SaveUserName(string.IsNullOrWhiteSpace(userName) ? null : userName);
+        _onSaved(updated);
+    }
+
+    private void SavePlanAgentRoutingPolicyNow() {
+        var policy = (_planAgentRoutingPolicyComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        var updated = _settingsStore.SavePlanAgentRoutingPolicy(
+            PlanAgentRoutingPolicy.Normalize(policy));
         _onSaved(updated);
     }
 

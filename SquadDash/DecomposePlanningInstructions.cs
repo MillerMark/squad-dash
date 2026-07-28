@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -160,7 +163,9 @@ internal static class DecomposePlanningInstructions
         string squadFolderPath,
         string stepId,
         string stepTitle,
-        string stepDescription)
+        string stepDescription,
+        IReadOnlyList<DecomposedAgentAssignment>? explicitAssignments = null,
+        string? planRevision = null)
     {
         try
         {
@@ -169,6 +174,11 @@ internal static class DecomposePlanningInstructions
 
             var routingContent = File.Exists(routingPath) ? File.ReadAllText(routingPath) : string.Empty;
             var teamContent    = File.Exists(teamPath)    ? File.ReadAllText(teamPath)    : string.Empty;
+            var agents = PlanStepAgentResolver.ParseTeamMd(teamContent);
+
+            if (explicitAssignments is { Count: > 0 })
+                return BuildExplicitAssignmentContext(
+                    squadFolderPath, stepId, planRevision, explicitAssignments, agents);
 
             if (string.IsNullOrWhiteSpace(routingContent))
             {
@@ -178,7 +188,7 @@ internal static class DecomposePlanningInstructions
             }
 
             var rules  = PlanStepAgentResolver.ParseRoutingMd(routingContent);
-            var agents = PlanStepAgentResolver.ParseTeamMd(teamContent);
+
             var ctx    = PlanStepRoutingContext.Resolve(
                 stepId, stepTitle, stepDescription, squadFolderPath, rules, agents);
 
@@ -218,12 +228,87 @@ internal static class DecomposePlanningInstructions
         }
     }
 
-    internal static string BuildOrdinaryPromptContext(string squadFolderPath)
+    private static string BuildExplicitAssignmentContext(
+        string squadFolderPath,
+        string stepId,
+        string? planRevision,
+        IReadOnlyList<DecomposedAgentAssignment> assignments,
+        IReadOnlyList<RosterAgent> roster)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("## Verified Agent Assignments for This Step");
+        builder.AppendLine();
+        builder.AppendLine($"Task [{stepId}] has {assignments.Count} plan-authorized primary assignment(s).");
+        builder.AppendLine(assignments.Count > 1
+            ? "Launch all dependency-ready assignments before waiting for any one worker."
+            : "Launch the assigned worker and wait for its result.");
+        builder.AppendLine("Use the coordinator's background `task` tool so native monitoring and wrap-up remain active.");
+        builder.AppendLine("A generic worker without the exact assignment envelope below is not the assigned roster agent.");
+        builder.AppendLine();
+
+        foreach (var assignment in assignments)
+        {
+            var agent = roster.FirstOrDefault(candidate =>
+                candidate.IsActive &&
+                string.Equals(candidate.Handle, assignment.AgentHandle, StringComparison.OrdinalIgnoreCase));
+            if (agent is null)
+                throw new InvalidDataException(
+                    $"Plan task {stepId} assigns unavailable roster agent '{assignment.AgentHandle}'.");
+
+            var charterPath = agent.CharterPath is { Length: > 0 }
+                ? Path.Combine(squadFolderPath, agent.CharterPath.Replace('/', Path.DirectorySeparatorChar))
+                : Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
+            if (!File.Exists(charterPath))
+                throw new InvalidDataException(
+                    $"Plan task {stepId} assigns '{agent.Handle}', but its charter is unavailable.");
+
+            var envelope = JsonSerializer.Serialize(new {
+                taskId = stepId,
+                revision = planRevision,
+                agentHandle = agent.Handle,
+                role = assignment.Role,
+                allowGenericChildren = assignment.AllowGenericChildren
+            });
+
+            builder.AppendLine($"### {agent.Name} — {assignment.Role}");
+            builder.AppendLine($"The worker prompt must contain this exact envelope on a top-level line:");
+            builder.AppendLine($"{BackgroundAgentLaunchInfoResolver.AssignmentMarker}");
+            builder.AppendLine(envelope);
+            builder.AppendLine();
+            builder.AppendLine("Inject the complete charter below into that worker prompt:");
+            builder.AppendLine(File.ReadAllText(charterPath));
+            builder.AppendLine();
+            builder.AppendLine(assignment.AllowGenericChildren
+                ? "This assigned worker may spawn generic child workers; children retain generic identity and report through the assigned parent."
+                : "This assigned worker must not spawn child workers.");
+            builder.AppendLine();
+        }
+
+        builder.AppendLine("After every assigned worker finishes, perform coordinator synthesis and return one task result.");
+        builder.AppendLine("Its DECOMPOSE_STEP_RESULT_JSON must include `agentExecutions`, one object per assignment, with `requestedAgent`, `actualPrimaryAgent`, and generic child handles in `children`.");
+        builder.AppendLine("The task is incomplete if any required assigned worker is missing, substituted, or unresolved.");
+        return builder.ToString().TrimEnd();
+    }
+
+    internal static string BuildOrdinaryPromptContext(
+        string squadFolderPath,
+        string agentRoutingPolicy = PlanAgentRoutingPolicy.PlanExecutionOnly)
     {
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
-            return BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath);
+            var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath);
+            if (PlanAgentRoutingPolicy.Normalize(agentRoutingPolicy) == PlanAgentRoutingPolicy.Always)
+            {
+                context += "\n\n## Verified roster routing (always)\n" +
+                    "For every primary background delegation, select a qualified active roster member from `.squad/team.md`, " +
+                    "read and inject that member's complete charter, and include `" +
+                    BackgroundAgentLaunchInfoResolver.AssignmentMarker +
+                    "` followed by JSON containing `taskId`, `revision`, `agentHandle`, `role`, and `allowGenericChildren`. " +
+                    "Use `interactive` for taskId and revision outside an executable plan. Generic child workers are allowed, " +
+                    "but must retain generic identity and report through their assigned roster parent.";
+            }
+            return context;
         }
         catch (Exception ex)
         {

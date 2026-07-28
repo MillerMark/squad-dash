@@ -683,7 +683,7 @@ internal sealed class AgentThreadRegistry {
         _agentLaunchesByToolCallId[launchInfo.ToolCallId] = launchInfo;
         SquadDashTrace.Write(
             "Agents",
-            $"TaskLaunch.Captured requested={launchInfo.TaskName ?? "(none)"} toolCallId={launchInfo.ToolCallId} mode={launchInfo.Mode ?? "(none)"} display={launchInfo.DisplayName ?? "(none)"} agentType={launchInfo.AgentType ?? "(none)"}");
+            $"TaskLaunch.Captured requested={launchInfo.TaskName ?? "(none)"} toolCallId={launchInfo.ToolCallId} mode={launchInfo.Mode ?? "(none)"} display={launchInfo.DisplayName ?? "(none)"} agentType={launchInfo.AgentType ?? "(none)"} assignedAgent={launchInfo.AssignedAgentHandle ?? "(none)"} verified={launchInfo.IsVerifiedRosterAssignment}");
 
         if (_agentThreadsByToolCallId.TryGetValue(launchInfo.ToolCallId, out var existingThread)) {
             ApplyBackgroundLaunchInfo(existingThread, launchInfo);

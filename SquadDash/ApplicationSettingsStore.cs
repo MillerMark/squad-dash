@@ -405,6 +405,16 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SavePlanAgentRoutingPolicy(string policy) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            PlanAgentRoutingPolicy = PlanAgentRoutingPolicy.Normalize(policy)
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveTheme(string theme) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1190,6 +1200,7 @@ internal sealed record ApplicationSettingsSnapshot(
     public string? SpeechLanguage { get; init; }
     public bool PttAutoSend { get; init; } = true;
     public bool ShowAgentAvatars { get; init; } = true;
+    public string PlanAgentRoutingPolicy { get; init; } = SquadDash.PlanAgentRoutingPolicy.PlanExecutionOnly;
 
     /// <summary>
     /// Prompt sent to AI when the user triggers the Quick Cleanup (Ctrl+Shift+C) command.
@@ -1857,6 +1868,7 @@ internal sealed record ApplicationSettingsSnapshot(
             SpeechProvider = SpeechProvider,
             PttAutoSend = PttAutoSend,
             ShowAgentAvatars = ShowAgentAvatars,
+            PlanAgentRoutingPolicy = SquadDash.PlanAgentRoutingPolicy.Normalize(PlanAgentRoutingPolicy),
             OpenAiSpeechApiKey = string.IsNullOrWhiteSpace(OpenAiSpeechApiKey) ? null : OpenAiSpeechApiKey.Trim(),
             SpeechLanguage = string.IsNullOrWhiteSpace(SpeechLanguage) ? null : SpeechLanguage.Trim(),
             VoiceReplacementRules = VoiceReplacementRules

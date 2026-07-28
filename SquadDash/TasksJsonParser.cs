@@ -19,6 +19,9 @@ internal static class TasksJsonParser
     private static readonly Regex TaskIdPattern =
         new(@"^([A-Z]+-\d{8})-\d{3}$", RegexOptions.Compiled);
 
+    private static readonly Regex AgentHandlePattern =
+        new(@"^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
+
     private static readonly JsonSerializerOptions ParseOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -158,6 +161,27 @@ internal static class TasksJsonParser
                 SquadDashTrace.Write(TraceCategory.General,
                     $"TasksJsonParser: task '{task.Id}' has an empty description");
                 return false;
+            }
+
+            if (task.AgentAssignments is { Count: > 4 })
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' has more than four primary agent assignments");
+                return false;
+            }
+
+            var assignedHandles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var assignment in task.AgentAssignments ?? [])
+            {
+                var handle = assignment.AgentHandle ?? string.Empty;
+                if (!AgentHandlePattern.IsMatch(handle) ||
+                    string.IsNullOrWhiteSpace(assignment.Role) ||
+                    !assignedHandles.Add(handle))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate agent assignment");
+                    return false;
+                }
             }
         }
 

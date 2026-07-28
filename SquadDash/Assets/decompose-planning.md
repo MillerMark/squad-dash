@@ -29,7 +29,7 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 - Attributive references: "the plan is to…", "plan A vs plan B"
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, and `priority`.
+`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, and `priority`. Executable plans should also assign zero or more primary roster agents with `agentAssignments`; use multiple assignments only when their roles can run concurrently without overlapping writes.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -52,6 +52,8 @@ fence around the object is accepted but not required.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
+- `tasks[].agentAssignments`: optional array of `{ "agentHandle", "role", "allowGenericChildren" }` objects. Use exact active handles from `.squad/team.md`. These are primary accountable workers, not display labels. Multiple entries authorize concurrent named roles for that task. Generic children remain permitted only when `allowGenericChildren` is true.
+- `tasks[].parallelEligible`: optional boolean. Set true only when the task may run concurrently with other dependency-ready tasks; dependencies still control readiness and SquadDash may serialize work when scopes conflict.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.

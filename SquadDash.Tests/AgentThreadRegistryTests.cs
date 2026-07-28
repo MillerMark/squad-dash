@@ -310,7 +310,7 @@ internal sealed class AgentThreadRegistryTests {
               "mode": "background",
               "model": "claude-haiku-4.5",
               "name": "scribe-docs-panel-log",
-              "prompt": "You are the Scribe. Read .squad/agents/scribe/charter.md."
+              "prompt": "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{\"taskId\":\"PLAN-20260728-001\",\"revision\":\"rev-1\",\"agentHandle\":\"scribe\",\"role\":\"logger\"}\nYou are the Scribe. Read .squad/agents/scribe/charter.md."
             }
             """);
 
@@ -374,7 +374,8 @@ internal sealed class AgentThreadRegistryTests {
             Assert.That(thread.ToolCallId, Is.EqualTo("toolu_bdrk_014NnSZxJapiCigA8z7DfSS3"));
             Assert.That(thread.BackgroundTaskId, Is.EqualTo("queue-held-restart-bug"));
             Assert.That(thread.AgentId, Is.EqualTo("queue-held-restart-bug"));
-            Assert.That(thread.AgentDisplayName, Is.EqualTo("Talia Rune"));
+            Assert.That(thread.AgentDisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(thread.AgentCardKey, Is.Not.EqualTo("talia-rune"));
         });
     }
 
