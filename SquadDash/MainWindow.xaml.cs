@@ -355,6 +355,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
     private bool                        _inboxSavedForCurrentTurn;
+    private PendingRecoveryAnalysisContext? _pendingRecoveryAnalysis;
 
     // ── Panel docking ────────────────────────────────────────────────────────
     private PanelDockingService? _dockingService;
@@ -5129,6 +5130,7 @@ public partial class MainWindow : Window
                         else
                         {
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
+                            TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
                             TryHandleGateApprovalFromResponse(rawResponse);
                         }
@@ -8523,6 +8525,8 @@ public partial class MainWindow : Window
             () => QueueDecomposeReplan(plan, taskId));
         AddAsyncAction("Continue / Retry Task", "Continue preserved work when present; otherwise retry the exact same task.",
             async () => await RetryDecomposeTaskAsync(plan, taskId));
+        AddAsyncAction("Analyze with AI", "Gather evidence and ask AI to recommend evidence-based recovery options.",
+            async () => await AnalyzePlanRecoveryWithAiAsync(plan, taskId));
         blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
             panel,
             new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
@@ -8563,6 +8567,250 @@ public partial class MainWindow : Window
                 catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
             };
             panel.Children.Add(button);
+        }
+    }
+
+    private sealed record PendingRecoveryAnalysisContext(PendingDecomposePlan Plan, string TaskId);
+
+    private async Task AnalyzePlanRecoveryWithAiAsync(PendingDecomposePlan plan, string taskId)
+    {
+        if (_currentWorkspace is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+
+        var fullPlan = _planStore?.Load(plan.Group.GroupId);
+        var baselineCommit = fullPlan?.InterruptionData?.LastCommit
+            ?? _decomposeIterationBaselineCommit
+            ?? (await RunGitAsync(workspace, "rev-parse HEAD~1")).Trim();
+
+        var evidence = await GatherPlanRecoveryEvidenceAsync(workspace, plan.Group.GroupId, taskId, baselineCommit, plan);
+        var prompt = BuildRecoveryAnalysisPrompt(plan.Group.GroupId, taskId, plan.Revision, evidence);
+
+        _pendingRecoveryAnalysis = new PendingRecoveryAnalysisContext(plan, taskId);
+
+        _promptQueue.EnqueueAtFront(
+            prompt,
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "decompose-recovery-analysis",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+    }
+
+    private async Task<string> GatherPlanRecoveryEvidenceAsync(
+        string workspace,
+        string groupId,
+        string taskId,
+        string baselineCommit,
+        PendingDecomposePlan plan)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        // 1. Candidate unrecorded commits since baseline
+        var logOutput = string.Empty;
+        var diffStat  = string.Empty;
+        var status    = string.Empty;
+        var diff      = string.Empty;
+        try
+        {
+            logOutput = await RunGitAsync(workspace, $"log --oneline {baselineCommit}..HEAD");
+            diffStat  = await RunGitAsync(workspace, $"diff --stat {baselineCommit}..HEAD");
+            status    = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+            diff      = await RunGitAsync(workspace, "diff --unified=3 HEAD");
+        }
+        catch { /* git unavailable — leave blanks */ }
+
+        sb.AppendLine($"=== Baseline commit: {baselineCommit} ===");
+        sb.AppendLine();
+        sb.AppendLine("--- Candidate unrecorded commits (git log baseline..HEAD) ---");
+        sb.AppendLine(string.IsNullOrWhiteSpace(logOutput) ? "(none)" : logOutput.Trim());
+        sb.AppendLine();
+        sb.AppendLine("--- Changed files (git diff --stat baseline..HEAD) ---");
+        sb.AppendLine(string.IsNullOrWhiteSpace(diffStat) ? "(no changes)" : diffStat.Trim());
+        sb.AppendLine();
+        sb.AppendLine("--- Uncommitted state (git status --porcelain) ---");
+        sb.AppendLine(string.IsNullOrWhiteSpace(status) ? "(clean)" : status.Trim());
+        sb.AppendLine();
+        sb.AppendLine("--- Uncommitted diffs (git diff HEAD, truncated to 4000 chars) ---");
+        var diffText = string.IsNullOrWhiteSpace(diff) ? "(none)" : diff.Trim();
+        sb.AppendLine(diffText.Length > 4000 ? diffText[..4000] + "\n[truncated]" : diffText);
+        sb.AppendLine();
+
+        // 5. Task specification
+        var failedTask = plan.Group.Tasks.FirstOrDefault(t =>
+            string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        sb.AppendLine("--- Task specification ---");
+        if (failedTask is not null)
+            sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(failedTask));
+        else
+            sb.AppendLine($"(task {taskId} not found in plan)");
+        sb.AppendLine();
+
+        // 6. Downstream dependencies
+        var downstream = plan.Group.Tasks
+            .Where(t => t.DependsOn.Contains(taskId, StringComparer.Ordinal))
+            .ToList();
+        sb.AppendLine("--- Downstream tasks that depend on this task ---");
+        if (downstream.Count == 0)
+        {
+            sb.AppendLine("(none)");
+        }
+        else
+        {
+            foreach (var dep in downstream)
+                sb.AppendLine($"  {dep.Id}: {dep.Title ?? dep.Description}");
+        }
+        sb.AppendLine();
+
+        // 7. Plan revision
+        sb.AppendLine($"--- Plan revision: {plan.Revision} ---");
+
+        return sb.ToString();
+    }
+
+    private static string BuildRecoveryAnalysisPrompt(
+        string groupId,
+        string taskId,
+        string revision,
+        string evidence)
+    {
+        return $$"""
+            Plan {{groupId}} was interrupted while executing task {{taskId}} (revision {{revision}}).
+            
+            The following objective evidence was collected automatically:
+            
+            {{evidence}}
+            
+            Analyze this evidence and return a PLAN_RECOVERY_OPTIONS_JSON response.
+            Include only options that are supported by the evidence above.
+            Do not recommend actions that are not mechanically feasible given the evidence.
+            Never authorize git mutations — the host validates all options before executing them.
+            
+            Valid action values: "adopt-commit", "partial-adopt", "revert-and-retry", "clean-retry", "replan"
+            - adopt-commit: adopt an unrecorded commit between baseline and HEAD as the step result
+            - partial-adopt: adopt committed + uncommitted work as a partial result
+            - revert-and-retry: revert candidate commits and retry the task from scratch
+            - clean-retry: retry from clean state without reverting (no unrecorded commits exist)
+            - replan: break the blocked task into smaller subtasks
+            
+            Respond with PLAN_RECOVERY_OPTIONS_JSON: followed by a JSON object with:
+            - groupId: "{{groupId}}"
+            - taskId: "{{taskId}}"
+            - revision: "{{revision}}"
+            - options: array of {id, label, description, action, viable, evidence}
+            - recommendation: id of the recommended option (optional)
+            - summary: brief overall analysis (optional)
+            """;
+    }
+
+    private void TryApplyRecoveryOptionsFromResponse(string? rawResponse)
+    {
+        if (_pendingRecoveryAnalysis is null) return;
+        if (!PlanRecoveryOptionsParser.TryParse(rawResponse, out var response) || response is null) return;
+
+        var context = _pendingRecoveryAnalysis;
+        _pendingRecoveryAnalysis = null;
+
+        if (!string.Equals(response.GroupId, context.Plan.Group.GroupId, StringComparison.Ordinal)) return;
+        if (!string.Equals(response.Revision, context.Plan.Revision, StringComparison.Ordinal)) return;
+
+        _ = ValidateAndRenderRecoveryOptionsAsync(response, context);
+    }
+
+    private async Task ValidateAndRenderRecoveryOptionsAsync(
+        PlanRecoveryOptionsResponse response,
+        PendingRecoveryAnalysisContext context)
+    {
+        if (_currentWorkspace is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+        var plan = context.Plan;
+
+        var fullPlan = _planStore?.Load(plan.Group.GroupId);
+        var baselineCommit = fullPlan?.InterruptionData?.LastCommit ?? string.Empty;
+        var hasCandidateCommit = false;
+        var hasUncommittedWork = false;
+
+        if (!string.IsNullOrEmpty(baselineCommit))
+        {
+            try
+            {
+                var logOutput = await RunGitAsync(workspace, $"log --oneline {baselineCommit}..HEAD");
+                hasCandidateCommit = !string.IsNullOrWhiteSpace(logOutput);
+                var statusOutput = await RunGitAsync(workspace, "status --porcelain --untracked-files=normal");
+                hasUncommittedWork = !string.IsNullOrWhiteSpace(statusOutput);
+            }
+            catch { /* git command failed — leave defaults */ }
+        }
+
+        var validated = PlanRecoveryOptionsParser.ValidateRecoveryViability(response.Options, hasCandidateCommit, hasUncommittedWork);
+        var viableOptions = validated.Where(o => o.Viable).ToList();
+
+        if (viableOptions.Count == 0)
+        {
+            Dispatcher.BeginInvoke(() =>
+                ShowSystemTranscriptEntry($"AI analysis complete for {plan.Group.GroupId}: no viable options found. " +
+                    "Use the Replan or Retry buttons to proceed manually."));
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() => AppendRecoveryOptionsPanel(response, viableOptions, plan, context.TaskId));
+    }
+
+    private void AppendRecoveryOptionsPanel(
+        PlanRecoveryOptionsResponse response,
+        IReadOnlyList<PlanRecoveryOption> viableOptions,
+        PendingDecomposePlan plan,
+        string taskId)
+    {
+        if (!string.IsNullOrWhiteSpace(response.Summary))
+            ShowSystemTranscriptEntry($"🤖 Recovery analysis: {response.Summary}");
+
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var option in viableOptions)
+        {
+            var btn = TranscriptQuickReplyFactory.CreateButton(
+                option.Label,
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(option.Description));
+            var capturedOption = option;
+            btn.Click += async (_, _) =>
+            {
+                panel.Visibility = Visibility.Collapsed;
+                try { await ExecuteRecoveryOptionAsync(capturedOption, plan, taskId); }
+                catch (Exception ex) { HandleUiCallbackException("Recovery option", ex); }
+            };
+            if (string.Equals(option.Id, response.Recommendation, StringComparison.Ordinal))
+            {
+                btn.FontWeight = FontWeights.SemiBold;
+                btn.SetResourceReference(Control.BorderBrushProperty, "PriorityMid");
+            }
+            panel.Children.Add(btn);
+        }
+
+        CoordinatorThread.Document.Blocks.Add(
+            TranscriptQuickReplyFactory.CreateContainer(
+                panel,
+                new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private async Task ExecuteRecoveryOptionAsync(
+        PlanRecoveryOption option,
+        PendingDecomposePlan plan,
+        string taskId)
+    {
+        switch (option.Action)
+        {
+            case "replan":
+                QueueDecomposeReplan(plan, taskId);
+                break;
+            case "clean-retry":
+            case "revert-and-retry":
+                await RetryDecomposeTaskAsync(plan, taskId);
+                break;
+            case "adopt-commit":
+            case "partial-adopt":
+                await RetryDecomposeTaskAsync(plan, taskId);
+                break;
         }
     }
 

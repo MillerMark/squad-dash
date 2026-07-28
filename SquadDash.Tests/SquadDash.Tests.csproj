@@ -336,6 +336,7 @@
     <Compile Include="..\SquadDash\PlanStoreUpdater.cs" Link="Source\PlanStoreUpdater.cs" />
     <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
     <Compile Include="..\SquadDash\PlanGateApprovalParser.cs" Link="Source\PlanGateApprovalParser.cs" />
+    <Compile Include="..\SquadDash\PlanRecoveryOptionsResponse.cs" Link="Source\PlanRecoveryOptionsResponse.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 
