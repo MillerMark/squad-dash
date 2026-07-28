@@ -38,6 +38,18 @@ internal static class PendingDecomposePlanAdapter
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
 
+        var approvalGates = group.ApprovalGates is { Count: > 0 }
+            ? (IReadOnlyList<PlanApprovalGate>)group.ApprovalGates
+                .Select(g => new PlanApprovalGate(
+                    GateId:       g.GateId,
+                    Message:      g.Message,
+                    AfterTaskIds:  g.AfterTaskIds  ?? [],
+                    BeforeTaskIds: g.BeforeTaskIds ?? [],
+                    Status:       PlanGateStatus.Pending,
+                    PlanRevision: pending.Revision))
+                .ToArray()
+            : [];
+
         return new Plan(
             PlanId:          group.GroupId,
             Revision:        pending.Revision,
@@ -47,7 +59,7 @@ internal static class PendingDecomposePlanAdapter
             Branch:          group.Branch,
             Summary:         group.Summary,
             Tasks:           tasks,
-            ApprovalGates:   [],
+            ApprovalGates:   approvalGates,
             Progress:        new PlanProgress(CompletedCount: 0, TotalCount: totalCount),
             Timestamps:      new PlanTimestamps(CreatedAt: timestamp),
             HostRevision:    group.HostRevision);
@@ -70,13 +82,24 @@ internal static class PendingDecomposePlanAdapter
                 ParentTaskId: t.ParentTaskId))
             .ToArray();
 
+        var gates = plan.ApprovalGates is { Count: > 0 }
+            ? (IReadOnlyList<DecomposedGate>?)plan.ApprovalGates
+                .Select(g => new DecomposedGate(
+                    GateId:       g.GateId,
+                    Message:      g.Message,
+                    AfterTaskIds:  g.AfterTaskIds.Count  > 0 ? g.AfterTaskIds  : null,
+                    BeforeTaskIds: g.BeforeTaskIds.Count > 0 ? g.BeforeTaskIds : null))
+                .ToArray()
+            : null;
+
         var group = new DecomposedTaskGroup(
-            GroupId:    plan.PlanId,
-            GroupTitle: plan.Title,
-            Branch:     plan.Branch,
-            Summary:    plan.Summary,
-            Tasks:      tasks,
-            HostRevision: plan.HostRevision);
+            GroupId:       plan.PlanId,
+            GroupTitle:    plan.Title,
+            Branch:        plan.Branch,
+            Summary:       plan.Summary,
+            Tasks:         tasks,
+            ApprovalGates: gates,
+            HostRevision:  plan.HostRevision);
 
         return new PendingDecomposePlan(plan.Revision, group);
     }

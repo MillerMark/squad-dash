@@ -107,7 +107,10 @@ internal sealed record PlanApprovalGate(
                                                   DateTimeOffset? ResolvedAt   = null,
     [property: JsonPropertyName("resolutionNote")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  string? ResolutionNote       = null);
+                                                  string? ResolutionNote       = null,
+    [property: JsonPropertyName("planRevision")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? PlanRevision         = null);
 
 /// <summary>Lightweight progress snapshot — does not store per-task detail.</summary>
 internal sealed record PlanProgress(

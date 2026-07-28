@@ -8057,7 +8057,7 @@ public partial class MainWindow : Window
             window.Close();
     }
 
-    private void OpenDecomposePlanViewer(PendingDecomposePlan plan)
+    private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
     {
         PendingDecomposePlan? livePlan = null;
         if (_currentWorkspace is not null)
@@ -8075,7 +8075,14 @@ public partial class MainWindow : Window
             livePlan is not null
                 ? ApplyFromViewerAsync
                 : null;
-        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction)
+        Action<Plan>? onGatesChanged = durablePlan is not null
+            ? gatedPlan =>
+              {
+                  PublishPlanProgress(gatedPlan);
+                  OpenPlanFromStore(gatedPlan);
+              }
+            : null;
+        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         }.Show();
@@ -38301,7 +38308,7 @@ public partial class MainWindow : Window
             if (pending is null)
                 pending = PendingDecomposePlanAdapter.FromPlan(plan);
 
-            OpenDecomposePlanViewer(pending);
+            OpenDecomposePlanViewer(pending, durablePlan: plan);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(OpenPlanFromStore), ex); }
     }

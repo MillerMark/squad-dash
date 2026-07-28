@@ -17,7 +17,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PendingDecomposePlan plan,
         string? activeBranch,
         double quickReplyFontSize,
-        Func<DecomposePlanActionDefinition, Task<bool>>? applyAction = null)
+        Func<DecomposePlanActionDefinition, Task<bool>>? applyAction = null,
+        Plan? durablePlan = null,
+        Action<Plan>? onGatesChanged = null)
         : base(captionHeight: CloseButtonHeight)
     {
         var group = plan.Group;
@@ -218,6 +220,82 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(badge);
         }
 
+        // Render human approval gate badges.
+        if (group.ApprovalGates is { Count: > 0 })
+        {
+            foreach (var approvalGate in group.ApprovalGates)
+            {
+                var afterPositions = (approvalGate.AfterTaskIds ?? [])
+                    .Where(positions.ContainsKey)
+                    .Select(id => positions[id])
+                    .ToList();
+                var beforePositions = (approvalGate.BeforeTaskIds ?? [])
+                    .Where(positions.ContainsKey)
+                    .Select(id => positions[id])
+                    .ToList();
+
+                if (afterPositions.Count == 0 && beforePositions.Count == 0)
+                    continue;
+
+                double gateCenterX;
+                if (afterPositions.Count > 0 && beforePositions.Count > 0)
+                {
+                    var sourceRight = afterPositions.Max(p => p.X + NodeWidth);
+                    var targetLeft  = beforePositions.Min(p => p.X);
+                    gateCenterX = (sourceRight + targetLeft) / 2;
+                }
+                else if (afterPositions.Count > 0)
+                    gateCenterX = afterPositions.Max(p => p.X + NodeWidth) + ColumnSpacing / 4;
+                else
+                    gateCenterX = beforePositions.Min(p => p.X) - ColumnSpacing / 4;
+
+                var allYCenters = afterPositions.Select(p => p.Y + NodeHeight / 2)
+                    .Concat(beforePositions.Select(p => p.Y + NodeHeight / 2))
+                    .ToList();
+                var gateCenterY = allYCenters.Average();
+                var gateCenter  = new Point(gateCenterX, gateCenterY);
+
+                foreach (var taskId in approvalGate.AfterTaskIds ?? [])
+                {
+                    if (!positions.TryGetValue(taskId, out var pos)) continue;
+                    AddConnector(canvas,
+                        new Point(pos.X + NodeWidth, pos.Y + NodeHeight / 2),
+                        new Point(gateCenter.X - 30, gateCenter.Y),
+                        arrowHead: false);
+                }
+                foreach (var taskId in approvalGate.BeforeTaskIds ?? [])
+                {
+                    if (!positions.TryGetValue(taskId, out var pos)) continue;
+                    AddConnector(canvas,
+                        new Point(gateCenter.X + 30, gateCenter.Y),
+                        new Point(pos.X, pos.Y + NodeHeight / 2),
+                        arrowHead: true);
+                }
+
+                var gateBadgeText = new TextBlock
+                {
+                    Text                = "🔒",
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                };
+                gateBadgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                var gateBadge = new Border
+                {
+                    Width           = 60,
+                    Height          = 28,
+                    CornerRadius    = new CornerRadius(14),
+                    BorderThickness = new Thickness(1.5),
+                    ToolTip         = approvalGate.Message,
+                    Child           = gateBadgeText,
+                };
+                gateBadge.SetResourceReference(Border.BorderBrushProperty, "PriorityHigh");
+                gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
+                Canvas.SetLeft(gateBadge, gateCenter.X - 30);
+                Canvas.SetTop(gateBadge, gateCenter.Y - 14);
+                canvas.Children.Add(gateBadge);
+            }
+        }
+
         foreach (var task in group.Tasks)
         {
             var position = positions[task.Id];
@@ -266,6 +344,67 @@ internal sealed class PlanViewerWindow : ChromedWindow
             border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
+
+            if (durablePlan is not null && onGatesChanged is not null)
+            {
+                var capturedTask = task;
+                var addBeforeItem = new MenuItem { Header = "Require approval before this task" };
+                addBeforeItem.IsEnabled = !PlanGateManager.IsRootTask(durablePlan, capturedTask.Id);
+                addBeforeItem.Click += (_, _) =>
+                {
+                    var msg = SimpleInputDialog.Show(this,
+                        "Enter a message for this approval gate:",
+                        "Require Approval Before",
+                        $"Review before: {capturedTask.Title ?? capturedTask.Id}");
+                    if (msg is null) return;
+                    var updated = PlanGateManager.AddGateBefore(durablePlan, capturedTask.Id, msg);
+                    if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                };
+
+                var addAfterItem = new MenuItem { Header = "Require approval after this task" };
+                addAfterItem.IsEnabled = !PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id);
+                addAfterItem.Click += (_, _) =>
+                {
+                    var msg = SimpleInputDialog.Show(this,
+                        "Enter a message for this approval gate:",
+                        "Require Approval After",
+                        $"Review after: {capturedTask.Title ?? capturedTask.Id}");
+                    if (msg is null) return;
+                    var updated = PlanGateManager.AddGateAfter(durablePlan, capturedTask.Id, msg);
+                    if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                };
+
+                var contextMenu = new ContextMenu();
+                contextMenu.Items.Add(addBeforeItem);
+                contextMenu.Items.Add(addAfterItem);
+
+                var gatesForTask = (group.ApprovalGates ?? [])
+                    .Where(g =>
+                        (g.AfterTaskIds?.Contains(capturedTask.Id, StringComparer.Ordinal) ?? false) ||
+                        (g.BeforeTaskIds?.Contains(capturedTask.Id, StringComparer.Ordinal) ?? false))
+                    .ToArray();
+                if (gatesForTask.Length > 0)
+                {
+                    contextMenu.Items.Add(new Separator());
+                    foreach (var approvalGate in gatesForTask)
+                    {
+                        var capturedGate = approvalGate;
+                        var removeItem = new MenuItem
+                        {
+                            Header = $"Remove approval gate: {capturedGate.Message}",
+                        };
+                        removeItem.Click += (_, _) =>
+                        {
+                            var updated = PlanGateManager.RemoveGate(durablePlan, capturedGate.GateId);
+                            if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                        };
+                        contextMenu.Items.Add(removeItem);
+                    }
+                }
+
+                border.ContextMenu = contextMenu;
+            }
+
             canvas.Children.Add(border);
         }
 

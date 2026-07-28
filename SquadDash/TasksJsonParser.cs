@@ -187,6 +187,86 @@ internal static class TasksJsonParser
             }
         }
 
+        // Validate approval gates if present.
+        if (parsed.ApprovalGates is { Count: > 0 })
+        {
+            // Build leaf-task set: tasks that no other task depends on.
+            var dependedUpon = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var task in parsed.Tasks)
+                foreach (var dep in task.DependsOn ?? [])
+                    dependedUpon.Add(dep);
+            var leafIds = validIds.Where(id => !dependedUpon.Contains(id)).ToHashSet(StringComparer.Ordinal);
+
+            // Build root-task set: tasks with no DependsOn.
+            var rootIds = parsed.Tasks
+                .Where(t => t.DependsOn is null || t.DependsOn.Count == 0)
+                .Select(t => t.Id)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var gateIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var gate in parsed.ApprovalGates)
+            {
+                if (string.IsNullOrWhiteSpace(gate.GateId))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        "TasksJsonParser: a gate has a null or empty gateId");
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(gate.Message))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: gate '{gate.GateId}' has an empty message");
+                    return false;
+                }
+
+                if (!gateIds.Add(gate.GateId))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: duplicate gate id '{gate.GateId}'");
+                    return false;
+                }
+
+                foreach (var id in gate.AfterTaskIds ?? [])
+                {
+                    if (!validIds.Contains(id))
+                    {
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"TasksJsonParser: gate '{gate.GateId}' afterTaskIds references unknown task '{id}'");
+                        return false;
+                    }
+                }
+
+                foreach (var id in gate.BeforeTaskIds ?? [])
+                {
+                    if (!validIds.Contains(id))
+                    {
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"TasksJsonParser: gate '{gate.GateId}' beforeTaskIds references unknown task '{id}'");
+                        return false;
+                    }
+                }
+
+                // Reject before-first-step: AfterTaskIds empty/null AND BeforeTaskIds contain only root tasks.
+                var hasAfter  = gate.AfterTaskIds  is { Count: > 0 };
+                var hasBefore = gate.BeforeTaskIds is { Count: > 0 };
+                if (!hasAfter && hasBefore && gate.BeforeTaskIds!.All(id => rootIds.Contains(id)))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: gate '{gate.GateId}' is a before-first-step gate; use plan-level execution approval instead");
+                    return false;
+                }
+
+                // Reject after-final-step: BeforeTaskIds empty/null AND AfterTaskIds contain only leaf tasks.
+                if (!hasBefore && hasAfter && gate.AfterTaskIds!.All(id => leafIds.Contains(id)))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: gate '{gate.GateId}' is an after-final-step gate; it would never block any task");
+                    return false;
+                }
+            }
+        }
+
         group = parsed;
         return true;
     }

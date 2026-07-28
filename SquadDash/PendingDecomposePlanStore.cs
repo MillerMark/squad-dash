@@ -80,20 +80,37 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
     {
         // Plans saved before task titles existed must retain their original revision. New plans
         // include titles in the approval contract because the title is user-visible work data.
-        object payload = group.Tasks.All(task => string.IsNullOrWhiteSpace(task.Title))
-            ? new RevisionPayloadV1(
+        // Plans with approval gates use V3 so gate boundaries are included in the revision.
+        object payload;
+        if (group.ApprovalGates is { Count: > 0 })
+        {
+            payload = new RevisionPayloadV3(
+                group.GroupId,
+                group.GroupTitle,
+                group.Branch,
+                group.Summary,
+                group.Tasks,
+                group.ApprovalGates);
+        }
+        else if (group.Tasks.All(task => string.IsNullOrWhiteSpace(task.Title)))
+        {
+            payload = new RevisionPayloadV1(
                 group.GroupId,
                 group.GroupTitle,
                 group.Branch,
                 group.Summary,
                 group.Tasks.Select(task => new RevisionTaskV1(
-                    task.Id, task.Description, task.DependsOn, task.Priority)).ToArray())
-            : new RevisionPayloadV2(
+                    task.Id, task.Description, task.DependsOn, task.Priority)).ToArray());
+        }
+        else
+        {
+            payload = new RevisionPayloadV2(
                 group.GroupId,
                 group.GroupTitle,
                 group.Branch,
                 group.Summary,
                 group.Tasks);
+        }
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant()[..16];
     }
@@ -117,4 +134,12 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         [property: JsonPropertyName("branch")] string Branch,
         [property: JsonPropertyName("summary")] string Summary,
         [property: JsonPropertyName("tasks")] IReadOnlyList<DecomposedSubTask> Tasks);
+
+    private sealed record RevisionPayloadV3(
+        [property: JsonPropertyName("groupId")] string GroupId,
+        [property: JsonPropertyName("groupTitle")] string GroupTitle,
+        [property: JsonPropertyName("branch")] string Branch,
+        [property: JsonPropertyName("summary")] string Summary,
+        [property: JsonPropertyName("tasks")] IReadOnlyList<DecomposedSubTask> Tasks,
+        [property: JsonPropertyName("approvalGates")] IReadOnlyList<DecomposedGate> ApprovalGates);
 }
