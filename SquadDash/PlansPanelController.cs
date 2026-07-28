@@ -17,6 +17,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>  _openPlan;
     private readonly Action<Plan>? _resumePlan;
     private readonly Action<Plan>? _endPlan;
+    private readonly Action<Plan>? _approveGate;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -42,7 +43,8 @@ internal sealed class PlansPanelController
         Action<bool>? setMenuChecked       = null,
         Action?       persistVisibility    = null,
         Action<Plan>? resumePlan           = null,
-        Action<Plan>? endPlan              = null)
+        Action<Plan>? endPlan              = null,
+        Action<Plan>? approveGate          = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -50,6 +52,7 @@ internal sealed class PlansPanelController
         _openPlan             = openPlan;
         _resumePlan           = resumePlan;
         _endPlan              = endPlan;
+        _approveGate          = approveGate;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -228,6 +231,13 @@ internal sealed class PlansPanelController
             tipLines.Add($"Branch: {plan.Branch}");
         if (!string.IsNullOrWhiteSpace(plan.Summary))
             tipLines.Add(plan.Summary.Length > 120 ? plan.Summary[..120] + "…" : plan.Summary);
+        if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+        {
+            var awaitingGate = plan.ApprovalGates
+                .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
+            if (awaitingGate is not null)
+                tipLines.Add($"Gate: {awaitingGate.Message}");
+        }
         row.ToolTip = ToolTipHelper.MakeThemedToolTip(string.Join("\n", tipLines));
 
         // ── Click to open plan viewer ─────────────────────────────────────
@@ -257,6 +267,14 @@ internal sealed class PlansPanelController
                 endItem.Click += (_, _) => _endPlan(plan);
                 menu.Items.Add(endItem);
             }
+        }
+
+        if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval && _approveGate is not null)
+        {
+            var approveItem = new MenuItem { Header = "Approve & Continue" };
+            approveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            approveItem.Click += (_, _) => _approveGate(plan);
+            menu.Items.Add(approveItem);
         }
 
         row.ContextMenu = menu;

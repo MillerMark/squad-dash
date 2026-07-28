@@ -8092,7 +8092,15 @@ public partial class MainWindow : Window
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
-        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan)
+        Action<Plan, string>? onApproveGate = durablePlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval
+            ? (p, gateId) =>
+              {
+                  var gate = p.ApprovalGates.FirstOrDefault(g =>
+                      string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+                  if (gate is not null) ApproveGateAndResume(p, gate);
+              }
+            : null;
+        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         }.Show();
@@ -39103,7 +39111,13 @@ public partial class MainWindow : Window
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
                 resumePlan: plan => _ = StartDecomposeLoopAsync(plan.PlanId),
-                endPlan:    EndInterruptedPlan);
+                endPlan:    EndInterruptedPlan,
+                approveGate: plan =>
+                {
+                    var awaitingGate = plan.ApprovalGates.FirstOrDefault(g =>
+                        g.Status == PlanGateStatus.AwaitingApproval);
+                    if (awaitingGate is not null) ApproveGateAndResume(plan, awaitingGate);
+                });
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch

@@ -21,7 +21,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Plan? durablePlan = null,
         Action<Plan>? onGatesChanged = null,
         Action<Plan>? onResumePlan   = null,
-        Action<Plan>? onEndPlan      = null)
+        Action<Plan>? onEndPlan      = null,
+        Action<Plan, string>? onApproveGate = null)
         : base(captionHeight: CloseButtonHeight)
     {
         var group = plan.Group;
@@ -135,6 +136,134 @@ internal sealed class PlanViewerWindow : ChromedWindow
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         hintBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
         header.Children.Add(hintBlock);
+
+        if (durablePlan is not null)
+        {
+            var metaPanel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+
+            TextBlock MkMeta(string text)
+            {
+                var tb = new TextBlock { Text = text };
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                tb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                return tb;
+            }
+            void AddMetaSep() => metaPanel.Children.Add(MkMeta(" · "));
+            void AddMeta(string text) => metaPanel.Children.Add(MkMeta(text));
+
+            var planIdBlock = new TextBlock
+            {
+                Text       = durablePlan.PlanId,
+                FontFamily = new FontFamily("Consolas, Courier New, monospace"),
+            };
+            planIdBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            planIdBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            metaPanel.Children.Add(planIdBlock);
+
+            var sourceLabel = durablePlan.Source switch
+            {
+                PlanSource.TasksJson         => "Task plan",
+                PlanSource.DecomposeDecision => "Decomposition",
+                PlanSource.Inbox             => "Inbox",
+                PlanSource.Manual            => "Manual",
+                _                            => durablePlan.Source,
+            };
+            AddMetaSep(); AddMeta(durablePlan.Branch);
+            AddMetaSep(); AddMeta(sourceLabel);
+            if (durablePlan.Timestamps.StartedAt is { } metaStartedAt)  { AddMetaSep(); AddMeta($"Started: {metaStartedAt:MMM d, yyyy}"); }
+            if (durablePlan.Timestamps.CompletedAt is { } metaCompletedAt) { AddMetaSep(); AddMeta($"Completed: {metaCompletedAt:MMM d, yyyy}"); }
+
+            header.Children.Add(metaPanel);
+        }
+
+        if (durablePlan?.InterruptionData is { } interruptionData)
+        {
+            var interruptionStack = new StackPanel();
+
+            var intRow1 = new TextBlock
+            {
+                Text       = $"⚠ Interrupted · {interruptionData.RecoveryState}",
+                FontWeight = FontWeights.SemiBold,
+            };
+            intRow1.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+            intRow1.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            interruptionStack.Children.Add(intRow1);
+
+            if (interruptionData.InterruptedTaskId is { } interruptedTaskId)
+            {
+                var intRow2 = new TextBlock { Text = $"Last task: {interruptedTaskId}" };
+                intRow2.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                intRow2.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                interruptionStack.Children.Add(intRow2);
+            }
+            if (interruptionData.LastCommit is { } lastCommit)
+            {
+                var shortLastCommit = lastCommit.Length >= 7 ? lastCommit[..7] : lastCommit;
+                var intRow3 = new TextBlock
+                {
+                    Text       = $"Last commit: {shortLastCommit}",
+                    FontFamily = new FontFamily("Consolas, Courier New, monospace"),
+                };
+                intRow3.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                intRow3.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                interruptionStack.Children.Add(intRow3);
+            }
+            if (interruptionData.PartialWorkEvidence is { } evidence && evidence.Length > 0)
+            {
+                var excerpt = evidence.Length > 100 ? evidence[..100] + "…" : evidence;
+                var intRow4 = new TextBlock { Text = excerpt, TextWrapping = TextWrapping.Wrap };
+                intRow4.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                intRow4.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                interruptionStack.Children.Add(intRow4);
+            }
+
+            var interruptionBorder = new Border
+            {
+                BorderThickness = new Thickness(1),
+                CornerRadius    = new CornerRadius(4),
+                Margin          = new Thickness(0, 4, 0, 4),
+                Padding         = new Thickness(8, 5, 8, 5),
+                Child           = interruptionStack,
+            };
+            interruptionBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityHigh");
+            interruptionBorder.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
+            header.Children.Add(interruptionBorder);
+        }
+
+        if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval && onApproveGate is not null)
+        {
+            var awaitingGate = durablePlan.ApprovalGates.FirstOrDefault(g =>
+                g.Status == PlanGateStatus.AwaitingApproval);
+            if (awaitingGate is not null)
+            {
+                var capturedApprPlan = durablePlan;
+                var capturedApprGate = awaitingGate;
+                var capturedApprove  = onApproveGate;
+                var approvePanel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+                var gateMsg = new TextBlock
+                {
+                    Text              = $"⏸ Waiting for approval: {capturedApprGate.Message}",
+                    TextWrapping      = TextWrapping.Wrap,
+                    Margin            = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                gateMsg.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                gateMsg.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                var approveButton = TranscriptQuickReplyFactory.CreateButton(
+                    "Approve & Continue",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip("Approve this gate and resume plan execution."));
+                approveButton.Click += (_, _) =>
+                {
+                    capturedApprove(capturedApprPlan, capturedApprGate.GateId);
+                    Close();
+                };
+                approvePanel.Children.Add(gateMsg);
+                approvePanel.Children.Add(approveButton);
+                header.Children.Add(approvePanel);
+            }
+        }
+
         root.Children.Add(header);
 
         var canvas = new Canvas { Background = Brushes.Transparent, Margin = new Thickness(18) };
@@ -316,9 +445,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         arrowHead: true);
                 }
 
+                var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
+                    string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
+                var durableGateStatus = durableGate?.Status ?? PlanGateStatus.Pending;
+                var (gateIcon, gateBorderKey) = durableGateStatus switch
+                {
+                    PlanGateStatus.AwaitingApproval => ("⏸", "PriorityMid"),
+                    PlanGateStatus.Approved         => ("✓",  "PriorityLow"),
+                    PlanGateStatus.Skipped          => ("–",  "SubtleText"),
+                    _                               => ("🔒", "PanelBorder"),
+                };
+                var gateToolTipText = durableGate is not null
+                    ? $"{approvalGate.Message}\nStatus: {durableGateStatus}"
+                    : approvalGate.Message;
                 var gateBadgeText = new TextBlock
                 {
-                    Text                = "🔒",
+                    Text                = gateIcon,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment   = VerticalAlignment.Center,
                 };
@@ -329,10 +471,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Height          = 28,
                     CornerRadius    = new CornerRadius(14),
                     BorderThickness = new Thickness(1.5),
-                    ToolTip         = approvalGate.Message,
+                    ToolTip         = gateToolTipText,
                     Child           = gateBadgeText,
                 };
-                gateBadge.SetResourceReference(Border.BorderBrushProperty, "PriorityHigh");
+                gateBadge.SetResourceReference(Border.BorderBrushProperty, gateBorderKey);
                 gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
                 Canvas.SetLeft(gateBadge, gateCenter.X - 30);
                 Canvas.SetTop(gateBadge, gateCenter.Y - 14);
@@ -343,6 +485,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var task in group.Tasks)
         {
             var position = positions[task.Id];
+            var durableTask = durablePlan?.Tasks.FirstOrDefault(t =>
+                string.Equals(t.TaskId, task.Id, StringComparison.Ordinal));
             var prereqLines = task.DependsOn.Count == 0
                 ? ["None — this task can start immediately."]
                 : task.DependsOn.Select(id =>
@@ -351,6 +495,35 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var label = dep.Title ?? dep.Description;
                     return "• " + (label.Length > 60 ? label[..60] + "…" : label);
                 }).ToArray();
+
+            string? statusChipText = durableTask?.Status switch
+            {
+                PlanTaskStatus.Complete   or
+                PlanTaskStatus.Superseded => "✓ ",
+                PlanTaskStatus.Executing  => "▶ ",
+                PlanTaskStatus.Failed     => "✖ ",
+                PlanTaskStatus.Partial    => "~ ",
+                _                        => null,
+            };
+            string? statusChipFgKey = durableTask?.Status switch
+            {
+                PlanTaskStatus.Complete   or
+                PlanTaskStatus.Superseded => "PriorityLow",
+                PlanTaskStatus.Executing  => "ActivePanelTitle",
+                PlanTaskStatus.Failed     => "PriorityHigh",
+                PlanTaskStatus.Partial    => "PriorityMid",
+                _                        => null,
+            };
+            string borderColorKey = durableTask?.Status switch
+            {
+                PlanTaskStatus.Complete   or
+                PlanTaskStatus.Superseded => "PriorityLow",
+                PlanTaskStatus.Executing  => "ActivePanelBorder",
+                PlanTaskStatus.Failed     => "PriorityHigh",
+                PlanTaskStatus.Partial    => "PriorityMid",
+                _                        => "PanelBorder",
+            };
+
             var nodeTitle = new TextBlock
             {
                 Text         = task.Title ?? task.Description,
@@ -361,19 +534,51 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             nodeTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             nodeTitle.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            if (statusChipText is not null && statusChipFgKey is not null)
+            {
+                var chip = new TextBlock
+                {
+                    Text              = statusChipText,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin            = new Thickness(0, 0, 2, 0),
+                    FontWeight        = FontWeights.SemiBold,
+                };
+                chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
+                chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                titleRow.Children.Add(chip);
+            }
+            titleRow.Children.Add(nodeTitle);
+
             var nodeDescription = new TextBlock
             {
                 Text         = task.Description,
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight    = 34,
-                Margin = new Thickness(0, 5, 0, 0),
+                Margin       = new Thickness(0, 5, 0, 0),
             };
             nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             var content = new StackPanel();
-            content.Children.Add(nodeTitle);
+            content.Children.Add(titleRow);
             content.Children.Add(nodeDescription);
+
+            if (durableTask?.Commit is { } commitSha && commitSha.Length > 0)
+            {
+                var shortSha = commitSha.Length >= 7 ? commitSha[..7] : commitSha;
+                var commitBlock = new TextBlock
+                {
+                    Text       = $"[{shortSha}]",
+                    Margin     = new Thickness(0, 2, 0, 0),
+                    FontFamily = new FontFamily("Consolas, Courier New, monospace"),
+                };
+                commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                content.Children.Add(commitBlock);
+            }
+
             var border = new Border
             {
                 Width           = NodeWidth,
@@ -381,11 +586,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = BuildTaskToolTip(task.Description, prereqLines),
+                ToolTip         = BuildTaskToolTip(task.Description, prereqLines, durableTask?.CompletionSummary, durableTask?.Commit),
                 Child           = content,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+            border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
 
@@ -456,7 +661,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
     }
 
-    private static ToolTip BuildTaskToolTip(string description, string[] prereqLines)
+    private static ToolTip BuildTaskToolTip(string description, string[] prereqLines, string? completionSummary = null, string? commit = null)
     {
         var descBlock = new TextBlock
         {
@@ -489,6 +694,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
             lineBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             lineBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             panel.Children.Add(lineBlock);
+        }
+
+        if (completionSummary is not null)
+        {
+            var completionHeader = new TextBlock
+            {
+                Text       = "Completion:",
+                FontWeight = FontWeights.SemiBold,
+                Margin     = new Thickness(0, 8, 0, 2),
+            };
+            completionHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            completionHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(completionHeader);
+
+            var summaryBlock = new TextBlock
+            {
+                Text         = completionSummary,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(summaryBlock);
+        }
+
+        if (commit is not null)
+        {
+            var shortCommit = commit.Length >= 7 ? commit[..7] : commit;
+            var commitBlock = new TextBlock
+            {
+                Text         = $"Commit: [{shortCommit}]",
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 4, 0, 0),
+                FontFamily   = new FontFamily("Consolas, Courier New, monospace"),
+            };
+            commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(commitBlock);
         }
 
         return new ToolTip { Content = panel };
