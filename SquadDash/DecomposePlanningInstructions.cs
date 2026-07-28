@@ -55,7 +55,9 @@ internal static class DecomposePlanningInstructions
         "If the user gives free-text approval or changes for a staged decomposition plan, you MUST " +
         "read the same file and follow its DECOMPOSE_DECISION_JSON protocol. Do not invent either " +
         "format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
-        "file's DECOMPOSE_RECOVERY_JSON protocol. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
+        "file's DECOMPOSE_RECOVERY_JSON protocol. If SquadDash has paused an executing plan at a " +
+        "human approval gate and the user approves in free text, follow the file's " +
+        "PLAN_GATE_APPROVAL_JSON protocol. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
 
     internal static string BuildPendingPlanContext(string squadFolderPath)
     {
@@ -96,6 +98,29 @@ internal static class DecomposePlanningInstructions
                     $"Could not read blocked decomposition context: {ex.Message}");
             }
         }
+
+        try
+        {
+            var awaitingGateLines = new PlanStore(squadFolderPath)
+                .LoadAll()
+                .Where(p => p.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+                .SelectMany(p => p.ApprovalGates
+                    .Where(g => g.Status == PlanGateStatus.AwaitingApproval)
+                    .Select(g =>
+                        $"- planId={p.PlanId}; revision={p.Revision}; gateId={g.GateId}; message={g.Message}"))
+                .ToArray();
+            if (awaitingGateLines.Length > 0)
+                sections.Add(
+                    "\nApproval-gate plans paused at a human gate — emit PLAN_GATE_APPROVAL_JSON when " +
+                    "the user approves in free text (use the exact planId, gateId, and revision shown):\n" +
+                    string.Join("\n", awaitingGateLines));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Could not read approval-gate plan context: {ex.Message}");
+        }
+
         return string.Join(string.Empty, sections);
     }
 

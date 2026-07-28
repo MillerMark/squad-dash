@@ -351,6 +351,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
     private bool                    _decomposeRepairPending;
+    private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
     private bool                        _inboxSavedForCurrentTurn;
@@ -5129,6 +5130,7 @@ public partial class MainWindow : Window
                         {
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                            TryHandleGateApprovalFromResponse(rawResponse);
                         }
 
                         if (_decomposeRepairPending && !hasTasksPayload)
@@ -8229,6 +8231,16 @@ public partial class MainWindow : Window
             _loopController.RequestStop();
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
         }
+        else if (state == DecomposeGroupExecutionState.Eligible && _planStore is not null)
+        {
+            var plan = _planStore.Load(groupId);
+            if (plan is not null)
+            {
+                var activatedGate = FindActivatedGate(plan, result.TaskId, _CodeHealthGroupRunner?.CurrentStepId);
+                if (activatedGate is not null)
+                    PauseAtApprovalGate(groupId, revision, result.TaskId, activatedGate, plan);
+            }
+        }
     }
 
     private async Task<string?> ValidateDecomposeStepCommitAsync(DecomposeStepResult result)
@@ -8300,6 +8312,150 @@ public partial class MainWindow : Window
             taskId);
         TryPublishPlanBlocked(groupId, taskId);
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
+    }
+
+    /// <summary>
+    /// Returns the first <see cref="PlanApprovalGate"/> that blocks the next eligible task,
+    /// or <c>null</c> when no gate is triggered.
+    /// A gate is triggered when its status is Pending, <paramref name="completedTaskId"/> is one
+    /// of its <see cref="PlanApprovalGate.AfterTaskIds"/>, every task in AfterTaskIds is now
+    /// complete, and <paramref name="nextTaskId"/> is in <see cref="PlanApprovalGate.BeforeTaskIds"/>.
+    /// </summary>
+    private static PlanApprovalGate? FindActivatedGate(Plan plan, string completedTaskId, string? nextTaskId)
+    {
+        if (nextTaskId is null) return null;
+
+        var completedIds = plan.Tasks
+            .Where(t => t.Status == PlanTaskStatus.Complete)
+            .Select(t => t.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return plan.ApprovalGates.FirstOrDefault(gate =>
+            gate.Status == PlanGateStatus.Pending &&
+            gate.AfterTaskIds.Any(id => string.Equals(id, completedTaskId, StringComparison.Ordinal)) &&
+            gate.AfterTaskIds.All(id => completedIds.Contains(id)) &&
+            gate.BeforeTaskIds.Any(id => string.Equals(id, nextTaskId, StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Marks the gate and plan as AwaitingApproval, stops the loop, logs a status line,
+    /// and schedules an "Approve &amp; Continue Plan" quick-reply button on the UI thread.
+    /// </summary>
+    private void PauseAtApprovalGate(
+        string groupId,
+        string revision,
+        string completedTaskId,
+        PlanApprovalGate gate,
+        Plan plan)
+    {
+        var updated = PlanStoreUpdater.ApplyGateActivated(plan, gate.GateId);
+        PublishPlanProgress(updated);
+
+        _activePlanAwaitingGateApproval = gate.GateId;
+
+        SuppressLoopResume("gate-approval-required");
+        _loopController.RequestStop();
+
+        AppendLoopOutputLine($"⏸ Plan paused at approval gate: {gate.Message}", LoopLifecycleBrush);
+
+        Dispatcher.BeginInvoke(
+            () => AppendGateApprovalActions(updated, gate),
+            System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Appends a system transcript entry explaining the gate and a host-owned
+    /// "Approve &amp; Continue Plan" button.
+    /// Must be called on the UI thread.
+    /// </summary>
+    private void AppendGateApprovalActions(Plan plan, PlanApprovalGate gate)
+    {
+        ShowSystemTranscriptEntry(
+            $"⏸ Plan {plan.PlanId} is paused at a human approval gate.\n" +
+            $"{gate.Message}\n\n" +
+            $"Approve to continue executing the remaining tasks.");
+
+        var panel = new System.Windows.Controls.WrapPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+        };
+        var button = TranscriptQuickReplyFactory.CreateButton(
+            "Approve & Continue Plan",
+            _transcriptFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                $"Approve gate '{gate.GateId}' and resume executing plan {plan.PlanId}."));
+        button.Click += (_, _) =>
+        {
+            panel.Visibility = System.Windows.Visibility.Collapsed;
+            ApproveGateAndResume(plan, gate);
+        };
+        panel.Children.Add(button);
+
+        var blocks = CoordinatorThread.Document.Blocks;
+        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            panel,
+            new PlanGateApprovalTag(plan.PlanId, gate.GateId)));
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    /// <summary>Marks the gate approved and resumes the executing plan loop.</summary>
+    private void ApproveGateAndResume(Plan plan, PlanApprovalGate gate)
+    {
+        _activePlanAwaitingGateApproval = null;
+        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, note: null);
+        PublishPlanProgress(approved);
+        _ = StartDecomposeLoopAsync(plan.PlanId);
+    }
+
+    /// <summary>
+    /// Attempts to parse a <c>PLAN_GATE_APPROVAL_JSON:</c> block from <paramref name="rawResponse"/>.
+    /// When found, validates the plan and gate, marks the gate approved, and resumes the loop.
+    /// Returns <c>true</c> when the block was consumed (whether approved or rejected).
+    /// </summary>
+    private bool TryHandleGateApprovalFromResponse(string? rawResponse)
+    {
+        if (rawResponse is null || _planStore is null || _currentWorkspace is null) return false;
+        if (!PlanGateApprovalParser.TryParse(rawResponse, out var approval) || approval is null) return false;
+
+        var plan = _planStore.Load(approval.PlanId);
+        if (plan is null)
+        {
+            AppendLoopOutputLine(
+                $"⚠ Gate approval for plan {approval.PlanId} was rejected: plan not found.",
+                LoopLifecycleBrush);
+            return true;
+        }
+
+        if (!string.Equals(plan.Revision, approval.Revision, StringComparison.Ordinal))
+        {
+            AppendLoopOutputLine(
+                $"⚠ Gate approval for plan {approval.PlanId} was rejected: revision mismatch.",
+                LoopLifecycleBrush);
+            return true;
+        }
+
+        var gate = plan.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, approval.GateId, StringComparison.Ordinal));
+        if (gate is null)
+        {
+            AppendLoopOutputLine(
+                $"⚠ Gate approval for plan {approval.PlanId} was rejected: gate '{approval.GateId}' not found.",
+                LoopLifecycleBrush);
+            return true;
+        }
+        if (gate.Status != PlanGateStatus.AwaitingApproval)
+        {
+            AppendLoopOutputLine(
+                $"⚠ Gate approval for plan {approval.PlanId} was rejected: gate '{approval.GateId}' is not awaiting approval.",
+                LoopLifecycleBrush);
+            return true;
+        }
+
+        _activePlanAwaitingGateApproval = null;
+        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, approval.Note);
+        PublishPlanProgress(approved);
+        _ = StartDecomposeLoopAsync(plan.PlanId);
+        return true;
     }
 
     private void SaveDecomposeRecoveryInboxReminder(

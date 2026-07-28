@@ -168,3 +168,24 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
 verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
 validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
 before changing any plan status.
+
+## PLAN_GATE_APPROVAL_JSON schema
+
+When SquadDash pauses an executing plan at a human approval gate, the AI must
+NOT resume or emit TASKS_JSON. If the user approves the gate in free text, emit:
+
+`PLAN_GATE_APPROVAL_JSON:`
+
+```json
+{
+  "planId": "GROUP-YYYYMMDD",
+  "gateId": "GROUP-YYYYMMDD-GATE-001",
+  "revision": "revision supplied by SquadDash for the active gate",
+  "note": "optional approval note from the user"
+}
+```
+
+Only emit this when SquadDash has explicitly paused an executing plan at the
+named gate and provided the exact planId, gateId, and revision. Never infer
+gate approval from conversation context alone. Omit `note` unless the user
+provided specific approval commentary.

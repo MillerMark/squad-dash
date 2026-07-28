@@ -113,6 +113,56 @@ internal static class PlanStoreUpdater
         };
     }
 
+    /// <summary>
+    /// Transitions the gate to <see cref="PlanGateStatus.AwaitingApproval"/> and the plan to
+    /// <see cref="PlanLifecycleStatus.AwaitingApproval"/>. Sets <see cref="PlanApprovalGate.RequestedAt"/>
+    /// to now and clears <see cref="PlanProgress.ExecutingTaskId"/>.
+    /// Returns the plan unchanged if <paramref name="gateId"/> is not found.
+    /// </summary>
+    internal static Plan ApplyGateActivated(Plan existing, string gateId)
+    {
+        var gate = existing.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null) return existing;
+
+        var updatedGate  = gate with { Status = PlanGateStatus.AwaitingApproval, RequestedAt = DateTimeOffset.UtcNow };
+        var updatedGates = existing.ApprovalGates
+            .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
+            .ToList<PlanApprovalGate>();
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            ApprovalGates   = updatedGates,
+            Progress        = existing.Progress with { ExecutingTaskId = null },
+        };
+    }
+
+    /// <summary>
+    /// Marks the gate <see cref="PlanGateStatus.Approved"/>, sets <see cref="PlanApprovalGate.ResolvedAt"/>
+    /// and <see cref="PlanApprovalGate.ResolutionNote"/>. Transitions the plan back to
+    /// <see cref="PlanLifecycleStatus.Executing"/> when no other gates are still awaiting approval.
+    /// Returns the plan unchanged if <paramref name="gateId"/> is not found or the gate is not
+    /// in <see cref="PlanGateStatus.AwaitingApproval"/> status.
+    /// </summary>
+    internal static Plan ApplyGateApproved(Plan existing, string gateId, string? note)
+    {
+        var gate = existing.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status != PlanGateStatus.AwaitingApproval)
+            return existing;
+
+        var updatedGate  = gate with { Status = PlanGateStatus.Approved, ResolvedAt = DateTimeOffset.UtcNow, ResolutionNote = note };
+        var updatedGates = existing.ApprovalGates
+            .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
+            .ToList<PlanApprovalGate>();
+        var anyStillAwaiting = updatedGates.Any(g => g.Status == PlanGateStatus.AwaitingApproval);
+        return existing with
+        {
+            LifecycleStatus = anyStillAwaiting ? PlanLifecycleStatus.AwaitingApproval : PlanLifecycleStatus.Executing,
+            ApprovalGates   = updatedGates,
+        };
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>Counts completed and total items to build a <see cref="PlanProgress"/>.</summary>
