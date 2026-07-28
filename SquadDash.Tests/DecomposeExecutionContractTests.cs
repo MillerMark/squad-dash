@@ -109,6 +109,117 @@ internal sealed class DecomposeWorktreePolicyTests
             ["SquadDash/MainWindow.xaml.cs", "SquadDash/ScreenshotService.cs"],
             ["SquadDash/MainWindow.xaml.cs"]), Is.False);
     }
+
+    // ─── HasOnlyAllowedChanges: content-aware cases ───────────────────────────
+
+    [Test]
+    public void HasOnlyAllowedChanges_EmptyStatus_ReturnsTrue()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            string.Empty, [], out var disallowed), Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_NullStatus_ReturnsTrue()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            null, [], out var disallowed), Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_UntrackedFile_ReturnsFalse()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            "?? newfile.txt\n", [], out var disallowed), Is.False);
+        Assert.That(disallowed, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_StagedChange_ReturnsFalse()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            "M  src/Program.cs\n", [], out var disallowed), Is.False);
+        Assert.That(disallowed, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_RenamedFile_ChecksDestinationPath()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            "R  old/path.cs -> new/path.cs\n", ["new/path.cs"], out var disallowed), Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_AllowedPathIsCaseInsensitive()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            " M .SQUAD/Tasks.MD\n", [".squad/tasks.md"], out var disallowed), Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_MultipleDisallowedPaths_ReturnsAllDisallowed()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            " M src/A.cs\n M src/B.cs\n M src/C.cs\n", [], out var disallowed), Is.False);
+        Assert.That(disallowed, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public void HasOnlyAllowedChanges_PlanJsonAllowed_ReturnsTrue()
+    {
+        Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            " M .squad/plans/plan-123.json\n",
+            [".squad/plans/plan-123.json"],
+            out var disallowed), Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    // ─── FilterMetadataOnlyAsync ──────────────────────────────────────────────
+
+    [Test]
+    public async Task FilterMetadataOnlyAsync_EmptyList_ReturnsEmpty()
+    {
+        var result = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+            [], _ => Task.FromResult(string.Empty));
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task FilterMetadataOnlyAsync_EmptyDiff_FiltersPath()
+    {
+        var result = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+            ["src/Program.cs"],
+            _ => Task.FromResult(string.Empty));
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public async Task FilterMetadataOnlyAsync_NonEmptyDiff_RetainsPath()
+    {
+        const string fakeDiff = ":100644 100644 abc123 def456 M\tsrc/Program.cs";
+        var result = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+            ["src/Program.cs"],
+            _ => Task.FromResult(fakeDiff));
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0], Is.EqualTo("src/Program.cs"));
+    }
+
+    [Test]
+    public async Task FilterMetadataOnlyAsync_MixedResults_FiltersOnlyMetadataOnly()
+    {
+        const string fakeDiff = ":100644 100644 abc123 def456 M\tsrc/Real.cs";
+        var result = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+            ["src/StatCacheOnly.cs", "src/Real.cs"],
+            cmd => cmd.Contains("StatCacheOnly")
+                ? Task.FromResult(string.Empty)
+                : Task.FromResult(fakeDiff));
+        Assert.That(result, Has.Count.EqualTo(1));
+        Assert.That(result[0], Is.EqualTo("src/Real.cs"));
+    }
 }
 
 [TestFixture]

@@ -40617,14 +40617,40 @@ public partial class MainWindow : Window
     private async Task EnsurePlanWorktreeReadyAsync(string workspace)
     {
         var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
-        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
-        var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
-        if (!DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var disallowed))
+        var allowed = await GetAllowedPlanPathsAsync(workspace);
+        if (!DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var candidates))
         {
-            throw new InvalidOperationException(
-                "Plan execution requires an isolated clean worktree. Commit or stash these changes first: " +
-                string.Join(", ", disallowed));
+            var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                candidates,
+                cmd => RunGitAsync(workspace, cmd));
+            if (genuinelyDirty.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "Plan execution requires an isolated clean worktree. " +
+                    "Commit or stash these changes first:\n" +
+                    string.Join("\n", genuinelyDirty.Select(p => $"  \u2022 {p}")));
+            }
         }
+    }
+
+    private async Task<IReadOnlyList<string>> GetAllowedPlanPathsAsync(string workspace)
+    {
+        var paths = new List<string>();
+        var tasksPath = await GetTasksRepositoryRelativePathAsync(workspace);
+        if (tasksPath is not null) paths.Add(tasksPath);
+
+        if (_activeDecomposeGroupId is not null && _currentWorkspace is not null)
+        {
+            var repositoryRoot = (await RunGitAsync(workspace, "rev-parse --show-toplevel")).Trim();
+            var planJsonPath = Path.Combine(_currentWorkspace.SquadFolderPath, "plans", _activeDecomposeGroupId + ".json");
+            if (File.Exists(planJsonPath))
+            {
+                var relative = Path.GetRelativePath(repositoryRoot, planJsonPath).Replace('\\', '/');
+                if (!relative.StartsWith("../", StringComparison.Ordinal) && !Path.IsPathRooted(relative))
+                    paths.Add(relative);
+            }
+        }
+        return paths;
     }
 
     private async Task<string?> GetTasksRepositoryRelativePathAsync(string workspace)

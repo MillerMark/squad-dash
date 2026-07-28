@@ -26,6 +26,31 @@ internal static class DecomposeWorktreePolicy
         return disallowed.Count == 0;
     }
 
+    /// <summary>
+    /// Filters <paramref name="candidatePaths"/> by checking whether each has genuine
+    /// content changes vs. the HEAD commit. Paths whose working-tree content matches
+    /// HEAD (stat-cache or timestamp noise) are removed from the returned list.
+    /// Staged changes and untracked files are always retained as genuinely dirty.
+    /// </summary>
+    /// <param name="candidatePaths">Paths that failed the allowed-list check.</param>
+    /// <param name="runGit">Delegate that runs a git command and returns its stdout.</param>
+    /// <returns>Paths that have genuine content changes (not metadata-only).</returns>
+    internal static async Task<IReadOnlyList<string>> FilterMetadataOnlyAsync(
+        IReadOnlyList<string> candidatePaths,
+        Func<string, Task<string>> runGit)
+    {
+        if (candidatePaths.Count == 0) return [];
+
+        var genuine = new List<string>();
+        foreach (var path in candidatePaths)
+        {
+            var diffOutput = await runGit($"diff-index HEAD -- \"{path}\"");
+            if (!string.IsNullOrWhiteSpace(diffOutput))
+                genuine.Add(path);
+        }
+        return genuine;
+    }
+
     internal static bool MatchesConfirmedPaths(
         IReadOnlyCollection<string> currentPaths,
         IReadOnlyCollection<string> confirmedPaths)
