@@ -8360,6 +8360,14 @@ public partial class MainWindow : Window
         var updated = PlanStoreUpdater.ApplyGateActivated(plan, gate.GateId);
         PublishPlanProgress(updated);
 
+        if (PlanGateManager.ShouldNotifyGateActivation(gate))
+        {
+            var notifTitle   = "Plan Approval Required";
+            var notifMessage = $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks complete. Gate: {gate.Message}";
+            SoundNotifications.Play(SoundEvent.ApprovalNeeded);
+            _ = _pushNotificationService.NotifyEventAsync("plan_gate_approval_required", notifTitle, notifMessage);
+        }
+
         _activePlanAwaitingGateApproval = gate.GateId;
 
         SuppressLoopResume("gate-approval-required");
@@ -8370,6 +8378,26 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(
             () => AppendGateApprovalActions(updated, gate),
             System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// On workspace load, restores the "Approve &amp; Continue Plan" button for any plan
+    /// that was persisted with <see cref="PlanLifecycleStatus.AwaitingApproval"/>.
+    /// Does not re-fire sound or push notifications (gate.NotifiedAt is already set).
+    /// </summary>
+    private void RestoreAwaitingApprovalGateUI()
+    {
+        if (_planStore is null) return;
+        foreach (var plan in _planStore.LoadAll())
+        {
+            if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
+            var awaitingGate = plan.ApprovalGates
+                .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
+            if (awaitingGate is null) continue;
+            Dispatcher.BeginInvoke(
+                () => AppendGateApprovalActions(plan, awaitingGate),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
     }
 
     /// <summary>
@@ -23208,6 +23236,7 @@ public partial class MainWindow : Window
         RepairStalePlanExecutingState();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
+        RestoreAwaitingApprovalGateUI();
 
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
 

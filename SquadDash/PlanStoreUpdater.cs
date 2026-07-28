@@ -175,7 +175,13 @@ internal static class PlanStoreUpdater
             string.Equals(g.GateId, gateId, StringComparison.Ordinal));
         if (gate is null) return existing;
 
-        var updatedGate  = gate with { Status = PlanGateStatus.AwaitingApproval, RequestedAt = DateTimeOffset.UtcNow };
+        var now         = DateTimeOffset.UtcNow;
+        var updatedGate = gate with
+        {
+            Status      = PlanGateStatus.AwaitingApproval,
+            RequestedAt = now,
+            NotifiedAt  = gate.NotifiedAt ?? now,
+        };
         var updatedGates = existing.ApprovalGates
             .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
             .ToList<PlanApprovalGate>();

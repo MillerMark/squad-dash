@@ -187,6 +187,7 @@ internal sealed partial class PushNotificationService {
         ["rc_connection_established"] = false,
         ["quick_reply_needed"] = true,
         ["maintenance_completed"] = true,
+        ["plan_gate_approval_required"] = true,
     };
 
     public PushNotificationService(ApplicationSettingsStore settingsStore) {

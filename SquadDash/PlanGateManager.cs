@@ -113,4 +113,10 @@ internal static class PlanGateManager
         if (remaining.Length == plan.ApprovalGates.Count) return plan;
         return plan with { ApprovalGates = remaining };
     }
+
+    /// <summary>
+    /// Returns true when the gate should trigger a notification — i.e. it has never been notified before.
+    /// Guard is based on <see cref="PlanApprovalGate.NotifiedAt"/> being null.
+    /// </summary>
+    internal static bool ShouldNotifyGateActivation(PlanApprovalGate gate) => gate.NotifiedAt is null;
 }
