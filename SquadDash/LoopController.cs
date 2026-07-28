@@ -27,6 +27,7 @@ internal sealed class LoopController {
     private readonly Action<DateTimeOffset>      _onWaiting;
     private readonly Func<Task>                  _onBeforeIteration;
     private readonly Func<Task>                  _onBeforeWait;
+    private readonly ILoopClock                  _clock;
 
     private volatile bool         _stopRequested;
     private CancellationTokenSource? _cts;
@@ -60,7 +61,8 @@ internal sealed class LoopController {
         Action<int>                 onIterationCompleted,
         Action<DateTimeOffset>      onWaiting,
         Func<Task>?                 onBeforeIteration = null,
-        Func<Task>?                 onBeforeWait      = null) {
+        Func<Task>?                 onBeforeWait      = null,
+        ILoopClock?                 clock             = null) {
 
         _executePromptAsync   = executePromptAsync;
         _abortPrompt          = abortPrompt;
@@ -71,6 +73,7 @@ internal sealed class LoopController {
         _onWaiting            = onWaiting;
         _onBeforeIteration    = onBeforeIteration ?? (() => Task.CompletedTask);
         _onBeforeWait         = onBeforeWait      ?? (() => Task.CompletedTask);
+        _clock                = clock             ?? SystemLoopClock.Instance;
     }
 
     /// <summary>
@@ -185,21 +188,38 @@ internal sealed class LoopController {
 
                 if (_stopRequested) break;
 
+                var roundCompletedAt = _clock.UtcNow;
                 await _onBeforeWait();
                 if (_stopRequested) break;
 
-                var nextAt = DateTimeOffset.Now + TimeSpan.FromMinutes(config.IntervalMinutes);
+                var waitStartedAt = _clock.UtcNow;
+                var configuredDelay = TimeSpan.FromMinutes(config.IntervalMinutes);
+                var nextAt = waitStartedAt + configuredDelay;
                 _onWaiting(nextAt);
                 var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 _waitCts = waitCts;
+                bool interrupted = false;
                 try {
-                    await Task.Delay(TimeSpan.FromMinutes(config.IntervalMinutes), waitCts.Token);
+                    await _clock.Delay(configuredDelay, waitCts.Token);
                 } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
                     // Wait interrupted by CancelLoopWait() — a queue item arrived; proceed to next iteration.
+                    interrupted = true;
                 } finally {
                     _waitCts = null;
                     waitCts.Dispose();
                 }
+
+                var iterStartedAt = _clock.UtcNow;
+                var diag = new LoopBoundaryDiagnostics(
+                    Iteration: iteration,
+                    RoundCompletedAt: roundCompletedAt,
+                    WaitStartedAt: waitStartedAt,
+                    IterationStartedAt: iterStartedAt,
+                    DelaySource: interrupted ? "queue-interrupt" : "configured",
+                    ConfiguredDelay: configuredDelay,
+                    ActualDelay: iterStartedAt - waitStartedAt,
+                    QueueDrainOccurred: false);
+                SquadDashTrace.Write("Loop", diag.BuildTraceMessage());
             }
         }
           finally {

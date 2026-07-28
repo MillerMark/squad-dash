@@ -1,6 +1,6 @@
 ---
 configured: true
-interval: 1
+interval: 0.1
 timeout: 120
 description: "Executing Plan — runs dependency-eligible tasks from one approved plan"
 commands: [stop_loop]
