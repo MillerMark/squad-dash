@@ -39182,6 +39182,16 @@ public partial class MainWindow : Window
                 _planStore.Save(repaired);
                 _broker.Publish(new PlanProgressEvent(repaired.PlanId, repaired));
             }
+
+            foreach (var plan in _planStore.LoadAll())
+            {
+                var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+                if (!ReferenceEquals(repaired, plan))
+                {
+                    SquadDashTrace.Write("PlanRepair", $"Repaired inconsistent plan {plan.PlanId}: {plan.LifecycleStatus} → {repaired.LifecycleStatus}");
+                    _planStore.Save(repaired);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -39248,7 +39258,15 @@ public partial class MainWindow : Window
             Plan updated;
             if (groupState == DecomposeGroupExecutionState.Complete)
             {
-                updated = PlanStoreUpdater.ApplyCompleted(existing);
+                // Read tasks.md so task statuses and Completed lifecycle are persisted in one save,
+                // eliminating the window between ApplyStepAccepted and ApplyCompleted.
+                var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+                var parsed    = File.Exists(tasksPath)
+                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                    : null;
+                var items     = GetGroupTaskItems(parsed, groupId);
+                var withTasks = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextExecutingTaskId: null);
+                updated       = PlanStoreUpdater.ApplyCompleted(withTasks);
             }
             else
             {

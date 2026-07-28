@@ -324,7 +324,7 @@ internal sealed class PlanStoreUpdaterTests
     [Test]
     public void BuildProgress_ReturnsZeroForEmptyItems()
     {
-        var progress = PlanStoreUpdater.BuildProgress([], "T1");
+        var progress = PlanStoreUpdater.BuildProgress(new List<TaskItem>(), "T1");
 
         Assert.That(progress.CompletedCount, Is.EqualTo(0));
         Assert.That(progress.TotalCount,     Is.EqualTo(0));

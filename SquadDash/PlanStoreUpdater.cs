@@ -234,6 +234,87 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Counts completed tasks from a <see cref="PlanTask"/> list to build a <see cref="PlanProgress"/>.
+    /// Used by <see cref="RepairInconsistentState"/> where <see cref="TaskItem"/> data is unavailable.
+    /// </summary>
+    internal static PlanProgress BuildProgress(
+        IReadOnlyList<PlanTask> tasks,
+        string?                 executingTaskId)
+    {
+        var completed = tasks.Count(t =>
+            t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+        return new PlanProgress(
+            CompletedCount:  completed,
+            TotalCount:      tasks.Count,
+            ExecutingTaskId: executingTaskId);
+    }
+
+    /// <summary>
+    /// Detects and repairs impossible plan state combinations that can arise from
+    /// interrupted writes. Called on load to ensure the PlanStore is self-consistent.
+    /// Safe to call on already-consistent plans — returns the input unchanged when no repair is needed.
+    /// </summary>
+    /// <remarks>
+    /// Repair cases are checked in priority order; the first match is repaired and returned.
+    /// Interrupted and Blocked plans are never modified — they have their own recovery flows.
+    /// </remarks>
+    internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
+    {
+        // Never repair plans that have their own recovery flows.
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
+            return plan;
+
+        // Case A — Completed lifecycle with unfinished tasks.
+        // tasks.md was not yet written when ApplyCompleted was saved (or vice versa).
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Completed &&
+            plan.Tasks.Any(t => t.Status is PlanTaskStatus.Pending or PlanTaskStatus.Executing))
+        {
+            var repairedTasks = plan.Tasks
+                .Select(t => t.Status is PlanTaskStatus.Pending or PlanTaskStatus.Executing
+                    ? t with { Status = PlanTaskStatus.Complete }
+                    : t)
+                .ToList<PlanTask>();
+            return plan with
+            {
+                Tasks    = repairedTasks,
+                Progress = plan.Progress with { ExecutingTaskId = null },
+            };
+        }
+
+        // Case B — Executing lifecycle but all tasks are terminal.
+        // ApplyStepResult updated tasks.md for the final step but the PlanStore was not saved.
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+            plan.Tasks.Count > 0 &&
+            plan.Tasks.All(t => t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Failed
+                                           or PlanTaskStatus.Partial  or PlanTaskStatus.Superseded))
+        {
+            if (plan.Tasks.Any(t => t.Status is PlanTaskStatus.Failed or PlanTaskStatus.Partial))
+                return ApplyBlocked(plan, blockedTaskId: null);
+            return ApplyCompleted(plan);
+        }
+
+        // Case C — Progress count does not match actual task statuses.
+        var expectedCompleted = plan.Tasks.Count(t =>
+            t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+        if (plan.Progress.CompletedCount != expectedCompleted)
+        {
+            var repairedProgress = BuildProgress(plan.Tasks, plan.Progress.ExecutingTaskId);
+            return plan with { Progress = repairedProgress };
+        }
+
+        // Case D — ExecutingTaskId points to a task that is no longer executing.
+        if (plan.Progress.ExecutingTaskId is not null)
+        {
+            var pointedTask = plan.Tasks.FirstOrDefault(t =>
+                string.Equals(t.TaskId, plan.Progress.ExecutingTaskId, StringComparison.Ordinal));
+            if (pointedTask is null || pointedTask.Status != PlanTaskStatus.Executing)
+                return plan with { Progress = plan.Progress with { ExecutingTaskId = null } };
+        }
+
+        return plan;
+    }
+
+    /// <summary>
     /// Maps <paramref name="subtasks"/> to <see cref="PlanTask"/> records,
     /// reading each task's current status from the matching <see cref="TaskItem"/>.
     /// </summary>
