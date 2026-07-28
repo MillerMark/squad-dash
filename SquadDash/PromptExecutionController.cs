@@ -927,6 +927,9 @@ internal sealed class PromptExecutionController {
         if (TryMatchCommandWithArguments(trimmed, "/retire", out var retireArgs))
             return HandleLocalRetireCommand(prompt, retireArgs, addToHistory, clearPromptBox);
 
+        if (TryMatchCommandWithBody(trimmed, "/plan", out var planBody))
+            return HandleLocalPlanCommand(prompt, planBody, addToHistory, clearPromptBox);
+
         if (TryMatchCommandWithArguments(trimmed, "/session", out var sessionArgs))
             return HandleLocalSessionCommand(prompt, sessionArgs, addToHistory, clearPromptBox);
 
@@ -1270,6 +1273,7 @@ internal sealed class PromptExecutionController {
                 _transcriptSink.AppendLine("- `/help` — Show this command reference", null);
                 _transcriptSink.AppendLine("- `/hire` — Open the visual hire-agent workflow", null);
                 _transcriptSink.AppendLine("- `/model` — Show the active AI model", null);
+                _transcriptSink.AppendLine("- `/plan <description>` — Propose a decomposed plan for the given feature or task", null);
                 _transcriptSink.AppendLine("- `/queue-sim` — Alias for `/test-queue` with the default scenario", null);
                 _transcriptSink.AppendLine("- `/test-queue` — Enqueue sim items to exercise queue mechanics without a real AI call", null);
                 _transcriptSink.AppendLine("- `/test-queue` DSL: `$QueuePrompt$(\"prompt\", \"response\", delaySecs)` and `$ActiveDraft$(\"prompt\", \"response\", delaySecs)`", null);
@@ -1462,8 +1466,29 @@ internal sealed class PromptExecutionController {
         return false;
     }
 
+    private bool HandleLocalPlanCommand(string prompt, string body, bool addToHistory, bool clearPromptBox) {
+        SquadDashTrace.Write("UI", $"Local command intercepted prompt=/plan hasBody={!string.IsNullOrWhiteSpace(body)}");
+
+        if (string.IsNullOrWhiteSpace(body)) {
+            return ExecuteLocalCoordinatorCommand(
+                prompt,
+                addToHistory,
+                clearPromptBox,
+                () => _transcriptSink.AppendLine("Usage: `/plan <description>` — Describe the feature or task you want planned. The AI will emit a TASKS_JSON proposal for your approval before any work begins.", null));
+        }
+
+        var planPrompt =
+            "The user has requested an explicit plan. Emit TASKS_JSON for the following. " +
+            "Even if the work could fit in one turn, emit TASKS_JSON because the user explicitly " +
+            "asked for a plan — this preserves the human approval boundary before execution begins. " +
+            "Do not implement anything in this response.\n\n" +
+            $"Plan request: {body}";
+
+        _ = ExecutePromptAsync(planPrompt, addToHistory: true, clearPromptBox: clearPromptBox);
+        return true;
+    }
+
     private bool HandleLocalStatusCommand(string prompt, bool addToHistory, bool clearPromptBox) {
-        SquadDashTrace.Write("UI", "Local command intercepted prompt=/status");
 
         return ExecuteLocalCoordinatorCommand(
             prompt,

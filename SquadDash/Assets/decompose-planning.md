@@ -8,6 +8,26 @@ host-owned: true
 Use this protocol for an ordinary user request when the work is too large or interdependent to
 implement safely in one turn. Do not use it merely because a task has several routine steps.
 
+## Explicit plan-creation intent
+
+When the user explicitly requests plan creation, emit `TASKS_JSON` even if the work might fit in
+one turn. Preserve the human approval boundary — do **not** implement in the same response.
+
+**Creation verbs and forms that trigger TASKS_JSON:**
+- Verb + "plan": *create a plan*, *draft a plan*, *devise a plan*, *design a plan*, *write a plan*,
+  *make a plan*, *prepare a plan*, *propose a plan*, *outline a plan*, *generate a plan*,
+  *formulate a plan*, *produce a plan*
+- "plan out X": *plan out the migration*, *plan out our sprint*
+- The `/plan` slash command (always treats the body as an explicit plan-creation request)
+
+**When the user says "create a plan and implement it"** (plan-and-implement intent), still emit
+`TASKS_JSON`. SquadDash will hold the user approval boundary before any execution begins.
+
+**Patterns that do NOT trigger TASKS_JSON** — retain prose discussion instead:
+- First-person statements: "I plan to do X", "my plan is to…"
+- Information questions: "what's the plan?", "do you have a plan?"
+- Attributive references: "the plan is to…", "plan A vs plan B"
+
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
 `summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, and `priority`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every

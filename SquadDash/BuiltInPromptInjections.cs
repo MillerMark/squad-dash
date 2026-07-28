@@ -60,9 +60,29 @@ internal static class BuiltInPromptInjections {
             - The code health agent's transcript records all activity during a code health session
             """);
 
+    // ── Plans ─────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Fires when the user expresses explicit plan-creation intent
+    /// (e.g. "create a plan for X", "draft a plan", "plan out the migration").
+    /// Injects a mandate to emit TASKS_JSON rather than implementing inline.
+    /// Discussion-only uses ("I plan to…", "what's the plan?") do not match this pattern.
+    /// </summary>
+    internal static readonly TriggeredPromptInjection Plans = new(
+        Id:      "builtin:plan-creation-guidance",
+        Pattern: @"\b(?:create|draft|devise|prepare|make|write|design|propose|outline|generate|formulate|produce)\s+(?:(?:me|us|for\s+me|for\s+us)\s+)?(?:(?:a|an|the)\s+)?plan\b|\bplan\s+out\b",
+        InjectionText:
+            """
+            The user has explicitly requested plan creation. You must emit TASKS_JSON for this request.
+            Even if the work could fit in one turn, emit TASKS_JSON because the user explicitly asked for a plan — this preserves the human approval boundary before any implementation begins.
+            Read `{workspaceFolder}\.squad\instructions\decompose-planning.md` for the exact TASKS_JSON schema and required fields.
+            Do not implement anything in this response — only propose the plan via TASKS_JSON.
+            """);
+
     internal static IReadOnlyList<TriggeredPromptInjection> All { get; } = [
         Tasks,
         Maintenance,
+        Plans,
     ];
 }
 

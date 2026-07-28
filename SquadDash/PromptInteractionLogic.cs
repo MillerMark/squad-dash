@@ -201,6 +201,7 @@ internal static class SlashCommandParameterPolicy {
     private static readonly HashSet<string> ParameterRequiredCommands = new(StringComparer.OrdinalIgnoreCase) {
         "/activate",
         "/deactivate",
+        "/plan",
         "/retire",
     };
 

@@ -333,6 +333,7 @@
     <Compile Include="..\SquadDash\PlansPanelViewModel.cs" Link="Source\PlansPanelViewModel.cs" />
     <Compile Include="..\SquadDash\PlanProgressEvent.cs" Link="Source\PlanProgressEvent.cs" />
     <Compile Include="..\SquadDash\PlanStoreUpdater.cs" Link="Source\PlanStoreUpdater.cs" />
+    <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
 

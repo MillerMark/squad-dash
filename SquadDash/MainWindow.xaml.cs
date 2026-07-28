@@ -9092,7 +9092,7 @@ public partial class MainWindow : Window
 
     private static readonly string[] SlashCommands = [
         "/activate", "/agents", "/approval", "/clear", "/deactivate", "/doctor", "/dropTasks",
-        "/health", "/help", "/hire", "/maintenance", "/model", "/queue-sim", "/resume", "/retire",
+        "/health", "/help", "/hire", "/maintenance", "/model", "/plan", "/queue-sim", "/resume", "/retire",
         "/session", "/sessions", "/status", "/tasks", "/test-queue", "/trace", "/version"
     ];
 

@@ -49,6 +49,8 @@ internal static class DecomposePlanningInstructions
 
     internal static string BuildOrdinaryPromptPointer(string specificationPath) =>
         "If the user's request is too large or interdependent to implement safely in one turn, " +
+        "or if the user explicitly requests plan creation (using verbs like create, draft, devise, " +
+        "design, write, make, propose, outline, or the /plan command), " +
         $"you MUST read `{specificationPath}` before responding, then follow its TASKS_JSON protocol. " +
         "If the user gives free-text approval or changes for a staged decomposition plan, you MUST " +
         "read the same file and follow its DECOMPOSE_DECISION_JSON protocol. Do not invent either " +
