@@ -8084,7 +8084,13 @@ public partial class MainWindow : Window
                   OpenPlanFromStore(gatedPlan);
               }
             : null;
-        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged)
+        Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+            ? p => _ = StartDecomposeLoopAsync(p.PlanId)
+            : null;
+        Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+            ? EndInterruptedPlan
+            : null;
+        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         }.Show();
@@ -8311,6 +8317,7 @@ public partial class MainWindow : Window
             revision,
             taskId);
         TryPublishPlanBlocked(groupId, taskId);
+        TryPublishPlanInterrupted(groupId, taskId, reason);
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
     }
 
@@ -22561,6 +22568,7 @@ public partial class MainWindow : Window
         _notesPanel?.Refresh(_noteItems);
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
+        RepairStalePlanExecutingState();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
 
@@ -38427,7 +38435,9 @@ public partial class MainWindow : Window
                     UpdateMainGridSideMargins();
                 },
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
-                persistVisibility: PersistPlansPanelVisible);
+                persistVisibility: PersistPlansPanelVisible,
+                resumePlan: plan => _ = StartDecomposeLoopAsync(plan.PlanId),
+                endPlan:    EndInterruptedPlan);
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
@@ -38472,9 +38482,32 @@ public partial class MainWindow : Window
     // ── Plan lifecycle event helpers ──────────────────────────────────────────
 
     /// <summary>
-    /// Persists an updated Plan and fires a <see cref="PlanProgressEvent"/> so the
-    /// Plans panel updates without a manual refresh.
+    /// On startup, transitions any plan still in <see cref="PlanLifecycleStatus.Executing"/>
+    /// to <see cref="PlanLifecycleStatus.Interrupted"/>. These plans were interrupted by a
+    /// process restart and must not silently remain Executing with no active loop.
     /// </summary>
+    private void RepairStalePlanExecutingState()
+    {
+        if (_planStore is null || _activeDecomposeGroupId is not null) return;
+        try
+        {
+            var allPlans = _planStore.LoadAll();
+            foreach (var plan in allPlans)
+            {
+                if (plan.LifecycleStatus != PlanLifecycleStatus.Executing) continue;
+                var repaired = PlanStoreUpdater.ApplyInterrupted(
+                    plan,
+                    reason:        "Loop stopped without completing a step",
+                    loopIteration: 0);
+                _planStore.Save(repaired);
+                _broker.Publish(new PlanProgressEvent(repaired.PlanId, repaired));
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"RepairStalePlanExecutingState: {ex.Message}");
+        }
+    }
     private void PublishPlanProgress(Plan plan)
     {
         try
@@ -38576,6 +38609,42 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanBlocked: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Transitions the plan to <see cref="PlanLifecycleStatus.Interrupted"/> and fires a
+    /// progress event. Called when the plan loop stops unexpectedly mid-execution.
+    /// </summary>
+    private void TryPublishPlanInterrupted(string groupId, string taskId, string reason)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var existing = _planStore.Load(groupId);
+            if (existing is null) return;
+            var updated = PlanStoreUpdater.ApplyInterrupted(
+                existing,
+                reason:            reason,
+                loopIteration:     _loopCurrentIteration,
+                interruptedTaskId: taskId,
+                lastCommit:        _decomposeIterationBaselineCommit);
+            PublishPlanProgress(updated);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanInterrupted: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Ends an interrupted plan by transitioning it to <see cref="PlanLifecycleStatus.Stopped"/>.
+    /// Preserves history; suppresses further recovery reminders.
+    /// </summary>
+    private void EndInterruptedPlan(Plan plan)
+    {
+        if (_planStore is null) return;
+        var updated = PlanStoreUpdater.ApplyStopped(plan);
+        PublishPlanProgress(updated);
     }
 
     /// <summary>Extracts task items belonging to a specific decompose group from the parse result.</summary>

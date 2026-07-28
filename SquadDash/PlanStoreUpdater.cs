@@ -97,6 +97,56 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Transitions a plan to <see cref="PlanLifecycleStatus.Interrupted"/>.
+    /// Records interruption details for restart-safe recovery.
+    /// </summary>
+    internal static Plan ApplyInterrupted(
+        Plan   existing,
+        string reason,
+        int    loopIteration,
+        string? interruptedTaskId   = null,
+        string? lastCompletedTaskId = null,
+        string? lastCommit          = null,
+        IReadOnlyList<string>? affectedPaths     = null,
+        string? partialWorkEvidence = null)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var interruptionData = new PlanInterruptionData(
+            Reason:              reason,
+            RecoveryState:       PlanRecoveryState.PendingRecovery,
+            LoopIteration:       loopIteration,
+            InterruptedTaskId:   interruptedTaskId,
+            LastCompletedTaskId: lastCompletedTaskId,
+            LastCommit:          lastCommit,
+            AffectedPaths:       affectedPaths,
+            PartialWorkEvidence: partialWorkEvidence);
+        return existing with
+        {
+            LifecycleStatus  = PlanLifecycleStatus.Interrupted,
+            InterruptionData = interruptionData,
+            Progress         = existing.Progress with { ExecutingTaskId = null },
+            Timestamps       = existing.Timestamps with { InterruptedAt = now },
+        };
+    }
+
+    /// <summary>
+    /// Transitions a plan to <see cref="PlanLifecycleStatus.Stopped"/>.
+    /// Preserves the task history and any interruption context for audit purposes,
+    /// but clears the recovery state so no further recovery reminders are shown.
+    /// </summary>
+    internal static Plan ApplyStopped(Plan existing)
+    {
+        return existing with
+        {
+            LifecycleStatus  = PlanLifecycleStatus.Stopped,
+            InterruptionData = existing.InterruptionData is null ? null
+                : existing.InterruptionData with { RecoveryState = PlanRecoveryState.Ended },
+            Progress         = existing.Progress with { ExecutingTaskId = null },
+            Timestamps       = existing.Timestamps with { StoppedAt = DateTimeOffset.UtcNow },
+        };
+    }
+
+    /// <summary>
     /// Transitions a plan to <see cref="PlanLifecycleStatus.Completed"/>.
     /// Sets <see cref="PlanProgress.ExecutingTaskId"/> to null and records the timestamp.
     /// </summary>

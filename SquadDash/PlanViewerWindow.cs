@@ -19,7 +19,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         double quickReplyFontSize,
         Func<DecomposePlanActionDefinition, Task<bool>>? applyAction = null,
         Plan? durablePlan = null,
-        Action<Plan>? onGatesChanged = null)
+        Action<Plan>? onGatesChanged = null,
+        Action<Plan>? onResumePlan   = null,
+        Action<Plan>? onEndPlan      = null)
         : base(captionHeight: CloseButtonHeight)
     {
         var group = plan.Group;
@@ -70,6 +72,48 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 actionsPanel.Children.Add(button);
             }
             header.Children.Add(actionsPanel);
+        }
+
+        if (durablePlan is not null &&
+            durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+            (onResumePlan is not null || onEndPlan is not null))
+        {
+            var interruptedPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin      = new Thickness(0, 0, 0, 8),
+            };
+            if (onResumePlan is not null)
+            {
+                var capturedPlan   = durablePlan;
+                var capturedAction = onResumePlan;
+                var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
+                    "Resume Plan",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip("Resume executing this interrupted plan from where it left off."));
+                resumeButton.Click += (_, _) =>
+                {
+                    capturedAction(capturedPlan);
+                    Close();
+                };
+                interruptedPanel.Children.Add(resumeButton);
+            }
+            if (onEndPlan is not null)
+            {
+                var capturedPlan   = durablePlan;
+                var capturedAction = onEndPlan;
+                var endButton      = TranscriptQuickReplyFactory.CreateButton(
+                    "End Plan",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip("Mark this plan as stopped, preserving its history. No further recovery reminders will be shown."));
+                endButton.Click += (_, _) =>
+                {
+                    capturedAction(capturedPlan);
+                    Close();
+                };
+                interruptedPanel.Children.Add(endButton);
+            }
+            header.Children.Add(interruptedPanel);
         }
 
         var summaryBlock = new TextBlock

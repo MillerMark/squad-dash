@@ -121,6 +121,31 @@ internal static class DecomposePlanningInstructions
                 $"Could not read approval-gate plan context: {ex.Message}");
         }
 
+        try
+        {
+            var interruptedLines = new PlanStore(squadFolderPath)
+                .LoadAll()
+                .Where(p => p.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+                .Select(p =>
+                    $"- planId={p.PlanId}; branch={p.Branch}; " +
+                    $"reason={p.InterruptionData?.Reason ?? "unknown"}; " +
+                    $"lastTask={p.InterruptionData?.LastCompletedTaskId ?? "none"}; " +
+                    $"recoveryState={p.InterruptionData?.RecoveryState ?? "none"}")
+                .ToArray();
+            if (interruptedLines.Length > 0)
+            {
+                sections.Add("\nInterrupted plans — do NOT independently assign or execute remaining tasks:\n" +
+                    string.Join("\n", interruptedLines));
+                sections.Add("\nIf the user asks to resume an interrupted plan, use the host Resume Plan button " +
+                    "or emit a structured DECOMPOSE_RECOVERY_JSON decision to restart execution from the correct task.");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Could not read interrupted plan context: {ex.Message}");
+        }
+
         return string.Join(string.Empty, sections);
     }
 

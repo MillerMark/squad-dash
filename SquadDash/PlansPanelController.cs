@@ -14,7 +14,9 @@ internal sealed class PlansPanelController
     private readonly StackPanel  _activePanel;
     private readonly StackPanel  _completedPanel;
     private readonly UIElement   _completedSection;
-    private readonly Action<Plan> _openPlan;
+    private readonly Action<Plan>  _openPlan;
+    private readonly Action<Plan>? _resumePlan;
+    private readonly Action<Plan>? _endPlan;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -38,12 +40,16 @@ internal sealed class PlansPanelController
         bool         initialShowCompleted  = false,
         Action<bool>? syncBorderVisibility = null,
         Action<bool>? setMenuChecked       = null,
-        Action?       persistVisibility    = null)
+        Action?       persistVisibility    = null,
+        Action<Plan>? resumePlan           = null,
+        Action<Plan>? endPlan              = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
         _completedSection     = completedSection;
         _openPlan             = openPlan;
+        _resumePlan           = resumePlan;
+        _endPlan              = endPlan;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -234,6 +240,25 @@ internal sealed class PlansPanelController
         openItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         openItem.Click += (_, _) => _openPlan(plan);
         menu.Items.Add(openItem);
+
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+        {
+            if (_resumePlan is not null)
+            {
+                var resumeItem = new MenuItem { Header = "Resume Plan" };
+                resumeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                resumeItem.Click += (_, _) => _resumePlan(plan);
+                menu.Items.Add(resumeItem);
+            }
+            if (_endPlan is not null)
+            {
+                var endItem = new MenuItem { Header = "End Plan" };
+                endItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                endItem.Click += (_, _) => _endPlan(plan);
+                menu.Items.Add(endItem);
+            }
+        }
+
         row.ContextMenu = menu;
 
         return row;
