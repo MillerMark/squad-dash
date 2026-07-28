@@ -278,6 +278,17 @@ internal static class DecomposePlanningInstructions
             builder.AppendLine("Inject the complete charter below into that worker prompt:");
             builder.AppendLine(File.ReadAllText(charterPath));
             builder.AppendLine();
+            var historyPath = Path.Combine(Path.GetDirectoryName(charterPath)!, "history.md");
+            if (File.Exists(historyPath))
+            {
+                var relativeHistoryPath = agent.CharterPath is { Length: > 0 }
+                    ? Path.Combine(Path.GetDirectoryName(agent.CharterPath)!, "history.md").Replace('\\', '/')
+                    : $"agents/{agent.Handle}/history.md";
+                builder.AppendLine($"Before working, read your agent history at `.squad/{relativeHistoryPath}` in the assigned worktree.");
+            }
+            var decisionsPath = Path.Combine(squadFolderPath, "decisions.md");
+            if (File.Exists(decisionsPath))
+                builder.AppendLine("Before working, search `.squad/decisions.md` in the assigned worktree for decisions relevant to this task and your specialty; do not load unrelated decisions.");
             builder.AppendLine(assignment.AllowGenericChildren
                 ? "This assigned worker may spawn generic child workers; children retain generic identity and report through the assigned parent."
                 : "This assigned worker must not spawn child workers.");
