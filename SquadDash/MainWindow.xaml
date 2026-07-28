@@ -1544,6 +1544,10 @@
                                               Header="Show Loop Output"
                                               Style="{StaticResource ThemedMenuItemStyle}"
                                               Click="LoopPanelViewOutputMenuItem_Click" />
+                                    <MenuItem x:Name="LoopPanelOpenExecLogMenuItem"
+                                              Header="Open Execution Log"
+                                              Style="{StaticResource ThemedMenuItemStyle}"
+                                              Click="LoopPanelOpenExecLogMenuItem_Click" />
                                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                                     <MenuItem x:Name="LoopPanelDequeueMenuItem"
                                               Header="Cancel Queued Loop"

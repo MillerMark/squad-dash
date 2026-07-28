@@ -343,6 +343,7 @@ public partial class MainWindow : Window
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
+    private PlanExecutionLog?        _planExecutionLog;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
@@ -5955,6 +5956,16 @@ public partial class MainWindow : Window
         _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
         AppendLoopOutputLine($"▶ Round {iteration} started — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"↩ Round {iteration}");
+        _planExecutionLog?.Append(new PlanExecutionLogEntry(
+            Kind: "round_started",
+            Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+            PlanId: _activeDecomposeGroupId,
+            Revision: null,
+            Round: iteration,
+            TaskId: _CodeHealthGroupRunner?.CurrentStepId,
+            TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+            Message: null,
+            Outcome: null));
         SyncLoopPanel();
     }
 
@@ -5986,6 +5997,16 @@ public partial class MainWindow : Window
         }
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
+        _planExecutionLog?.Append(new PlanExecutionLogEntry(
+            Kind: "plan_stopped",
+            Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+            PlanId: _activeDecomposeGroupId,
+            Revision: null,
+            Round: stoppedIteration > 0 ? stoppedIteration : null,
+            TaskId: null,
+            TaskTitle: null,
+            Message: null,
+            Outcome: "stopped"));
 
         if (_restartPending &&
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
@@ -6029,6 +6050,16 @@ public partial class MainWindow : Window
         ClearExecutingPlanState();
         _loopResumeSuppressed = false;
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
+        _planExecutionLog?.Append(new PlanExecutionLogEntry(
+            Kind: "plan_error",
+            Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+            PlanId: blockedGroupId,
+            Revision: blockedRevision,
+            Round: null,
+            TaskId: blockedTaskId,
+            TaskTitle: null,
+            Message: msg,
+            Outcome: "error"));
         SyncLoopPanel();
         if (blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
         {
@@ -6048,6 +6079,23 @@ public partial class MainWindow : Window
         _settingsManager.Replace(_settingsStore.SaveLoopIteration(iteration));
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"  ✓ Round {iteration} complete");
+        _planExecutionLog?.Append(new PlanExecutionLogEntry(
+            Kind: "round_completed",
+            Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+            PlanId: _activeDecomposeGroupId,
+            Revision: null,
+            Round: iteration,
+            TaskId: _CodeHealthGroupRunner?.CurrentStepId,
+            TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+            Message: null,
+            Outcome: "completed"));
+        if (_planExecutionLog is not null)
+        {
+            var taskDisplay = _CodeHealthGroupRunner?.GetCurrentStepTitle()
+                           ?? _CodeHealthGroupRunner?.CurrentStepId
+                           ?? "(unknown task)";
+            AppendLine($"  📋 Logged: Round {iteration} · {taskDisplay}", (Brush)FindResource("SubtleText"));
+        }
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
     }
@@ -6161,6 +6209,21 @@ public partial class MainWindow : Window
     {
         try { OpenLoopOutputWindow(); }
         catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelViewOutputMenuItem_Click), ex); }
+    }
+
+    private void LoopPanelOpenExecLogMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var path = _planExecutionLog?.LogPath;
+            if (path is null || !File.Exists(path))
+            {
+                AppendLine("⚠ No execution log found for this workspace.", (Brush)FindResource("SubtleText"));
+                return;
+            }
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(LoopPanelOpenExecLogMenuItem_Click), ex); }
     }
 
     private void LoopOutputClearButton_Click(object sender, RoutedEventArgs e)
@@ -7630,6 +7693,17 @@ public partial class MainWindow : Window
 
         _loopResumeSuppressed = false;
         _activeDecomposeGroupId = groupId;
+        _planExecutionLog = new PlanExecutionLog(_currentWorkspace.FolderPath);
+        _planExecutionLog.Append(new PlanExecutionLogEntry(
+            Kind: resumeFromIteration > 0 ? "plan_restart" : "plan_started",
+            Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+            PlanId: groupId,
+            Revision: revision,
+            Round: resumeFromIteration > 0 ? resumeFromIteration : null,
+            TaskId: _CodeHealthGroupRunner?.CurrentStepId,
+            TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+            Message: null,
+            Outcome: null));
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
         _conversationManager.UpdateActiveLoopExecutionState(
