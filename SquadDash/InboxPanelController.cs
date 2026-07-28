@@ -141,6 +141,41 @@ internal sealed class InboxPanelController
         RebuildList();
     }
 
+    /// <summary>
+    /// Briefly displays a notice text at the top of the inbox list, then auto-removes it
+    /// after 3 seconds. Call on the UI thread.
+    /// </summary>
+    public void ShowTransientNotice(string text)
+    {
+        var notice = new Border
+        {
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin  = new Thickness(0, 0, 0, 2),
+        };
+        notice.SetResourceReference(Border.BackgroundProperty, "PanelBackground");
+
+        var label = new TextBlock
+        {
+            Text         = text,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        notice.Child = label;
+
+        _listPanel.Children.Insert(0, notice);
+
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = System.TimeSpan.FromSeconds(3),
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _listPanel.Children.Remove(notice);
+        };
+        timer.Start();
+    }
+
     public void SetFilter(string text)
     {
         _viewModel.FilterText = text.Trim();

@@ -1237,7 +1237,7 @@ public partial class MainWindow : Window
         _watcherCoordinator = new WorkspaceFileWatcherCoordinator(
             postToUi:                   TryPostToUi,
             handleException:            (op, ex, show) => HandleUiCallbackException(op, ex, show),
-            onInboxChanged:             RefreshSidebar,
+            onInboxChanged:             OnInboxWatcherChanged,
             onTeamFileChanged:          HandleSquadMarkdownWatcherChange,
             onTeamFileRenamed:          HandleSquadMarkdownWatcherRename,
             onGitHeadChanged:           UpdateBranchIndicator,
@@ -8090,6 +8090,12 @@ public partial class MainWindow : Window
     private async Task ApplyDecomposeDecisionSafelyAsync(PendingDecomposePlan plan, string action, string? branchOverride)
     {
         try { await ApplyDecomposeDecisionAsync(plan, action, branchOverride); }
+        catch (PlanPreflightBlockedException blocked)
+        {
+            SquadDashTrace.Write("UI", $"Plan preflight blocked: {blocked.Message}");
+            var dlg = new PlanPreflightBlockedDialog(blocked, owner: CanShowOwnedWindow() ? this : null);
+            dlg.ShowDialog();
+        }
         catch (Exception ex) { HandleUiCallbackException("Decompose plan", ex); }
     }
 
@@ -38404,7 +38410,11 @@ public partial class MainWindow : Window
         var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
         if (msg is null)
         {
-            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: EARLY EXIT — message not found in store (storeIsNull={_inboxStore is null}) for msgId={messageId}");
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: message not found — refreshing list for msgId={messageId}");
+            _inboxPanel?.ShowTransientNotice("This message no longer exists.");
+            var refreshed = _inboxStore?.LoadAll() ?? [];
+            _inboxPanel?.Refresh(refreshed);
+            ReconcileOpenInboxWindows(refreshed);
             return;
         }
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: creating new InboxMessageWindow for msgId={messageId}");
@@ -38446,7 +38456,11 @@ public partial class MainWindow : Window
         var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
         if (msg is null)
         {
-            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: EARLY EXIT — message not found in store (storeIsNull={_inboxStore is null}) for msgId={messageId}");
+            SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: message not found — refreshing list for msgId={messageId}");
+            _inboxPanel?.ShowTransientNotice("This message no longer exists.");
+            var refreshed = _inboxStore?.LoadAll() ?? [];
+            _inboxPanel?.Refresh(refreshed);
+            ReconcileOpenInboxWindows(refreshed);
             return;
         }
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: creating new InboxMessageWindow for msgId={messageId}");
@@ -38480,6 +38494,38 @@ public partial class MainWindow : Window
         
         win.Show();
     }
+
+    private void ReconcileOpenInboxWindows(IReadOnlyList<InboxMessage> messages)
+    {
+        var existingIds = new System.Collections.Generic.HashSet<string>(
+            messages.Select(m => m.Id), StringComparer.Ordinal);
+        foreach (var win in _openInboxWindows.ToList())
+        {
+            if (!existingIds.Contains(win.MessageId))
+            {
+                SquadDashTrace.Write(TraceCategory.Inbox,
+                    $"ReconcileOpenInboxWindows: closing orphaned window for removed msgId={win.MessageId}");
+                win.Close();
+            }
+        }
+    }
+
+    private void OnInboxWatcherChanged()
+    {
+        RefreshSidebar();
+        if (_inboxPanel is not null && _inboxStore is not null)
+        {
+            var messages = _inboxStore.LoadAll();
+            _inboxPanel.Refresh(messages);
+            ReconcileOpenInboxWindows(messages);
+        }
+    }
+
+    private static IReadOnlyList<string> ParseGitPorcelainPaths(string porcelain) =>
+        porcelain.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                 .Select(l => l.Length > 3 ? l[3..].Trim() : l.Trim())
+                 .Where(s => s.Length > 0)
+                 .ToList();
 
     private static string ExtractExcerptTextFromAttachment(string contentBlock)
     {
@@ -39719,6 +39765,7 @@ public partial class MainWindow : Window
 
         var messages = _inboxStore?.LoadAll() ?? [];
         _inboxPanel.Refresh(messages);
+        ReconcileOpenInboxWindows(messages);
 
         var inboxWorkspaceState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         if (inboxWorkspaceState.InboxShowUnreadOnly == true)
@@ -41491,8 +41538,8 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(dirty) &&
             (!allowOnlyTasksFileDirty || !await IsOnlyTasksFileDirtyAsync(workspace, dirty)))
         {
-            throw new InvalidOperationException(
-                $"Switch to plan branch '{targetBranch}' after committing or stashing the working-tree changes.");
+            var dirtyPaths = ParseGitPorcelainPaths(dirty);
+            throw new PlanPreflightBlockedException("Uncommitted changes", dirtyPaths, targetBranch);
         }
 
         if (string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
@@ -41522,10 +41569,7 @@ public partial class MainWindow : Window
                 cmd => RunGitAsync(workspace, cmd));
             if (genuinelyDirty.Count > 0)
             {
-                throw new InvalidOperationException(
-                    "Plan execution requires an isolated clean worktree. " +
-                    "Commit or stash these changes first:\n" +
-                    string.Join("\n", genuinelyDirty.Select(p => $"  \u2022 {p}")));
+                throw new PlanPreflightBlockedException("Uncommitted changes", genuinelyDirty, targetBranch: null);
             }
         }
     }
