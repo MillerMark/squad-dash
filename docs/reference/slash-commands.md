@@ -68,6 +68,7 @@ These commands are forwarded to Squad's AI coordinator as natural-language instr
 | `/agents` | List all team members (also available as a local command) |
 | `/history [N]` | Show the last N messages in context (default: 10) |
 | `/nap [--deep]` | Context hygiene — compress, prune, and archive conversation history |
+| `/plan <description>` | Propose a new multi-step plan. SquadDash detects the intent and calls the coordinator to structure the work as a TASKS_JSON proposal. |
 | `/resume <id>` | Restore a past session by ID prefix |
 | `/session` | Manage SDK sessions |
 | `/sessions` | List saved sessions |

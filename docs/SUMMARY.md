@@ -36,6 +36,7 @@
   * [Layout Presets](features/layout-presets.md)
   * [Inbox Panel](features/inbox.md)
   * [Attach Inbox Selection to Chat](features/inbox-selection-attach.md)
+  * [Plans](features/plans.md)
 
 ## Tools
 
