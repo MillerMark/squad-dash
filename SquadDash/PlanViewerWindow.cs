@@ -106,7 +106,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var endButton      = TranscriptQuickReplyFactory.CreateButton(
                     "End Plan",
                     quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip("Mark this plan as stopped, preserving its history. No further recovery reminders will be shown."));
+                    toolTip: ToolTipHelper.MakeThemedToolTip("Set this plan to Stopped. History is preserved but the plan cannot be resumed."));
                 endButton.Click += (_, _) =>
                 {
                     capturedAction(capturedPlan);

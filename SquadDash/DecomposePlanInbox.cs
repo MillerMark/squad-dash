@@ -116,8 +116,9 @@ internal static class DecomposePlanInbox
             Timestamp = timestamp,
             Read = false,
             Priority = "high",
-            Body = $"SquadDash stopped plan `{plan.Group.GroupId}` at task `{taskId}`.\n\n{reason}\n\n" +
-                   "Replanning is recommended when the task was too large; retry only when the task remains correctly scoped.",
+            Body = $"Plan **{plan.Group.GroupTitle}** blocked at task `{taskId}`.\n\n> {reason}\n\n" +
+                   "**Continue / Retry** — resumes from preserved work if present, or reruns the same task.\n" +
+                   "**Replan Failed Task** — replaces this task with smaller, dependency-aware steps.",
             Attachments =
             [
                 new InboxAttachment

@@ -8070,17 +8070,9 @@ public partial class MainWindow : Window
         DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var preservedPaths);
         if (preservedPaths.Count > 0)
         {
-            var pathList = string.Join("\n", preservedPaths.Select(path => $"  • {path}"));
-            var confirmation = MessageBox.Show(
-                this,
-                $"Task {taskId} left these uncommitted files:\n\n{pathList}\n\n" +
-                "Continue this same task from the preserved work? SquadDash will verify that the files have not changed " +
-                "before starting, and it will require one clean, verified commit before advancing the plan.",
-                "Continue Preserved Plan Work",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
-            if (confirmation != MessageBoxResult.Yes)
+            var dialog = new ConfirmPreservedWorkDialog(taskId, preservedPaths, owner: this);
+            dialog.ShowDialog();
+            if (!dialog.Confirmed)
                 return false;
         }
 
@@ -8733,8 +8725,17 @@ public partial class MainWindow : Window
             () => QueueDecomposeReplan(plan, taskId));
         AddAsyncAction("Continue / Retry Task", "Continue preserved work when present; otherwise retry the exact same task.",
             async () => await RetryDecomposeTaskAsync(plan, taskId));
-        AddAsyncAction("Analyze with AI", "Gather evidence and ask AI to recommend evidence-based recovery options.",
-            async () => await AnalyzePlanRecoveryWithAiAsync(plan, taskId));
+
+        // Show "Analyze with AI" only when there is evidence of prior work (preserved paths
+        // or an iteration baseline commit) — avoids offering analysis with nothing to analyse.
+        var hasEvidence = _decomposeContinuationPaths.Count > 0
+                          || _decomposeIterationBaselineCommit is not null;
+        if (hasEvidence)
+        {
+            AddAsyncAction("Analyze with AI", "Gather evidence and ask AI to recommend evidence-based recovery options.",
+                async () => await AnalyzePlanRecoveryWithAiAsync(plan, taskId));
+        }
+
         blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
             panel,
             new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
