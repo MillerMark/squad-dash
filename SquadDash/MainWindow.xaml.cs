@@ -352,6 +352,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
     private bool                    _decomposeRepairPending;
+    private bool                    _repairAttemptActive;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -8299,6 +8300,7 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
+        _repairAttemptActive = false;
         if (_CodeHealthGroupRunner.CurrentStepId is null || _CodeHealthGroupRunner.CurrentRevision is null)
             throw new InvalidOperationException(
                 $"Plan {_activeDecomposeGroupId} has no dependency-eligible step to execute.");
@@ -8371,14 +8373,29 @@ public partial class MainWindow : Window
 
         if (error is not null || result is null)
         {
+            if (!_repairAttemptActive)
+            {
+                // First failure: attempt one bounded repair.
+                _repairAttemptActive = true;
+                var repairError = error ?? "no result envelope was returned";
+                ScheduleDecomposeSystemEntry($"⚙ SquadDash is requesting the missing result envelope (reason: {repairError})");
+                var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
+                EnqueuePrompt(repairPrompt, isSystemInjected: true);
+                return;
+            }
+            // Second failure: escalate to blocked.
+            _repairAttemptActive = false;
             _CodeHealthGroupRunner.MarkCurrentStepFailed();
             StopAndOfferDecomposeRecovery(
                 groupId,
                 taskId,
                 revision,
-                $"SquadDash rejected the step result: {error ?? "no result was returned"}");
+                $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}");
             return;
         }
+
+        // Successful result: clear repair flag.
+        _repairAttemptActive = false;
 
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out error))
         {
