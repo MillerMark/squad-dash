@@ -139,6 +139,49 @@ Click any plan row in the Plans panel to open the Plan Viewer:
 
 ---
 
+## Preflight and Branch Checks
+
+Before switching to a plan's target branch, SquadDash verifies the worktree is clean:
+
+- If uncommitted changes are detected on files that are **not** host-owned (`.squad/tasks.md`, plan logs, metadata), a **"Changes Blocking Branch Switch"** dialog appears listing the affected files. Commit or stash the changes, then retry.
+- Host-owned files and metadata-only changes never trigger this block.
+- If the check passes, SquadDash proceeds automatically with the branch switch.
+
+---
+
+## Loop Execution Details
+
+### Execution cadence
+
+The plan loop runs every 6 seconds by default (`interval: 0.1` minutes in `.squad/loop-executing-plan.md`). Each round the Loop panel updates to show:
+
+- **Plan title** — the name of the currently executing plan
+- **Current task** — the task ID being worked on this round
+- **Round elapsed time** — how long the current round has been running
+- **Total active time** — cumulative time since the plan started executing
+
+### Polling coalescing
+
+When the AI coordinator polls a background agent multiple times in a row for the same agent ID, SquadDash coalesces those polling events into a single 📡 satellite item in the tool transcript. This reduces visual noise without losing information — the item shows the total poll count.
+
+### Active worker visibility
+
+Spawned agent cards remain visible through their terminal states (Complete, Lost, Aborted, etc.). You can always see what each background worker finished doing, even after it exits.
+
+### Step result repair
+
+If a worker completes normally but omits the required `DECOMPOSE_STEP_RESULT_JSON` envelope, SquadDash automatically issues one bounded hidden repair prompt. The transcript shows:
+
+> ⚙ SquadDash is requesting the missing result envelope…
+
+If the repair turn also fails to produce a valid envelope, the plan transitions to `Blocked` for manual recovery.
+
+### Execution history
+
+Every completed plan round is appended to `.squad/logs/plan-execution.ndjson` (NDJSON format, append-only). The file is automatically trimmed to the 500 most recent entries. Open it via the Loop Output window context menu → **Open Execution Log**.
+
+---
+
 ## Related
 
 - **[Inbox Panel](inbox.md)** — Where plan proposals and gate alerts arrive
