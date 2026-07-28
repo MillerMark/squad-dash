@@ -1595,6 +1595,33 @@
                                            Margin="0,0,0,6"
                                            FontSize="{DynamicResource FontSizeBody}"
                                            Foreground="{DynamicResource BodyText}" />
+                                <!-- Plan execution detail (visible only when executing a plan) -->
+                                <StackPanel x:Name="LoopPlanDetailPanel"
+                                            DockPanel.Dock="Top"
+                                            Visibility="Collapsed"
+                                            Margin="0,0,0,6">
+                                    <TextBlock x:Name="LoopPlanTitleLabel"
+                                               Text=""
+                                               Visibility="Collapsed"
+                                               FontSize="{DynamicResource FontSizeBody}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource BodyText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,2" />
+                                    <TextBlock x:Name="LoopPlanTaskLabel"
+                                               Text=""
+                                               Visibility="Collapsed"
+                                               FontSize="{DynamicResource FontSizeSmall}"
+                                               Foreground="{DynamicResource SubtleText}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,2" />
+                                    <TextBlock x:Name="LoopPlanTimingLabel"
+                                               Text=""
+                                               Visibility="Collapsed"
+                                               FontSize="{DynamicResource FontSizeSmall}"
+                                               Foreground="{DynamicResource SubtleText}"
+                                               Margin="0,0,0,0" />
+                                </StackPanel>
                                 <!-- Loop mode options (always visible, not inside scroll) -->
                                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                                     <CheckBox x:Name="LoopContinuousContextCheckBox"

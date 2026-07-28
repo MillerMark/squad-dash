@@ -559,6 +559,9 @@ public partial class MainWindow : Window
     private int _loopCurrentIteration;
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
+    private DateTimeOffset? _loopRoundStartedAt;
+    private DateTimeOffset? _loopPlanStartedAt;
+    private TimeSpan        _loopTotalActiveTime;
     private bool _loopPanelVisible = true;
     private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
@@ -5946,6 +5949,8 @@ public partial class MainWindow : Window
         if (_activeDecomposeGroupId is not null)
             _CodeHealthGroupRunner?.TrackFirstEligibleStep(_activeDecomposeGroupId);
         _loopIsWaiting = false;
+        _loopRoundStartedAt = DateTimeOffset.Now;
+        _loopPlanStartedAt ??= _loopRoundStartedAt;
         _pec.SetIsLoopRunning(true);
         _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
         AppendLoopOutputLine($"▶ Round {iteration} started — {LoopTimestamp()}", LoopLifecycleBrush);
@@ -5970,11 +5975,14 @@ public partial class MainWindow : Window
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
+        _loopRoundStartedAt = null;
 
         if (!resumeDecision.PreserveExecution)
         {
             _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
             ClearExecutingPlanState();
+            _loopPlanStartedAt = null;
+            _loopTotalActiveTime = TimeSpan.Zero;
         }
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine("✅ Loop stopped");
@@ -6035,6 +6043,8 @@ public partial class MainWindow : Window
 
     private void OnNativeLoopIterationCompleted(int iteration)
     {
+        if (_loopRoundStartedAt.HasValue)
+            _loopTotalActiveTime += DateTimeOffset.Now - _loopRoundStartedAt.Value;
         _settingsManager.Replace(_settingsStore.SaveLoopIteration(iteration));
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"  ✓ Round {iteration} complete");
@@ -6080,8 +6090,14 @@ public partial class MainWindow : Window
 
     private void AppendLoopOutputLine(string text, Brush? brush = null)
     {
-        EnsureLoopOutputWindow();
-        _loopOutputWindow!.AppendLine(text);
+        // Create window lazily for buffering, but do NOT show it automatically.
+        // It is shown only via explicit "Show Loop Output" context-menu action.
+        if (_loopOutputWindow is null)
+        {
+            _loopOutputWindow = new LoopOutputWindow();
+            _loopOutputWindow.Owner = this;
+        }
+        _loopOutputWindow.AppendLine(text);
     }
 
     private void BackupAndClearLoopOutput()
@@ -6808,6 +6824,54 @@ public partial class MainWindow : Window
 
         LoopStatusLabel.Text = status;
         LoopStatusLabel.Visibility = string.IsNullOrEmpty(status) ? Visibility.Collapsed : Visibility.Visible;
+
+        // Plan execution detail panel
+        if (_activeDecomposeGroupId is not null && running)
+        {
+            LoopPlanDetailPanel.Visibility = Visibility.Visible;
+
+            var planTitle = _activeDecomposeGroupId;
+            LoopPlanTitleLabel.Text = planTitle;
+            LoopPlanTitleLabel.Visibility = Visibility.Visible;
+
+            var taskTitle = _CodeHealthGroupRunner?.GetCurrentStepTitle();
+            var taskId    = _CodeHealthGroupRunner?.CurrentStepId;
+            var taskDisplay = taskTitle ?? taskId;
+            if (!string.IsNullOrWhiteSpace(taskDisplay))
+            {
+                LoopPlanTaskLabel.Text = $"Task: {taskDisplay}";
+                LoopPlanTaskLabel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                LoopPlanTaskLabel.Visibility = Visibility.Collapsed;
+            }
+
+            var timingParts = new System.Collections.Generic.List<string>();
+            if (_loopRoundStartedAt.HasValue && !_loopIsWaiting)
+            {
+                var roundElapsed = DateTimeOffset.Now - _loopRoundStartedAt.Value;
+                timingParts.Add($"Round: {StatusTimingPresentation.FormatDuration(roundElapsed)}");
+            }
+            var totalActive = _loopTotalActiveTime;
+            if (_loopRoundStartedAt.HasValue && !_loopIsWaiting)
+                totalActive += DateTimeOffset.Now - _loopRoundStartedAt.Value;
+            if (totalActive > TimeSpan.FromSeconds(1))
+                timingParts.Add($"Total: {StatusTimingPresentation.FormatDuration(totalActive)}");
+            if (timingParts.Count > 0)
+            {
+                LoopPlanTimingLabel.Text = string.Join(" · ", timingParts);
+                LoopPlanTimingLabel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                LoopPlanTimingLabel.Visibility = Visibility.Collapsed;
+            }
+        }
+        else
+        {
+            LoopPlanDetailPanel.Visibility = Visibility.Collapsed;
+        }
 
         if (LoopPanelDequeueMenuItem is not null)
             LoopPanelDequeueMenuItem.Visibility = _loopQueued ? Visibility.Visible : Visibility.Collapsed;
