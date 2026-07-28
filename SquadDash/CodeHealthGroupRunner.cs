@@ -20,12 +20,13 @@ internal enum DecomposeGroupExecutionState
 /// </summary>
 internal sealed class CodeHealthGroupRunner
 {
-    private readonly DecomposedTasksWriter _writer;
-    private readonly string               _tasksFilePath;
-    private string?                       _currentStepId;
-    private string?                       _currentRevision;
+    private readonly DecomposedTasksWriter                   _writer;
+    private readonly string                                  _tasksFilePath;
+    private string?                                          _currentStepId;
+    private string?                                          _currentRevision;
+    private readonly Dictionary<string, DecomposedSubTask>   _taskById = new(StringComparer.Ordinal);
 
-    internal string? CurrentStepId => _currentStepId;
+    internal string? CurrentStepId   => _currentStepId;
     internal string? CurrentRevision => _currentRevision;
 
     internal CodeHealthGroupRunner(DecomposedTasksWriter writer, string tasksFilePath)
@@ -60,12 +61,24 @@ internal sealed class CodeHealthGroupRunner
             return false;
         }
 
+        _taskById.Clear();
+        foreach (var task in group.Tasks)
+            _taskById[task.Id] = task;
+
         _writer.WriteGroup(_tasksFilePath, group, revision);
         return true;
     }
 
     /// <summary>Records which subtask is currently executing.</summary>
     internal void SetCurrentStep(string taskId) => _currentStepId = taskId;
+
+    /// <summary>Returns the title of the currently tracked step, or null if unknown.</summary>
+    internal string? GetCurrentStepTitle()
+        => _currentStepId is not null && _taskById.TryGetValue(_currentStepId, out var t) ? t.Title : null;
+
+    /// <summary>Returns the description of the currently tracked step, or null if unknown.</summary>
+    internal string? GetCurrentStepDescription()
+        => _currentStepId is not null && _taskById.TryGetValue(_currentStepId, out var t) ? t.Description : null;
 
     /// <summary>
     /// Reads the persisted group state and tracks the first dependency-eligible task.

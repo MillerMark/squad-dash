@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 
@@ -147,6 +148,74 @@ internal static class DecomposePlanningInstructions
         }
 
         return string.Join(string.Empty, sections);
+    }
+
+    /// <summary>
+    /// Builds a routing-context injection string for the current plan step.
+    /// Reads routing.md and team.md from <paramref name="squadFolderPath"/>, resolves the
+    /// most qualified active roster agent, and returns a Markdown section ready to be
+    /// appended to the loop system prompt.  Returns an empty string on any IO failure.
+    /// </summary>
+    internal static string BuildPlanStepRoutingContext(
+        string squadFolderPath,
+        string stepId,
+        string stepTitle,
+        string stepDescription)
+    {
+        try
+        {
+            var routingPath = Path.Combine(squadFolderPath, "routing.md");
+            var teamPath    = Path.Combine(squadFolderPath, "team.md");
+
+            var routingContent = File.Exists(routingPath) ? File.ReadAllText(routingPath) : string.Empty;
+            var teamContent    = File.Exists(teamPath)    ? File.ReadAllText(teamPath)    : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(routingContent))
+            {
+                SquadDashTrace.Write("PlanRouting",
+                    $"routing.md not found or empty at '{routingPath}'; skipping agent routing for step {stepId}.");
+                return string.Empty;
+            }
+
+            var rules  = PlanStepAgentResolver.ParseRoutingMd(routingContent);
+            var agents = PlanStepAgentResolver.ParseTeamMd(teamContent);
+            var ctx    = PlanStepRoutingContext.Resolve(
+                stepId, stepTitle, stepDescription, squadFolderPath, rules, agents);
+
+            if (ctx.Resolution.IsGenericFallback)
+            {
+                SquadDashTrace.Write("PlanRouting",
+                    $"Step {stepId} fell back to generic worker: {ctx.Resolution.FallbackReason}");
+                return
+                    "## Routing Decision for This Step\n\n" +
+                    $"No qualified roster agent was matched for task [{stepId}].\n" +
+                    $"Reason: {ctx.Resolution.FallbackReason}\n" +
+                    "You may proceed as a general-purpose engineering agent. Record the fallback " +
+                    "reason in your response summary.";
+            }
+
+            SquadDashTrace.Write("PlanRouting",
+                $"Step {stepId} routed to {ctx.Resolution.AgentName} ({ctx.Resolution.MatchedWorkType}).");
+
+            const int MaxCharterChars = 1000;
+            var charterSnippet = ctx.CharterContent is { Length: > 0 }
+                ? ctx.CharterContent[..Math.Min(MaxCharterChars, ctx.CharterContent.Length)]
+                : "(charter unavailable)";
+
+            return
+                "## Routing Decision for This Step\n\n" +
+                $"You are implementing task [{stepId}] as **{ctx.Resolution.AgentName}**, " +
+                $"a {ctx.Resolution.MatchedWorkType} specialist.\n" +
+                "Your charter for this engagement:\n\n" +
+                charterSnippet + "\n\n" +
+                $"Routing basis: {ctx.Resolution.MatchedWorkType}";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write("PlanRouting",
+                $"Could not build routing context for step {stepId}: {ex.Message}");
+            return string.Empty;
+        }
     }
 
     internal static string BuildOrdinaryPromptContext(string squadFolderPath)

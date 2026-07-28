@@ -7577,6 +7577,23 @@ public partial class MainWindow : Window
         _loopPanelVisible = true;
         SyncLoopPanel();
         BackupAndClearLoopOutput();
+
+        // Resolve routing for the current step and inject agent context into the loop prompt.
+        _CodeHealthGroupRunner?.TrackFirstEligibleStep(groupId);
+        var stepRoutingContext = string.Empty;
+        if (_currentWorkspace is not null && _CodeHealthGroupRunner?.CurrentStepId is { } currentStep)
+        {
+            var stepTitle       = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentStep;
+            var stepDescription = _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty;
+            stepRoutingContext  = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+                _currentWorkspace.SquadFolderPath, currentStep, stepTitle, stepDescription);
+            if (!string.IsNullOrWhiteSpace(stepRoutingContext))
+                SquadDashTrace.Write("PlanRouting",
+                    $"Step {currentStep} routed to: {stepRoutingContext[..Math.Min(200, stepRoutingContext.Length)]}");
+        }
+        if (!string.IsNullOrWhiteSpace(stepRoutingContext))
+            config = config with { Instructions = config.Instructions + "\n\n" + stepRoutingContext };
+
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId, featureGroups: _featureGroupStore?.Load());
         return true;

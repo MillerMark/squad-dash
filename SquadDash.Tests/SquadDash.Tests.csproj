@@ -424,6 +424,8 @@
       <DependentUpon>FrmUltimateCallout.xaml</DependentUpon>
     </Compile>
     <Compile Include="..\SquadDash\ThemeRevealWindowRegistry.cs" Link="Source\ThemeRevealWindowRegistry.cs" />
+    <Compile Include="..\SquadDash\PlanStepAgentResolver.cs" Link="Source\PlanStepAgentResolver.cs" />
+    <Compile Include="..\SquadDash\PlanStepRoutingContext.cs" Link="Source\PlanStepRoutingContext.cs" />
 
   </ItemGroup>
 
