@@ -17,6 +17,7 @@
     <Compile Include="..\SquadDash\UiTimingConstants.cs" Link="Source\UiTimingConstants.cs" />
     <Compile Include="..\SquadDash\PromptQueueCoordinator.cs" Link="Source\PromptQueueCoordinator.cs" />
     <Compile Include="..\SquadDash\WeakEventBroker.cs" Link="Source\WeakEventBroker.cs" />
+    <Compile Include="..\SquadDash\ReadAgentSatelliteCoalescer.cs" Link="Source\ReadAgentSatelliteCoalescer.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
   </ItemGroup>

@@ -40,7 +40,7 @@ internal static class ToolTranscriptFormatter {
             "write_powershell"   when hasDisplayText => "⌨️",
             "stop_powershell"    when hasDisplayText => "⛔",
             "list_powershell"                        => "📋",
-            "read_agent"         when hasDisplayText => "🤖",
+            "read_agent"         when hasDisplayText => "📡",
             "list_agents"                            => "📋",
             "fetch_copilot_cli_documentation"        => "📖",
             _               => string.Empty
@@ -65,7 +65,7 @@ internal static class ToolTranscriptFormatter {
         "write_powershell"                => "⌨️",
         "stop_powershell"                 => "⛔",
         "list_powershell"                 => "📋",
-        "read_agent"                      => "🤖",
+        "read_agent"                      => "📡",
         "list_agents"                     => "📋",
         "fetch_copilot_cli_documentation" => "📖",
         _               => string.Empty
@@ -286,7 +286,8 @@ internal static class ToolTranscriptFormatter {
                 return true;
 
             case "read_agent" when !string.IsNullOrWhiteSpace(descriptor.DisplayText):
-                text = BuildFixedDisplayText("🤖 ", descriptor.DisplayText!, success, outputText);
+                var readAgentEmoji = success is null ? "📡 " : "🤖 ";
+                text = BuildFixedDisplayText(readAgentEmoji, descriptor.DisplayText!, success, outputText);
                 return true;
 
             default:

@@ -210,6 +210,7 @@ internal sealed class ToolTranscriptEntry : ICopyable {
     public string? DetailContent { get; set; }
     public bool IsCompleted { get; set; }
     public bool Success { get; set; }
+    public int PollCount { get; set; } = 0;
     public string? TranscriptThreadId { get; set; }
     public Expander Expander { get; }
     public TextBlock IconTextBlock { get; }

@@ -30044,6 +30044,14 @@ public partial class MainWindow : Window
                 entry.Descriptor,
                 MergeToolOutput(entry.OutputText, evt.PartialOutput));
 
+        // Update elapsed+poll display for coalesced read_agent polls.
+        if (entry.PollCount > 0 &&
+            string.Equals(entry.Descriptor.ToolName, "read_agent", StringComparison.OrdinalIgnoreCase))
+        {
+            var elapsed = StatusTimingPresentation.FormatDuration(DateTimeOffset.Now - entry.StartedAt);
+            entry.ProgressText = $"poll {entry.PollCount} · {elapsed}";
+        }
+
         EnsureCurrentTurnThinkingVisible(thread);
         RenderToolEntry(entry);
         UpdateToolSpinnerState();
@@ -30262,6 +30270,24 @@ public partial class MainWindow : Window
         {
             SyncTaskToolTranscriptLink(entry);
             return true;
+        }
+
+        // Coalesce consecutive read_agent polls for the same agent_id into one row.
+        if (string.Equals(evt.ToolName, "read_agent", StringComparison.OrdinalIgnoreCase))
+        {
+            var agentId = TryGetJsonString(evt.Args, "agent_id");
+            if (!string.IsNullOrWhiteSpace(agentId) && thread.CurrentTurn is not null)
+            {
+                var existing = ReadAgentSatelliteCoalescer.FindActiveEntry(thread.CurrentTurn.ToolEntries, agentId);
+                if (existing is not null)
+                {
+                    existing.PollCount++;
+                    _agentThreadRegistry.SetToolEntry(evt.ToolCallId, existing);
+                    SyncTaskToolTranscriptLink(existing);
+                    entry = existing;
+                    return true;
+                }
+            }
         }
 
         entry = CreateToolEntry(
