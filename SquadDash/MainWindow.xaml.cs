@@ -8801,17 +8801,406 @@ public partial class MainWindow : Window
         switch (option.Action)
         {
             case "replan":
-                QueueDecomposeReplan(plan, taskId);
+                await ReplanWithCurrentStateAsync(option, plan, taskId);
                 break;
             case "clean-retry":
-            case "revert-and-retry":
                 await RetryDecomposeTaskAsync(plan, taskId);
+                break;
+            case "revert-and-retry":
+                await RevertAndRetryAsync(option, plan, taskId);
                 break;
             case "adopt-commit":
             case "partial-adopt":
-                await RetryDecomposeTaskAsync(plan, taskId);
+                await AdoptOrphanCommitAsync(option, plan, taskId);
                 break;
         }
+    }
+
+    // ── Recovery action: Adopt orphan commit ─────────────────────────────────
+
+    private async Task AdoptOrphanCommitAsync(
+        PlanRecoveryOption option,
+        PendingDecomposePlan plan,
+        string taskId)
+    {
+        if (_currentWorkspace is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+
+        // 1. Branch check
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, plan.Group.Branch, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                $"Cannot adopt: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', " +
+                $"but '{activeBranch}' is active.",
+                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 2. Revision check
+        var parsed = File.Exists(tasksPath)
+            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+            : null;
+        if (parsed is null || !parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
+        {
+            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
+                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
+        if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                "The plan changed after these recovery controls were created. Reload the recovery panel.",
+                "Revision Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 3. Baseline commit
+        var baselineCommit = _planStore?.Load(plan.Group.GroupId)?.InterruptionData?.LastCommit
+            ?? _decomposeIterationBaselineCommit;
+        if (string.IsNullOrWhiteSpace(baselineCommit))
+        {
+            MessageBox.Show(this,
+                "Cannot adopt: the baseline commit is unknown. " +
+                "The plan may need to be retried from scratch.",
+                "Baseline Unknown", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 4. Candidate commit discovery — exactly one commit expected
+        var logOutput = await RunGitAsync(workspace, $"log --oneline \"{baselineCommit}..HEAD\"");
+        string? candidateCommit;
+        try
+        {
+            candidateCommit = RecoveryCommitValidator.ExtractSingleCandidateCommit(logOutput);
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(this, $"Cannot adopt: {ex.Message}",
+                "Ambiguous Commits", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        if (candidateCommit is null)
+        {
+            MessageBox.Show(this,
+                "No commits found between the baseline and HEAD. There is nothing to adopt.",
+                "Nothing to Adopt", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // 5. Commit reachability
+        try
+        {
+            await RunGitAsync(workspace, $"rev-parse --verify \"{candidateCommit}^{{commit}}\"");
+        }
+        catch
+        {
+            MessageBox.Show(this,
+                $"Commit {candidateCommit} could not be verified as a reachable commit object.",
+                "Commit Not Reachable", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 6. Changed files from commit
+        var changedFilesRaw = (await RunGitAsync(workspace,
+            $"diff-tree --no-commit-id -r --name-only \"{candidateCommit}\""))
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+        var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".squad/plans/", ".squad/" };
+        if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
+
+        if (!RecoveryCommitValidator.HasNonHostChanges(changedFilesRaw, hostOwnedPaths))
+        {
+            MessageBox.Show(this,
+                $"Commit {candidateCommit} only touched host-owned files (tasks.md, plan files). " +
+                "This does not look like task work. Verify the commit and retry.",
+                "Suspicious Commit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // 7. Downstream dependency check (warning only, not a blocker)
+        var storedPlan  = _planStore?.Load(plan.Group.GroupId);
+        var planTasks   = storedPlan?.Tasks ?? [];
+        var downstream  = RecoveryCommitValidator.FindDownstreamCompletedDependents(planTasks, taskId);
+        var warningNote = downstream.Count > 0
+            ? $"\n\n⚠ Warning: tasks that depend on {taskId} are already complete: " +
+              string.Join(", ", downstream) + ". Verify there is no conflict."
+            : string.Empty;
+
+        // 8. Collect commit summary and request explicit user confirmation
+        var commitSummaryLine = (await RunGitAsync(workspace,
+            $"log --format=%H %s -1 \"{candidateCommit}\"")).Trim();
+        var changedFilesList = string.Join("\n", changedFilesRaw.Select(f => $"  • {f}"));
+
+        var confirmation = MessageBox.Show(
+            this,
+            $"Adopt this commit as the result for task {taskId}?\n\n" +
+            $"Commit: {commitSummaryLine}\n\n" +
+            $"Changed files:\n{changedFilesList}" +
+            warningNote + "\n\n" +
+            "SquadDash will record it as a completed step.",
+            "Adopt Orphan Commit",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes) return;
+
+        // 9. Record the adoption
+        var commitSummary = commitSummaryLine.Length > 8
+            ? commitSummaryLine[8..].Trim()   // strip leading SHA prefix
+            : commitSummaryLine;
+
+        var syntheticResult = new DecomposeStepResult(
+            GroupId:       plan.Group.GroupId,
+            TaskId:        taskId,
+            Revision:      plan.Revision,
+            Status:        "complete",
+            Commit:        candidateCommit,
+            Summary:       $"Adopted by host recovery: {commitSummary}",
+            RemainingWork: null,
+            Verification:  null);
+
+        string? applyError = null;
+        var applied = _CodeHealthGroupRunner?.ApplyStepResult(syntheticResult, out applyError) ?? false;
+        if (!applied)
+        {
+            var writer = new DecomposedTasksWriter();
+            if (!writer.MarkTaskComplete(tasksPath, taskId, candidateCommit,
+                $"Adopted by host recovery: {commitSummary}"))
+            {
+                MessageBox.Show(this,
+                    $"Could not mark task {taskId} complete in tasks.md." +
+                    (applyError is not null ? $"\nDetail: {applyError}" : string.Empty),
+                    "Adoption Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+        }
+
+        // Update plan progress
+        if (_planStore is not null && storedPlan is not null)
+        {
+            var freshParsed = File.Exists(tasksPath)
+                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                : null;
+            var items   = GetGroupTaskItems(freshParsed, plan.Group.GroupId);
+            var updated = PlanStoreUpdater.ApplyStepAccepted(storedPlan, items, nextExecutingTaskId: null);
+            PublishPlanProgress(updated);
+        }
+
+        LoadTasksPanel();
+        ShowSystemTranscriptEntry($"✓ Adopted commit {candidateCommit} as task {taskId} result.");
+
+        // Resume the plan loop from the next pending task
+        await StartBackloggedDecomposeGroupAsync(
+            currentGroup with { HostRevision = currentRevision },
+            continuationTaskId: null,
+            continuationPaths: []);
+    }
+
+    // ── Recovery action: Revert commit and retry ──────────────────────────────
+
+    private async Task RevertAndRetryAsync(
+        PlanRecoveryOption option,
+        PendingDecomposePlan plan,
+        string taskId)
+    {
+        if (_currentWorkspace is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+
+        // 1. Branch check
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, plan.Group.Branch, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                $"Cannot revert: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', " +
+                $"but '{activeBranch}' is active.",
+                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        var parsed = File.Exists(tasksPath)
+            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+            : null;
+        if (parsed is null || !parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
+        {
+            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
+                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
+
+        // 2. Baseline and candidate commits
+        var baselineCommit = _planStore?.Load(plan.Group.GroupId)?.InterruptionData?.LastCommit
+            ?? _decomposeIterationBaselineCommit;
+
+        string? candidateCommit = null;
+        if (!string.IsNullOrWhiteSpace(baselineCommit))
+        {
+            var logOutput = await RunGitAsync(workspace, $"log --oneline \"{baselineCommit}..HEAD\"");
+            try
+            {
+                candidateCommit = RecoveryCommitValidator.ExtractSingleCandidateCommit(logOutput);
+            }
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show(this,
+                    $"Cannot revert: {ex.Message}",
+                    "Ambiguous Commits", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+        }
+
+        if (candidateCommit is null)
+        {
+            // No commits between baseline and HEAD — just retry from scratch without reverting
+            await RetryDecomposeTaskAsync(plan, taskId);
+            return;
+        }
+
+        // 3. Dependency safety check — refuse if downstream tasks are already complete
+        var storedPlan = _planStore?.Load(plan.Group.GroupId);
+        var planTasks  = storedPlan?.Tasks ?? [];
+        var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(planTasks, taskId);
+        if (downstream.Count > 0)
+        {
+            MessageBox.Show(this,
+                $"Cannot revert: tasks that built on {taskId} are already complete: " +
+                string.Join(", ", downstream) + ".\n\n" +
+                "Manually revert and fix the dependent tasks before retrying.",
+                "Revert Blocked by Dependents", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 4. Explicit user authorization (required by spec)
+        var authorization = MessageBox.Show(
+            this,
+            $"Revert commit {candidateCommit}?\n\n" +
+            $"This will create a new git revert commit and then retry task {taskId} from scratch.\n" +
+            "Caution: This operation modifies git history in a recoverable way but cannot be undone automatically.\n\n" +
+            "The revert will be committed to the active branch before the retry starts.",
+            "Authorize Revert and Retry",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+        if (authorization != MessageBoxResult.Yes) return;
+
+        // 5. Execute recoverable revert (git revert --no-edit creates a revert commit)
+        try
+        {
+            await RunGitAsync(workspace, $"revert --no-edit \"{candidateCommit}\"");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                "Git revert failed — there may be merge conflicts. " +
+                "Resolve conflicts manually and retry.\n\n" + ex.Message,
+                "Revert Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 6. Reset task to pending
+        var writer = new DecomposedTasksWriter();
+        if (!writer.ResetTaskPending(tasksPath, taskId))
+        {
+            MessageBox.Show(this,
+                $"Task {taskId} could not be reset to pending.",
+                "Reset Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Audit trail
+        ShowSystemTranscriptEntry($"↩ Reverted {candidateCommit} and restarted task {taskId}.");
+
+        // 7. Restart via normal loop
+        LoadTasksPanel();
+        await StartBackloggedDecomposeGroupAsync(
+            currentGroup with { HostRevision = currentRevision },
+            continuationTaskId: null,
+            continuationPaths: []);
+    }
+
+    // ── Recovery action: Replan with current repository state ─────────────────
+
+    private async Task ReplanWithCurrentStateAsync(
+        PlanRecoveryOption option,
+        PendingDecomposePlan plan,
+        string taskId)
+    {
+        if (_currentWorkspace is null)
+        {
+            QueueDecomposeReplan(plan, taskId);
+            return;
+        }
+        var workspace = _currentWorkspace.FolderPath;
+
+        // Gather current HEAD and changed files to give the AI the full repository context
+        var currentHead = string.Empty;
+        var repoStateSummary = string.Empty;
+        try
+        {
+            currentHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            var baselineCommit = _planStore?.Load(plan.Group.GroupId)?.InterruptionData?.LastCommit
+                ?? _decomposeIterationBaselineCommit;
+
+            if (!string.IsNullOrWhiteSpace(baselineCommit) &&
+                !string.Equals(baselineCommit, currentHead, StringComparison.OrdinalIgnoreCase))
+            {
+                var changedFiles = (await RunGitAsync(workspace,
+                    $"diff --name-only \"{baselineCommit}..{currentHead}\"")).Trim();
+                repoStateSummary =
+                    $"Current HEAD: {currentHead}\n" +
+                    $"Baseline (before interrupted iteration): {baselineCommit}\n" +
+                    "Files changed since baseline:\n" +
+                    (string.IsNullOrWhiteSpace(changedFiles) ? "(none)" : changedFiles);
+            }
+            else
+            {
+                repoStateSummary = $"Current HEAD: {currentHead}";
+            }
+        }
+        catch
+        {
+            // Non-fatal — fall back to the plain replan if git calls fail
+            QueueDecomposeReplan(plan, taskId);
+            return;
+        }
+
+        var failedTask = plan.Group.Tasks.FirstOrDefault(t =>
+            string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        if (failedTask is null)
+        {
+            QueueDecomposeReplan(plan, taskId);
+            return;
+        }
+
+        var prompt =
+            $"Revise decomposition plan {plan.Group.GroupId} at revision {plan.Revision}. " +
+            $"Task {taskId} was too large or could not be completed as written. Return a complete revised TASKS_JSON proposal " +
+            "for the same groupId. Preserve every existing task, add smaller replacement tasks, and set parentTaskId on each " +
+            $"replacement to {taskId}. Give the replacements real dependencies and update downstream dependsOn entries to the " +
+            "terminal replacement tasks. Do not execute work and do not emit a decision or step result.\n\n" +
+            "Current repository state (treat this as the new baseline for remaining work):\n" +
+            repoStateSummary + "\n\n" +
+            "Current plan:\n" + System.Text.Json.JsonSerializer.Serialize(plan.Group) + "\n\n" +
+            "Blocked task:\n" + System.Text.Json.JsonSerializer.Serialize(failedTask) + "\n\n" +
+            DecomposePlanningInstructions.LoadSpecification();
+        _promptQueue.EnqueueAtFront(
+            prompt,
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "decompose-replan",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+
+        var shortHead = currentHead.Length >= 7 ? currentHead[..7] : currentHead;
+        ShowSystemTranscriptEntry(
+            $"📋 Replan queued for task {taskId} with current repository state as baseline (HEAD: {shortHead}).");
     }
 
     private void AppendPersistedDecomposeRecoveryIfNeeded(TranscriptTurnView view, string responseText)
