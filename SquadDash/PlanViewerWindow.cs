@@ -286,6 +286,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
+
+        // Helpers used by the clickable lock-toggle buttons (per-task and per-stage).
+        bool IsLockedAfter(string taskId) =>
+            durablePlan is not null &&
+            durablePlan.ApprovalGates.Any(g =>
+                g.AfterTaskIds.Contains(taskId, StringComparer.Ordinal));
+        string? GetGateIdAfter(string taskId) =>
+            durablePlan?.ApprovalGates.FirstOrDefault(g =>
+                g.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))?.GateId;
+
         foreach (var column in columns)
         {
             var tasks = column.ToArray();
@@ -322,6 +332,60 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetLeft(headerElement, x);
             Canvas.SetTop(headerElement, 10);
             canvas.Children.Add(headerElement);
+
+            // Per-stage lock button: right edge of column header row.
+            if (durablePlan is not null && onGatesChanged is not null)
+            {
+                var stageTasks     = tasks;
+                var nonLeafInStage = stageTasks
+                    .Where(t => !PlanGateManager.IsLeafTask(durablePlan, t.Id))
+                    .ToArray();
+                if (nonLeafInStage.Length > 0)
+                {
+                    var allLocked  = nonLeafInStage.All(t => IsLockedAfter(t.Id));
+                    var stageLock  = new TextBlock
+                    {
+                        Text    = allLocked ? "🔒" : "🔓",
+                        Opacity = allLocked ? 1.0 : 0.25,
+                        Cursor  = Cursors.Hand,
+                        ToolTip = allLocked
+                            ? "All tasks in this stage require human approval before the next stage can begin. Click to remove."
+                            : "Click to require human approval for all tasks in this stage.",
+                    };
+                    stageLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+                    Canvas.SetLeft(stageLock, x + NodeWidth - 22);
+                    Canvas.SetTop(stageLock,  10);
+                    Panel.SetZIndex(stageLock, 25);
+                    stageLock.MouseEnter += (_, _) => stageLock.Opacity = 1.0;
+                    stageLock.MouseLeave += (_, _) => stageLock.Opacity = allLocked ? 1.0 : 0.25;
+                    var capturedNonLeaf   = nonLeafInStage;
+                    var capturedAllLocked = allLocked;
+                    stageLock.MouseLeftButtonDown += (_, e) =>
+                    {
+                        e.Handled = true;
+                        var updated = durablePlan;
+                        if (capturedAllLocked)
+                        {
+                            foreach (var st in capturedNonLeaf)
+                            {
+                                var gid = GetGateIdAfter(st.Id);
+                                if (gid is not null) updated = PlanGateManager.RemoveGate(updated, gid);
+                            }
+                        }
+                        else
+                        {
+                            foreach (var st in capturedNonLeaf)
+                            {
+                                if (!IsLockedAfter(st.Id))
+                                    updated = PlanGateManager.AddGateAfter(updated,
+                                        st.Id, $"Review after completing: {st.Title ?? st.Id}");
+                            }
+                        }
+                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                    };
+                    canvas.Children.Add(stageLock);
+                }
+            }
 
             for (var row = 0; row < tasks.Length; row++)
                 positions[tasks[row].Id] = new Point(x, 68 + row * RowSpacing);
@@ -776,12 +840,56 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             borderByTask[task.Id] = border;
 
-            // Lock icon overlay for tasks that have an approval gate following them.
-            if (lockIconByTask.TryGetValue(task.Id, out var lockIcon))
+            // Lock icon overlay: clickable toggle when editable; status badge otherwise.
+            if (durablePlan is not null && onGatesChanged is not null)
             {
+                var capturedTaskForLock = task;
+                var isLeaf   = PlanGateManager.IsLeafTask(durablePlan, capturedTaskForLock.Id);
+                var isLocked = IsLockedAfter(capturedTaskForLock.Id);
                 var lockText = new TextBlock
                 {
-                    Text              = lockIcon,
+                    Text    = isLocked ? "🔒" : "🔓",
+                    Opacity = isLocked ? 1.0 : 0.25,
+                    Cursor  = isLeaf ? Cursors.Arrow : Cursors.Hand,
+                    ToolTip = isLeaf
+                        ? (isLocked ? "This task requires human approval." : null)
+                        : isLocked
+                            ? "This task requires human approval when it completes. Click to remove."
+                            : "Click to require human approval when this task completes.",
+                };
+                lockText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                Canvas.SetLeft(lockText, position.X + NodeWidth - 22);
+                Canvas.SetTop(lockText,  position.Y + NodeHeight - 20);
+                Panel.SetZIndex(lockText, 25);
+                if (!isLeaf)
+                {
+                    lockText.MouseEnter += (_, _) => lockText.Opacity = 1.0;
+                    lockText.MouseLeave += (_, _) => lockText.Opacity = isLocked ? 1.0 : 0.25;
+                    lockText.MouseLeftButtonDown += (_, e) =>
+                    {
+                        e.Handled = true;
+                        var updated = durablePlan;
+                        if (isLocked)
+                        {
+                            var gid = GetGateIdAfter(capturedTaskForLock.Id);
+                            if (gid is not null) updated = PlanGateManager.RemoveGate(updated, gid);
+                        }
+                        else
+                        {
+                            updated = PlanGateManager.AddGateAfter(updated, capturedTaskForLock.Id,
+                                $"Review after completing: {capturedTaskForLock.Title ?? capturedTaskForLock.Id}");
+                        }
+                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                    };
+                }
+                canvas.Children.Add(lockText);
+            }
+            else if (lockIconByTask.TryGetValue(task.Id, out var lockIcon))
+            {
+                // Non-editable mode: static status indicator (🔒 pending, ⏸ awaiting approval).
+                var lockText = new TextBlock
+                {
+                    Text                = lockIcon,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment   = VerticalAlignment.Center,
                 };
