@@ -9741,6 +9741,11 @@ public partial class MainWindow : Window
             .SelectMany(group => group.Items)
             .Where(item =>
                 item.TaskId is not null && (item.IsFailed || item.IsPartial) &&
+                // Skip plans that are already stopped or completed — EndInterruptedPlan updates the
+                // durable store but not tasks.md, so IsFailed/IsPartial can linger there indefinitely.
+                (item.DecomposeGroupId is null ||
+                 _planStore?.Load(item.DecomposeGroupId)?.LifecycleStatus is not
+                     (PlanLifecycleStatus.Stopped or PlanLifecycleStatus.Completed)) &&
                 (persistedResult is null ||
                  (string.Equals(item.DecomposeGroupId, persistedResult.GroupId, StringComparison.Ordinal) &&
                   string.Equals(item.TaskId, persistedResult.TaskId, StringComparison.Ordinal))))
