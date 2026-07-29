@@ -45,12 +45,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
 
-        var group = plan.Group;
-        Title     = group.GroupTitle;
+        Title     = plan.Group.GroupTitle;
         Width     = 1200;
         Height    = 720;
         MinWidth  = 760;
         MinHeight = 480;
+
+        BuildContent(plan, durablePlan);
+    }
+
+    private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
+    {
+        var activeBranch       = _activeBranch;
+        var quickReplyFontSize = _quickReplyFontSize;
+        var applyAction        = _applyAction;
+        var onGatesChanged     = _onGatesChanged;
+        var onResumePlan       = _onResumePlan;
+        var onEndPlan          = _onEndPlan;
+        var onApproveGate      = _onApproveGate;
+        var group = plan.Group;
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -299,7 +312,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
 
-        _contentHolder = ApplyOuterBorder(titleText: group.GroupTitle);
+        _contentHolder ??= ApplyOuterBorder(titleText: group.GroupTitle);
         _contentHolder.Child = root;
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
@@ -321,6 +334,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         PlanApprovalGate? FindTaskGateAfter(string taskId) =>
             FindDurableGate([taskId], DirectDependents(taskId));
+
+        PlanApprovalGate? FindTaskGateBefore(string taskId)
+        {
+            var task = durablePlan?.Tasks.FirstOrDefault(candidate =>
+                string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+            return task is null ? null : FindDurableGate(task.DependsOn, [taskId]);
+        }
 
         foreach (var column in columns)
         {
@@ -442,30 +462,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(milestoneBand, -2);
             canvas.Children.Add(milestoneBand);
 
-            var milestoneLock = new TextBlock
-            {
-                Text    = isLocked ? "🔒" : "🔓",
-                Opacity = isLocked ? 1.0 : 0.25,
-                Cursor  = onGatesChanged is null ? Cursors.Arrow : Cursors.Hand,
-                ToolTip = onGatesChanged is null
+            var milestoneStop = CreateApprovalStop(
+                isLocked,
+                onGatesChanged is null
                     ? isLocked
                         ? "Preview: human approval is required at this stage milestone."
-                        : "Preview: this padlock controls approval at the stage milestone."
+                        : "Preview: this stop controls approval at the stage milestone."
                     : isLocked
                         ? "Human approval is required after all work to the left completes and before any work to the right begins. Click to remove."
                         : "Require human approval after all work to the left completes and before any work to the right begins.",
-            };
-            milestoneLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-            Canvas.SetLeft(milestoneLock, boundaryX - 10);
-            Canvas.SetTop(milestoneLock, 10);
-            Panel.SetZIndex(milestoneLock, 25);
-            if (onGatesChanged is not null)
-            {
-                milestoneLock.MouseEnter += (_, _) => milestoneLock.Opacity = 1.0;
-                milestoneLock.MouseLeave += (_, _) => milestoneLock.Opacity = isLocked ? 1.0 : 0.25;
-                milestoneLock.MouseLeftButtonDown += (_, e) =>
+                onGatesChanged is null
+                    ? null
+                    : () =>
                 {
-                    e.Handled = true;
                     var updated = isLocked && existingGate is not null
                         ? PlanGateManager.RemoveGate(durablePlan!, existingGate.GateId)
                         : PlanGateManager.AddBoundaryGate(
@@ -474,9 +483,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             beforeIds,
                             $"Review milestone before Stage {leftColumn.Key + 2}");
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                };
-            }
-            canvas.Children.Add(milestoneLock);
+                });
+            Canvas.SetLeft(milestoneStop, boundaryX - 8);
+            Canvas.SetTop(milestoneStop, 10);
+            Panel.SetZIndex(milestoneStop, 25);
+            canvas.Children.Add(milestoneStop);
         }
 
         DecomposedGate? FindDisplayedGate(
@@ -521,36 +532,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         approvalDirectPairs.Add((afterId, beforeId, approvalGate));
                 }
             }
-        }
-
-        // Map each AfterTaskId to the icon it should display based on the most-restrictive gate status.
-        var lockIconByTask = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var afterId in lockedAfterTaskIds)
-        {
-            var worstIcon = (group.ApprovalGates ?? [])
-                .Where(g => g.AfterTaskIds?.Contains(afterId, StringComparer.Ordinal) ?? false)
-                .Select(g =>
-                {
-                    var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(dg =>
-                        string.Equals(dg.GateId, g.GateId, StringComparison.Ordinal));
-                    return durableGate?.Status ?? PlanGateStatus.Pending;
-                })
-                .OrderByDescending(s => s switch
-                {
-                    PlanGateStatus.AwaitingApproval => 2,
-                    PlanGateStatus.Pending          => 1,
-                    _                               => 0,
-                })
-                .Select(s => s switch
-                {
-                    PlanGateStatus.AwaitingApproval => "⏸",
-                    PlanGateStatus.Approved         => null,
-                    PlanGateStatus.Skipped          => null,
-                    _                               => "🔒",
-                })
-                .FirstOrDefault();
-            if (worstIcon is not null)
-                lockIconByTask[afterId] = worstIcon;
         }
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
@@ -738,30 +719,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             badgeContent.Children.Add(badgeText);
 
             {
-                var joinLock = new TextBlock
-                {
-                    Text                = joinIsLocked ? "🔒" : "🔓",
-                    Opacity             = joinIsLocked ? 1.0 : 0.25,
-                    Cursor              = onGatesChanged is null ? Cursors.Arrow : Cursors.Hand,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment   = VerticalAlignment.Center,
-                    Margin              = new Thickness(0, 0, 4, 0),
-                    ToolTip             = onGatesChanged is null
+                var joinStop = CreateApprovalStop(
+                    joinIsLocked,
+                    onGatesChanged is null
                         ? joinIsLocked
                             ? "Preview: human approval is required at this ALL join."
-                            : "Preview: this padlock controls approval at the ALL join."
+                            : "Preview: this stop controls approval at the ALL join."
                         : joinIsLocked
                             ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
                             : "Require human approval after every incoming task completes and before joined work begins.",
-                };
-                joinLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                if (onGatesChanged is not null)
-                {
-                    joinLock.MouseEnter += (_, _) => joinLock.Opacity = 1.0;
-                    joinLock.MouseLeave += (_, _) => joinLock.Opacity = joinIsLocked ? 1.0 : 0.25;
-                    joinLock.MouseLeftButtonDown += (_, e) =>
+                    onGatesChanged is null
+                        ? null
+                        : () =>
                     {
-                        e.Handled = true;
                         var updated = joinIsLocked && existingJoinGate is not null
                             ? PlanGateManager.RemoveGate(durablePlan!, existingJoinGate.GateId)
                             : PlanGateManager.AddBoundaryGate(
@@ -770,9 +740,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 joinBeforeIds,
                                 $"Review joined work before: {string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id))}");
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                    };
-                }
-                badgeContent.Children.Add(joinLock);
+                    });
+                joinStop.HorizontalAlignment = HorizontalAlignment.Right;
+                joinStop.VerticalAlignment = VerticalAlignment.Center;
+                joinStop.Margin = new Thickness(0, 0, 4, 0);
+                badgeContent.Children.Add(joinStop);
             }
 
             var badge = new Border
@@ -921,7 +893,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedTask = task;
                 var addBeforeItem = new MenuItem { Header = "Require approval before this task" };
-                addBeforeItem.IsEnabled = !PlanGateManager.IsRootTask(durablePlan, capturedTask.Id);
                 addBeforeItem.Click += (_, _) =>
                 {
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
@@ -934,7 +905,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
 
                 var addAfterItem = new MenuItem { Header = "Require approval after this task" };
-                addAfterItem.IsEnabled = !PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id);
                 addAfterItem.Click += (_, _) =>
                 {
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
@@ -947,8 +917,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
 
                 var contextMenu = new ContextMenu();
-                contextMenu.Items.Add(addBeforeItem);
-                contextMenu.Items.Add(addAfterItem);
+                if (!PlanGateManager.IsRootTask(durablePlan, capturedTask.Id))
+                    contextMenu.Items.Add(addBeforeItem);
+                if (!PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id))
+                    contextMenu.Items.Add(addAfterItem);
 
                 var gatesForTask = (group.ApprovalGates ?? [])
                     .Where(g =>
@@ -974,7 +946,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                 }
 
-                border.ContextMenu = contextMenu;
+                if (contextMenu.Items.Count > 0)
+                    border.ContextMenu = contextMenu;
             }
 
             // Hover: show glow on all connectors entering/exiting this task, bring them forward,
@@ -1007,68 +980,100 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             borderByTask[task.Id] = border;
 
-            // Lock icon overlay: clickable toggle when editable; status badge otherwise.
+            // Task entry/exit approval stops. Root tasks have no meaningful entry boundary;
+            // leaf tasks have no meaningful exit boundary, so those controls are omitted.
             if (durablePlan is not null && onGatesChanged is not null)
             {
-                var capturedTaskForLock = task;
-                var isLeaf   = PlanGateManager.IsLeafTask(durablePlan, capturedTaskForLock.Id);
-                var existingTaskGate = FindTaskGateAfter(capturedTaskForLock.Id);
-                var isLocked = existingTaskGate is not null;
-                var lockText = new TextBlock
+                var capturedTaskForStop = task;
+                var isRoot = PlanGateManager.IsRootTask(durablePlan, capturedTaskForStop.Id);
+                var isLeaf = PlanGateManager.IsLeafTask(durablePlan, capturedTaskForStop.Id);
+
+                if (!isRoot)
                 {
-                    Text    = isLocked ? "🔒" : "🔓",
-                    Opacity = isLocked ? 1.0 : 0.25,
-                    Cursor  = isLeaf ? Cursors.Arrow : Cursors.Hand,
-                    ToolTip = isLeaf
-                        ? (isLocked ? "This task requires human approval." : null)
-                        : isLocked
-                            ? "This task requires human approval when it completes. Click to remove."
-                            : "Click to require human approval when this task completes.",
-                };
-                lockText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                Canvas.SetLeft(lockText, position.X + NodeWidth - 22);
-                Canvas.SetTop(lockText,  position.Y + NodeHeight - 20);
-                Panel.SetZIndex(lockText, 25);
+                    var existingBeforeGate = FindTaskGateBefore(capturedTaskForStop.Id);
+                    var beforeEngaged = existingBeforeGate is not null;
+                    var beforeStop = CreateApprovalStop(
+                        beforeEngaged,
+                        beforeEngaged
+                            ? "Human approval is required before this task begins. Click to remove."
+                            : "Require human approval before this task begins.",
+                        () =>
+                        {
+                            var updated = beforeEngaged && existingBeforeGate is not null
+                                ? PlanGateManager.RemoveGate(durablePlan, existingBeforeGate.GateId)
+                                : PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
+                                    $"Review before starting: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
+                            if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                        });
+                    Canvas.SetLeft(beforeStop, position.X + 6);
+                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
+                    Panel.SetZIndex(beforeStop, 25);
+                    canvas.Children.Add(beforeStop);
+                }
+
                 if (!isLeaf)
                 {
-                    lockText.MouseEnter += (_, _) => lockText.Opacity = 1.0;
-                    lockText.MouseLeave += (_, _) => lockText.Opacity = isLocked ? 1.0 : 0.25;
-                    lockText.MouseLeftButtonDown += (_, e) =>
-                    {
-                        e.Handled = true;
-                        var updated = durablePlan;
-                        if (isLocked && existingTaskGate is not null)
-                            updated = PlanGateManager.RemoveGate(updated, existingTaskGate.GateId);
-                        else
-                            updated = PlanGateManager.AddGateAfter(updated, capturedTaskForLock.Id,
-                                $"Review after completing: {capturedTaskForLock.Title ?? capturedTaskForLock.Id}");
-                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                    };
+                    var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
+                    var afterEngaged = existingAfterGate is not null;
+                    var afterStop = CreateApprovalStop(
+                        afterEngaged,
+                        afterEngaged
+                            ? "Human approval is required after this task completes. Click to remove."
+                            : "Require human approval after this task completes.",
+                        () =>
+                        {
+                            var updated = afterEngaged && existingAfterGate is not null
+                                ? PlanGateManager.RemoveGate(durablePlan, existingAfterGate.GateId)
+                                : PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
+                                    $"Review after completing: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
+                            if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                        });
+                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
+                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
+                    Panel.SetZIndex(afterStop, 25);
+                    canvas.Children.Add(afterStop);
                 }
-                canvas.Children.Add(lockText);
             }
             else
             {
                 // Snapshot-only fixtures are intentionally non-editable, but still show the
                 // approval affordance so the preview accurately represents the finished UI.
-                var hasConfiguredGate = lockIconByTask.TryGetValue(task.Id, out var lockIcon);
-                lockIcon ??= "🔓";
-                var lockText = new TextBlock
+                var isRoot = task.DependsOn.Count == 0;
+                var directDependents = group.Tasks
+                    .Where(candidate => candidate.DependsOn.Contains(task.Id, StringComparer.Ordinal))
+                    .Select(candidate => candidate.Id)
+                    .ToArray();
+                var isLeaf = directDependents.Length == 0;
+
+                if (!isRoot)
                 {
-                    Text                = lockIcon,
-                    Opacity             = hasConfiguredGate ? 1.0 : 0.25,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment   = VerticalAlignment.Center,
-                    Cursor              = Cursors.Arrow,
-                    ToolTip             = hasConfiguredGate
-                        ? "Preview: this task has a human approval checkpoint."
-                        : "Preview: this padlock controls approval after the task.",
-                };
-                lockText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                Canvas.SetLeft(lockText, position.X + NodeWidth - 22);
-                Canvas.SetTop(lockText,  position.Y + NodeHeight - 20);
-                Panel.SetZIndex(lockText, 25);
-                canvas.Children.Add(lockText);
+                    var beforeEngaged = FindDisplayedGate(task.DependsOn, [task.Id]) is not null;
+                    var beforeStop = CreateApprovalStop(
+                        beforeEngaged,
+                        beforeEngaged
+                            ? "Preview: human approval is required before this task."
+                            : "Preview: this stop controls approval before the task.",
+                        null);
+                    Canvas.SetLeft(beforeStop, position.X + 6);
+                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
+                    Panel.SetZIndex(beforeStop, 25);
+                    canvas.Children.Add(beforeStop);
+                }
+
+                if (!isLeaf)
+                {
+                    var afterEngaged = FindDisplayedGate([task.Id], directDependents) is not null;
+                    var afterStop = CreateApprovalStop(
+                        afterEngaged,
+                        afterEngaged
+                            ? "Preview: human approval is required after this task."
+                            : "Preview: this stop controls approval after the task.",
+                        null);
+                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
+                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
+                    Panel.SetZIndex(afterStop, 25);
+                    canvas.Children.Add(afterStop);
+                }
             }
         }
 
@@ -1134,35 +1139,61 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     /// <summary>
     /// Rebuilds the viewer content against a newly persisted immutable plan while preserving the
-    /// existing window, location, size, focus, and owner. The temporary window is never shown; it
-    /// is only used to construct a fresh visual tree with handlers bound to the new plan instance.
+    /// existing window, location, size, focus, and owner. Rebuilding on this window also ensures
+    /// every interaction handler targets the visible viewer and does not create a hidden WPF window.
     /// </summary>
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
     {
         var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
         var verticalOffset = _graphScroll?.VerticalOffset ?? 0;
-        var refreshed = new PlanViewerWindow(
-            plan,
-            _activeBranch,
-            _quickReplyFontSize,
-            _applyAction,
-            durablePlan,
-            _onGatesChanged,
-            _onResumePlan,
-            _onEndPlan,
-            _onApproveGate);
-        var refreshedContent = refreshed._contentHolder?.Child;
-        if (refreshed._contentHolder is not null)
-            refreshed._contentHolder.Child = null;
-        if (_contentHolder is not null)
-            _contentHolder.Child = refreshedContent;
-        _graphScroll = refreshed._graphScroll;
-        Title = refreshed.Title;
+        BuildContent(plan, durablePlan);
+        Title = plan.Group.GroupTitle;
         Dispatcher.BeginInvoke(() =>
         {
             _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
             _graphScroll?.ScrollToVerticalOffset(verticalOffset);
         }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private static FrameworkElement CreateApprovalStop(bool engaged, string toolTip, Action? toggle)
+    {
+        var stop = new Polygon
+        {
+            Points =
+            [
+                new Point(5, 1), new Point(11, 1), new Point(15, 5), new Point(15, 11),
+                new Point(11, 15), new Point(5, 15), new Point(1, 11), new Point(1, 5),
+            ],
+            StrokeThickness = 1.6,
+            Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
+            StrokeLineJoin = PenLineJoin.Round,
+            Stretch = Stretch.None,
+        };
+        if (engaged)
+            stop.Stroke = new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B));
+        else
+            stop.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+
+        var hitTarget = new Grid
+        {
+            Width = 16,
+            Height = 16,
+            Background = Brushes.Transparent,
+            Cursor = toggle is null ? Cursors.Arrow : Cursors.Hand,
+            ToolTip = ToolTipHelper.MakeThemedToolTip(toolTip),
+        };
+        hitTarget.Children.Add(stop);
+        if (toggle is not null)
+        {
+            hitTarget.MouseEnter += (_, _) => stop.StrokeThickness = 2.2;
+            hitTarget.MouseLeave += (_, _) => stop.StrokeThickness = 1.6;
+            hitTarget.MouseLeftButtonDown += (_, e) =>
+            {
+                e.Handled = true;
+                toggle();
+            };
+        }
+        return hitTarget;
     }
 
     private static ToolTip BuildTaskToolTip(string description, string[] prereqLines, string? completionSummary = null, string? commit = null)
