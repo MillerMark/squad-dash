@@ -3757,13 +3757,15 @@ public partial class MainWindow : Window
                 var plainTooltip = tabId == nextReadyId
                     ? "This prompt is next in the Squad queue."
                     : "This item is in the Squad queue.";
-                // Close any open tooltip and null it out before replacing it.
-                // Setting tab.ToolTip = null severs the logical-parent relationship so
-                // WPF's binding machinery can't traverse into the old ToolTip while we
-                // assign the new one — which would cause "ToolTip cannot have a logical
-                // or visual parent".
+                // Close any open tooltip and clear its bindings before replacing it.
+                // SetResourceReference creates bindings that can fire asynchronously;
+                // clearing them before nulling the ToolTip prevents WPF from trying to
+                // re-traverse into it and raising "ToolTip cannot have a logical or visual parent".
                 if (tab.ToolTip is ToolTip openTip)
+                {
                     openTip.IsOpen = false;
+                    System.Windows.Data.BindingOperations.ClearAllBindings(openTip);
+                }
                 tab.ToolTip = null;
                 tab.ToolTip = isActive ? BuildQueueTabActiveTooltip(plainTooltip) : (object)plainTooltip;
             }
