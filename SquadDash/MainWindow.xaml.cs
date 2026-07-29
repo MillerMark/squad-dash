@@ -8335,7 +8335,8 @@ public partial class MainWindow : Window
                 ? ApplyFromViewerAsync
                 : null;
         PlanViewerWindow? win = null;
-        Action<Plan>? onGatesChanged = durablePlan is not null
+        Action<Plan>? onGatesChanged = durablePlan is not null &&
+                                       !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? gatedPlan =>
               {
                   PublishPlanProgress(gatedPlan);

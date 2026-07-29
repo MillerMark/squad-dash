@@ -517,7 +517,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Pass 2: collect task-scoped and legacy approval edges. Stage and ALL-join boundaries
         // have dedicated visuals and must not produce an all-to-all dashed connector mesh.
         var lockedAfterTaskIds = new HashSet<string>(StringComparer.Ordinal);
-        var approvalDirectPairs = new List<(string AfterId, string BeforeId, DecomposedGate Gate)>();
+        var approvalDirectPairs = new HashSet<(string AfterId, string BeforeId)>();
         if (group.ApprovalGates is { Count: > 0 })
         {
             foreach (var approvalGate in group.ApprovalGates)
@@ -529,7 +529,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     if (taskBoundary) lockedAfterTaskIds.Add(afterId);
                     foreach (var beforeId in approvalGate.BeforeTaskIds ?? [])
-                        approvalDirectPairs.Add((afterId, beforeId, approvalGate));
+                        approvalDirectPairs.Add((afterId, beforeId));
                 }
             }
         }
@@ -564,14 +564,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RegisterExit(dep,      positions[task.Id].Y + NodeHeight / 2.0);
                 RegisterEntry(task.Id, positions[dep].Y      + NodeHeight / 2.0);
             }
-        foreach (var (afterId, beforeId, _) in approvalDirectPairs)
-        {
-            if (positions.ContainsKey(afterId) && positions.ContainsKey(beforeId))
-            {
-                RegisterExit(afterId,   positions[beforeId].Y + NodeHeight / 2.0);
-                RegisterEntry(beforeId, positions[afterId].Y  + NodeHeight / 2.0);
-            }
-        }
         foreach (var list in rightExitYs.Values)  list.Sort();
         foreach (var list in leftEntryYs.Values)   list.Sort();
 
@@ -607,6 +599,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             lockedMilestoneBoundaryXs.Where(bx => bx > fromX + 1.0 && bx < toX - 1.0)
                 .OrderBy(bx => bx).Cast<double?>().FirstOrDefault() ?? double.NaN;
 
+        // Once a connector begins to the right of an engaged milestone, it is already in
+        // blocked territory and must remain dashed even though it no longer geometrically
+        // crosses the boundary. This includes ALL badges centered directly on a milestone.
+        bool StartsAfterLockedMilestone(double fromX) =>
+            lockedMilestoneBoundaryXs.Any(boundaryX => boundaryX <= fromX + 1.0);
+
         // Draw ALL-gate connectors; collect per-gate groups so the badge can reference them later.
         var gateConnectorGroups = new List<List<ConnectorGroup>>(gates.Count);
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
@@ -629,7 +627,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: false,
+                    dashed: StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
@@ -644,7 +642,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip),
-                    dashed: outboundDashed,
+                    dashed: outboundDashed || StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(target.Id, cg);
                 cgsForGate.Add(cg);
@@ -666,35 +664,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: true,
                     skipCount: skipCount,
-                    dashed: lockedAfterTaskIds.Contains(dependency),
+                    dashed: lockedAfterTaskIds.Contains(dependency) ||
+                            approvalDirectPairs.Contains((dependency, task.Id)) ||
+                            StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 RegisterConnector(task.Id,   cg);
             }
-        }
-
-        // Draw direct dashed approval connectors (replacing the old gate-node-mediated path).
-        foreach (var (afterId, beforeId, approvalGate) in approvalDirectPairs)
-        {
-            if (!positions.ContainsKey(afterId) || !positions.ContainsKey(beforeId)) continue;
-            var afterPos  = positions[afterId];
-            var beforePos = positions[beforeId];
-            var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
-                string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
-            var gateToolTip = durableGate is not null
-                ? $"{approvalGate.Message}\nStatus: {durableGate.Status}"
-                : approvalGate.Message;
-            var fromPt = new Point(afterPos.X + NodeWidth, SpreadExitY(afterId,   beforePos.Y + NodeHeight / 2.0));
-            var toPt   = new Point(beforePos.X,            SpreadEntryY(beforeId, afterPos.Y  + NodeHeight / 2.0));
-            var cg = AddConnector(canvas,
-                fromPt, toPt,
-                arrowHead: true,
-                skipCount: 0,
-                dashed: true,
-                toolTip: gateToolTip,
-                splitAtX: FindSplitX(fromPt.X, toPt.X));
-            RegisterConnector(afterId,  cg);
-            RegisterConnector(beforeId, cg);
         }
 
         for (int gi = 0; gi < gates.Count; gi++)
