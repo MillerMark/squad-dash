@@ -404,6 +404,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return positions[taskId].Y + NodeHeight * (Math.Max(0, idx) + 1.0) / (list.Count + 1);
         }
 
+        // Pass 4: per-task connector tracking for hover highlight.
+        var connectorsByTask = new Dictionary<string, List<ConnectorGroup>>(StringComparer.Ordinal);
+        void RegisterConnector(string taskId, ConnectorGroup cg)
+        {
+            if (!connectorsByTask.TryGetValue(taskId, out var list))
+                connectorsByTask[taskId] = list = [];
+            if (!list.Contains(cg)) list.Add(cg);
+        }
+
         // Draw ALL-gate connectors.
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
         {
@@ -411,21 +420,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var source  = positions[dependency];
                 var depSkip = minTargetLevel - levels[dependency] - 1;
-                AddConnector(canvas,
+                var cg = AddConnector(canvas,
                     new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y)),
                     new Point(gateCenter.X - 20, gateCenter.Y),
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip));
+                RegisterConnector(dependency, cg);
             }
             foreach (var target in targets)
             {
                 var targetPoint = positions[target.Id];
                 var targetSkip  = levels[target.Id] - maxDepLevel - 1;
-                AddConnector(canvas,
+                var cg = AddConnector(canvas,
                     new Point(gateCenter.X + 20, gateCenter.Y),
                     new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y)),
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip));
+                RegisterConnector(target.Id, cg);
             }
         }
 
@@ -437,11 +448,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var source    = positions[dependency];
                 var target    = positions[task.Id];
                 var skipCount = Math.Max(0, levels[task.Id] - levels[dependency] - 1);
-                AddConnector(canvas,
+                var cg = AddConnector(canvas,
                     new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0)),
                     new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0)),
                     arrowHead: true,
                     skipCount: skipCount);
+                RegisterConnector(dependency, cg);
+                RegisterConnector(task.Id,   cg);
             }
         }
 
@@ -469,6 +482,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             Canvas.SetLeft(badge, gate.Center.X - 20);
             Canvas.SetTop(badge, gate.Center.Y - 13);
+            Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
         }
 
@@ -478,18 +492,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
             foreach (var taskId in approvalGate.AfterTaskIds ?? [])
             {
                 if (!positions.TryGetValue(taskId, out var pos)) continue;
-                AddConnector(canvas,
+                var cg = AddConnector(canvas,
                     new Point(pos.X + NodeWidth, SpreadExitY(taskId, gateCenter.Y)),
                     new Point(gateCenter.X - 30, gateCenter.Y),
                     arrowHead: false);
+                RegisterConnector(taskId, cg);
             }
             foreach (var taskId in approvalGate.BeforeTaskIds ?? [])
             {
                 if (!positions.TryGetValue(taskId, out var pos)) continue;
-                AddConnector(canvas,
+                var cg = AddConnector(canvas,
                     new Point(gateCenter.X + 30, gateCenter.Y),
                     new Point(pos.X, SpreadEntryY(taskId, gateCenter.Y)),
                     arrowHead: true);
+                RegisterConnector(taskId, cg);
             }
 
             var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
@@ -525,6 +541,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             Canvas.SetLeft(gateBadge, gateCenter.X - 30);
             Canvas.SetTop(gateBadge, gateCenter.Y - 14);
+            Panel.SetZIndex(gateBadge, 10);
             canvas.Children.Add(gateBadge);
         }
 
@@ -700,6 +717,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 border.ContextMenu = contextMenu;
             }
 
+            // Hover: show glow on all connectors entering/exiting this task and bring them forward.
+            var hoveredTaskId = task.Id;
+            border.MouseEnter += (_, _) =>
+            {
+                if (!connectorsByTask.TryGetValue(hoveredTaskId, out var connectors)) return;
+                foreach (var cg in connectors)
+                {
+                    foreach (var el in cg.GlowElements) { el.Visibility = Visibility.Visible; Panel.SetZIndex(el, 3); }
+                    foreach (var el in cg.MainElements) Panel.SetZIndex(el, 4);
+                }
+            };
+            border.MouseLeave += (_, _) =>
+            {
+                if (!connectorsByTask.TryGetValue(hoveredTaskId, out var connectors)) return;
+                foreach (var cg in connectors)
+                {
+                    foreach (var el in cg.GlowElements) { el.Visibility = Visibility.Hidden; Panel.SetZIndex(el, 0); }
+                    foreach (var el in cg.MainElements) Panel.SetZIndex(el, 0);
+                }
+            };
+            Panel.SetZIndex(border, 20);
             canvas.Children.Add(border);
         }
 
@@ -803,28 +841,50 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return levels;
     }
 
-    private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
+    // A set of UIElements (glow + main strokes) making up one logical connector.
+    private sealed class ConnectorGroup
     {
-        var brush = new SolidColorBrush(ConnectorColor(skipCount));
-        const double arrowLength    = 11;
-        const double arrowHalfWidth = 5;
+        public readonly List<UIElement> GlowElements = [];
+        public readonly List<UIElement> MainElements = [];
+    }
 
-        // When there is an arrowhead, the line/curve ends at the base-center of the arrowhead
-        // (not at the tip), so the line visually enters the center of the arrow rather than
-        // overshooting through it.  All connectors flow left-to-right, so the base is directly
-        // to the left of the tip by arrowLength pixels.
+    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
+    {
+        var group = new ConnectorGroup();
+
+        const double arrowLength     = 11;
+        const double arrowHalfWidth  = 5;
+        const double glowThickness   = 8;
+        const double glowArrowHalf   = 10;
+
+        var color     = ConnectorColor(skipCount);
+        var glowColor = ConnectorGlowColor(skipCount);
+        var mainBrush = new SolidColorBrush(color);
+        var glowBrush = new SolidColorBrush(glowColor);
+
+        // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
 
         if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0)
         {
-            // Straight line: skip (multi-stage) connectors always straight; same-Y also straight.
-            canvas.Children.Add(new Line
+            // Straight line.
+            var glowLine = new Line
             {
-                X1 = from.X, Y1 = from.Y,
-                X2 = lineEnd.X, Y2 = lineEnd.Y,
-                StrokeThickness = 2,
-                Stroke = brush,
-            });
+                X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
+                StrokeThickness = glowThickness, Stroke = glowBrush,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Visibility = Visibility.Hidden,
+            };
+            canvas.Children.Add(glowLine);
+            group.GlowElements.Add(glowLine);
+
+            var mainLine = new Line
+            {
+                X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
+                StrokeThickness = 2, Stroke = mainBrush,
+            };
+            canvas.Children.Add(mainLine);
+            group.MainElements.Add(mainLine);
         }
         else
         {
@@ -834,32 +894,62 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var cp1 = new Point(from.X    + handleLen, from.Y);
             var cp2 = new Point(lineEnd.X - handleLen, lineEnd.Y);
 
-            var figure = new PathFigure { StartPoint = from };
-            figure.Segments.Add(new BezierSegment(cp1, cp2, lineEnd, isStroked: true));
-            var geometry = new PathGeometry();
-            geometry.Figures.Add(figure);
-            canvas.Children.Add(new Path
+            PathGeometry MakeBezierGeometry()
             {
-                Data            = geometry,
-                StrokeThickness = 2,
-                Stroke          = brush,
-                Fill            = Brushes.Transparent,
-            });
+                var fig = new PathFigure { StartPoint = from };
+                fig.Segments.Add(new BezierSegment(cp1, cp2, lineEnd, isStroked: true));
+                var geo = new PathGeometry();
+                geo.Figures.Add(fig);
+                return geo;
+            }
+
+            var glowPath = new Path
+            {
+                Data = MakeBezierGeometry(), StrokeThickness = glowThickness, Stroke = glowBrush,
+                Fill = Brushes.Transparent,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Visibility = Visibility.Hidden,
+            };
+            canvas.Children.Add(glowPath);
+            group.GlowElements.Add(glowPath);
+
+            var mainPath = new Path
+            {
+                Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
+                Fill = Brushes.Transparent,
+            };
+            canvas.Children.Add(mainPath);
+            group.MainElements.Add(mainPath);
         }
 
-        if (!arrowHead) return;
-
-        // Arrowhead: tip at `to`, wings spread from `lineEnd` (base-center).
-        var perp = new Vector(0, 1);  // horizontal tangent → perpendicular is vertical
-        canvas.Children.Add(new Polygon
+        if (arrowHead)
         {
-            Fill   = brush,
-            Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
-        });
+            // Glow arrowhead: same tip, wider wings.
+            var perp = new Vector(0, 1);
+            var glowArrow = new Polygon
+            {
+                Fill       = glowBrush,
+                Visibility = Visibility.Hidden,
+                Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
+            };
+            canvas.Children.Add(glowArrow);
+            group.GlowElements.Add(glowArrow);
+
+            // Main arrowhead.
+            var mainArrow = new Polygon
+            {
+                Fill   = mainBrush,
+                Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+            };
+            canvas.Children.Add(mainArrow);
+            group.MainElements.Add(mainArrow);
+        }
+
+        return group;
     }
 
     // Base hue for adjacent-stage connectors. Each skipped stage rotates the hue by 45°.
-    private const double ConnectorBaseHue = 210.0;
+    private const double ConnectorBaseHue   = 210.0;
     private const double ConnectorSaturation = 0.70;
     private const double ConnectorLightness  = 0.45;
 
@@ -867,6 +957,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         var hue = (ConnectorBaseHue + skipCount * 45.0) % 360.0;
         return HslToRgb(hue, ConnectorSaturation, ConnectorLightness);
+    }
+
+    // Very light variant of the connector color — the glow halo shown on hover.
+    private static Color ConnectorGlowColor(int skipCount)
+    {
+        var hue = (ConnectorBaseHue + skipCount * 45.0) % 360.0;
+        return HslToRgb(hue, 0.95, 0.88);
     }
 
     private static Color HslToRgb(double hue, double saturation, double lightness)
