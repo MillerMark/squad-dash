@@ -8971,7 +8971,8 @@ public partial class MainWindow : Window
     private void AppendDecomposeRecoveryActions(
         PendingDecomposePlan plan,
         string taskId,
-        BlockCollection? targetBlocks = null)
+        BlockCollection? targetBlocks = null,
+        bool showEndPlan = false)
     {
         var blocks = targetBlocks ?? CoordinatorThread.Document.Blocks;
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
@@ -8995,6 +8996,17 @@ public partial class MainWindow : Window
         {
             AddAsyncAction("Analyze with AI", "Gather evidence and ask AI to recommend evidence-based recovery options.",
                 async () => await AnalyzePlanRecoveryWithAiAsync(plan, taskId));
+        }
+
+        if (showEndPlan)
+        {
+            AddAction("End This Incomplete Plan",
+                "Mark this plan as stopped without retrying or replanning. The plan history is preserved.",
+                () =>
+                {
+                    var durablePlan = _planStore?.Load(plan.Group.GroupId);
+                    if (durablePlan is not null) EndInterruptedPlan(durablePlan);
+                });
         }
 
         blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
@@ -9721,21 +9733,48 @@ public partial class MainWindow : Window
         if (!File.Exists(tasksPath)) return;
         var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
         DecomposeStepResultParser.TryParse(responseText, out var persistedResult, out _);
-        var blocked = parsed.OpenGroups
+
+        // Collect all blocked tasks, then pick the one whose durable plan was interrupted most recently.
+        var allBlocked = parsed.OpenGroups
             .SelectMany(group => group.Items)
-            .FirstOrDefault(item =>
+            .Where(item =>
                 item.TaskId is not null && (item.IsFailed || item.IsPartial) &&
                 (persistedResult is null ||
                  (string.Equals(item.DecomposeGroupId, persistedResult.GroupId, StringComparison.Ordinal) &&
-                  string.Equals(item.TaskId, persistedResult.TaskId, StringComparison.Ordinal))));
-        if (blocked?.TaskId is null || blocked.DecomposeGroupId is null ||
+                  string.Equals(item.TaskId, persistedResult.TaskId, StringComparison.Ordinal))))
+            .ToList();
+
+        if (allBlocked.Count == 0) return;
+
+        // Prefer the plan whose durable record has the latest InterruptedAt; fall back to first found.
+        var blocked = allBlocked
+            .OrderByDescending(item =>
+            {
+                if (item.DecomposeGroupId is null) return DateTimeOffset.MinValue;
+                return _planStore?.Load(item.DecomposeGroupId)?.Timestamps?.InterruptedAt
+                       ?? DateTimeOffset.MinValue;
+            })
+            .First();
+
+        if (blocked.TaskId is null || blocked.DecomposeGroupId is null ||
             !parsed.DecomposeGroups.TryGetValue(blocked.DecomposeGroupId, out var group))
             return;
+
         var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
+
+        // System-message header so the user understands the context.
+        var headerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+        var headerRun = new Run("⚠ A task plan has a blocked step that needs your attention.");
+        headerRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        headerRun.FontWeight = FontWeights.SemiBold;
+        headerParagraph.Inlines.Add(headerRun);
+        view.NarrativeSection.Blocks.Add(headerParagraph);
+
         AppendDecomposeRecoveryActions(
             new PendingDecomposePlan(revision, group with { HostRevision = revision }),
             blocked.TaskId,
-            view.NarrativeSection.Blocks);
+            view.NarrativeSection.Blocks,
+            showEndPlan: true);
     }
 
     private void OpenDecomposePlanAttachment(InboxAttachment attachment)
