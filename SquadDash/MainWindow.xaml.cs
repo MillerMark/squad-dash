@@ -8299,6 +8299,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Auto-resolve the durable plan when not supplied by the caller (e.g. inbox link).
+        // Without it the gate-editing controls (lock buttons, onGatesChanged) are suppressed.
+        if (durablePlan is null && _planStore is not null)
+            durablePlan = _planStore.Load(groupId);
+
         PendingDecomposePlan? livePlan = null;
         if (_currentWorkspace is not null)
         {
