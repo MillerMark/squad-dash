@@ -905,7 +905,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var glowColor = ConnectorGlowColor(skipCount);
         var mainBrush = new SolidColorBrush(color);
         var glowBrush = new SolidColorBrush(glowColor);
-        var dashArray = dashed ? new DoubleCollection { 7, 5 } : null;
+        var dashArray = dashed ? new DoubleCollection { 7, 2 } : null;
 
         // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
@@ -920,7 +920,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 Visibility = Visibility.Hidden,
             };
-            if (dashArray is not null) glowLine.StrokeDashArray = dashArray;
+            if (dashArray is not null) glowLine.StrokeDashArray = null; // glow is always solid
             canvas.Children.Add(glowLine);
             group.GlowElements.Add(glowLine);
 
@@ -958,7 +958,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 Visibility = Visibility.Hidden,
             };
-            if (dashArray is not null) glowPath.StrokeDashArray = dashArray;
+            if (dashArray is not null) glowPath.StrokeDashArray = null; // glow is always solid
             canvas.Children.Add(glowPath);
             group.GlowElements.Add(glowPath);
 
