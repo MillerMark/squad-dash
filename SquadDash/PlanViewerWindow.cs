@@ -464,9 +464,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!cg.TaskIds.Contains(taskId, StringComparer.Ordinal)) cg.TaskIds.Add(taskId);
         }
 
-        // Draw ALL-gate connectors.
+        // Draw ALL-gate connectors; collect per-gate groups so the badge can reference them later.
+        var gateConnectorGroups = new List<List<ConnectorGroup>>(gates.Count);
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
         {
+            var cgsForGate = new List<ConnectorGroup>();
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
@@ -478,6 +480,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     skipCount: Math.Max(0, depSkip),
                     dashed: lockedAfterTaskIds.Contains(dependency));
                 RegisterConnector(dependency, cg);
+                cgsForGate.Add(cg);
             }
             foreach (var target in targets)
             {
@@ -489,7 +492,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip));
                 RegisterConnector(target.Id, cg);
+                cgsForGate.Add(cg);
             }
+            gateConnectorGroups.Add(cgsForGate);
         }
 
         // Draw non-gated direct connectors.
@@ -533,8 +538,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             RegisterConnector(beforeId, cg);
         }
 
-        foreach (var gate in gates)
+        for (int gi = 0; gi < gates.Count; gi++)
         {
+            var gate = gates[gi];
             var badgeText = new TextBlock
             {
                 Text                = "ALL",
@@ -559,6 +565,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetTop(badge, gate.Center.Y - 13);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
+
+            // Register the badge on every connector that enters or exits this gate
+            // so hover on any of those connectors (or their endpoint tasks) highlights it.
+            foreach (var cg in gateConnectorGroups[gi])
+                cg.GateBadges.Add(badge);
         }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
@@ -746,6 +757,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     foreach (var el in cg.GlowElements) { el.Visibility = Visibility.Visible; Panel.SetZIndex(el, 3); }
                     foreach (var el in cg.MainElements) Panel.SetZIndex(el, 4);
+                    foreach (var b  in cg.GateBadges)  b.Effect = TaskNodeGlowEffect();
                 }
             };
             border.MouseLeave += (_, _) =>
@@ -756,6 +768,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     foreach (var el in cg.GlowElements) { el.Visibility = Visibility.Hidden; Panel.SetZIndex(el, 0); }
                     foreach (var el in cg.MainElements) Panel.SetZIndex(el, 0);
+                    foreach (var b  in cg.GateBadges)  b.Effect = null;
                 }
             };
             Panel.SetZIndex(border, 20);
@@ -793,6 +806,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 4);
                     foreach (var tid in capturedCg.TaskIds)
                         if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                    foreach (var gb in capturedCg.GateBadges) gb.Effect = TaskNodeGlowEffect();
                 };
                 el.MouseLeave += (_, _) =>
                 {
@@ -800,6 +814,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 0);
                     foreach (var tid in capturedCg.TaskIds)
                         if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                    foreach (var gb in capturedCg.GateBadges) gb.Effect = null;
                 };
             }
         }
@@ -910,6 +925,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public readonly List<UIElement> GlowElements = [];
         public readonly List<UIElement> MainElements = [];
         public readonly List<string>    TaskIds       = [];
+        // ALL-gate badge Borders that this connector enters or exits; highlighted on hover.
+        public readonly List<Border>    GateBadges    = [];
     }
 
     private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null)
