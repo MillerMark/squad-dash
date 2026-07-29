@@ -284,3 +284,30 @@ internal static class PlanContextReadEvidence
         }
     }
 }
+
+/// <summary>
+/// Applies host-observed launch lineage to an execution attempt. Keeping this transition
+/// outside the window makes the same contract available to deterministic integration tests.
+/// </summary>
+internal static class PlanExecutionEvidenceRecorder
+{
+    internal static PlanExecutionAttemptState RecordLaunch(
+        PlanExecutionAttemptState attempt,
+        BackgroundAgentLaunchInfo launch,
+        bool launchedByCoordinator,
+        string? ownerPrimaryToolCallId)
+    {
+        if (launchedByCoordinator)
+        {
+            if (launch.IsVerifiedRosterAssignment)
+                return attempt.RecordPrimaryLaunch(launch);
+            return attempt.AllowsGenericPrimary
+                ? attempt.RecordGenericPrimaryLaunch(launch)
+                : attempt.RecordUnexpectedPrimaryLaunch(launch.ToolCallId);
+        }
+
+        return string.IsNullOrWhiteSpace(ownerPrimaryToolCallId)
+            ? attempt
+            : attempt.RecordChildLaunch(ownerPrimaryToolCallId, launch.ToolCallId);
+    }
+}

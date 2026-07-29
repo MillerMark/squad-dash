@@ -30472,23 +30472,11 @@ public partial class MainWindow : Window
         if (launch is null || execution is null || attempt is null)
             return;
 
-        PlanExecutionAttemptState updated;
-        if (ownerThread.Kind == TranscriptThreadKind.Coordinator)
-        {
-            updated = launch.IsVerifiedRosterAssignment
-                ? attempt.RecordPrimaryLaunch(launch)
-                : attempt.AllowsGenericPrimary
-                    ? attempt.RecordGenericPrimaryLaunch(launch)
-                    : attempt.RecordUnexpectedPrimaryLaunch(launch.ToolCallId);
-        }
-        else if (!string.IsNullOrWhiteSpace(ownerThread.ToolCallId))
-        {
-            updated = attempt.RecordChildLaunch(ownerThread.ToolCallId, launch.ToolCallId);
-        }
-        else
-        {
-            return;
-        }
+        var updated = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt,
+            launch,
+            ownerThread.Kind == TranscriptThreadKind.Coordinator,
+            ownerThread.Kind == TranscriptThreadKind.Agent ? ownerThread.ToolCallId : null);
 
         _conversationManager.UpdateActiveLoopExecutionState(
             execution with { PlanExecutionAttempt = updated });
