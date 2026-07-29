@@ -171,13 +171,20 @@ internal static class BackgroundAgentLaunchInfoResolver {
                        PlanExecutionAttemptState.Sha256(charter),
                        authorization.CharterSha256,
                        StringComparison.Ordinal) &&
-                   prompt.Contains(charter, StringComparison.Ordinal);
+                   NormalizeCharterTransport(prompt).Contains(
+                       NormalizeCharterTransport(charter),
+                       StringComparison.Ordinal);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
     }
+
+    private static string NormalizeCharterTransport(string value) =>
+        value.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .TrimEnd('\n');
 
     private sealed record AssignmentEnvelope(
         string? AttemptId,

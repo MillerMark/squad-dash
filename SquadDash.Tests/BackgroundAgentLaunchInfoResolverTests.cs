@@ -219,4 +219,65 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
             Directory.Delete(temp, recursive: true);
         }
     }
+
+    [Test]
+    public void TryResolve_VerifiesCharterAcrossTransportLineEndingAndFinalNewlineChanges()
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "squaddash-attempt-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            var charterPath = Path.Combine(temp, "charter.md");
+            const string charter = "# Talia charter\r\nOwn SDK implementation.\r\n";
+            File.WriteAllText(charterPath, charter);
+            var authorization = new PlanExecutionAssignmentAttempt(
+                "talia-rune", "implementer", false, "host-capability", charterPath,
+                PlanExecutionAttemptState.Sha256(charter), []);
+            var attempt = new PlanExecutionAttemptState(
+                "attempt-1", "PLAN-20260728", "PLAN-20260728-001", "rev-1", temp,
+                DateTimeOffset.UtcNow, [authorization]);
+            var envelope = JsonSerializer.Serialize(new {
+                attemptId = attempt.AttemptId,
+                taskId = attempt.TaskId,
+                revision = attempt.Revision,
+                agentHandle = authorization.AgentHandle,
+                role = authorization.Role,
+                allowGenericChildren = authorization.AllowGenericChildren,
+                capability = authorization.Capability,
+                charterSha256 = authorization.CharterSha256
+            });
+
+            BackgroundAgentLaunchInfo? Resolve(string transportedCharter)
+            {
+                using var document = JsonDocument.Parse(JsonSerializer.Serialize(new {
+                    agent_type = "general-purpose",
+                    name = "talia-implementation",
+                    prompt = $"SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{envelope}\n{transportedCharter}"
+                }));
+                return BackgroundAgentLaunchInfoResolver.TryResolve(
+                    "tool-verified",
+                    document.RootElement,
+                    [new TeamAgentDescriptor("Talia Rune", "talia-rune", "SDK Bridge")],
+                    attempt,
+                    launchedByCoordinator: true);
+            }
+
+            var normalized = Resolve("# Talia charter\nOwn SDK implementation.");
+            var modified = Resolve("# Talia charter\nOwn UI implementation.");
+            var truncated = Resolve("# Talia charter\nOwn SDK");
+
+            Assert.Multiple(() => {
+                Assert.That(normalized!.DisplayName, Is.EqualTo("Talia Rune"));
+                Assert.That(normalized.IsVerifiedRosterAssignment, Is.True);
+                Assert.That(modified!.DisplayName, Is.EqualTo("Temporary Agent"));
+                Assert.That(modified.IsVerifiedRosterAssignment, Is.False);
+                Assert.That(truncated!.DisplayName, Is.EqualTo("Temporary Agent"));
+                Assert.That(truncated.IsVerifiedRosterAssignment, Is.False);
+            });
+        }
+        finally
+        {
+            Directory.Delete(temp, recursive: true);
+        }
+    }
 }
