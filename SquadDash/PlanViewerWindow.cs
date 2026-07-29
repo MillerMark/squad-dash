@@ -953,6 +953,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null)   mainLine.ToolTip = toolTip;
             canvas.Children.Add(mainLine);
             group.MainElements.Add(mainLine);
+
+            // Wide invisible hit-target so hovering near (but not pixel-perfect on) the line
+            // still triggers the hover. Opacity must be > 0 for WPF hit testing to work.
+            var hitLine = new Line
+            {
+                X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
+                StrokeThickness = 12, Stroke = Brushes.White, Opacity = 0.01,
+            };
+            if (toolTip is not null) hitLine.ToolTip = toolTip;
+            canvas.Children.Add(hitLine);
+            group.MainElements.Add(hitLine);
         }
         else
         {
@@ -991,6 +1002,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null)   mainPath.ToolTip = toolTip;
             canvas.Children.Add(mainPath);
             group.MainElements.Add(mainPath);
+
+            // Wide invisible hit-target for the Bézier — same path, much thicker, nearly invisible.
+            var hitPath = new Path
+            {
+                Data = MakeBezierGeometry(), StrokeThickness = 12, Stroke = Brushes.White,
+                Fill = Brushes.Transparent, Opacity = 0.01,
+            };
+            if (toolTip is not null) hitPath.ToolTip = toolTip;
+            canvas.Children.Add(hitPath);
+            group.MainElements.Add(hitPath);
         }
 
         if (arrowHead)
