@@ -38,11 +38,27 @@ Each row contains:
 | Element | Description |
 |---|---|
 | **Checkbox** | Unchecked = Needs Approval; checked = Approved. Toggling moves the row between sections. |
-| **Description** | Short summary derived from the notification or prompt. Click to jump to the transcript turn. |
+| **Description** | Short summary derived from the notification or prompt. Click to jump to the transcript turn. **Bold text** means the commit touched `.squad/decisions.md` — see [Bold entries](#bold-entries-decisions-file) below. |
 | **Feature badge** | Colored label showing the item's feature group. Hidden in grouped view (the group header makes it redundant). |
 | **SHA link** | First 7 characters of the commit SHA, underlined. Click to open the full commit on GitHub. Only shown when a GitHub remote URL is configured. |
 
 > **Grouped view** reorganizes this layout — items appear under bold feature group headers instead of a single flat list. See [Feature Groups](#feature-groups) below.
+
+---
+
+## Bold entries (decisions file)
+
+When a commit's description appears in **bold**, it means that commit modified `.squad/decisions.md` — the workspace's architecture decision record.
+
+This is a deliberate attention signal: changes to the decisions file represent architectural choices that affect the whole team, and deserve closer review before being approved.
+
+**What to look for:**
+
+- Was the decision recorded intentionally, or is it a side-effect of a broader change?
+- Does the decision align with the project's current direction?
+- Should any other squad members be consulted before this is approved?
+
+Hovering over a bold entry shows a tooltip that also flags this: *"This commit modifies .squad/decisions.md — review architecture decisions carefully before approving."*
 
 ---
 

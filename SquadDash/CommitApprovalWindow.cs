@@ -792,6 +792,18 @@ internal sealed class CommitApprovalPanel {
         relBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         container.Children.Add(relBlock);
 
+        if (item.TouchesDecisionsFile) {
+            var decisionsNote = new TextBlock {
+                Text         = "⚠ This commit modifies .squad/decisions.md — review architecture decisions carefully before approving.",
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight   = FontWeights.SemiBold,
+                Margin       = new Thickness(0, 6, 0, 0),
+            };
+            decisionsNote.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            decisionsNote.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
+            container.Children.Add(decisionsNote);
+        }
+
         string? rawPrompt = null;
         if (!string.IsNullOrWhiteSpace(item.OriginalPrompt))
             rawPrompt = item.OriginalPrompt.Trim();
