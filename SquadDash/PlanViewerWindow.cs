@@ -520,6 +520,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Pass 4: per-task connector tracking for hover highlight.
         var connectorsByTask = new Dictionary<string, List<ConnectorGroup>>(StringComparer.Ordinal);
+        // Deferred badge hover wiring — populated during badge draw, executed after borderByTask is ready.
+        var _deferredBadgeHovers = new List<(Border Badge, List<ConnectorGroup> Cgs)>();
         void RegisterConnector(string taskId, ConnectorGroup cg)
         {
             if (!connectorsByTask.TryGetValue(taskId, out var list))
@@ -634,6 +636,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // so hover on any of those connectors (or their endpoint tasks) highlights it.
             foreach (var cg in gateConnectorGroups[gi])
                 cg.GateBadges.Add(badge);
+
+            // Wire badge hover: highlight all connectors entering/exiting this gate
+            // and glow all their endpoint task nodes (wired after borderByTask is built — deferred below).
+            var capturedGateCgs  = gateConnectorGroups[gi];
+            var capturedBadge    = badge;
+            _deferredBadgeHovers.Add((capturedBadge, capturedGateCgs));
         }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
@@ -925,6 +933,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var gb in capturedCg.GateBadges) gb.Effect = null;
                 };
             }
+        }
+
+        // Wire badge hover: highlight all connectors entering/exiting this ALL gate,
+        // raise their Z, and glow their endpoint task nodes.
+        foreach (var (badge, cgs) in _deferredBadgeHovers)
+        {
+            var capturedBadge = badge;
+            var capturedCgs   = cgs;
+            capturedBadge.MouseEnter += (_, _) =>
+            {
+                capturedBadge.Effect = TaskNodeGlowEffect();
+                foreach (var cg in capturedCgs)
+                {
+                    foreach (var g in cg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
+                    foreach (var m in cg.MainElements) Panel.SetZIndex(m, 4);
+                    foreach (var tid in cg.TaskIds)
+                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                }
+            };
+            capturedBadge.MouseLeave += (_, _) =>
+            {
+                capturedBadge.Effect = null;
+                foreach (var cg in capturedCgs)
+                {
+                    foreach (var g in cg.GlowElements) { g.Visibility = Visibility.Hidden; Panel.SetZIndex(g, 0); }
+                    foreach (var m in cg.MainElements) Panel.SetZIndex(m, 0);
+                    foreach (var tid in cg.TaskIds)
+                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                }
+            };
         }
 
         canvas.Width= Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
