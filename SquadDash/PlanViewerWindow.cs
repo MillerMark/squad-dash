@@ -312,45 +312,124 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .GroupBy(task => string.Join("\u001f", task.DependsOn.OrderBy(id => id, StringComparer.Ordinal)))
             .ToArray();
         var gatedTaskIds = gatedGroups.SelectMany(g => g).Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
-        var gates = new List<(Point Center, IReadOnlyList<DecomposedSubTask> Targets, IReadOnlyList<string> Dependencies)>();
 
+        // Pass 1: compute ALL-gate centers (without drawing yet).
+        var gates = new List<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>();
         foreach (var gateGroup in gatedGroups)
         {
-            var targets = gateGroup.ToArray();
+            var targets      = gateGroup.ToArray();
             var dependencies = targets[0].DependsOn.OrderBy(id => id, StringComparer.Ordinal).ToArray();
-            var sourceRight = dependencies.Where(positions.ContainsKey).Max(id => positions[id].X + NodeWidth);
-            var targetLeft = targets.Min(task => positions[task.Id].X);
-            var centers = dependencies.Where(positions.ContainsKey).Select(id => positions[id].Y + NodeHeight / 2)
-                .Concat(targets.Select(task => positions[task.Id].Y + NodeHeight / 2));
-            var gateCenter = new Point((sourceRight + targetLeft) / 2, centers.Average());
-            gates.Add((gateCenter, targets, dependencies));
+            var sourceRight  = dependencies.Where(positions.ContainsKey).Max(id => positions[id].X + NodeWidth);
+            var targetLeft   = targets.Min(task => positions[task.Id].X);
+            var centers      = dependencies.Where(positions.ContainsKey).Select(id => positions[id].Y + NodeHeight / 2.0)
+                                   .Concat(targets.Select(task => positions[task.Id].Y + NodeHeight / 2.0));
+            var gateCenter       = new Point((sourceRight + targetLeft) / 2, centers.Average());
+            var minTargetLevel   = targets.Min(t => levels[t.Id]);
+            var maxDepLevel      = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
+            gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
+        }
 
-            // Each dep leg gets its own skip: how many stages does THIS dep span to reach the targets?
-            var minTargetLevel = targets.Min(t => levels[t.Id]);
-            var maxDepLevel    = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
+        // Pass 2: pre-compute approval-gate centers.
+        var approvalGateInfos = new List<(DecomposedGate Gate, Point Center)>();
+        if (group.ApprovalGates is { Count: > 0 })
+        {
+            foreach (var approvalGate in group.ApprovalGates)
+            {
+                var afterPositions  = (approvalGate.AfterTaskIds  ?? []).Where(positions.ContainsKey).Select(id => positions[id]).ToList();
+                var beforePositions = (approvalGate.BeforeTaskIds ?? []).Where(positions.ContainsKey).Select(id => positions[id]).ToList();
+                if (afterPositions.Count == 0 && beforePositions.Count == 0) continue;
+                double gateCenterX;
+                if (afterPositions.Count > 0 && beforePositions.Count > 0)
+                    gateCenterX = (afterPositions.Max(p => p.X + NodeWidth) + beforePositions.Min(p => p.X)) / 2;
+                else if (afterPositions.Count > 0)
+                    gateCenterX = afterPositions.Max(p => p.X + NodeWidth) + ColumnSpacing / 4;
+                else
+                    gateCenterX = beforePositions.Min(p => p.X) - ColumnSpacing / 4;
+                var allYCenters = afterPositions.Select(p => p.Y + NodeHeight / 2.0)
+                                      .Concat(beforePositions.Select(p => p.Y + NodeHeight / 2.0)).ToList();
+                approvalGateInfos.Add((approvalGate, new Point(gateCenterX, allYCenters.Average())));
+            }
+        }
 
+        // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
+        // When a task has N connectors leaving its right edge, they are spread at heights
+        // NodeHeight * k/(N+1) for k = 1..N (sorted top-to-bottom by destination Y).
+        var rightExitYs  = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+        var leftEntryYs  = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+
+        void RegisterExit(string taskId, double otherY)
+        {
+            if (!rightExitYs.TryGetValue(taskId, out var list)) rightExitYs[taskId] = list = [];
+            list.Add(otherY);
+        }
+        void RegisterEntry(string taskId, double otherY)
+        {
+            if (!leftEntryYs.TryGetValue(taskId, out var list)) leftEntryYs[taskId] = list = [];
+            list.Add(otherY);
+        }
+
+        foreach (var (gateCenter, targets, dependencies, _, _) in gates)
+        {
+            foreach (var dep in dependencies.Where(positions.ContainsKey))
+                RegisterExit(dep, gateCenter.Y);
+            foreach (var target in targets)
+                RegisterEntry(target.Id, gateCenter.Y);
+        }
+        foreach (var task in group.Tasks.Where(t => !gatedTaskIds.Contains(t.Id)))
+            foreach (var dep in task.DependsOn.Where(positions.ContainsKey))
+            {
+                RegisterExit(dep,      positions[task.Id].Y + NodeHeight / 2.0);
+                RegisterEntry(task.Id, positions[dep].Y      + NodeHeight / 2.0);
+            }
+        foreach (var (approvalGate, gateCenter) in approvalGateInfos)
+        {
+            foreach (var taskId in approvalGate.AfterTaskIds  ?? []) if (positions.ContainsKey(taskId)) RegisterExit(taskId, gateCenter.Y);
+            foreach (var taskId in approvalGate.BeforeTaskIds ?? []) if (positions.ContainsKey(taskId)) RegisterEntry(taskId, gateCenter.Y);
+        }
+        foreach (var list in rightExitYs.Values)  list.Sort();
+        foreach (var list in leftEntryYs.Values)   list.Sort();
+
+        double SpreadExitY(string taskId, double otherY)
+        {
+            if (!rightExitYs.TryGetValue(taskId, out var list) || list.Count <= 1)
+                return positions[taskId].Y + NodeHeight / 2.0;
+            var idx = list.IndexOf(otherY);
+            return positions[taskId].Y + NodeHeight * (Math.Max(0, idx) + 1.0) / (list.Count + 1);
+        }
+        double SpreadEntryY(string taskId, double otherY)
+        {
+            if (!leftEntryYs.TryGetValue(taskId, out var list) || list.Count <= 1)
+                return positions[taskId].Y + NodeHeight / 2.0;
+            var idx = list.IndexOf(otherY);
+            return positions[taskId].Y + NodeHeight * (Math.Max(0, idx) + 1.0) / (list.Count + 1);
+        }
+
+        // Draw ALL-gate connectors.
+        foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
+        {
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
                 var depSkip = minTargetLevel - levels[dependency] - 1;
                 AddConnector(canvas,
-                    new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
+                    new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y)),
                     new Point(gateCenter.X - 20, gateCenter.Y),
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip));
             }
             foreach (var target in targets)
             {
-                var targetPoint  = positions[target.Id];
-                var targetSkip   = levels[target.Id] - maxDepLevel - 1;
+                var targetPoint = positions[target.Id];
+                var targetSkip  = levels[target.Id] - maxDepLevel - 1;
                 AddConnector(canvas,
                     new Point(gateCenter.X + 20, gateCenter.Y),
-                    new Point(targetPoint.X, targetPoint.Y + NodeHeight / 2),
+                    new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y)),
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip));
             }
         }
 
+        // Draw non-gated direct connectors.
         foreach (var task in group.Tasks.Where(task => !gatedTaskIds.Contains(task.Id)))
         {
             foreach (var dependency in task.DependsOn.Where(positions.ContainsKey))
@@ -359,8 +438,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var target    = positions[task.Id];
                 var skipCount = Math.Max(0, levels[task.Id] - levels[dependency] - 1);
                 AddConnector(canvas,
-                    new Point(source.X + NodeWidth, source.Y + NodeHeight / 2),
-                    new Point(target.X, target.Y + NodeHeight / 2),
+                    new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0)),
+                    new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0)),
                     arrowHead: true,
                     skipCount: skipCount);
             }
@@ -393,93 +472,60 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(badge);
         }
 
-        // Render human approval gate badges.
-        if (group.ApprovalGates is { Count: > 0 })
+        // Render human approval gate connectors and badges.
+        foreach (var (approvalGate, gateCenter) in approvalGateInfos)
         {
-            foreach (var approvalGate in group.ApprovalGates)
+            foreach (var taskId in approvalGate.AfterTaskIds ?? [])
             {
-                var afterPositions = (approvalGate.AfterTaskIds ?? [])
-                    .Where(positions.ContainsKey)
-                    .Select(id => positions[id])
-                    .ToList();
-                var beforePositions = (approvalGate.BeforeTaskIds ?? [])
-                    .Where(positions.ContainsKey)
-                    .Select(id => positions[id])
-                    .ToList();
-
-                if (afterPositions.Count == 0 && beforePositions.Count == 0)
-                    continue;
-
-                double gateCenterX;
-                if (afterPositions.Count > 0 && beforePositions.Count > 0)
-                {
-                    var sourceRight = afterPositions.Max(p => p.X + NodeWidth);
-                    var targetLeft  = beforePositions.Min(p => p.X);
-                    gateCenterX = (sourceRight + targetLeft) / 2;
-                }
-                else if (afterPositions.Count > 0)
-                    gateCenterX = afterPositions.Max(p => p.X + NodeWidth) + ColumnSpacing / 4;
-                else
-                    gateCenterX = beforePositions.Min(p => p.X) - ColumnSpacing / 4;
-
-                var allYCenters = afterPositions.Select(p => p.Y + NodeHeight / 2)
-                    .Concat(beforePositions.Select(p => p.Y + NodeHeight / 2))
-                    .ToList();
-                var gateCenterY = allYCenters.Average();
-                var gateCenter  = new Point(gateCenterX, gateCenterY);
-
-                foreach (var taskId in approvalGate.AfterTaskIds ?? [])
-                {
-                    if (!positions.TryGetValue(taskId, out var pos)) continue;
-                    AddConnector(canvas,
-                        new Point(pos.X + NodeWidth, pos.Y + NodeHeight / 2),
-                        new Point(gateCenter.X - 30, gateCenter.Y),
-                        arrowHead: false);
-                }
-                foreach (var taskId in approvalGate.BeforeTaskIds ?? [])
-                {
-                    if (!positions.TryGetValue(taskId, out var pos)) continue;
-                    AddConnector(canvas,
-                        new Point(gateCenter.X + 30, gateCenter.Y),
-                        new Point(pos.X, pos.Y + NodeHeight / 2),
-                        arrowHead: true);
-                }
-
-                var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
-                    string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
-                var durableGateStatus = durableGate?.Status ?? PlanGateStatus.Pending;
-                var (gateIcon, gateBorderKey) = durableGateStatus switch
-                {
-                    PlanGateStatus.AwaitingApproval => ("⏸", "PriorityMid"),
-                    PlanGateStatus.Approved         => ("✓",  "PriorityLow"),
-                    PlanGateStatus.Skipped          => ("–",  "SubtleText"),
-                    _                               => ("🔒", "PanelBorder"),
-                };
-                var gateToolTipText = durableGate is not null
-                    ? $"{approvalGate.Message}\nStatus: {durableGateStatus}"
-                    : approvalGate.Message;
-                var gateBadgeText = new TextBlock
-                {
-                    Text                = gateIcon,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment   = VerticalAlignment.Center,
-                };
-                gateBadgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                var gateBadge = new Border
-                {
-                    Width           = 60,
-                    Height          = 28,
-                    CornerRadius    = new CornerRadius(14),
-                    BorderThickness = new Thickness(1.5),
-                    ToolTip         = gateToolTipText,
-                    Child           = gateBadgeText,
-                };
-                gateBadge.SetResourceReference(Border.BorderBrushProperty, gateBorderKey);
-                gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-                Canvas.SetLeft(gateBadge, gateCenter.X - 30);
-                Canvas.SetTop(gateBadge, gateCenter.Y - 14);
-                canvas.Children.Add(gateBadge);
+                if (!positions.TryGetValue(taskId, out var pos)) continue;
+                AddConnector(canvas,
+                    new Point(pos.X + NodeWidth, SpreadExitY(taskId, gateCenter.Y)),
+                    new Point(gateCenter.X - 30, gateCenter.Y),
+                    arrowHead: false);
             }
+            foreach (var taskId in approvalGate.BeforeTaskIds ?? [])
+            {
+                if (!positions.TryGetValue(taskId, out var pos)) continue;
+                AddConnector(canvas,
+                    new Point(gateCenter.X + 30, gateCenter.Y),
+                    new Point(pos.X, SpreadEntryY(taskId, gateCenter.Y)),
+                    arrowHead: true);
+            }
+
+            var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
+                string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
+            var durableGateStatus = durableGate?.Status ?? PlanGateStatus.Pending;
+            var (gateIcon, gateBorderKey) = durableGateStatus switch
+            {
+                PlanGateStatus.AwaitingApproval => ("⏸", "PriorityMid"),
+                PlanGateStatus.Approved         => ("✓",  "PriorityLow"),
+                PlanGateStatus.Skipped          => ("–",  "SubtleText"),
+                _                               => ("🔒", "PanelBorder"),
+            };
+            var gateToolTipText = durableGate is not null
+                ? $"{approvalGate.Message}\nStatus: {durableGateStatus}"
+                : approvalGate.Message;
+            var gateBadgeText = new TextBlock
+            {
+                Text                = gateIcon,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment   = VerticalAlignment.Center,
+            };
+            gateBadgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            var gateBadge = new Border
+            {
+                Width           = 60,
+                Height          = 28,
+                CornerRadius    = new CornerRadius(14),
+                BorderThickness = new Thickness(1.5),
+                ToolTip         = gateToolTipText,
+                Child           = gateBadgeText,
+            };
+            gateBadge.SetResourceReference(Border.BorderBrushProperty, gateBorderKey);
+            gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
+            Canvas.SetLeft(gateBadge, gateCenter.X - 30);
+            Canvas.SetTop(gateBadge, gateCenter.Y - 14);
+            canvas.Children.Add(gateBadge);
         }
 
         foreach (var task in group.Tasks)
@@ -760,45 +806,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
     {
         var brush = new SolidColorBrush(ConnectorColor(skipCount));
-        const double arrowLength   = 11;
+        const double arrowLength    = 11;
         const double arrowHalfWidth = 5;
 
-        if (Math.Abs(to.Y - from.Y) < 1.0)
+        // When there is an arrowhead, the line/curve ends at the base-center of the arrowhead
+        // (not at the tip), so the line visually enters the center of the arrow rather than
+        // overshooting through it.  All connectors flow left-to-right, so the base is directly
+        // to the left of the tip by arrowLength pixels.
+        var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
+
+        if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0)
         {
-            // Same Y — straight horizontal line.
-            var line = new Line
+            // Straight line: skip (multi-stage) connectors always straight; same-Y also straight.
+            canvas.Children.Add(new Line
             {
                 X1 = from.X, Y1 = from.Y,
-                X2 = to.X,   Y2 = to.Y,
+                X2 = lineEnd.X, Y2 = lineEnd.Y,
                 StrokeThickness = 2,
                 Stroke = brush,
-            };
-            canvas.Children.Add(line);
-
-            if (!arrowHead) return;
-            var vec = from - to;
-            if (vec.Length < 0.1) return;
-            vec.Normalize();
-            var perp = new Vector(-vec.Y, vec.X);
-            var basePoint = to + vec * arrowLength;
-            canvas.Children.Add(new Polygon
-            {
-                Fill   = brush,
-                Points = [to, basePoint + perp * arrowHalfWidth, basePoint - perp * arrowHalfWidth],
             });
         }
         else
         {
-            // Different Y — S-curve Bézier with horizontal tangents at both endpoints.
-            // Each control handle extends horizontally; length is half the horizontal span
-            // (clamped to a minimum so the curve stays shallow even on short hops).
-            double dx = to.X - from.X;
+            // S-curve Bézier with horizontal tangents at both endpoints.
+            double dx        = lineEnd.X - from.X;
             double handleLen = Math.Max(dx * 0.5, 40.0);
-            var cp1 = new Point(from.X + handleLen, from.Y);
-            var cp2 = new Point(to.X   - handleLen, to.Y);
+            var cp1 = new Point(from.X    + handleLen, from.Y);
+            var cp2 = new Point(lineEnd.X - handleLen, lineEnd.Y);
 
             var figure = new PathFigure { StartPoint = from };
-            figure.Segments.Add(new BezierSegment(cp1, cp2, to, isStroked: true));
+            figure.Segments.Add(new BezierSegment(cp1, cp2, lineEnd, isStroked: true));
             var geometry = new PathGeometry();
             geometry.Figures.Add(figure);
             canvas.Children.Add(new Path
@@ -808,20 +845,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Stroke          = brush,
                 Fill            = Brushes.Transparent,
             });
-
-            if (!arrowHead) return;
-            // Tangent at 'to' points in the direction (to – cp2), which is horizontal.
-            var tangent = to - cp2;
-            if (tangent.Length < 0.1) return;
-            tangent.Normalize();
-            var perp = new Vector(-tangent.Y, tangent.X);
-            var basePoint = to - tangent * arrowLength;
-            canvas.Children.Add(new Polygon
-            {
-                Fill   = brush,
-                Points = [to, basePoint + perp * arrowHalfWidth, basePoint - perp * arrowHalfWidth],
-            });
         }
+
+        if (!arrowHead) return;
+
+        // Arrowhead: tip at `to`, wings spread from `lineEnd` (base-center).
+        var perp = new Vector(0, 1);  // horizontal tangent → perpendicular is vertical
+        canvas.Children.Add(new Polygon
+        {
+            Fill   = brush,
+            Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+        });
     }
 
     // Base hue for adjacent-stage connectors. Each skipped stage rotates the hue by 45°.
