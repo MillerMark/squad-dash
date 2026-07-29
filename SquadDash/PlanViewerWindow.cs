@@ -1,7 +1,9 @@
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
 namespace SquadDash;
@@ -439,6 +441,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!connectorsByTask.TryGetValue(taskId, out var list))
                 connectorsByTask[taskId] = list = [];
             if (!list.Contains(cg)) list.Add(cg);
+            if (!cg.TaskIds.Contains(taskId, StringComparer.Ordinal)) cg.TaskIds.Add(taskId);
         }
 
         // Draw ALL-gate connectors.
@@ -537,6 +540,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
         }
+
+        var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
 
         foreach (var task in group.Tasks)
         {
@@ -710,10 +715,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 border.ContextMenu = contextMenu;
             }
 
-            // Hover: show glow on all connectors entering/exiting this task and bring them forward.
+            // Hover: show glow on all connectors entering/exiting this task, bring them forward,
+            // and add a glow effect to the task node itself.
             var hoveredTaskId = task.Id;
             border.MouseEnter += (_, _) =>
             {
+                border.Effect = TaskNodeGlowEffect();
                 if (!connectorsByTask.TryGetValue(hoveredTaskId, out var connectors)) return;
                 foreach (var cg in connectors)
                 {
@@ -723,6 +730,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             border.MouseLeave += (_, _) =>
             {
+                border.Effect = null;
                 if (!connectorsByTask.TryGetValue(hoveredTaskId, out var connectors)) return;
                 foreach (var cg in connectors)
                 {
@@ -732,6 +740,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             Panel.SetZIndex(border, 20);
             canvas.Children.Add(border);
+
+            borderByTask[task.Id] = border;
 
             // Lock icon overlay for tasks that have an approval gate following them.
             if (lockIconByTask.TryGetValue(task.Id, out var lockIcon))
@@ -747,6 +757,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(lockText,  position.Y + NodeHeight - 20);
                 Panel.SetZIndex(lockText, 25);
                 canvas.Children.Add(lockText);
+            }
+        }
+
+        // Wire connector hover: highlight the connector, raise its Z, and glow the endpoint task nodes.
+        var allConnectorGroups = connectorsByTask.Values.SelectMany(l => l).Distinct().ToList();
+        foreach (var cg in allConnectorGroups)
+        {
+            var capturedCg = cg;
+            foreach (var el in capturedCg.MainElements)
+            {
+                el.MouseEnter += (_, _) =>
+                {
+                    foreach (var g in capturedCg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
+                    foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 4);
+                    foreach (var tid in capturedCg.TaskIds)
+                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                };
+                el.MouseLeave += (_, _) =>
+                {
+                    foreach (var g in capturedCg.GlowElements) { g.Visibility = Visibility.Hidden; Panel.SetZIndex(g, 0); }
+                    foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 0);
+                    foreach (var tid in capturedCg.TaskIds)
+                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                };
             }
         }
 
@@ -855,6 +889,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         public readonly List<UIElement> GlowElements = [];
         public readonly List<UIElement> MainElements = [];
+        public readonly List<string>    TaskIds       = [];
     }
 
     private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null)
@@ -981,6 +1016,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var hue = (ConnectorBaseHue + skipCount * 45.0) % 360.0;
         return HslToRgb(hue, 0.95, 0.88);
     }
+
+    // Drop-shadow glow applied to a task node Border on hover.
+    private static DropShadowEffect TaskNodeGlowEffect() => new()
+    {
+        Color       = HslToRgb(ConnectorBaseHue, 0.90, 0.70),
+        BlurRadius  = 18,
+        ShadowDepth = 0,
+        Opacity     = 0.90,
+    };
 
     private static Color HslToRgb(double hue, double saturation, double lightness)
     {
