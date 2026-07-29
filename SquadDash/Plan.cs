@@ -98,7 +98,13 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanAgentAssignment>? AgentAssignments = null,
     [property: JsonPropertyName("parallelEligible")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                bool? ParallelEligible = null);
+                                                bool? ParallelEligible = null,
+    [property: JsonPropertyName("agentRoutingMode")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? AgentRoutingMode = null,
+    [property: JsonPropertyName("genericAgentReason")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? GenericAgentReason = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

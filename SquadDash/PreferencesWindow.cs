@@ -309,7 +309,7 @@ internal sealed class PreferencesWindow : Window {
             Tag = PlanAgentRoutingPolicy.PlanExecutionOnly
         });
         _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {
-            Content = "Always",
+            Content = "Ordinary prompts too (request only)",
             Tag = PlanAgentRoutingPolicy.Always
         });
         _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {

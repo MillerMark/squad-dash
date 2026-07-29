@@ -5701,6 +5701,7 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(evt.LatestResponse))
             ReconcileFinalSubagentResponseText(thread, evt.LatestResponse!);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
+        RecordPlanAgentCompletion(thread, evt, succeeded: true);
         // Pass the raw (unsanitized) response so ParseAndApplyApprovalGroups can detect
         // APPROVAL_GROUP_JSON blocks that SanitizeResponseText strips from display.
         _agentThreadRegistry.FinalizeAgentThread(thread, rawResponse: evt.LatestResponse);
@@ -5757,6 +5758,7 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         var summary = BackgroundTaskPresenter.BuildThreadFailureSummary(thread, evt.Message);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
+        RecordPlanAgentCompletion(thread, evt, succeeded: false);
         _agentThreadRegistry.FinalizeAgentThread(thread);
         UpdateCompletedTimeFooters();
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
@@ -5782,6 +5784,7 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         var summary = BackgroundTaskPresenter.BuildThreadCancellationSummary(thread);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Cancelled", detailText: summary);
+        RecordPlanAgentCompletion(thread, evt, succeeded: false);
         thread.CompletedAt ??= DateTimeOffset.Now;
         _agentThreadRegistry.FinalizeAgentThread(thread);
         UpdateCompletedTimeFooters();
@@ -7667,6 +7670,13 @@ public partial class MainWindow : Window
             var persisted = File.Exists(tasksPath)
                 ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
                 : null;
+            if (persisted?.Errors.Count > 0)
+            {
+                _CodeHealthGroupRunner = null;
+                _conversationManager.UpdateActiveLoopExecutionState(null);
+                throw new InvalidDataException(
+                    "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors));
+            }
             if (persisted is null || !persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
             {
                 _CodeHealthGroupRunner = null;
@@ -7709,8 +7719,24 @@ public partial class MainWindow : Window
             Outcome: null));
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
+        var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var previousAttempts = (priorExecution?.PreviousPlanExecutionAttempts ?? []).ToList();
+        if (priorExecution?.PlanExecutionAttempt is { } priorAttempt &&
+            string.Equals(priorAttempt.PlanId, groupId, StringComparison.Ordinal))
+        {
+            previousAttempts.Add(priorAttempt with {
+                Status = string.Equals(priorAttempt.Status, "active", StringComparison.Ordinal)
+                    ? "interrupted"
+                    : priorAttempt.Status
+            });
+        }
         _conversationManager.UpdateActiveLoopExecutionState(
-            new ActiveLoopExecutionState(loopPath, groupId, groupId, revision));
+            new ActiveLoopExecutionState(
+                loopPath,
+                groupId,
+                groupId,
+                revision,
+                PreviousPlanExecutionAttempts: previousAttempts));
 
         TryPublishPlanStarted(groupId, group, revision);
 
@@ -7718,27 +7744,6 @@ public partial class MainWindow : Window
         _loopPanelVisible = true;
         SyncLoopPanel();
         BackupAndClearLoopOutput();
-
-        // Resolve routing for the current step and inject agent context into the loop prompt.
-        _CodeHealthGroupRunner?.TrackFirstEligibleStep(groupId);
-        var stepRoutingContext = string.Empty;
-        if (_currentWorkspace is not null && _CodeHealthGroupRunner?.CurrentStepId is { } currentStep)
-        {
-            var stepTitle       = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentStep;
-            var stepDescription = _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty;
-            var assignments = executionGroup?.Tasks
-                .FirstOrDefault(task => string.Equals(task.Id, currentStep, StringComparison.Ordinal))
-                ?.AgentAssignments;
-            if (PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) == PlanAgentRoutingPolicy.Off)
-                assignments = null;
-            stepRoutingContext  = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
-                _currentWorkspace.SquadFolderPath, currentStep, stepTitle, stepDescription, assignments, revision);
-            if (!string.IsNullOrWhiteSpace(stepRoutingContext))
-                SquadDashTrace.Write("PlanRouting",
-                    $"Step {currentStep} routed to: {stepRoutingContext[..Math.Min(200, stepRoutingContext.Length)]}");
-        }
-        if (!string.IsNullOrWhiteSpace(stepRoutingContext))
-            config = config with { Instructions = config.Instructions + "\n\n" + stepRoutingContext };
 
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId, featureGroups: _featureGroupStore?.Load());
@@ -7764,7 +7769,13 @@ public partial class MainWindow : Window
         }
 
         if (!PlanAgentAssignmentCatalogValidator.TryValidate(
-                group, _currentWorkspace!.SquadFolderPath, out var assignmentCatalogError))
+                group,
+                _currentWorkspace!.SquadFolderPath,
+                out var assignmentCatalogError,
+                requireExplicitRouting:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off,
+                enforceAssignments:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
         {
             SquadDashTrace.Write("PlanRouting", assignmentCatalogError ?? "Invalid plan agent assignment.");
             AppendLine($"⚠ Could not stage plan {group.GroupId}: {assignmentCatalogError}");
@@ -7779,6 +7790,13 @@ public partial class MainWindow : Window
             var persisted = File.Exists(tasksPath)
                 ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
                 : null;
+            if (persisted?.Errors.Count > 0)
+            {
+                AppendLine($"⚠ Could not stage revised plan {group.GroupId}: " +
+                           string.Join("; ", persisted.Errors));
+                QueueDecomposeRepair();
+                return;
+            }
             if (persisted is null || !persisted.DecomposeGroups.TryGetValue(group.GroupId, out var existingGroup))
             {
                 AppendLine($"⚠ Could not stage revised plan {group.GroupId}: its existing approved plan was not found.");
@@ -8068,6 +8086,9 @@ public partial class MainWindow : Window
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        if (parsed.Errors.Count > 0)
+            throw new InvalidDataException(
+                "The persisted plan metadata is invalid: " + string.Join("; ", parsed.Errors));
         if (!parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
             throw new InvalidOperationException("The plan is no longer present in tasks.md.");
         var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
@@ -8125,7 +8146,14 @@ public partial class MainWindow : Window
         if (!TasksJsonParser.TryParse("TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group), out _))
             throw new InvalidOperationException("The saved task plan no longer passes schema validation.");
         if (!PlanAgentAssignmentCatalogValidator.TryValidate(
-                group, _currentWorkspace.SquadFolderPath, out var assignmentCatalogError))
+                group,
+                _currentWorkspace.SquadFolderPath,
+                out var assignmentCatalogError,
+                requireExplicitRouting:
+                    currentPlan.CreatedAt is not null &&
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off,
+                enforceAssignments:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
             throw new InvalidOperationException(assignmentCatalogError ?? "The saved plan has invalid agent assignments.");
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out _))
             throw new InvalidOperationException("The saved task plan contains a dependency cycle.");
@@ -8324,6 +8352,9 @@ public partial class MainWindow : Window
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        if (persisted.Errors.Count > 0)
+            throw new InvalidDataException(
+                "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors));
         if (!persisted.DecomposeGroups.TryGetValue(_activeDecomposeGroupId, out var group))
             throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing from tasks.md.");
         var activeBranch = ReadGitBranch(_currentWorkspace.FolderPath);
@@ -8368,7 +8399,98 @@ public partial class MainWindow : Window
         }
         _decomposeIterationBaselineCommit =
             (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
-        return continuationContext;
+
+        var currentTaskId = _CodeHealthGroupRunner.CurrentStepId;
+        var currentTask = group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, currentTaskId, StringComparison.Ordinal));
+        if (currentTask is null)
+            throw new InvalidDataException($"Plan {_activeDecomposeGroupId} is missing task {currentTaskId}.");
+
+        var policy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
+        var assignments = policy == PlanAgentRoutingPolicy.Off ? null : currentTask.AgentAssignments;
+        if (assignments is { Count: > 1 })
+            throw new InvalidOperationException(
+                $"Task {currentTaskId} assigns {assignments.Count} primary agents. " +
+                "Concurrent primary writers are disabled until SquadDash can provision isolated worktrees.");
+        if (assignments?.Any(assignment => assignment.AllowGenericChildren) == true)
+            throw new InvalidOperationException(
+                $"Task {currentTaskId} permits generic child workers. " +
+                "Child workers are disabled until SquadDash can enforce read-only isolation.");
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution
+            ?? throw new InvalidOperationException("The active plan execution was not persisted.");
+        PlanExecutionAttemptState? attempt = null;
+        if (assignments is { Count: 1 })
+        {
+            attempt = execution.PlanExecutionAttempt;
+            if (attempt is null ||
+                !string.Equals(attempt.TaskId, currentTaskId, StringComparison.Ordinal) ||
+                !string.Equals(attempt.Revision, _CodeHealthGroupRunner.CurrentRevision, StringComparison.Ordinal) ||
+                !string.Equals(attempt.Status, "active", StringComparison.Ordinal))
+            {
+                var teamPath = Path.Combine(_currentWorkspace.SquadFolderPath, "team.md");
+                var roster = PlanStepAgentResolver.ParseTeamMd(
+                    File.Exists(teamPath) ? File.ReadAllText(teamPath) : string.Empty);
+                attempt = PlanExecutionAttemptState.Create(
+                    _activeDecomposeGroupId,
+                    currentTaskId,
+                    _CodeHealthGroupRunner.CurrentRevision,
+                    _currentWorkspace.FolderPath,
+                    _currentWorkspace.SquadFolderPath,
+                    assignments,
+                    roster);
+            }
+        }
+        else if (policy != PlanAgentRoutingPolicy.Off &&
+                 string.Equals(currentTask.AgentRoutingMode, "generic", StringComparison.Ordinal))
+        {
+            attempt = execution.PlanExecutionAttempt;
+            if (attempt is null ||
+                !attempt.AllowsGenericPrimary ||
+                !string.Equals(attempt.TaskId, currentTaskId, StringComparison.Ordinal) ||
+                !string.Equals(attempt.Revision, _CodeHealthGroupRunner.CurrentRevision, StringComparison.Ordinal) ||
+                !string.Equals(attempt.Status, "active", StringComparison.Ordinal))
+            {
+                attempt = PlanExecutionAttemptState.CreateGeneric(
+                    _activeDecomposeGroupId,
+                    currentTaskId,
+                    _CodeHealthGroupRunner.CurrentRevision,
+                    _currentWorkspace.FolderPath);
+            }
+        }
+
+        var attemptHistory = (execution.PreviousPlanExecutionAttempts ?? []).ToList();
+        if (execution.PlanExecutionAttempt is { } replacedAttempt &&
+            !string.Equals(replacedAttempt.AttemptId, attempt?.AttemptId, StringComparison.Ordinal))
+        {
+            attemptHistory.Add(replacedAttempt with {
+                Status = string.Equals(replacedAttempt.Status, "active", StringComparison.Ordinal)
+                    ? "superseded"
+                    : replacedAttempt.Status
+            });
+        }
+        _conversationManager.UpdateActiveLoopExecutionState(
+            execution with {
+                PlanExecutionAttempt = attempt,
+                PreviousPlanExecutionAttempts = attemptHistory
+            });
+        var routingContext = policy == PlanAgentRoutingPolicy.Off
+            ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
+              "Use at most one write-capable primary worker for this task; do not run concurrent writers in the active worktree."
+            : DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+                _currentWorkspace.SquadFolderPath,
+                currentTaskId,
+                _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentTaskId,
+                _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty,
+                assignments,
+                _CodeHealthGroupRunner.CurrentRevision,
+                attempt,
+                string.Equals(currentTask.AgentRoutingMode, "generic", StringComparison.Ordinal)
+                    ? currentTask.GenericAgentReason
+                    : null);
+        var contexts = new[] { continuationContext, routingContext }
+            .Where(value => !string.IsNullOrWhiteSpace(value));
+        return string.Join("\n\n", contexts);
     }
 
     private async Task FinalizeExecutingPlanIterationAsync()
@@ -8381,30 +8503,52 @@ public partial class MainWindow : Window
         var revision = _CodeHealthGroupRunner.CurrentRevision ?? string.Empty;
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var executionAttempt = activeExecution?.PlanExecutionAttempt;
         IReadOnlyList<DecomposedAgentAssignment>? expectedAssignments = null;
+        DecomposedSubTask? persistedTask = null;
         string? assignmentError = null;
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         if (File.Exists(tasksPath))
         {
             var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+            if (persisted.Errors.Count > 0)
+                error = "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors);
             if (persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
-                expectedAssignments = persistedGroup.Tasks
-                    .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal))
-                    ?.AgentAssignments;
+            {
+                persistedTask = persistedGroup.Tasks
+                    .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal));
+                expectedAssignments = persistedTask?.AgentAssignments;
+            }
         }
 
-        assignmentError = PlanAgentAssignmentValidator.Validate(
-            taskId,
-            revision,
-            PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) == PlanAgentRoutingPolicy.Off
-                ? null
-                : expectedAssignments,
-            _agentThreadRegistry.LaunchesByToolCallId.Values);
-        if (assignmentError is null &&
-            PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off)
-            assignmentError = PlanAgentAssignmentValidator.ValidateWrapUp(
-                taskId, expectedAssignments, result?.AgentExecutions);
+        var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
+        if (routingPolicy != PlanAgentRoutingPolicy.Off &&
+            string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal))
+        {
+            assignmentError = PlanAgentAssignmentValidator.ValidateGeneric(
+                taskId,
+                revision,
+                executionAttempt,
+                result?.ExecutionAttemptId,
+                result?.AgentExecutions);
+        }
+        else
+        {
+            assignmentError = PlanAgentAssignmentValidator.Validate(
+                taskId,
+                revision,
+                routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
+                executionAttempt);
+            if (assignmentError is null && routingPolicy != PlanAgentRoutingPolicy.Off)
+                assignmentError = PlanAgentAssignmentValidator.ValidateWrapUp(
+                    taskId,
+                    expectedAssignments,
+                    executionAttempt,
+                    result?.ExecutionAttemptId,
+                    result?.AgentExecutions);
+        }
         if (assignmentError is not null)
             error = assignmentError;
 
@@ -8432,11 +8576,21 @@ public partial class MainWindow : Window
                         stepTitle,
                         stepDescription,
                         expectedAssignments,
-                        revision);
+                        revision,
+                        executionAttempt);
                     repairPrompt = PlanAssignmentRepairPrompt.Build(
                         groupId, taskId, revision, expectedAssignments, routingContext, repairError);
                     ScheduleDecomposeSystemEntry(
                         $"⚙ SquadDash is requesting the missing verified agent assignment (reason: {repairError})");
+                }
+                else if (assignmentError is not null &&
+                         string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal) &&
+                         executionAttempt is not null)
+                {
+                    repairPrompt += "\n\nDo not launch another primary worker if one already ran. " +
+                                    $"Return `executionAttemptId`: `{executionAttempt.AttemptId}` and omit `agentExecutions`.";
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ SquadDash is repairing generic plan-execution evidence (reason: {repairError})");
                 }
                 else
                 {
@@ -8466,6 +8620,14 @@ public partial class MainWindow : Window
             StopAndOfferDecomposeRecovery(groupId, taskId, revision, error ?? "The result could not be applied.");
             return;
         }
+
+        if (activeExecution is not null && executionAttempt is not null)
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with {
+                    PlanExecutionAttempt = executionAttempt with {
+                        Status = result.Status == "complete" ? "accepted" : "blocked"
+                    }
+                });
 
         LoadTasksPanel();
         if (result.Status is "partial" or "failed")
@@ -30221,7 +30383,7 @@ public partial class MainWindow : Window
         if (!TryGetOrCreateToolEntry(thread, evt, out var entry))
             return;
 
-        _agentThreadRegistry.CaptureBackgroundAgentLaunchInfo(evt);
+        CapturePlanAwareBackgroundAgentLaunch(thread, evt);
 
         if (!string.IsNullOrWhiteSpace(evt.ProgressMessage))
             entry.ProgressText = evt.ProgressMessage;
@@ -30298,16 +30460,86 @@ public partial class MainWindow : Window
     private void CompleteToolExecution(SquadSdkEvent evt) =>
         CompleteToolExecution(CoordinatorThread, evt);
 
+    private void CapturePlanAwareBackgroundAgentLaunch(TranscriptThreadState ownerThread, SquadSdkEvent evt)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var attempt = execution?.PlanExecutionAttempt;
+        var launch = _agentThreadRegistry.CaptureBackgroundAgentLaunchInfo(
+            evt,
+            attempt,
+            ownerThread.Kind == TranscriptThreadKind.Coordinator,
+            ownerThread.Kind == TranscriptThreadKind.Agent ? ownerThread.ToolCallId : null);
+        if (launch is null || execution is null || attempt is null)
+            return;
+
+        PlanExecutionAttemptState updated;
+        if (ownerThread.Kind == TranscriptThreadKind.Coordinator)
+        {
+            updated = launch.IsVerifiedRosterAssignment
+                ? attempt.RecordPrimaryLaunch(launch)
+                : attempt.AllowsGenericPrimary
+                    ? attempt.RecordGenericPrimaryLaunch(launch)
+                    : attempt.RecordUnexpectedPrimaryLaunch(launch.ToolCallId);
+        }
+        else if (!string.IsNullOrWhiteSpace(ownerThread.ToolCallId))
+        {
+            updated = attempt.RecordChildLaunch(ownerThread.ToolCallId, launch.ToolCallId);
+        }
+        else
+        {
+            return;
+        }
+
+        _conversationManager.UpdateActiveLoopExecutionState(
+            execution with { PlanExecutionAttempt = updated });
+    }
+
+    private void RecordPlanContextRead(TranscriptThreadState thread, SquadSdkEvent evt)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var attempt = execution?.PlanExecutionAttempt;
+        if (execution is null || attempt is null || string.IsNullOrWhiteSpace(thread.ToolCallId))
+            return;
+
+        var path = PlanContextReadEvidence.TryResolveFullPath(evt, attempt.WorkspacePath);
+        if (path is null)
+            return;
+        var updated = attempt.RecordContextRead(thread.ToolCallId, path);
+        if (!Equals(updated, attempt))
+            _conversationManager.UpdateActiveLoopExecutionState(
+                execution with { PlanExecutionAttempt = updated });
+    }
+
+    private void RecordPlanAgentCompletion(
+        TranscriptThreadState thread,
+        SquadSdkEvent evt,
+        bool succeeded)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var attempt = execution?.PlanExecutionAttempt;
+        if (execution is null || attempt is null || string.IsNullOrWhiteSpace(thread.ToolCallId))
+            return;
+
+        var completedAt = TryParseTimestamp(evt.FinishedAt) ?? DateTimeOffset.UtcNow;
+        var updated = attempt.RecordPrimaryCompletion(thread.ToolCallId, completedAt, succeeded);
+        if (!Equals(updated, attempt))
+            _conversationManager.UpdateActiveLoopExecutionState(
+                execution with { PlanExecutionAttempt = updated });
+    }
+
     private void CompleteToolExecution(TranscriptThreadState thread, SquadSdkEvent evt)
     {
         if (!TryGetOrCreateToolEntry(thread, evt, out var entry))
             return;
 
-        _agentThreadRegistry.CaptureBackgroundAgentLaunchInfo(evt);
+        CapturePlanAwareBackgroundAgentLaunch(thread, evt);
 
         entry.IsCompleted = true;
         entry.Success = evt.Success ?? true;
         entry.FinishedAt = ParseTimestamp(evt.FinishedAt);
+
+        if (thread.Kind == TranscriptThreadKind.Agent && (evt.Success ?? true))
+            RecordPlanContextRead(thread, evt);
 
         if (entry.FinishedAt is { } finishedAt)
             entry.ThinkingBlock.LastUpdatedAt = finishedAt;

@@ -298,7 +298,7 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void CaptureBackgroundAgentLaunchInfo_PromotesNestedScribeTaskToRosterIdentity() {
+    public void CaptureBackgroundAgentLaunchInfo_DoesNotPromoteUnscopedEnvelopeToRosterIdentity() {
         var registry = MakeRegistry(getKnownTeamAgentDescriptors: () => [
             new TeamAgentDescriptor("Scribe", "scribe", "Session Logger")
         ]);
@@ -330,10 +330,15 @@ internal sealed class AgentThreadRegistryTests {
             prompt: null,
             startedAt: null);
 
+        thread.AgentCardKey = "scribe";
+        registry.ApplyBackgroundLaunchInfo(
+            thread,
+            registry.LaunchesByToolCallId["tool-scribe"]);
+
         Assert.Multiple(() => {
-            Assert.That(thread.AgentCardKey, Is.EqualTo("scribe"));
-            Assert.That(thread.AgentDisplayName, Is.EqualTo("Scribe"));
-            Assert.That(thread.Title, Is.EqualTo("Scribe"));
+            Assert.That(thread.AgentCardKey, Is.Null);
+            Assert.That(thread.AgentDisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(thread.Title, Is.EqualTo("Temporary Agent"));
             Assert.That(thread.BackgroundTaskId, Is.EqualTo("scribe-docs-panel-log"));
         });
     }

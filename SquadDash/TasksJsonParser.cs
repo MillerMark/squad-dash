@@ -183,6 +183,27 @@ internal static class TasksJsonParser
                     return false;
                 }
             }
+
+            var routingMode = task.AgentRoutingMode?.Trim();
+            if (routingMode is not null && routingMode is not ("assigned" or "generic"))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' has invalid agentRoutingMode '{routingMode}'");
+                return false;
+            }
+            if (routingMode == "assigned" && task.AgentAssignments is not { Count: > 0 })
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' selects assigned routing without an assignment");
+                return false;
+            }
+            if (routingMode == "generic" &&
+                (task.AgentAssignments is { Count: > 0 } || string.IsNullOrWhiteSpace(task.GenericAgentReason)))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TasksJsonParser: task '{task.Id}' must explain its explicit generic routing and omit assignments");
+                return false;
+            }
         }
 
         // Validate all dependsOn IDs reference valid siblings.

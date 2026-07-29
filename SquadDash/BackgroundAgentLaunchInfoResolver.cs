@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
+using System.IO;
 
 namespace SquadDash;
 
@@ -24,7 +25,10 @@ internal sealed record BackgroundAgentLaunchInfo(
     string? AssignedTaskId,
     string? AssignedPlanRevision,
     string? AssignedAgentHandle,
-    bool IsVerifiedRosterAssignment);
+    bool IsVerifiedRosterAssignment,
+    string? AssignedAttemptId = null,
+    string? LaunchingOwnerToolCallId = null,
+    DateTimeOffset? StartedAt = null);
 
 internal static class BackgroundAgentLaunchInfoResolver {
     internal const string AssignmentMarker = "SQUADDASH_AGENT_ASSIGNMENT_JSON:";
@@ -44,7 +48,11 @@ internal static class BackgroundAgentLaunchInfoResolver {
     public static BackgroundAgentLaunchInfo? TryResolve(
         string? toolCallId,
         JsonElement args,
-        IReadOnlyList<TeamAgentDescriptor> roster) {
+        IReadOnlyList<TeamAgentDescriptor> roster,
+        PlanExecutionAttemptState? activeAttempt = null,
+        bool launchedByCoordinator = false,
+        string? launchingOwnerToolCallId = null,
+        DateTimeOffset? startedAt = null) {
         if (string.IsNullOrWhiteSpace(toolCallId) || args.ValueKind != JsonValueKind.Object)
             return null;
 
@@ -63,7 +71,18 @@ internal static class BackgroundAgentLaunchInfoResolver {
 
         var assignment = TryReadAssignment(prompt);
         var assignedAgentHandle = assignment?.AgentHandle;
-        var rosterMatch = string.IsNullOrWhiteSpace(assignedAgentHandle)
+        var authorized = activeAttempt?.FindAuthorization(
+            assignment?.AttemptId,
+            assignment?.TaskId,
+            assignment?.Revision,
+            assignedAgentHandle,
+            assignment?.Capability);
+        var rosterMatch = authorized is null ||
+                          !launchedByCoordinator ||
+                          !string.Equals(authorized.Role, assignment?.Role, StringComparison.Ordinal) ||
+                          authorized.AllowGenericChildren != assignment?.AllowGenericChildren ||
+                          !string.Equals(authorized.CharterSha256, assignment?.CharterSha256, StringComparison.Ordinal) ||
+                          !PromptContainsAuthorizedCharter(prompt, authorized)
             ? null
             : roster.FirstOrDefault(candidate =>
                 string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(assignedAgentHandle), StringComparison.Ordinal));
@@ -85,10 +104,13 @@ internal static class BackgroundAgentLaunchInfoResolver {
             Normalize(assignment?.TaskId),
             Normalize(assignment?.Revision),
             Normalize(assignedAgentHandle),
-            verifiedRosterAssignment);
+            verifiedRosterAssignment,
+            Normalize(assignment?.AttemptId),
+            Normalize(launchingOwnerToolCallId),
+            startedAt);
     }
 
-    private static (string? TaskId, string? Revision, string? AgentHandle)? TryReadAssignment(string? prompt) {
+    private static AssignmentEnvelope? TryReadAssignment(string? prompt) {
         if (string.IsNullOrWhiteSpace(prompt))
             return null;
 
@@ -113,10 +135,19 @@ internal static class BackgroundAgentLaunchInfoResolver {
             else if (character == '}' && --depth == 0) {
                 try {
                     using var document = JsonDocument.Parse(prompt[braceStart..(index + 1)]);
-                    return (
+                    var allowChildren = document.RootElement.TryGetProperty("allowGenericChildren", out var allowValue) &&
+                                        allowValue.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? allowValue.GetBoolean()
+                        : (bool?)null;
+                    return new AssignmentEnvelope(
+                        TryGetString(document.RootElement, "attemptId"),
                         TryGetString(document.RootElement, "taskId"),
                         TryGetString(document.RootElement, "revision"),
-                        TryGetString(document.RootElement, "agentHandle"));
+                        TryGetString(document.RootElement, "agentHandle"),
+                        TryGetString(document.RootElement, "role"),
+                        allowChildren,
+                        TryGetString(document.RootElement, "capability"),
+                        TryGetString(document.RootElement, "charterSha256"));
                 }
                 catch (JsonException) {
                     return null;
@@ -126,6 +157,37 @@ internal static class BackgroundAgentLaunchInfoResolver {
 
         return null;
     }
+
+    private static bool PromptContainsAuthorizedCharter(
+        string? prompt,
+        PlanExecutionAssignmentAttempt authorization)
+    {
+        if (string.IsNullOrWhiteSpace(prompt) || !File.Exists(authorization.CharterPath))
+            return false;
+        try
+        {
+            var charter = File.ReadAllText(authorization.CharterPath);
+            return string.Equals(
+                       PlanExecutionAttemptState.Sha256(charter),
+                       authorization.CharterSha256,
+                       StringComparison.Ordinal) &&
+                   prompt.Contains(charter, StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private sealed record AssignmentEnvelope(
+        string? AttemptId,
+        string? TaskId,
+        string? Revision,
+        string? AgentHandle,
+        string? Role,
+        bool? AllowGenericChildren,
+        string? Capability,
+        string? CharterSha256);
 
     public static TeamAgentDescriptor? FindRosterMatch(
         string? taskName,

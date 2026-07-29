@@ -165,7 +165,9 @@ internal static class DecomposePlanningInstructions
         string stepTitle,
         string stepDescription,
         IReadOnlyList<DecomposedAgentAssignment>? explicitAssignments = null,
-        string? planRevision = null)
+        string? planRevision = null,
+        PlanExecutionAttemptState? executionAttempt = null,
+        string? explicitGenericReason = null)
     {
         try
         {
@@ -177,8 +179,25 @@ internal static class DecomposePlanningInstructions
             var agents = PlanStepAgentResolver.ParseTeamMd(teamContent);
 
             if (explicitAssignments is { Count: > 0 })
+            {
+                if (executionAttempt is null)
+                    throw new InvalidOperationException(
+                        $"Plan task {stepId} has assignments but no host-owned execution attempt.");
                 return BuildExplicitAssignmentContext(
-                    squadFolderPath, stepId, planRevision, explicitAssignments, agents);
+                    squadFolderPath, stepId, planRevision, explicitAssignments, agents, executionAttempt);
+            }
+
+            if (!string.IsNullOrWhiteSpace(explicitGenericReason))
+            {
+                if (executionAttempt is null || !executionAttempt.AllowsGenericPrimary)
+                    throw new InvalidOperationException(
+                        $"Plan task {stepId} authorizes a generic worker but has no host-owned execution attempt.");
+                return "## Explicit Generic Routing for This Step\n\n" +
+                       $"Task [{stepId}] explicitly authorizes one generic primary worker.\n" +
+                       $"Execution attempt: `{executionAttempt.AttemptId}`. Include this exact value as `executionAttemptId` in the step result.\n" +
+                       $"Reason: {explicitGenericReason.Trim()}\n" +
+                       "Launch at most one primary worker. It may not spawn child workers, and all writes remain serialized in the active plan worktree.";
+            }
 
             if (string.IsNullOrWhiteSpace(routingContent))
             {
@@ -213,10 +232,11 @@ internal static class DecomposePlanningInstructions
                 : "(charter unavailable)";
 
             return
-                "## Routing Decision for This Step\n\n" +
-                $"You are implementing task [{stepId}] as **{ctx.Resolution.AgentName}**, " +
-                $"a {ctx.Resolution.MatchedWorkType} specialist.\n" +
-                "Your charter for this engagement:\n\n" +
+                "## Legacy Advisory Routing for This Step\n\n" +
+                $"Prefer **{ctx.Resolution.AgentName}**, a {ctx.Resolution.MatchedWorkType} specialist, " +
+                $"for task [{stepId}]. This persisted task predates explicit host-owned assignments, " +
+                "so SquadDash will retain Temporary Agent identity and will not treat this recommendation as verified.\n" +
+                "Advisory charter excerpt:\n\n" +
                 charterSnippet + "\n\n" +
                 $"Routing basis: {ctx.Resolution.MatchedWorkType}";
         }
@@ -233,15 +253,15 @@ internal static class DecomposePlanningInstructions
         string stepId,
         string? planRevision,
         IReadOnlyList<DecomposedAgentAssignment> assignments,
-        IReadOnlyList<RosterAgent> roster)
+        IReadOnlyList<RosterAgent> roster,
+        PlanExecutionAttemptState executionAttempt)
     {
         var builder = new StringBuilder();
         builder.AppendLine("## Verified Agent Assignments for This Step");
         builder.AppendLine();
-        builder.AppendLine($"Task [{stepId}] has {assignments.Count} plan-authorized primary assignment(s).");
-        builder.AppendLine(assignments.Count > 1
-            ? "Launch all dependency-ready assignments before waiting for any one worker."
-            : "Launch the assigned worker and wait for its result.");
+        builder.AppendLine($"Task [{stepId}] has {assignments.Count} host-authorized primary assignment(s).");
+        builder.AppendLine($"Execution attempt: `{executionAttempt.AttemptId}`.");
+        builder.AppendLine("Launch exactly the assigned worker and wait for its result. Do not launch an additional coordinator-owned primary worker.");
         builder.AppendLine("Use the coordinator's background `task` tool so native monitoring and wrap-up remain active.");
         builder.AppendLine("A generic worker without the exact assignment envelope below is not the assigned roster agent.");
         builder.AppendLine();
@@ -262,12 +282,21 @@ internal static class DecomposePlanningInstructions
                 throw new InvalidDataException(
                     $"Plan task {stepId} assigns '{agent.Handle}', but its charter is unavailable.");
 
+            var authorization = executionAttempt.Assignments.FirstOrDefault(candidate =>
+                string.Equals(candidate.AgentHandle, assignment.AgentHandle, StringComparison.OrdinalIgnoreCase));
+            if (authorization is null)
+                throw new InvalidDataException(
+                    $"Plan task {stepId} has no host authorization for '{assignment.AgentHandle}'.");
+
             var envelope = JsonSerializer.Serialize(new {
+                attemptId = executionAttempt.AttemptId,
                 taskId = stepId,
                 revision = planRevision,
                 agentHandle = agent.Handle,
                 role = assignment.Role,
-                allowGenericChildren = assignment.AllowGenericChildren
+                allowGenericChildren = assignment.AllowGenericChildren,
+                capability = authorization.Capability,
+                charterSha256 = authorization.CharterSha256
             });
 
             builder.AppendLine($"### {agent.Name} — {assignment.Role}");
@@ -278,25 +307,22 @@ internal static class DecomposePlanningInstructions
             builder.AppendLine("Inject the complete charter below into that worker prompt:");
             builder.AppendLine(File.ReadAllText(charterPath));
             builder.AppendLine();
-            var historyPath = Path.Combine(Path.GetDirectoryName(charterPath)!, "history.md");
-            if (File.Exists(historyPath))
+            foreach (var requiredPath in authorization.RequiredContextPaths)
             {
-                var relativeHistoryPath = agent.CharterPath is { Length: > 0 }
-                    ? Path.Combine(Path.GetDirectoryName(agent.CharterPath)!, "history.md").Replace('\\', '/')
-                    : $"agents/{agent.Handle}/history.md";
-                builder.AppendLine($"Before working, read your agent history at `.squad/{relativeHistoryPath}` in the assigned worktree.");
+                var relativePath = Path.GetRelativePath(executionAttempt.WorkspacePath, requiredPath).Replace('\\', '/');
+                builder.AppendLine(
+                    $"Before working, read `{relativePath}` using the file-reading tool as a distinct tool call. " +
+                    "SquadDash must observe this read; merely claiming it in the result is insufficient.");
             }
-            var decisionsPath = Path.Combine(squadFolderPath, "decisions.md");
-            if (File.Exists(decisionsPath))
-                builder.AppendLine("Before working, search `.squad/decisions.md` in the assigned worktree for decisions relevant to this task and your specialty; do not load unrelated decisions.");
             builder.AppendLine(assignment.AllowGenericChildren
-                ? "This assigned worker may spawn generic child workers; children retain generic identity and report through the assigned parent."
+                ? "This assigned worker may spawn generic read-only research children. Children must not modify files, retain generic identity, and report through the assigned parent."
                 : "This assigned worker must not spawn child workers.");
             builder.AppendLine();
         }
 
         builder.AppendLine("After every assigned worker finishes, perform coordinator synthesis and return one task result.");
-        builder.AppendLine("Its DECOMPOSE_STEP_RESULT_JSON must include `agentExecutions`, one object per assignment, with `requestedAgent`, `actualPrimaryAgent`, and generic child handles in `children`.");
+        builder.AppendLine($"Its DECOMPOSE_STEP_RESULT_JSON must include `executionAttemptId`: `{executionAttempt.AttemptId}`.");
+        builder.AppendLine("It must also include `agentExecutions`, one object per assignment, with `requestedAgent`, `actualPrimaryAgent`, `primaryToolCallId`, and direct generic child tool-call IDs in `children`.");
         builder.AppendLine("The task is incomplete if any required assigned worker is missing, substituted, or unresolved.");
         return builder.ToString().TrimEnd();
     }
@@ -311,13 +337,14 @@ internal static class DecomposePlanningInstructions
             var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath);
             if (PlanAgentRoutingPolicy.Normalize(agentRoutingPolicy) == PlanAgentRoutingPolicy.Always)
             {
-                context += "\n\n## Verified roster routing (always)\n" +
-                    "For every primary background delegation, select a qualified active roster member from `.squad/team.md`, " +
+                context += "\n\n## Requested roster routing for ordinary prompts\n" +
+                    "For every primary background delegation, prefer a qualified active roster member from `.squad/team.md`, " +
                     "read and inject that member's complete charter, and include `" +
                     BackgroundAgentLaunchInfoResolver.AssignmentMarker +
                     "` followed by JSON containing `taskId`, `revision`, `agentHandle`, `role`, and `allowGenericChildren`. " +
-                    "Use `interactive` for taskId and revision outside an executable plan. Generic child workers are allowed, " +
-                    "but must retain generic identity and report through their assigned roster parent.";
+                    "Use `interactive` for taskId and revision outside an executable plan. This ordinary-prompt policy is advisory: " +
+                    "SquadDash will retain Temporary Agent identity because no host-owned plan attempt exists. Generic child workers " +
+                    "must retain generic identity and report through their requested roster parent.";
             }
             return context;
         }

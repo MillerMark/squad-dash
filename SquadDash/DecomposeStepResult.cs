@@ -11,7 +11,10 @@ internal sealed record DecomposeStepVerification(
 internal sealed record DecomposeAgentExecution(
     [property: JsonPropertyName("requestedAgent")] string RequestedAgent,
     [property: JsonPropertyName("actualPrimaryAgent")] string ActualPrimaryAgent,
-    [property: JsonPropertyName("children")] IReadOnlyList<string>? Children);
+    [property: JsonPropertyName("children")] IReadOnlyList<string>? Children,
+    [property: JsonPropertyName("primaryToolCallId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? PrimaryToolCallId = null);
 
 internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("groupId")] string GroupId,
@@ -24,7 +27,10 @@ internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("verification")] DecomposeStepVerification? Verification,
     [property: JsonPropertyName("agentExecutions")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        IReadOnlyList<DecomposeAgentExecution>? AgentExecutions = null);
+        IReadOnlyList<DecomposeAgentExecution>? AgentExecutions = null,
+    [property: JsonPropertyName("executionAttemptId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? ExecutionAttemptId = null);
 
 internal static class DecomposeStepResultParser
 {

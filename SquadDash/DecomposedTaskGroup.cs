@@ -45,4 +45,10 @@ internal sealed record DecomposedSubTask(
                                                 IReadOnlyList<DecomposedAgentAssignment>? AgentAssignments = null,
     [property: JsonPropertyName("parallelEligible")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                bool? ParallelEligible = null);
+                                                bool? ParallelEligible = null,
+    [property: JsonPropertyName("agentRoutingMode")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? AgentRoutingMode = null,
+    [property: JsonPropertyName("genericAgentReason")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? GenericAgentReason = null);

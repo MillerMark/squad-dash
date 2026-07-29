@@ -36,7 +36,9 @@ internal static class PendingDecomposePlanAdapter
                 ParentTaskId: t.ParentTaskId,
                 AgentAssignments: t.AgentAssignments?.Select(a => new PlanAgentAssignment(
                     a.AgentHandle, a.Role, a.AllowGenericChildren)).ToArray(),
-                ParallelEligible: t.ParallelEligible))
+                ParallelEligible: t.ParallelEligible,
+                AgentRoutingMode: t.AgentRoutingMode,
+                GenericAgentReason: t.GenericAgentReason))
             .ToArray();
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
@@ -85,7 +87,9 @@ internal static class PendingDecomposePlanAdapter
                 ParentTaskId: t.ParentTaskId,
                 AgentAssignments: t.AgentAssignments?.Select(a => new DecomposedAgentAssignment(
                     a.AgentHandle, a.Role, a.AllowGenericChildren)).ToArray(),
-                ParallelEligible: t.ParallelEligible))
+                ParallelEligible: t.ParallelEligible,
+                AgentRoutingMode: t.AgentRoutingMode,
+                GenericAgentReason: t.GenericAgentReason))
             .ToArray();
 
         var gates = plan.ApprovalGates is { Count: > 0 }

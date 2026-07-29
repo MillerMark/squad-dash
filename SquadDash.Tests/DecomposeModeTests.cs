@@ -435,6 +435,7 @@ internal sealed class PendingDecomposePlanStoreTests
             Assert.Multiple(() =>
             {
                 Assert.That(loaded!.Revision, Is.EqualTo(saved.Revision));
+                Assert.That(loaded.CreatedAt, Is.Not.Null);
                 Assert.That(loaded.Group.GroupId, Is.EqualTo(group.GroupId));
                 Assert.That(loaded.Group.Tasks.Select(t => t.Id), Is.EqualTo(group.Tasks.Select(t => t.Id)));
             });
@@ -497,6 +498,8 @@ internal sealed class PendingDecomposePlanStoreTests
 
             Assert.That(loaded, Is.Not.Null);
             Assert.That(loaded!.Revision, Is.EqualTo(legacyRevision));
+            Assert.That(loaded.CreatedAt, Is.Null,
+                "Plans saved by older builds remain identifiable as legacy approval contracts.");
         }
         finally
         {

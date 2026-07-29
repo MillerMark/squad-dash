@@ -641,7 +641,8 @@ internal sealed class WorkspaceConversationStore {
             turns,
             NormalizeSingleLine(thread.OriginAgentDisplayName),
             NormalizeSingleLine(thread.OriginParentToolCallId),
-            thread.WasObservedAsBackgroundTask == true ? true : null);
+            thread.WasObservedAsBackgroundTask == true ? true : null,
+            thread.RosterIdentityVerified);
     }
 
     private static int? NormalizeSequence(int? sequence) {
@@ -862,7 +863,9 @@ internal sealed record ActiveLoopExecutionState(
     string LoopPath,
     string FilterText,
     string? DecomposeGroupId = null,
-    string? DecomposeRevision = null)
+    string? DecomposeRevision = null,
+    PlanExecutionAttemptState? PlanExecutionAttempt = null,
+    IReadOnlyList<PlanExecutionAttemptState>? PreviousPlanExecutionAttempts = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -879,10 +882,27 @@ internal sealed record ActiveLoopExecutionState(
         var revision = string.IsNullOrWhiteSpace(state.DecomposeRevision)
             ? null
             : state.DecomposeRevision.Trim();
+        var attempt = state.PlanExecutionAttempt;
+        if (attempt is not null &&
+            (!string.Equals(attempt.PlanId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(attempt.Revision, revision, StringComparison.Ordinal) ||
+             string.IsNullOrWhiteSpace(attempt.AttemptId) ||
+             (attempt.Assignments is not { Count: > 0 } && !attempt.AllowsGenericPrimary)))
+            attempt = null;
         if (loopPath.Length == 0 && groupId is null)
             return null;
 
-        return new ActiveLoopExecutionState(loopPath, filter, groupId, revision);
+        var previousAttempts = (state.PreviousPlanExecutionAttempts ?? [])
+            .Where(previous =>
+                string.Equals(previous.PlanId, groupId, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(previous.AttemptId))
+            .GroupBy(previous => previous.AttemptId, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .TakeLast(20)
+            .ToArray();
+
+        return new ActiveLoopExecutionState(
+            loopPath, filter, groupId, revision, attempt, previousAttempts);
     }
 }
 
@@ -1033,4 +1053,5 @@ internal sealed record TranscriptThreadRecord(
     IReadOnlyList<TranscriptTurnRecord> Turns,
     string? OriginAgentDisplayName = null,
     string? OriginParentToolCallId = null,
-    bool? WasObservedAsBackgroundTask = null);
+    bool? WasObservedAsBackgroundTask = null,
+    bool? RosterIdentityVerified = null);

@@ -35,7 +35,8 @@ internal static class TasksPanelParser {
         var groups              = new List<TaskPriorityGroup>();
         var completedItems      = new List<TaskItem>();
         var decomposeGroups     = new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
-        var consumed            = ParseDecomposeGroups(lines, groups, completedItems, decomposeGroups);
+        var errors              = new List<string>();
+        var consumed            = ParseDecomposeGroups(lines, groups, completedItems, decomposeGroups, errors);
         TaskPriorityGroup? current   = null;
         bool inCompletedSection      = false;
 
@@ -174,14 +175,15 @@ internal static class TasksPanelParser {
             .Select(pair => pair.group)
             .ToList();
 
-        return new TaskParseResult(merged, completedItems, decomposeGroups);
+        return new TaskParseResult(merged, completedItems, decomposeGroups, errors);
     }
 
     private static bool[] ParseDecomposeGroups(
         string[] lines,
         List<TaskPriorityGroup> openGroups,
         List<TaskItem> completedItems,
-        Dictionary<string, DecomposedTaskGroup> groupsById) {
+        Dictionary<string, DecomposedTaskGroup> groupsById,
+        List<string> errors) {
 
         var consumed = new bool[lines.Length];
         int index = 0;
@@ -242,6 +244,8 @@ internal static class TasksPanelParser {
                 string? parentTaskId = null;
                 IReadOnlyList<DecomposedAgentAssignment>? agentAssignments = null;
                 bool? parallelEligible = null;
+                string? agentRoutingMode = null;
+                string? genericAgentReason = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -269,13 +273,33 @@ internal static class TasksPanelParser {
                         }
                         catch (System.Text.Json.JsonException) {
                             agentAssignments = null;
+                            errors.Add($"Task {taskId} has malformed agentAssignments JSON.");
                         }
                     }
-                    else if (metadata.StartsWith("parallelEligible:", StringComparison.OrdinalIgnoreCase) &&
-                             bool.TryParse(metadata["parallelEligible:".Length..].Trim(), out var parsedParallel))
-                        parallelEligible = parsedParallel;
+                    else if (metadata.StartsWith("parallelEligible:", StringComparison.OrdinalIgnoreCase)) {
+                        if (bool.TryParse(metadata["parallelEligible:".Length..].Trim(), out var parsedParallel))
+                            parallelEligible = parsedParallel;
+                        else
+                            errors.Add($"Task {taskId} has an invalid parallelEligible value.");
+                    }
+                    else if (metadata.StartsWith("agentRoutingMode:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        agentRoutingMode = metadata["agentRoutingMode:".Length..].Trim();
+                        if (agentRoutingMode is not ("assigned" or "generic"))
+                            errors.Add($"Task {taskId} has invalid agentRoutingMode '{agentRoutingMode}'.");
+                    }
+                    else if (metadata.StartsWith("genericAgentReason:", StringComparison.OrdinalIgnoreCase))
+                        genericAgentReason = metadata["genericAgentReason:".Length..].Trim();
                     metadataEnd++;
                 }
+
+                if (agentAssignments is { Count: > 1 })
+                    errors.Add($"Task {taskId} declares multiple primary assignments without isolated worktrees.");
+                if (agentRoutingMode == "assigned" && agentAssignments is not { Count: 1 })
+                    errors.Add($"Task {taskId} selects assigned routing without exactly one assignment.");
+                if (agentRoutingMode == "generic" &&
+                    (agentAssignments is { Count: > 0 } || string.IsNullOrWhiteSpace(genericAgentReason)))
+                    errors.Add($"Task {taskId} has an invalid explicit generic routing contract.");
 
                 description = StripOwner(description, out var owner);
 
@@ -313,7 +337,7 @@ internal static class TasksPanelParser {
 
                 tasks.Add(new DecomposedSubTask(
                     taskId, description, dependsOn, priority, taskTitle, parentTaskId,
-                    agentAssignments, parallelEligible));
+                    agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason));
                 items.Add(item);
                 i = metadataEnd - 1;
             }
@@ -479,14 +503,16 @@ internal sealed record TaskItem(
 internal sealed class TaskParseResult(
     IReadOnlyList<TaskPriorityGroup> openGroups,
     IReadOnlyList<TaskItem>          completedItems,
-    IReadOnlyDictionary<string, DecomposedTaskGroup>? decomposeGroups = null) {
+    IReadOnlyDictionary<string, DecomposedTaskGroup>? decomposeGroups = null,
+    IReadOnlyList<string>? errors = null) {
     internal IReadOnlyList<TaskPriorityGroup> OpenGroups     { get; } = openGroups;
     internal IReadOnlyList<TaskItem>          CompletedItems { get; } = completedItems;
     internal IReadOnlyDictionary<string, DecomposedTaskGroup> DecomposeGroups { get; } =
         decomposeGroups ?? new Dictionary<string, DecomposedTaskGroup>(StringComparer.Ordinal);
+    internal IReadOnlyList<string> Errors { get; } = errors ?? Array.Empty<string>();
 
     internal TaskParseResult WithCompletedItems(IReadOnlyList<TaskItem> completedItems) =>
-        new(OpenGroups, completedItems, DecomposeGroups);
+        new(OpenGroups, completedItems, DecomposeGroups, Errors);
 }
 
 internal sealed class TaskPriorityGroup(

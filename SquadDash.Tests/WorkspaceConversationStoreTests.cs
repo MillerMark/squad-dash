@@ -705,6 +705,97 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsPlanExecutionAttemptAndLaunchEvidence()
+    {
+        var assignment = new PlanExecutionAssignmentAttempt(
+            "talia-rune",
+            "SDK",
+            true,
+            "capability-1",
+            Path.Combine(_workspacePath, ".squad", "agents", "talia-rune", "charter.md"),
+            "charter-hash",
+            [Path.Combine(_workspacePath, ".squad", "agents", "talia-rune", "history.md")],
+            PrimaryToolCallId: "tool-primary",
+            LaunchedAt: DateTimeOffset.UtcNow,
+            CompletedAt: DateTimeOffset.UtcNow,
+            Succeeded: true,
+            ObservedContextPaths: [Path.Combine(_workspacePath, ".squad", "agents", "talia-rune", "history.md")],
+            ChildToolCallIds: ["tool-child"]);
+        var attempt = new PlanExecutionAttemptState(
+            "attempt-1",
+            "GODCLASS-20260725",
+            "GODCLASS-20260725-001",
+            "revision-123",
+            _workspacePath,
+            DateTimeOffset.UtcNow,
+            [assignment]);
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveLoopExecution = new ActiveLoopExecutionState(
+                    "D:/repo/.squad/loop-executing-plan.md",
+                    "GODCLASS-20260725",
+                    "GODCLASS-20260725",
+                    "revision-123",
+                    attempt)
+            });
+
+        var restored = _store.Load(_workspacePath).ActiveLoopExecution?.PlanExecutionAttempt;
+        Assert.Multiple(() => {
+            Assert.That(restored?.AttemptId, Is.EqualTo("attempt-1"));
+            Assert.That(restored?.Assignments.Single().Capability, Is.EqualTo("capability-1"));
+            Assert.That(restored?.Assignments.Single().PrimaryToolCallId, Is.EqualTo("tool-primary"));
+            Assert.That(restored?.Assignments.Single().Succeeded, Is.True);
+            Assert.That(restored?.Assignments.Single().ChildToolCallIds, Is.EqualTo(new[] { "tool-child" }));
+        });
+    }
+
+    [Test]
+    public void SaveAndLoad_RoundTripsPriorAttemptHistoryForRestartAudit()
+    {
+        var prior = new PlanExecutionAttemptState(
+            "attempt-old",
+            "GODCLASS-20260725",
+            "GODCLASS-20260725-001",
+            "revision-123",
+            _workspacePath,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            [],
+            Status: "interrupted",
+            AllowsGenericPrimary: true,
+            GenericPrimaryToolCallId: "tool-old",
+            GenericCompletedAt: DateTimeOffset.UtcNow.AddMinutes(-1),
+            GenericSucceeded: false);
+        var current = PlanExecutionAttemptState.CreateGeneric(
+            "GODCLASS-20260725",
+            "GODCLASS-20260725-001",
+            "revision-123",
+            _workspacePath);
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveLoopExecution = new ActiveLoopExecutionState(
+                    "D:/repo/.squad/loop-executing-plan.md",
+                    "GODCLASS-20260725",
+                    "GODCLASS-20260725",
+                    "revision-123",
+                    current,
+                    [prior])
+            });
+
+        var restored = _store.Load(_workspacePath).ActiveLoopExecution;
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored?.PlanExecutionAttempt?.AttemptId, Is.EqualTo(current.AttemptId));
+            Assert.That(restored?.PreviousPlanExecutionAttempts?.Single().AttemptId, Is.EqualTo("attempt-old"));
+            Assert.That(restored?.PreviousPlanExecutionAttempts?.Single().Status, Is.EqualTo("interrupted"));
+            Assert.That(restored?.PreviousPlanExecutionAttempts?.Single().GenericSucceeded, Is.False);
+        });
+    }
+
+    [Test]
     public void Clear_ThenDraftSave_DoesNotRecoverOldTranscriptBackup() {
         _store.Save(
             _workspacePath,

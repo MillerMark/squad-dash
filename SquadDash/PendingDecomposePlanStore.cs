@@ -7,7 +7,10 @@ using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
-internal sealed record PendingDecomposePlan(string Revision, DecomposedTaskGroup Group);
+internal sealed record PendingDecomposePlan(
+    string Revision,
+    DecomposedTaskGroup Group,
+    DateTimeOffset? CreatedAt = null);
 
 internal sealed class PendingDecomposePlanStore(string squadFolderPath)
 {
@@ -20,7 +23,7 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
     {
         Directory.CreateDirectory(_folder);
         var path = Path.Combine(_folder, group.GroupId + ".json");
-        var plan = new PendingDecomposePlan(ComputeRevision(group), group);
+        var plan = new PendingDecomposePlan(ComputeRevision(group), group, DateTimeOffset.UtcNow);
         var tempPath = path + ".tmp";
         File.WriteAllText(tempPath, JsonSerializer.Serialize(plan, Options));
         File.Move(tempPath, path, overwrite: true);

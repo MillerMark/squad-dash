@@ -1237,7 +1237,8 @@ internal sealed class TranscriptConversationManager {
             turns,
             thread.OriginAgentDisplayName,
             thread.OriginParentToolCallId,
-            thread.WasObservedAsBackgroundTask ? true : null);
+            thread.WasObservedAsBackgroundTask ? true : null,
+            thread.RosterIdentityVerified);
     }
 
     internal IReadOnlyList<TranscriptThreadRecord> BuildPersistedAgentThreadRecords(bool includeCurrentTurns) {

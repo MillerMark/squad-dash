@@ -29,7 +29,7 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 - Attributive references: "the plan is to…", "plan A vs plan B"
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, and `priority`. Executable plans should also assign zero or more primary roster agents with `agentAssignments`; use multiple assignments only when their roles can run concurrently without overlapping writes.
+`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -52,7 +52,9 @@ fence around the object is accepted but not required.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
-- `tasks[].agentAssignments`: optional array of `{ "agentHandle", "role", "allowGenericChildren" }` objects. Use exact active handles from `.squad/team.md`. These are primary accountable workers, not display labels. Multiple entries authorize concurrent named roles for that task. Generic children remain permitted only when `allowGenericChildren` is true.
+- `tasks[].agentRoutingMode`: required; either `"assigned"` or `"generic"`. Never omit this to obtain a fallback.
+- `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `false`: child workers are temporarily rejected until SquadDash can enforce read-only isolation. Multiple primary assignments are likewise rejected until SquadDash can isolate writers in separate worktrees.
+- `tasks[].genericAgentReason`: required only with `agentRoutingMode: "generic"`; explain why no roster specialist is appropriate.
 - `tasks[].parallelEligible`: optional boolean. Set true only when the task may run concurrently with other dependency-ready tasks; dependencies still control readiness and SquadDash may serialize work when scopes conflict.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
@@ -79,21 +81,27 @@ TASKS_JSON:
       "title": "Introduce the search index abstraction",
       "description": "Introduce ISearchIndex and its in-memory implementation with unit tests; do not change existing UI call sites yet.",
       "dependsOn": [],
-      "priority": "high"
+      "priority": "high",
+      "agentRoutingMode": "generic",
+      "genericAgentReason": "No active roster specialist covers the new search abstraction."
     },
     {
       "id": "SEARCH-20260725-002",
       "title": "Move document indexing behind ISearchIndex",
       "description": "Move document indexing behind ISearchIndex and add integration tests proving existing indexing behavior is preserved.",
       "dependsOn": ["SEARCH-20260725-001"],
-      "priority": "high"
+      "priority": "high",
+      "agentRoutingMode": "generic",
+      "genericAgentReason": "No active roster specialist covers search indexing."
     },
     {
       "id": "SEARCH-20260725-003",
       "title": "Migrate the search UI to ISearchIndex",
       "description": "Update the search UI controller to consume ISearchIndex, remove the superseded direct indexing path, and run the full test suite.",
       "dependsOn": ["SEARCH-20260725-002"],
-      "priority": "mid"
+      "priority": "mid",
+      "agentRoutingMode": "generic",
+      "genericAgentReason": "No active roster specialist covers this UI integration."
     }
   ]
 }
@@ -154,6 +162,7 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "groupId": "GROUP-YYYYMMDD",
   "taskId": "GROUP-YYYYMMDD-NNN",
   "revision": "revision from the persisted group header",
+  "executionAttemptId": "host-supplied attempt ID when this task has an assigned roster agent",
   "status": "complete",
   "commit": "Git commit SHA",
   "summary": "concise outcome",
@@ -162,14 +171,24 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
     "status": "passed",
     "command": "exact command that ran",
     "summary": "what passed"
-  }
+  },
+  "agentExecutions": [
+    {
+      "requestedAgent": "host-assigned roster handle",
+      "actualPrimaryAgent": "same roster handle",
+      "primaryToolCallId": "host-observed task tool-call ID",
+      "children": []
+    }
+  ]
 }
 ```
 
 `status` must be `complete`, `partial`, or `failed`. Complete requires a new commit and passed
 verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
 validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
-before changing any plan status.
+before changing any plan status. `executionAttemptId` and `agentExecutions` are required only when
+SquadDash supplies a verified roster assignment context for the current attempt; copy the host values
+exactly and report direct generic child tool-call IDs in `children`.
 
 ## PLAN_GATE_APPROVAL_JSON schema
 

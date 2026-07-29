@@ -447,6 +447,11 @@ internal sealed class AgentThreadRegistry {
         if (roster.Length == 0)
             return;
 
+        if (thread.RosterIdentityVerified == false) {
+            thread.AgentCardKey = null;
+            return;
+        }
+
         var previousAgentCardKey = thread.AgentCardKey;
         var normalizedAgentCardKey = AgentThreadIdentityPolicy.NormalizeAgentCardKey(
             new AgentThreadIdentitySnapshot(
@@ -667,18 +672,26 @@ internal sealed class AgentThreadRegistry {
 
     // ── Launch info ──────────────────────────────────────────────────────────
 
-    internal void CaptureBackgroundAgentLaunchInfo(SquadSdkEvent evt) {
+    internal BackgroundAgentLaunchInfo? CaptureBackgroundAgentLaunchInfo(
+        SquadSdkEvent evt,
+        PlanExecutionAttemptState? activeAttempt = null,
+        bool launchedByCoordinator = false,
+        string? launchingOwnerToolCallId = null) {
         if (!string.Equals(evt.ToolName, "task", StringComparison.OrdinalIgnoreCase) ||
             string.IsNullOrWhiteSpace(evt.ToolCallId)) {
-            return;
+            return null;
         }
 
         var launchInfo = BackgroundAgentLaunchInfoResolver.TryResolve(
             evt.ToolCallId,
             evt.Args,
-            _getKnownTeamAgentDescriptors());
+            _getKnownTeamAgentDescriptors(),
+            activeAttempt,
+            launchedByCoordinator,
+            launchingOwnerToolCallId,
+            TryParseTimestamp(evt.StartedAt));
         if (launchInfo is null)
-            return;
+            return null;
 
         _agentLaunchesByToolCallId[launchInfo.ToolCallId] = launchInfo;
         SquadDashTrace.Write(
@@ -689,9 +702,16 @@ internal sealed class AgentThreadRegistry {
             ApplyBackgroundLaunchInfo(existingThread, launchInfo);
             _syncAgentCardsWithThreads();
         }
+        return launchInfo;
     }
 
+    private static DateTimeOffset? TryParseTimestamp(string? value) =>
+        DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+
     internal void ApplyBackgroundLaunchInfo(TranscriptThreadState thread, BackgroundAgentLaunchInfo launchInfo) {
+        thread.RosterIdentityVerified = launchInfo.IsVerifiedRosterAssignment;
+        if (!launchInfo.IsVerifiedRosterAssignment)
+            thread.AgentCardKey = null;
         if (!string.IsNullOrWhiteSpace(launchInfo.TaskName)) {
             var previousBackgroundTaskId = thread.BackgroundTaskId;
             thread.BackgroundTaskId = launchInfo.TaskName.Trim();
@@ -726,7 +746,10 @@ internal sealed class AgentThreadRegistry {
 
         thread.Title = ResolveThreadDisplayName(thread.AgentDisplayName, thread.AgentName, thread.AgentId);
 
-        NormalizeThreadAgentIdentity(thread);
+        if (launchInfo.IsVerifiedRosterAssignment)
+            NormalizeThreadAgentIdentity(thread);
+        else
+            thread.AgentCardKey = null;
         AliasThreadKeys(thread, thread.ToolCallId, thread.AgentId, thread.AgentName, thread.AgentDisplayName);
         _syncTaskToolTranscriptLink(thread);
     }
@@ -795,6 +818,7 @@ internal sealed class AgentThreadRegistry {
                 AgentCardKey = record.AgentCardKey,
                 OriginAgentDisplayName = record.OriginAgentDisplayName,
                 OriginParentToolCallId = record.OriginParentToolCallId,
+                RosterIdentityVerified = record.RosterIdentityVerified,
                 Prompt = record.Prompt,
                 LatestResponse = SanitizeResponseTextOrNull(record.LatestResponse),
                 LastCoordinatorAnnouncedResponse = SanitizeResponseTextOrNull(record.LastCoordinatorAnnouncedResponse),

@@ -4,6 +4,25 @@
 internal sealed class TasksPanelParserTests {
 
     [Test]
+    public void Parse_MalformedPlanAssignmentMetadata_IsReportedInsteadOfFailingOpen() {
+        string[] lines = [
+            "<!-- decompose-group: PLAN-20260728 | branch: feature/plan | revision: rev-1 -->",
+            "**[PLAN-20260728] Plan**",
+            "> Summary",
+            "- [ ] **[PLAN-20260728-001]** Implement",
+            "  Group: PLAN-20260728 | Branch: feature/plan | Priority: high",
+            "  description: Implement safely",
+            "  dependsOn: (none)",
+            "  agentAssignments: [{not-json}]"
+        ];
+
+        var result = TasksPanelParser.Parse(lines);
+
+        Assert.That(result.Errors, Has.Count.EqualTo(1));
+        Assert.That(result.Errors[0], Does.Contain("PLAN-20260728-001"));
+    }
+
+    [Test]
     public void Parse_ReturnsEmptyOpenGroups_ForEmptyInput() {
         var result = TasksPanelParser.Parse([]);
 

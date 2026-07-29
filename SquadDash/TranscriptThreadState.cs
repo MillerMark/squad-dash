@@ -69,6 +69,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? OriginAgentDisplayName { get; set; }
     public string? OriginParentToolCallId { get; set; }
     public string? RequestedAgentHandle { get; set; }
+    public bool? RosterIdentityVerified { get; set; }
     public string DisplayTitle =>
         !string.IsNullOrWhiteSpace(RequestedAgentHandle) && Title != AgentNameHumanizer.Humanize(RequestedAgentHandle)
             ? $"{AgentNameHumanizer.Humanize(RequestedAgentHandle)} (unverified)"

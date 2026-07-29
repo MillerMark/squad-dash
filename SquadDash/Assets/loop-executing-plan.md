@@ -69,6 +69,7 @@ DECOMPOSE_STEP_RESULT_JSON:
   "groupId": "GROUP-YYYYMMDD",
   "taskId": "GROUP-YYYYMMDD-NNN",
   "revision": "revision from the group header",
+  "executionAttemptId": "host-supplied attempt ID for assigned tasks",
   "status": "complete",
   "commit": "full or short Git commit SHA",
   "summary": "concise description of the completed work",
@@ -82,13 +83,14 @@ DECOMPOSE_STEP_RESULT_JSON:
     {
       "requestedAgent": "exact plan-assigned roster handle",
       "actualPrimaryAgent": "verified primary roster handle",
-      "children": ["generic child handles, if any"]
+      "primaryToolCallId": "host-observed primary task tool-call ID",
+      "children": ["direct generic child tool-call IDs, if any"]
     }
   ]
 }
 ```
 
-When the task has agent assignments, `agentExecutions` is required and must cover every assigned primary agent. Omit it only for legacy tasks with no structured assignments.
+When the task has agent assignments, `executionAttemptId` and `agentExecutions` are required and must exactly match the host-supplied attempt and observed launches. Omit them only for legacy or explicitly generic tasks with no structured assignments.
 
 Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
 List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`

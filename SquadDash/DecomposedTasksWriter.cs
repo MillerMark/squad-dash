@@ -222,6 +222,10 @@ internal sealed class DecomposedTasksWriter
                 sb.AppendLine($"  agentAssignments: {System.Text.Json.JsonSerializer.Serialize(task.AgentAssignments)}");
             if (task.ParallelEligible is not null)
                 sb.AppendLine($"  parallelEligible: {task.ParallelEligible.Value.ToString().ToLowerInvariant()}");
+            if (!string.IsNullOrWhiteSpace(task.AgentRoutingMode))
+                sb.AppendLine($"  agentRoutingMode: {task.AgentRoutingMode}");
+            if (!string.IsNullOrWhiteSpace(task.GenericAgentReason))
+                sb.AppendLine($"  genericAgentReason: {task.GenericAgentReason}");
             if (!string.IsNullOrWhiteSpace(task.ParentTaskId))
                 sb.AppendLine($"  parentTaskId: {task.ParentTaskId}");
             if (failed)
