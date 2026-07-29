@@ -249,6 +249,98 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
                ?? throw new AssertionException("The host execution attempt was not restored.");
     }
 
+    [Test]
+    public void CrlfCharter_AfterTransportNormalization_IsAccepted()
+    {
+        // Overwrite charter with CRLF line endings and a trailing CRLF (Windows editor convention)
+        var crlfCharter = Charter.Replace("\n", "\r\n") + "\r\n";
+        _workspace.CreateFile("repo/.squad/agents/talia-rune/charter.md", crlfCharter);
+
+        var attempt = CreateAttempt();
+        var prompt = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+            _squadPath,
+            TaskId,
+            "Synthetic SDK change",
+            "Implement and verify the synthetic SDK change.",
+            [_assignment],
+            Revision,
+            attempt);
+
+        // Simulate prompt transport normalization: CRLF→LF and terminal-newline loss
+        var normalizedPrompt = prompt.Replace("\r\n", "\n").TrimEnd('\n');
+
+        var launch = ResolveLaunchWithPrompt(attempt, ToolCallId, normalizedPrompt);
+        Assert.That(launch.IsVerifiedRosterAssignment, Is.True);
+
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        attempt = RecordRequiredContextReads(attempt);
+        attempt = attempt.RecordPrimaryCompletion(
+            ToolCallId,
+            new DateTimeOffset(2026, 7, 29, 10, 0, 0, TimeSpan.Zero),
+            succeeded: true);
+
+        Assert.That(PlanAgentAssignmentValidator.Validate(
+            TaskId, Revision, [_assignment], attempt), Is.Null);
+    }
+
+    [Test]
+    public void ContentModifiedCharter_AfterTransportNormalization_IsRejected()
+    {
+        var crlfCharter = Charter.Replace("\n", "\r\n") + "\r\n";
+        _workspace.CreateFile("repo/.squad/agents/talia-rune/charter.md", crlfCharter);
+
+        var attempt = CreateAttempt();
+        var prompt = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+            _squadPath,
+            TaskId,
+            "Synthetic SDK change",
+            "Implement and verify the synthetic SDK change.",
+            [_assignment],
+            Revision,
+            attempt);
+
+        // Simulate transport normalization then corrupt one character of the charter content
+        var normalizedPrompt = prompt.Replace("\r\n", "\n").TrimEnd('\n');
+        var modifiedPrompt = normalizedPrompt.Replace(
+            "Own SDK-boundary implementation",
+            "Own SDK-boundary implementaxion");
+
+        var launch = ResolveLaunchWithPrompt(attempt, ToolCallId, modifiedPrompt);
+        Assert.That(launch.IsVerifiedRosterAssignment, Is.False);
+
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        attempt = RecordRequiredContextReads(attempt);
+        attempt = attempt.RecordPrimaryCompletion(
+            ToolCallId,
+            new DateTimeOffset(2026, 7, 29, 10, 0, 0, TimeSpan.Zero),
+            succeeded: true);
+
+        Assert.That(PlanAgentAssignmentValidator.Validate(
+            TaskId, Revision, [_assignment], attempt), Is.Not.Null);
+    }
+
+    [Test]
+    public void ContextReadRequired_MissingContextRead_ValidationFails()
+    {
+        var attempt = CreateAttempt();
+        var launch = ResolveLaunch(attempt, ToolCallId);
+        Assert.That(launch.IsVerifiedRosterAssignment, Is.True);
+
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        // Deliberately omit RecordRequiredContextReads — leave required context paths unobserved
+        attempt = attempt.RecordPrimaryCompletion(
+            ToolCallId,
+            new DateTimeOffset(2026, 7, 29, 10, 0, 0, TimeSpan.Zero),
+            succeeded: true);
+
+        Assert.That(PlanAgentAssignmentValidator.Validate(
+            TaskId, Revision, [_assignment], attempt),
+            Does.Contain("host-observed reads"));
+    }
+
     private static string BuildResult(string attemptId, string primaryToolCallId) =>
         DecomposeStepResultParser.Marker + "\n" + JsonSerializer.Serialize(new
         {
@@ -274,4 +366,26 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
                 }
             }
         });
+
+    private BackgroundAgentLaunchInfo ResolveLaunchWithPrompt(
+        PlanExecutionAttemptState activeAttempt,
+        string toolCallId,
+        string prompt)
+    {
+        using var args = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            name = "talia-synthetic-sdk",
+            mode = "background",
+            agent_type = "general-purpose",
+            prompt
+        }));
+        return BackgroundAgentLaunchInfoResolver.TryResolve(
+                   toolCallId,
+                   args.RootElement,
+                   _descriptors,
+                   activeAttempt,
+                   launchedByCoordinator: true,
+                   startedAt: new DateTimeOffset(2026, 7, 28, 15, 55, 0, TimeSpan.Zero))
+               ?? throw new AssertionException("The synthetic task launch was not resolved.");
+    }
 }
