@@ -290,21 +290,41 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             var tasks = column.ToArray();
             var x = 42 + column.Key * ColumnSpacing;
-            var stageHeader = new TextBlock
+
+            var mainTitle    = $"Stage {column.Key + 1}";
+            var subtitle     = tasks.Length == 1 ? null : $"{tasks.Length} independent tasks";
+
+            var titleBlock = new TextBlock
             {
-                Text       = tasks.Length == 1
-                    ? $"Stage {column.Key + 1}"
-                    : $"Stage {column.Key + 1}  ·  {tasks.Length} independent tasks",
+                Text       = mainTitle,
                 FontWeight = FontWeights.SemiBold,
             };
-            stageHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            stageHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
-            Canvas.SetLeft(stageHeader, x);
-            Canvas.SetTop(stageHeader, 18);
-            canvas.Children.Add(stageHeader);
+            titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            titleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
+
+            UIElement headerElement;
+            if (subtitle is not null)
+            {
+                var subtitleBlock = new TextBlock { Text = subtitle };
+                subtitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                subtitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSubtitle");
+
+                var stack = new StackPanel { Orientation = Orientation.Vertical };
+                stack.Children.Add(titleBlock);
+                stack.Children.Add(subtitleBlock);
+                headerElement = stack;
+            }
+            else
+            {
+                headerElement = titleBlock;
+            }
+
+            Canvas.SetLeft(headerElement, x);
+            Canvas.SetTop(headerElement, 10);
+            canvas.Children.Add(headerElement);
 
             for (var row = 0; row < tasks.Length; row++)
-                positions[tasks[row].Id] = new Point(x, 58 + row * RowSpacing);
+                positions[tasks[row].Id] = new Point(x, 68 + row * RowSpacing);
         }
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
