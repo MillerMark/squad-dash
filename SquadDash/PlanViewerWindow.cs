@@ -431,7 +431,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Width        = 30,
                 Height       = Math.Max(1, bandBottom - bandTop),
                 CornerRadius = new CornerRadius(15),
-                Opacity      = isLocked ? 0.18 : 0.10,
+                Opacity      = isLocked ? 0.45 : 0.28,
                 ToolTip      = "Stage milestone boundary",
             };
             milestoneBand.SetResourceReference(Border.BackgroundProperty, "ActivePanelBorder");
