@@ -627,6 +627,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinBeforeIds = targets.Select(task => task.Id).ToArray();
             var joinIsLocked = FindDurableGate(dependencies, joinBeforeIds) is not null ||
                                FindDisplayedGate(dependencies, joinBeforeIds) is not null;
+            // Outbound is dashed when the whole gate is locked OR any individual dep is locked.
+            // Inbound connectors are never dashed — the approval barrier is AFTER the gate, not before it.
+            var outboundDashed = joinIsLocked ||
+                                 dependencies.Any(dep => lockedAfterTaskIds.Contains(dep));
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
@@ -636,7 +640,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     new Point(gateCenter.X - 29, gateCenter.Y),
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: joinIsLocked || lockedAfterTaskIds.Contains(dependency));
+                    dashed: false);
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
             }
@@ -649,7 +653,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y)),
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip),
-                    dashed: joinIsLocked);
+                    dashed: outboundDashed);
                 RegisterConnector(target.Id, cg);
                 cgsForGate.Add(cg);
             }
