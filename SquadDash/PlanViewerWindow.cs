@@ -15,6 +15,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double ColumnSpacing = 360;
     private const double RowSpacing = 152;
 
+    private readonly string? _activeBranch;
+    private readonly double _quickReplyFontSize;
+    private readonly Func<DecomposePlanActionDefinition, Task<bool>>? _applyAction;
+    private readonly Action<Plan>? _onGatesChanged;
+    private readonly Action<Plan>? _onResumePlan;
+    private readonly Action<Plan>? _onEndPlan;
+    private readonly Action<Plan, string>? _onApproveGate;
+    private Border? _contentHolder;
+    private ScrollViewer? _graphScroll;
+
     internal PlanViewerWindow(
         PendingDecomposePlan plan,
         string? activeBranch,
@@ -27,6 +37,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onApproveGate = null)
         : base(captionHeight: CloseButtonHeight)
     {
+        _activeBranch       = activeBranch;
+        _quickReplyFontSize = quickReplyFontSize;
+        _applyAction        = applyAction;
+        _onGatesChanged     = onGatesChanged;
+        _onResumePlan       = onResumePlan;
+        _onEndPlan          = onEndPlan;
+        _onApproveGate      = onApproveGate;
+
         var group = plan.Group;
         Title     = group.GroupTitle;
         Width     = 1200;
@@ -275,26 +293,34 @@ internal sealed class PlanViewerWindow : ChromedWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
+        _graphScroll = scroll;
         scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
 
-        ApplyOuterBorder(titleText: group.GroupTitle).Child = root;
+        _contentHolder = ApplyOuterBorder(titleText: group.GroupTitle);
+        _contentHolder.Child = root;
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
 
-        // Helpers used by the clickable lock-toggle buttons (per-task and per-stage).
-        bool IsLockedAfter(string taskId) =>
-            durablePlan is not null &&
-            durablePlan.ApprovalGates.Any(g =>
-                g.AfterTaskIds.Contains(taskId, StringComparer.Ordinal));
-        string? GetGateIdAfter(string taskId) =>
-            durablePlan?.ApprovalGates.FirstOrDefault(g =>
-                g.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))?.GateId;
+        PlanApprovalGate? FindDurableGate(
+            IReadOnlyList<string> afterIds,
+            IReadOnlyList<string> beforeIds) =>
+            durablePlan is null
+                ? null
+                : PlanGateManager.FindEquivalentGate(durablePlan, afterIds, beforeIds);
+
+        string[] DirectDependents(string taskId) => durablePlan?.Tasks
+            .Where(task => task.DependsOn.Contains(taskId, StringComparer.Ordinal))
+            .Select(task => task.TaskId)
+            .ToArray() ?? [];
+
+        PlanApprovalGate? FindTaskGateAfter(string taskId) =>
+            FindDurableGate([taskId], DirectDependents(taskId));
 
         foreach (var column in columns)
         {
@@ -333,60 +359,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetTop(headerElement, 10);
             canvas.Children.Add(headerElement);
 
-            // Per-stage lock button: right edge of column header row.
-            if (durablePlan is not null && onGatesChanged is not null)
-            {
-                var stageTasks     = tasks;
-                var nonLeafInStage = stageTasks
-                    .Where(t => !PlanGateManager.IsLeafTask(durablePlan, t.Id))
-                    .ToArray();
-                if (nonLeafInStage.Length > 0)
-                {
-                    var allLocked  = nonLeafInStage.All(t => IsLockedAfter(t.Id));
-                    var stageLock  = new TextBlock
-                    {
-                        Text    = allLocked ? "🔒" : "🔓",
-                        Opacity = allLocked ? 1.0 : 0.25,
-                        Cursor  = Cursors.Hand,
-                        ToolTip = allLocked
-                            ? "All tasks in this stage require human approval before the next stage can begin. Click to remove."
-                            : "Click to require human approval for all tasks in this stage.",
-                    };
-                    stageLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-                    Canvas.SetLeft(stageLock, x + NodeWidth - 22);
-                    Canvas.SetTop(stageLock,  10);
-                    Panel.SetZIndex(stageLock, 25);
-                    stageLock.MouseEnter += (_, _) => stageLock.Opacity = 1.0;
-                    stageLock.MouseLeave += (_, _) => stageLock.Opacity = allLocked ? 1.0 : 0.25;
-                    var capturedNonLeaf   = nonLeafInStage;
-                    var capturedAllLocked = allLocked;
-                    stageLock.MouseLeftButtonDown += (_, e) =>
-                    {
-                        e.Handled = true;
-                        var updated = durablePlan;
-                        if (capturedAllLocked)
-                        {
-                            foreach (var st in capturedNonLeaf)
-                            {
-                                var gid = GetGateIdAfter(st.Id);
-                                if (gid is not null) updated = PlanGateManager.RemoveGate(updated, gid);
-                            }
-                        }
-                        else
-                        {
-                            foreach (var st in capturedNonLeaf)
-                            {
-                                if (!IsLockedAfter(st.Id))
-                                    updated = PlanGateManager.AddGateAfter(updated,
-                                        st.Id, $"Review after completing: {st.Title ?? st.Id}");
-                            }
-                        }
-                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                    };
-                    canvas.Children.Add(stageLock);
-                }
-            }
-
             for (var row = 0; row < tasks.Length; row++)
                 positions[tasks[row].Id] = new Point(x, 68 + row * RowSpacing);
         }
@@ -415,17 +387,134 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
         }
 
-        // Pass 2: collect approval-gate task sets.
-        // AfterTaskIds get a lock overlay; each AfterTask→BeforeTask pair gets a dashed direct connector.
+        bool SameBoundary(
+            IReadOnlyList<string> actualAfter,
+            IReadOnlyList<string> actualBefore,
+            IReadOnlyList<string> expectedAfter,
+            IReadOnlyList<string> expectedBefore) =>
+            actualAfter.OrderBy(id => id, StringComparer.Ordinal)
+                .SequenceEqual(expectedAfter.OrderBy(id => id, StringComparer.Ordinal)) &&
+            actualBefore.OrderBy(id => id, StringComparer.Ordinal)
+                .SequenceEqual(expectedBefore.OrderBy(id => id, StringComparer.Ordinal));
+
+        // A stage milestone is one global boundary: every task in columns to its left must
+        // complete before any task in columns to its right may proceed.
+        var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
+        for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
+        {
+            var leftColumn = columns[columnIndex];
+            var afterIds = group.Tasks
+                .Where(task => levels[task.Id] <= leftColumn.Key)
+                .Select(task => task.Id)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            var beforeIds = group.Tasks
+                .Where(task => levels[task.Id] > leftColumn.Key)
+                .Select(task => task.Id)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            stageBoundaries.Add((afterIds, beforeIds));
+
+            var existingGate = FindDurableGate(afterIds, beforeIds);
+            var displayedGate = (group.ApprovalGates ?? []).FirstOrDefault(gate =>
+                SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], afterIds, beforeIds));
+            var isLocked = existingGate is not null || displayedGate is not null;
+
+            var leftTasks = leftColumn.ToArray();
+            var leftX = positions[leftTasks[0].Id].X;
+            var nextX = positions[columns[columnIndex + 1].First().Id].X;
+            var boundaryX = (leftX + NodeWidth + nextX) / 2.0;
+            var bandTop = leftTasks.Min(task => positions[task.Id].Y);
+            var bandBottom = leftTasks.Max(task => positions[task.Id].Y + NodeHeight);
+            var milestoneBand = new Border
+            {
+                Width        = 30,
+                Height       = Math.Max(1, bandBottom - bandTop),
+                CornerRadius = new CornerRadius(15),
+                Opacity      = isLocked ? 0.18 : 0.10,
+                ToolTip      = "Stage milestone boundary",
+            };
+            milestoneBand.SetResourceReference(Border.BackgroundProperty, "ActivePanelBorder");
+            Canvas.SetLeft(milestoneBand, boundaryX - 15);
+            Canvas.SetTop(milestoneBand, bandTop);
+            Panel.SetZIndex(milestoneBand, -2);
+            canvas.Children.Add(milestoneBand);
+
+            var milestoneLock = new TextBlock
+            {
+                Text    = isLocked ? "🔒" : "🔓",
+                Opacity = isLocked ? 1.0 : 0.25,
+                Cursor  = onGatesChanged is null ? Cursors.Arrow : Cursors.Hand,
+                ToolTip = onGatesChanged is null
+                    ? isLocked
+                        ? "Preview: human approval is required at this stage milestone."
+                        : "Preview: this padlock controls approval at the stage milestone."
+                    : isLocked
+                        ? "Human approval is required after all work to the left completes and before any work to the right begins. Click to remove."
+                        : "Require human approval after all work to the left completes and before any work to the right begins.",
+            };
+            milestoneLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            Canvas.SetLeft(milestoneLock, boundaryX - 10);
+            Canvas.SetTop(milestoneLock, 10);
+            Panel.SetZIndex(milestoneLock, 25);
+            if (onGatesChanged is not null)
+            {
+                milestoneLock.MouseEnter += (_, _) => milestoneLock.Opacity = 1.0;
+                milestoneLock.MouseLeave += (_, _) => milestoneLock.Opacity = isLocked ? 1.0 : 0.25;
+                milestoneLock.MouseLeftButtonDown += (_, e) =>
+                {
+                    e.Handled = true;
+                    var updated = isLocked && existingGate is not null
+                        ? PlanGateManager.RemoveGate(durablePlan!, existingGate.GateId)
+                        : PlanGateManager.AddBoundaryGate(
+                            durablePlan!,
+                            afterIds,
+                            beforeIds,
+                            $"Review milestone before Stage {leftColumn.Key + 2}");
+                    if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                };
+            }
+            canvas.Children.Add(milestoneLock);
+        }
+
+        DecomposedGate? FindDisplayedGate(
+            IReadOnlyList<string> afterIds,
+            IReadOnlyList<string> beforeIds) =>
+            (group.ApprovalGates ?? []).FirstOrDefault(gate =>
+                SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], afterIds, beforeIds));
+
+        bool IsStageBoundary(DecomposedGate gate) => stageBoundaries.Any(boundary =>
+            SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [],
+                boundary.AfterIds, boundary.BeforeIds));
+
+        bool IsAllJoinBoundary(DecomposedGate gate) => gates.Any(allGate =>
+            SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [],
+                allGate.Dependencies, allGate.Targets.Select(task => task.Id).ToArray()));
+
+        bool IsTaskBoundary(DecomposedGate gate) => gate.AfterTaskIds?.Count == 1 &&
+            SameBoundary(
+                gate.AfterTaskIds ?? [],
+                gate.BeforeTaskIds ?? [],
+                gate.AfterTaskIds ?? [],
+                group.Tasks
+                    .Where(task => task.DependsOn.Contains(gate.AfterTaskIds![0], StringComparer.Ordinal))
+                    .Select(task => task.Id)
+                    .ToArray());
+
+        // Pass 2: collect task-scoped and legacy approval edges. Stage and ALL-join boundaries
+        // have dedicated visuals and must not produce an all-to-all dashed connector mesh.
         var lockedAfterTaskIds = new HashSet<string>(StringComparer.Ordinal);
         var approvalDirectPairs = new List<(string AfterId, string BeforeId, DecomposedGate Gate)>();
         if (group.ApprovalGates is { Count: > 0 })
         {
             foreach (var approvalGate in group.ApprovalGates)
             {
+                if (IsStageBoundary(approvalGate) || IsAllJoinBoundary(approvalGate))
+                    continue;
+                var taskBoundary = IsTaskBoundary(approvalGate);
                 foreach (var afterId in approvalGate.AfterTaskIds ?? [])
                 {
-                    lockedAfterTaskIds.Add(afterId);
+                    if (taskBoundary) lockedAfterTaskIds.Add(afterId);
                     foreach (var beforeId in approvalGate.BeforeTaskIds ?? [])
                         approvalDirectPairs.Add((afterId, beforeId, approvalGate));
                 }
@@ -535,16 +624,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
         {
             var cgsForGate = new List<ConnectorGroup>();
+            var joinBeforeIds = targets.Select(task => task.Id).ToArray();
+            var joinIsLocked = FindDurableGate(dependencies, joinBeforeIds) is not null ||
+                               FindDisplayedGate(dependencies, joinBeforeIds) is not null;
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
                 var depSkip = minTargetLevel - levels[dependency] - 1;
                 var cg = AddConnector(canvas,
                     new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y)),
-                    new Point(gateCenter.X - 20, gateCenter.Y),
+                    new Point(gateCenter.X - 29, gateCenter.Y),
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: lockedAfterTaskIds.Contains(dependency));
+                    dashed: joinIsLocked || lockedAfterTaskIds.Contains(dependency));
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
             }
@@ -553,10 +645,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var targetPoint = positions[target.Id];
                 var targetSkip  = levels[target.Id] - maxDepLevel - 1;
                 var cg = AddConnector(canvas,
-                    new Point(gateCenter.X + 20, gateCenter.Y),
+                    new Point(gateCenter.X + 29, gateCenter.Y),
                     new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y)),
                     arrowHead: true,
-                    skipCount: Math.Max(0, targetSkip));
+                    skipCount: Math.Max(0, targetSkip),
+                    dashed: joinIsLocked);
                 RegisterConnector(target.Id, cg);
                 cgsForGate.Add(cg);
             }
@@ -607,28 +700,75 @@ internal sealed class PlanViewerWindow : ChromedWindow
         for (int gi = 0; gi < gates.Count; gi++)
         {
             var gate = gates[gi];
+            var joinAfterIds = gate.Dependencies;
+            var joinBeforeIds = gate.Targets.Select(task => task.Id).ToArray();
+            var existingJoinGate = FindDurableGate(joinAfterIds, joinBeforeIds);
+            var displayedJoinGate = FindDisplayedGate(joinAfterIds, joinBeforeIds);
+            var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null;
             var badgeText = new TextBlock
             {
                 Text                = "ALL",
                 FontWeight          = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment   = VerticalAlignment.Center,
+                Margin              = new Thickness(0, 0, 10, 0),
             };
             badgeText.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
             badgeText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            var badgeContent = new Grid();
+            badgeContent.Children.Add(badgeText);
+
+            {
+                var joinLock = new TextBlock
+                {
+                    Text                = joinIsLocked ? "🔒" : "🔓",
+                    Opacity             = joinIsLocked ? 1.0 : 0.25,
+                    Cursor              = onGatesChanged is null ? Cursors.Arrow : Cursors.Hand,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                    Margin              = new Thickness(0, 0, 4, 0),
+                    ToolTip             = onGatesChanged is null
+                        ? joinIsLocked
+                            ? "Preview: human approval is required at this ALL join."
+                            : "Preview: this padlock controls approval at the ALL join."
+                        : joinIsLocked
+                            ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
+                            : "Require human approval after every incoming task completes and before joined work begins.",
+                };
+                joinLock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                if (onGatesChanged is not null)
+                {
+                    joinLock.MouseEnter += (_, _) => joinLock.Opacity = 1.0;
+                    joinLock.MouseLeave += (_, _) => joinLock.Opacity = joinIsLocked ? 1.0 : 0.25;
+                    joinLock.MouseLeftButtonDown += (_, e) =>
+                    {
+                        e.Handled = true;
+                        var updated = joinIsLocked && existingJoinGate is not null
+                            ? PlanGateManager.RemoveGate(durablePlan!, existingJoinGate.GateId)
+                            : PlanGateManager.AddBoundaryGate(
+                                durablePlan!,
+                                joinAfterIds,
+                                joinBeforeIds,
+                                $"Review joined work before: {string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id))}");
+                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                    };
+                }
+                badgeContent.Children.Add(joinLock);
+            }
+
             var badge = new Border
             {
-                Width           = 40,
-                Height          = 26,
-                CornerRadius    = new CornerRadius(13),
+                Width           = 58,
+                Height          = 34,
+                CornerRadius    = new CornerRadius(17),
                 BorderThickness = new Thickness(1.5),
                 ToolTip         = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
-                Child           = badgeText,
+                Child           = badgeContent,
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            Canvas.SetLeft(badge, gate.Center.X - 20);
-            Canvas.SetTop(badge, gate.Center.Y - 13);
+            Canvas.SetLeft(badge, gate.Center.X - 29);
+            Canvas.SetTop(badge, gate.Center.Y - 17);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
 
@@ -853,7 +993,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedTaskForLock = task;
                 var isLeaf   = PlanGateManager.IsLeafTask(durablePlan, capturedTaskForLock.Id);
-                var isLocked = IsLockedAfter(capturedTaskForLock.Id);
+                var existingTaskGate = FindTaskGateAfter(capturedTaskForLock.Id);
+                var isLocked = existingTaskGate is not null;
                 var lockText = new TextBlock
                 {
                     Text    = isLocked ? "🔒" : "🔓",
@@ -877,29 +1018,32 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         e.Handled = true;
                         var updated = durablePlan;
-                        if (isLocked)
-                        {
-                            var gid = GetGateIdAfter(capturedTaskForLock.Id);
-                            if (gid is not null) updated = PlanGateManager.RemoveGate(updated, gid);
-                        }
+                        if (isLocked && existingTaskGate is not null)
+                            updated = PlanGateManager.RemoveGate(updated, existingTaskGate.GateId);
                         else
-                        {
                             updated = PlanGateManager.AddGateAfter(updated, capturedTaskForLock.Id,
                                 $"Review after completing: {capturedTaskForLock.Title ?? capturedTaskForLock.Id}");
-                        }
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     };
                 }
                 canvas.Children.Add(lockText);
             }
-            else if (lockIconByTask.TryGetValue(task.Id, out var lockIcon))
+            else
             {
-                // Non-editable mode: static status indicator (🔒 pending, ⏸ awaiting approval).
+                // Snapshot-only fixtures are intentionally non-editable, but still show the
+                // approval affordance so the preview accurately represents the finished UI.
+                var hasConfiguredGate = lockIconByTask.TryGetValue(task.Id, out var lockIcon);
+                lockIcon ??= "🔓";
                 var lockText = new TextBlock
                 {
                     Text                = lockIcon,
+                    Opacity             = hasConfiguredGate ? 1.0 : 0.25,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment   = VerticalAlignment.Center,
+                    Cursor              = Cursors.Arrow,
+                    ToolTip             = hasConfiguredGate
+                        ? "Preview: this task has a human approval checkpoint."
+                        : "Preview: this padlock controls approval after the task.",
                 };
                 lockText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 Canvas.SetLeft(lockText, position.X + NodeWidth - 22);
@@ -967,6 +1111,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         canvas.Width= Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
         canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
+    }
+
+    /// <summary>
+    /// Rebuilds the viewer content against a newly persisted immutable plan while preserving the
+    /// existing window, location, size, focus, and owner. The temporary window is never shown; it
+    /// is only used to construct a fresh visual tree with handlers bound to the new plan instance.
+    /// </summary>
+    internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
+    {
+        var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
+        var verticalOffset = _graphScroll?.VerticalOffset ?? 0;
+        var refreshed = new PlanViewerWindow(
+            plan,
+            _activeBranch,
+            _quickReplyFontSize,
+            _applyAction,
+            durablePlan,
+            _onGatesChanged,
+            _onResumePlan,
+            _onEndPlan,
+            _onApproveGate);
+        var refreshedContent = refreshed._contentHolder?.Child;
+        if (refreshed._contentHolder is not null)
+            refreshed._contentHolder.Child = null;
+        if (_contentHolder is not null)
+            _contentHolder.Child = refreshedContent;
+        _graphScroll = refreshed._graphScroll;
+        Title = refreshed.Title;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
+            _graphScroll?.ScrollToVerticalOffset(verticalOffset);
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private static ToolTip BuildTaskToolTip(string description, string[] prereqLines, string? completionSummary = null, string? commit = null)

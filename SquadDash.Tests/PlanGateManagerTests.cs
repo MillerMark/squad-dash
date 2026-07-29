@@ -168,6 +168,51 @@ internal sealed class PlanGateManagerTests
         Assert.That(second.ApprovalGates, Has.Count.EqualTo(1));
     }
 
+    // ─── Arbitrary graph boundaries ─────────────────────────────────────────
+
+    [Test]
+    public void AddBoundaryGate_CreatesSingleMultiTaskMilestone()
+    {
+        var plan = MakePlan(
+            ("TEST-20260101-001", []),
+            ("TEST-20260101-002", []),
+            ("TEST-20260101-003", ["TEST-20260101-001", "TEST-20260101-002"]));
+
+        var result = PlanGateManager.AddBoundaryGate(
+            plan,
+            ["TEST-20260101-001", "TEST-20260101-002"],
+            ["TEST-20260101-003"],
+            "Review the milestone");
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ApprovalGates[0].AfterTaskIds,
+                Is.EquivalentTo(new[] { "TEST-20260101-001", "TEST-20260101-002" }));
+            Assert.That(result.ApprovalGates[0].BeforeTaskIds,
+                Is.EquivalentTo(new[] { "TEST-20260101-003" }));
+        });
+    }
+
+    [Test]
+    public void AddBoundaryGate_RejectsUnknownOrOverlappingTaskSets()
+    {
+        var plan = MakePlan(
+            ("TEST-20260101-001", []),
+            ("TEST-20260101-002", ["TEST-20260101-001"]));
+
+        var unknown = PlanGateManager.AddBoundaryGate(
+            plan, ["TEST-20260101-001"], ["UNKNOWN"], "Unknown");
+        var overlapping = PlanGateManager.AddBoundaryGate(
+            plan, ["TEST-20260101-001"], ["TEST-20260101-001"], "Overlap");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ReferenceEquals(unknown, plan), Is.True);
+            Assert.That(ReferenceEquals(overlapping, plan), Is.True);
+        });
+    }
+
     // ─── RemoveGate ──────────────────────────────────────────────────────────
 
     [Test]

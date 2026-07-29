@@ -26,11 +26,45 @@ internal static class PlanGateManager
     internal static bool HasEquivalentGate(Plan plan,
         IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds)
     {
-        return plan.ApprovalGates.Any(g =>
+        return FindEquivalentGate(plan, afterIds, beforeIds) is not null;
+    }
+
+    /// <summary>Returns the gate with the same boundary, or <c>null</c> when none exists.</summary>
+    internal static PlanApprovalGate? FindEquivalentGate(Plan plan,
+        IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds)
+    {
+        return plan.ApprovalGates.FirstOrDefault(g =>
             g.AfterTaskIds.OrderBy(x => x, StringComparer.Ordinal)
                 .SequenceEqual(afterIds.OrderBy(x => x, StringComparer.Ordinal)) &&
             g.BeforeTaskIds.OrderBy(x => x, StringComparer.Ordinal)
                 .SequenceEqual(beforeIds.OrderBy(x => x, StringComparer.Ordinal)));
+    }
+
+    /// <summary>
+    /// Adds one approval boundary between arbitrary non-overlapping task sets. Used by graph
+    /// affordances such as an ALL join or a milestone between two displayed stages.
+    /// </summary>
+    internal static Plan AddBoundaryGate(Plan plan,
+        IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds, string message)
+    {
+        var knownIds = plan.Tasks.Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal);
+        var normalizedAfter = afterIds.Distinct(StringComparer.Ordinal).ToArray();
+        var normalizedBefore = beforeIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (normalizedAfter.Length == 0 || normalizedBefore.Length == 0 ||
+            normalizedAfter.Any(id => !knownIds.Contains(id)) ||
+            normalizedBefore.Any(id => !knownIds.Contains(id)) ||
+            normalizedAfter.Intersect(normalizedBefore, StringComparer.Ordinal).Any() ||
+            HasEquivalentGate(plan, normalizedAfter, normalizedBefore))
+            return plan;
+
+        var gate = new PlanApprovalGate(
+            GateId:        NewGateId(plan),
+            Message:       message,
+            AfterTaskIds:  normalizedAfter,
+            BeforeTaskIds: normalizedBefore,
+            Status:        PlanGateStatus.Pending,
+            PlanRevision:  plan.Revision);
+        return plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
     }
 
     /// <summary>Generates next stable gate ID: "{planId}-GATE-001", "...GATE-002", etc.</summary>
@@ -63,17 +97,7 @@ internal static class PlanGateManager
         IReadOnlyList<string> afterIds  = task.DependsOn ?? [];
         IReadOnlyList<string> beforeIds = [taskId];
 
-        if (HasEquivalentGate(plan, afterIds, beforeIds)) return plan;
-
-        var gate = new PlanApprovalGate(
-            GateId:        NewGateId(plan),
-            Message:       message,
-            AfterTaskIds:  afterIds,
-            BeforeTaskIds: beforeIds,
-            Status:        PlanGateStatus.Pending,
-            PlanRevision:  plan.Revision);
-
-        return plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
+        return AddBoundaryGate(plan, afterIds, beforeIds, message);
     }
 
     /// <summary>
@@ -91,17 +115,7 @@ internal static class PlanGateManager
             .Select(t => t.TaskId)
             .ToArray();
 
-        if (HasEquivalentGate(plan, afterIds, beforeIds)) return plan;
-
-        var gate = new PlanApprovalGate(
-            GateId:        NewGateId(plan),
-            Message:       message,
-            AfterTaskIds:  afterIds,
-            BeforeTaskIds: beforeIds,
-            Status:        PlanGateStatus.Pending,
-            PlanRevision:  plan.Revision);
-
-        return plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
+        return AddBoundaryGate(plan, afterIds, beforeIds, message);
     }
 
     /// <summary>Removes the gate with the given gateId. Returns plan unchanged if not found.</summary>

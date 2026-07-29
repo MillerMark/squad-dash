@@ -8,6 +8,7 @@ namespace SquadDash;
 internal enum DecomposeGroupExecutionState
 {
     Eligible,
+    AwaitingApproval,
     Complete,
     Blocked,
     Missing,
@@ -85,7 +86,9 @@ internal sealed class CodeHealthGroupRunner
     /// The loop prompt uses the same selection rule, so an interrupted iteration can
     /// reliably mark the task it was expected to execute as failed.
     /// </summary>
-    internal DecomposeGroupExecutionState TrackFirstEligibleStep(string groupId)
+    internal DecomposeGroupExecutionState TrackFirstEligibleStep(
+        string groupId,
+        IReadOnlySet<string>? approvalBlockedTaskIds = null)
     {
         _currentStepId = null;
         _currentRevision = null;
@@ -109,15 +112,20 @@ internal sealed class CodeHealthGroupRunner
                 .Where(item => (item.IsChecked || item.IsSuperseded) && item.TaskId is not null)
                 .Select(item => item.TaskId!)
                 .ToHashSet(StringComparer.Ordinal);
-            _currentStepId = items
+            var eligibleItems = items
                 .Where(item => !item.IsChecked && !item.IsFailed && !item.IsPartial &&
                                !item.IsSuperseded && item.TaskId is not null)
-                .FirstOrDefault(item => item.DependsOn is null || item.DependsOn.All(completedIds.Contains))
+                .Where(item => item.DependsOn is null || item.DependsOn.All(completedIds.Contains))
+                .ToArray();
+            _currentStepId = eligibleItems
+                .FirstOrDefault(item => approvalBlockedTaskIds?.Contains(item.TaskId!) != true)
                 ?.TaskId;
             if (_currentStepId is not null)
                 return DecomposeGroupExecutionState.Eligible;
             if (items.All(item => item.IsChecked || item.IsSuperseded))
                 return DecomposeGroupExecutionState.Complete;
+            if (eligibleItems.Any(item => approvalBlockedTaskIds?.Contains(item.TaskId!) == true))
+                return DecomposeGroupExecutionState.AwaitingApproval;
             return DecomposeGroupExecutionState.Blocked;
         }
         catch (Exception ex)

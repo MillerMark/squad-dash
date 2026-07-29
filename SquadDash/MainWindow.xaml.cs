@@ -3213,8 +3213,9 @@ public partial class MainWindow : Window
 
         if (_activeDecomposeGroupId is not null && _CodeHealthGroupRunner is not null)
         {
-            var groupState = _CodeHealthGroupRunner.TrackFirstEligibleStep(_activeDecomposeGroupId);
+            var groupState = TrackFirstEligiblePlanStep(_activeDecomposeGroupId);
             if (groupState is DecomposeGroupExecutionState.Blocked or
+                DecomposeGroupExecutionState.AwaitingApproval or
                 DecomposeGroupExecutionState.Complete or
                 DecomposeGroupExecutionState.Missing or
                 DecomposeGroupExecutionState.Unreadable)
@@ -5955,7 +5956,7 @@ public partial class MainWindow : Window
     {
         _loopCurrentIteration = iteration;
         if (_activeDecomposeGroupId is not null)
-            _CodeHealthGroupRunner?.TrackFirstEligibleStep(_activeDecomposeGroupId);
+            TrackFirstEligiblePlanStep(_activeDecomposeGroupId);
         _loopIsWaiting = false;
         _loopRoundStartedAt = DateTimeOffset.Now;
         _loopPlanStartedAt ??= _loopRoundStartedAt;
@@ -8302,7 +8303,18 @@ public partial class MainWindow : Window
         // Auto-resolve the durable plan when not supplied by the caller (e.g. inbox link).
         // Without it the gate-editing controls (lock buttons, onGatesChanged) are suppressed.
         if (durablePlan is null && _planStore is not null)
-            durablePlan = _planStore.Load(groupId);
+        {
+            var storedPlan = _planStore.Load(groupId);
+            if (storedPlan is not null &&
+                string.Equals(storedPlan.Revision, plan.Revision, StringComparison.Ordinal))
+                durablePlan = storedPlan;
+        }
+        else if (durablePlan is not null &&
+                 !string.Equals(durablePlan.Revision, plan.Revision, StringComparison.Ordinal))
+        {
+            // Never enable lifecycle or gate editing against a graph from another revision.
+            durablePlan = null;
+        }
 
         PendingDecomposePlan? livePlan = null;
         if (_currentWorkspace is not null)
@@ -8314,17 +8326,22 @@ public partial class MainWindow : Window
                 livePlan = candidate;
         }
 
-        var displayedPlan = livePlan ?? plan;
+        var displayedPlan = durablePlan is not null
+            ? PendingDecomposePlanAdapter.FromPlan(durablePlan)
+            : livePlan ?? plan;
         var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
         Func<DecomposePlanActionDefinition, Task<bool>>? applyAction =
             livePlan is not null
                 ? ApplyFromViewerAsync
                 : null;
+        PlanViewerWindow? win = null;
         Action<Plan>? onGatesChanged = durablePlan is not null
             ? gatedPlan =>
               {
                   PublishPlanProgress(gatedPlan);
-                  OpenPlanFromStore(gatedPlan);
+                  // Refresh the existing viewer in place so its handlers capture the newly saved
+                  // immutable Plan without closing, flashing, or losing the window placement.
+                  win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
               }
             : null;
         Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
@@ -8341,7 +8358,7 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveGateAndResume(p, gate);
               }
             : null;
-        var win = new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
+        win = new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -8680,7 +8697,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var state = _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId);
+        var state = TrackFirstEligiblePlanStep(groupId);
         if (!TryPublishPlanStepAccepted(groupId, state, result, out var persistenceError))
         {
             StopAndOfferDecomposeRecovery(
@@ -8697,16 +8714,34 @@ public partial class MainWindow : Window
             _loopController.RequestStop();
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
         }
-        else if (state == DecomposeGroupExecutionState.Eligible && _planStore is not null)
+        else if (state is DecomposeGroupExecutionState.Eligible or
+                          DecomposeGroupExecutionState.AwaitingApproval && _planStore is not null)
         {
             var plan = _planStore.Load(groupId);
             if (plan is not null)
             {
-                var activatedGate = FindActivatedGate(plan, result.TaskId, _CodeHealthGroupRunner?.CurrentStepId);
+                var activatedGate = FindActivatedGate(plan, _CodeHealthGroupRunner?.CurrentStepId);
                 if (activatedGate is not null)
                     PauseAtApprovalGate(groupId, revision, result.TaskId, activatedGate, plan);
+                else if (state == DecomposeGroupExecutionState.AwaitingApproval)
+                    StopAndOfferDecomposeRecovery(
+                        groupId,
+                        result.TaskId,
+                        revision,
+                        "The plan reached an approval-blocked task, but no ready approval gate could be resolved.");
             }
         }
+    }
+
+    private DecomposeGroupExecutionState TrackFirstEligiblePlanStep(string groupId)
+    {
+        if (_CodeHealthGroupRunner is null)
+            return DecomposeGroupExecutionState.Missing;
+        var blockedTaskIds = _planStore?.Load(groupId)?.ApprovalGates
+            .Where(gate => gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval)
+            .SelectMany(gate => gate.BeforeTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        return _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId, blockedTaskIds);
     }
 
     private async Task<string?> ValidateDecomposeStepCommitAsync(DecomposeStepResult result)
@@ -8784,14 +8819,13 @@ public partial class MainWindow : Window
     /// <summary>
     /// Returns the first <see cref="PlanApprovalGate"/> that blocks the next eligible task,
     /// or <c>null</c> when no gate is triggered.
-    /// A gate is triggered when its status is Pending, <paramref name="completedTaskId"/> is one
-    /// of its <see cref="PlanApprovalGate.AfterTaskIds"/>, every task in AfterTaskIds is now
-    /// complete, and <paramref name="nextTaskId"/> is in <see cref="PlanApprovalGate.BeforeTaskIds"/>.
+    /// A gate is triggered when its status is Pending, every task in AfterTaskIds is now
+    /// complete, and the next eligible task (when one exists) is in
+    /// <see cref="PlanApprovalGate.BeforeTaskIds"/>. A null next task means every otherwise-ready
+    /// task is approval-blocked.
     /// </summary>
-    private static PlanApprovalGate? FindActivatedGate(Plan plan, string completedTaskId, string? nextTaskId)
+    private static PlanApprovalGate? FindActivatedGate(Plan plan, string? nextTaskId)
     {
-        if (nextTaskId is null) return null;
-
         var completedIds = plan.Tasks
             .Where(t => t.Status == PlanTaskStatus.Complete)
             .Select(t => t.TaskId)
@@ -8799,9 +8833,9 @@ public partial class MainWindow : Window
 
         return plan.ApprovalGates.FirstOrDefault(gate =>
             gate.Status == PlanGateStatus.Pending &&
-            gate.AfterTaskIds.Any(id => string.Equals(id, completedTaskId, StringComparison.Ordinal)) &&
             gate.AfterTaskIds.All(id => completedIds.Contains(id)) &&
-            gate.BeforeTaskIds.Any(id => string.Equals(id, nextTaskId, StringComparison.Ordinal)));
+            (nextTaskId is null ||
+             gate.BeforeTaskIds.Any(id => string.Equals(id, nextTaskId, StringComparison.Ordinal))));
     }
 
     /// <summary>
@@ -39979,7 +40013,9 @@ public partial class MainWindow : Window
         }
         try
         {
-            if (groupState is not (DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.Complete))
+            if (groupState is not (DecomposeGroupExecutionState.Eligible or
+                                   DecomposeGroupExecutionState.AwaitingApproval or
+                                   DecomposeGroupExecutionState.Complete))
             {
                 error = $"Plan {groupId} has no valid next execution state ({groupState}).";
                 return false;

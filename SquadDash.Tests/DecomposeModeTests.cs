@@ -1101,6 +1101,48 @@ internal sealed class CodeHealthGroupRunnerTests
     }
 
     [Test]
+    public void TrackFirstEligibleStep_SkipsApprovalBlockedTaskWhenOtherWorkIsReady()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeNoDepsGroup();
+        runner.TryStartGroup(group, out _);
+
+        var state = runner.TrackFirstEligibleStep(
+            group.GroupId,
+            new HashSet<string>(StringComparer.Ordinal) { "PROJ-20240101-001" });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Eligible));
+            Assert.That(runner.CurrentStepId, Is.EqualTo("PROJ-20240101-002"));
+        });
+    }
+
+    [Test]
+    public void TrackFirstEligibleStep_WhenEveryReadyTaskIsApprovalBlocked_ReturnsAwaitingApproval()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeNoDepsGroup();
+        runner.TryStartGroup(group, out _);
+
+        var state = runner.TrackFirstEligibleStep(
+            group.GroupId,
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "PROJ-20240101-001",
+                "PROJ-20240101-002",
+            });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.AwaitingApproval));
+            Assert.That(runner.CurrentStepId, Is.Null);
+        });
+    }
+
+    [Test]
     public void TrackFirstEligibleStep_AllTasksComplete_ReturnsComplete()
     {
         var writer = new DecomposedTasksWriter();
