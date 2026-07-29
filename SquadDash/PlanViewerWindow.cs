@@ -527,6 +527,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment   = VerticalAlignment.Center,
             };
+            gateBadgeText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             gateBadgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             var gateBadge = new Border
             {
