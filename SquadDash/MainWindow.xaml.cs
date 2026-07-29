@@ -370,6 +370,7 @@ public partial class MainWindow : Window
     private bool _isInstallingSquad;
     private bool _isClosing;
     private readonly List<InboxMessageWindow> _openInboxWindows = new();
+    private readonly List<(string GroupId, PlanViewerWindow Window)> _openPlanViewerWindows = new();
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _codeHealthPendingOnIdle;
@@ -8285,6 +8286,19 @@ public partial class MainWindow : Window
 
     private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
     {
+        var groupId = plan.Group.GroupId;
+
+        // If a viewer for this plan is already open, bring it to the front instead of opening another.
+        var existing = _openPlanViewerWindows.FirstOrDefault(e =>
+            string.Equals(e.GroupId, groupId, StringComparison.Ordinal));
+        if (existing.Window is not null)
+        {
+            if (existing.Window.WindowState == WindowState.Minimized)
+                existing.Window.WindowState = WindowState.Normal;
+            existing.Window.Activate();
+            return;
+        }
+
         PendingDecomposePlan? livePlan = null;
         if (_currentWorkspace is not null)
         {
@@ -8322,10 +8336,14 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveGateAndResume(p, gate);
               }
             : null;
-        new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
+        var win = new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
         {
             Owner = CanShowOwnedWindow() ? this : null,
-        }.Show();
+        };
+        _openPlanViewerWindows.Add((groupId, win));
+        win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
+            string.Equals(e.GroupId, groupId, StringComparison.Ordinal));
+        win.Show();
 
         async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
         {
