@@ -399,6 +399,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // A stage milestone is one global boundary: every task in columns to its left must
         // complete before any task in columns to its right may proceed.
+        var lockedMilestoneBoundaryXs = new List<double>();
         var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
         for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
         {
@@ -424,6 +425,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var leftX = positions[leftTasks[0].Id].X;
             var nextX = positions[columns[columnIndex + 1].First().Id].X;
             var boundaryX = (leftX + NodeWidth + nextX) / 2.0;
+            if (isLocked) lockedMilestoneBoundaryXs.Add(boundaryX);
             var bandTop = leftTasks.Min(task => positions[task.Id].Y);
             var bandBottom = leftTasks.Max(task => positions[task.Id].Y + NodeHeight);
             var milestoneBand = new Border
@@ -619,6 +621,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!cg.TaskIds.Contains(taskId, StringComparer.Ordinal)) cg.TaskIds.Add(taskId);
         }
 
+        // Find the leftmost locked milestone boundary X strictly between fromX and toX, or NaN if none.
+        double FindSplitX(double fromX, double toX) =>
+            lockedMilestoneBoundaryXs.Where(bx => bx > fromX + 1.0 && bx < toX - 1.0)
+                .OrderBy(bx => bx).Cast<double?>().FirstOrDefault() ?? double.NaN;
+
         // Draw ALL-gate connectors; collect per-gate groups so the badge can reference them later.
         var gateConnectorGroups = new List<List<ConnectorGroup>>(gates.Count);
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
@@ -635,12 +642,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var source  = positions[dependency];
                 var depSkip = minTargetLevel - levels[dependency] - 1;
+                var fromPt  = new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y));
+                var toPt    = new Point(gateCenter.X - 29, gateCenter.Y);
                 var cg = AddConnector(canvas,
-                    new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y)),
-                    new Point(gateCenter.X - 29, gateCenter.Y),
+                    fromPt, toPt,
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: false);
+                    dashed: false,
+                    splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
             }
@@ -648,12 +657,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var targetPoint = positions[target.Id];
                 var targetSkip  = levels[target.Id] - maxDepLevel - 1;
+                var fromPt      = new Point(gateCenter.X + 29, gateCenter.Y);
+                var toPt        = new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y));
                 var cg = AddConnector(canvas,
-                    new Point(gateCenter.X + 29, gateCenter.Y),
-                    new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y)),
+                    fromPt, toPt,
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip),
-                    dashed: outboundDashed);
+                    dashed: outboundDashed,
+                    splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(target.Id, cg);
                 cgsForGate.Add(cg);
             }
@@ -668,12 +679,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var source    = positions[dependency];
                 var target    = positions[task.Id];
                 var skipCount = Math.Max(0, levels[task.Id] - levels[dependency] - 1);
+                var fromPt    = new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0));
+                var toPt      = new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0));
                 var cg = AddConnector(canvas,
-                    new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0)),
-                    new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0)),
+                    fromPt, toPt,
                     arrowHead: true,
                     skipCount: skipCount,
-                    dashed: lockedAfterTaskIds.Contains(dependency));
+                    dashed: lockedAfterTaskIds.Contains(dependency),
+                    splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 RegisterConnector(task.Id,   cg);
             }
@@ -690,13 +703,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var gateToolTip = durableGate is not null
                 ? $"{approvalGate.Message}\nStatus: {durableGate.Status}"
                 : approvalGate.Message;
+            var fromPt = new Point(afterPos.X + NodeWidth, SpreadExitY(afterId,   beforePos.Y + NodeHeight / 2.0));
+            var toPt   = new Point(beforePos.X,            SpreadEntryY(beforeId, afterPos.Y  + NodeHeight / 2.0));
             var cg = AddConnector(canvas,
-                new Point(afterPos.X + NodeWidth, SpreadExitY(afterId,   beforePos.Y + NodeHeight / 2.0)),
-                new Point(beforePos.X,            SpreadEntryY(beforeId, afterPos.Y  + NodeHeight / 2.0)),
+                fromPt, toPt,
                 arrowHead: true,
                 skipCount: 0,
                 dashed: true,
-                toolTip: gateToolTip);
+                toolTip: gateToolTip,
+                splitAtX: FindSplitX(fromPt.X, toPt.X));
             RegisterConnector(afterId,  cg);
             RegisterConnector(beforeId, cg);
         }
@@ -1256,7 +1271,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public readonly List<Border>    GateBadges    = [];
     }
 
-    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null)
+    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null, double splitAtX = double.NaN)
     {
         var group = new ConnectorGroup();
 
@@ -1288,15 +1303,45 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(glowLine);
             group.GlowElements.Add(glowLine);
 
-            var mainLine = new Line
+            // Main line — split at a locked milestone boundary if one crosses this segment.
+            bool doLineSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            if (doLineSplit)
             {
-                X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
-                StrokeThickness = 2, Stroke = mainBrush,
-            };
-            if (dashArray is not null) mainLine.StrokeDashArray = dashArray;
-            if (toolTip is not null)   mainLine.ToolTip = toolTip;
-            canvas.Children.Add(mainLine);
-            group.MainElements.Add(mainLine);
+                double tSplit  = (splitAtX - from.X) / (lineEnd.X - from.X);
+                double splitY  = from.Y + tSplit * (lineEnd.Y - from.Y);
+                var    splitPt = new Point(splitAtX, splitY);
+
+                var leftLine = new Line
+                {
+                    X1 = from.X, Y1 = from.Y, X2 = splitPt.X, Y2 = splitPt.Y,
+                    StrokeThickness = 2, Stroke = mainBrush,
+                };
+                if (dashArray is not null) leftLine.StrokeDashArray = dashArray;
+                canvas.Children.Add(leftLine);
+                group.MainElements.Add(leftLine);
+
+                var rightLine = new Line
+                {
+                    X1 = splitPt.X, Y1 = splitPt.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
+                    StrokeThickness = 2, Stroke = mainBrush,
+                    StrokeDashArray = new DoubleCollection { 7, 2 },
+                };
+                if (toolTip is not null) rightLine.ToolTip = toolTip;
+                canvas.Children.Add(rightLine);
+                group.MainElements.Add(rightLine);
+            }
+            else
+            {
+                var mainLine = new Line
+                {
+                    X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
+                    StrokeThickness = 2, Stroke = mainBrush,
+                };
+                if (dashArray is not null) mainLine.StrokeDashArray = dashArray;
+                if (toolTip is not null)   mainLine.ToolTip = toolTip;
+                canvas.Children.Add(mainLine);
+                group.MainElements.Add(mainLine);
+            }
 
             // Wide invisible hit-target so hovering near (but not pixel-perfect on) the line
             // still triggers the hover. Opacity must be > 0 for WPF hit testing to work.
@@ -1337,15 +1382,53 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(glowPath);
             group.GlowElements.Add(glowPath);
 
-            var mainPath = new Path
+            // Main path — split at a locked milestone boundary if one crosses this segment.
+            bool doBezSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            if (doBezSplit)
             {
-                Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
-                Fill = Brushes.Transparent,
-            };
-            if (dashArray is not null) mainPath.StrokeDashArray = dashArray;
-            if (toolTip is not null)   mainPath.ToolTip = toolTip;
-            canvas.Children.Add(mainPath);
-            group.MainElements.Add(mainPath);
+                // Binary search for t where x(t) = splitAtX (monotone for left-to-right S-curves).
+                double lo = 0.0, hi = 1.0;
+                for (var i = 0; i < 50; i++)
+                {
+                    double mid = (lo + hi) * 0.5;
+                    if (BezierX(from, cp1, cp2, lineEnd, mid) < splitAtX) lo = mid; else hi = mid;
+                }
+                SplitBezier(from, cp1, cp2, lineEnd, (lo + hi) * 0.5,
+                    out var lp0, out var lp1, out var lp2, out var lp3,
+                    out var rp0, out var rp1, out var rp2, out var rp3);
+
+                var leftFig = new PathFigure { StartPoint = lp0 };
+                leftFig.Segments.Add(new BezierSegment(lp1, lp2, lp3, isStroked: true));
+                var leftGeo  = new PathGeometry(); leftGeo.Figures.Add(leftFig);
+                var leftPath = new Path { Data = leftGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent };
+                if (dashArray is not null) leftPath.StrokeDashArray = dashArray;
+                canvas.Children.Add(leftPath);
+                group.MainElements.Add(leftPath);
+
+                var rightFig = new PathFigure { StartPoint = rp0 };
+                rightFig.Segments.Add(new BezierSegment(rp1, rp2, rp3, isStroked: true));
+                var rightGeo  = new PathGeometry(); rightGeo.Figures.Add(rightFig);
+                var rightPath = new Path
+                {
+                    Data = rightGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent,
+                    StrokeDashArray = new DoubleCollection { 7, 2 },
+                };
+                if (toolTip is not null) rightPath.ToolTip = toolTip;
+                canvas.Children.Add(rightPath);
+                group.MainElements.Add(rightPath);
+            }
+            else
+            {
+                var mainPath = new Path
+                {
+                    Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
+                    Fill = Brushes.Transparent,
+                };
+                if (dashArray is not null) mainPath.StrokeDashArray = dashArray;
+                if (toolTip is not null)   mainPath.ToolTip = toolTip;
+                canvas.Children.Add(mainPath);
+                group.MainElements.Add(mainPath);
+            }
 
             // Wide invisible hit-target for the Bézier — same path, much thicker, nearly invisible.
             var hitPath = new Path
@@ -1429,5 +1512,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
             (byte)Math.Round((r + m) * 255),
             (byte)Math.Round((g + m) * 255),
             (byte)Math.Round((b + m) * 255));
+    }
+
+    // Evaluates the X coordinate of the cubic Bézier at parameter t.
+    private static double BezierX(Point p0, Point p1, Point p2, Point p3, double t)
+    {
+        double mt = 1.0 - t;
+        return mt * mt * mt * p0.X + 3 * mt * mt * t * p1.X + 3 * mt * t * t * p2.X + t * t * t * p3.X;
+    }
+
+    // De Casteljau split: divides the Bézier [p0,p1,p2,p3] at parameter t into two sub-curves.
+    private static void SplitBezier(Point p0, Point p1, Point p2, Point p3, double t,
+        out Point lp0, out Point lp1, out Point lp2, out Point lp3,
+        out Point rp0, out Point rp1, out Point rp2, out Point rp3)
+    {
+        static Point Lerp(Point a, Point b, double f) => new(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f);
+        var A = Lerp(p0, p1, t); var B = Lerp(p1, p2, t); var C = Lerp(p2, p3, t);
+        var D = Lerp(A,  B,  t); var E = Lerp(B,  C,  t); var F = Lerp(D,  E,  t);
+        lp0 = p0; lp1 = A; lp2 = D; lp3 = F;
+        rp0 = F;  rp1 = E; rp2 = C; rp3 = p3;
     }
 }
