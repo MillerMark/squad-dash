@@ -329,26 +329,51 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
         }
 
-        // Pass 2: pre-compute approval-gate centers.
-        var approvalGateInfos = new List<(DecomposedGate Gate, Point Center)>();
+        // Pass 2: collect approval-gate task sets.
+        // AfterTaskIds get a lock overlay; each AfterTask→BeforeTask pair gets a dashed direct connector.
+        var lockedAfterTaskIds = new HashSet<string>(StringComparer.Ordinal);
+        var approvalDirectPairs = new List<(string AfterId, string BeforeId, DecomposedGate Gate)>();
         if (group.ApprovalGates is { Count: > 0 })
         {
             foreach (var approvalGate in group.ApprovalGates)
             {
-                var afterPositions  = (approvalGate.AfterTaskIds  ?? []).Where(positions.ContainsKey).Select(id => positions[id]).ToList();
-                var beforePositions = (approvalGate.BeforeTaskIds ?? []).Where(positions.ContainsKey).Select(id => positions[id]).ToList();
-                if (afterPositions.Count == 0 && beforePositions.Count == 0) continue;
-                double gateCenterX;
-                if (afterPositions.Count > 0 && beforePositions.Count > 0)
-                    gateCenterX = (afterPositions.Max(p => p.X + NodeWidth) + beforePositions.Min(p => p.X)) / 2;
-                else if (afterPositions.Count > 0)
-                    gateCenterX = afterPositions.Max(p => p.X + NodeWidth) + ColumnSpacing / 4;
-                else
-                    gateCenterX = beforePositions.Min(p => p.X) - ColumnSpacing / 4;
-                var allYCenters = afterPositions.Select(p => p.Y + NodeHeight / 2.0)
-                                      .Concat(beforePositions.Select(p => p.Y + NodeHeight / 2.0)).ToList();
-                approvalGateInfos.Add((approvalGate, new Point(gateCenterX, allYCenters.Average())));
+                foreach (var afterId in approvalGate.AfterTaskIds ?? [])
+                {
+                    lockedAfterTaskIds.Add(afterId);
+                    foreach (var beforeId in approvalGate.BeforeTaskIds ?? [])
+                        approvalDirectPairs.Add((afterId, beforeId, approvalGate));
+                }
             }
+        }
+
+        // Map each AfterTaskId to the icon it should display based on the most-restrictive gate status.
+        var lockIconByTask = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var afterId in lockedAfterTaskIds)
+        {
+            var worstIcon = (group.ApprovalGates ?? [])
+                .Where(g => g.AfterTaskIds?.Contains(afterId, StringComparer.Ordinal) ?? false)
+                .Select(g =>
+                {
+                    var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(dg =>
+                        string.Equals(dg.GateId, g.GateId, StringComparison.Ordinal));
+                    return durableGate?.Status ?? PlanGateStatus.Pending;
+                })
+                .OrderByDescending(s => s switch
+                {
+                    PlanGateStatus.AwaitingApproval => 2,
+                    PlanGateStatus.Pending          => 1,
+                    _                               => 0,
+                })
+                .Select(s => s switch
+                {
+                    PlanGateStatus.AwaitingApproval => "⏸",
+                    PlanGateStatus.Approved         => null,
+                    PlanGateStatus.Skipped          => null,
+                    _                               => "🔒",
+                })
+                .FirstOrDefault();
+            if (worstIcon is not null)
+                lockIconByTask[afterId] = worstIcon;
         }
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
@@ -381,10 +406,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RegisterExit(dep,      positions[task.Id].Y + NodeHeight / 2.0);
                 RegisterEntry(task.Id, positions[dep].Y      + NodeHeight / 2.0);
             }
-        foreach (var (approvalGate, gateCenter) in approvalGateInfos)
+        foreach (var (afterId, beforeId, _) in approvalDirectPairs)
         {
-            foreach (var taskId in approvalGate.AfterTaskIds  ?? []) if (positions.ContainsKey(taskId)) RegisterExit(taskId, gateCenter.Y);
-            foreach (var taskId in approvalGate.BeforeTaskIds ?? []) if (positions.ContainsKey(taskId)) RegisterEntry(taskId, gateCenter.Y);
+            if (positions.ContainsKey(afterId) && positions.ContainsKey(beforeId))
+            {
+                RegisterExit(afterId,   positions[beforeId].Y + NodeHeight / 2.0);
+                RegisterEntry(beforeId, positions[afterId].Y  + NodeHeight / 2.0);
+            }
         }
         foreach (var list in rightExitYs.Values)  list.Sort();
         foreach (var list in leftEntryYs.Values)   list.Sort();
@@ -424,7 +452,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y)),
                     new Point(gateCenter.X - 20, gateCenter.Y),
                     arrowHead: false,
-                    skipCount: Math.Max(0, depSkip));
+                    skipCount: Math.Max(0, depSkip),
+                    dashed: lockedAfterTaskIds.Contains(dependency));
                 RegisterConnector(dependency, cg);
             }
             foreach (var target in targets)
@@ -452,10 +481,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0)),
                     new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0)),
                     arrowHead: true,
-                    skipCount: skipCount);
+                    skipCount: skipCount,
+                    dashed: lockedAfterTaskIds.Contains(dependency));
                 RegisterConnector(dependency, cg);
                 RegisterConnector(task.Id,   cg);
             }
+        }
+
+        // Draw direct dashed approval connectors (replacing the old gate-node-mediated path).
+        foreach (var (afterId, beforeId, approvalGate) in approvalDirectPairs)
+        {
+            if (!positions.ContainsKey(afterId) || !positions.ContainsKey(beforeId)) continue;
+            var afterPos  = positions[afterId];
+            var beforePos = positions[beforeId];
+            var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
+                string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
+            var gateToolTip = durableGate is not null
+                ? $"{approvalGate.Message}\nStatus: {durableGate.Status}"
+                : approvalGate.Message;
+            var cg = AddConnector(canvas,
+                new Point(afterPos.X + NodeWidth, SpreadExitY(afterId,   beforePos.Y + NodeHeight / 2.0)),
+                new Point(beforePos.X,            SpreadEntryY(beforeId, afterPos.Y  + NodeHeight / 2.0)),
+                arrowHead: true,
+                skipCount: 0,
+                dashed: true,
+                toolTip: gateToolTip);
+            RegisterConnector(afterId,  cg);
+            RegisterConnector(beforeId, cg);
         }
 
         foreach (var gate in gates)
@@ -484,66 +536,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetTop(badge, gate.Center.Y - 13);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
-        }
-
-        // Render human approval gate connectors and badges.
-        foreach (var (approvalGate, gateCenter) in approvalGateInfos)
-        {
-            foreach (var taskId in approvalGate.AfterTaskIds ?? [])
-            {
-                if (!positions.TryGetValue(taskId, out var pos)) continue;
-                var cg = AddConnector(canvas,
-                    new Point(pos.X + NodeWidth, SpreadExitY(taskId, gateCenter.Y)),
-                    new Point(gateCenter.X - 30, gateCenter.Y),
-                    arrowHead: false);
-                RegisterConnector(taskId, cg);
-            }
-            foreach (var taskId in approvalGate.BeforeTaskIds ?? [])
-            {
-                if (!positions.TryGetValue(taskId, out var pos)) continue;
-                var cg = AddConnector(canvas,
-                    new Point(gateCenter.X + 30, gateCenter.Y),
-                    new Point(pos.X, SpreadEntryY(taskId, gateCenter.Y)),
-                    arrowHead: true);
-                RegisterConnector(taskId, cg);
-            }
-
-            var durableGate = durablePlan?.ApprovalGates.FirstOrDefault(g =>
-                string.Equals(g.GateId, approvalGate.GateId, StringComparison.Ordinal));
-            var durableGateStatus = durableGate?.Status ?? PlanGateStatus.Pending;
-            var (gateIcon, gateBorderKey) = durableGateStatus switch
-            {
-                PlanGateStatus.AwaitingApproval => ("⏸", "PriorityMid"),
-                PlanGateStatus.Approved         => ("✓",  "PriorityLow"),
-                PlanGateStatus.Skipped          => ("–",  "SubtleText"),
-                _                               => ("🔒", "PanelBorder"),
-            };
-            var gateToolTipText = durableGate is not null
-                ? $"{approvalGate.Message}\nStatus: {durableGateStatus}"
-                : approvalGate.Message;
-            var gateBadgeText = new TextBlock
-            {
-                Text                = gateIcon,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment   = VerticalAlignment.Center,
-            };
-            gateBadgeText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-            gateBadgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            var gateBadge = new Border
-            {
-                Width           = 60,
-                Height          = 28,
-                CornerRadius    = new CornerRadius(14),
-                BorderThickness = new Thickness(1.5),
-                ToolTip         = gateToolTipText,
-                Child           = gateBadgeText,
-            };
-            gateBadge.SetResourceReference(Border.BorderBrushProperty, gateBorderKey);
-            gateBadge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            Canvas.SetLeft(gateBadge, gateCenter.X - 30);
-            Canvas.SetTop(gateBadge, gateCenter.Y - 14);
-            Panel.SetZIndex(gateBadge, 10);
-            canvas.Children.Add(gateBadge);
         }
 
         foreach (var task in group.Tasks)
@@ -740,9 +732,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             Panel.SetZIndex(border, 20);
             canvas.Children.Add(border);
+
+            // Lock icon overlay for tasks that have an approval gate following them.
+            if (lockIconByTask.TryGetValue(task.Id, out var lockIcon))
+            {
+                var lockText = new TextBlock
+                {
+                    Text              = lockIcon,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment   = VerticalAlignment.Center,
+                };
+                lockText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                Canvas.SetLeft(lockText, position.X + NodeWidth - 22);
+                Canvas.SetTop(lockText,  position.Y + NodeHeight - 20);
+                Panel.SetZIndex(lockText, 25);
+                canvas.Children.Add(lockText);
+            }
         }
 
-        canvas.Width = Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
+        canvas.Width= Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
         canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
     }
 
@@ -849,7 +857,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public readonly List<UIElement> MainElements = [];
     }
 
-    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
+    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null)
     {
         var group = new ConnectorGroup();
 
@@ -862,6 +870,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var glowColor = ConnectorGlowColor(skipCount);
         var mainBrush = new SolidColorBrush(color);
         var glowBrush = new SolidColorBrush(glowColor);
+        var dashArray = dashed ? new DoubleCollection { 7, 5 } : null;
 
         // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
@@ -876,6 +885,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 Visibility = Visibility.Hidden,
             };
+            if (dashArray is not null) glowLine.StrokeDashArray = dashArray;
             canvas.Children.Add(glowLine);
             group.GlowElements.Add(glowLine);
 
@@ -884,6 +894,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
                 StrokeThickness = 2, Stroke = mainBrush,
             };
+            if (dashArray is not null) mainLine.StrokeDashArray = dashArray;
+            if (toolTip is not null)   mainLine.ToolTip = toolTip;
             canvas.Children.Add(mainLine);
             group.MainElements.Add(mainLine);
         }
@@ -911,6 +923,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 Visibility = Visibility.Hidden,
             };
+            if (dashArray is not null) glowPath.StrokeDashArray = dashArray;
             canvas.Children.Add(glowPath);
             group.GlowElements.Add(glowPath);
 
@@ -919,6 +932,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
                 Fill = Brushes.Transparent,
             };
+            if (dashArray is not null) mainPath.StrokeDashArray = dashArray;
+            if (toolTip is not null)   mainPath.ToolTip = toolTip;
             canvas.Children.Add(mainPath);
             group.MainElements.Add(mainPath);
         }
