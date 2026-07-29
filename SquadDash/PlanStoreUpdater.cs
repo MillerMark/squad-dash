@@ -15,7 +15,7 @@ internal static class PlanStoreUpdater
     /// <summary>
     /// Creates a new <see cref="Plan"/> or updates an existing one when a plan loop starts
     /// or resumes.  Sets lifecycle status to <see cref="PlanLifecycleStatus.Executing"/>,
-    /// rebuilds task statuses from the parsed task items, and sets
+    /// reconciles task definitions/statuses without discarding accepted-result provenance, and sets
     /// <see cref="PlanProgress.ExecutingTaskId"/> to <paramref name="executingTaskId"/>.
     /// </summary>
     internal static Plan ApplyExecutionStarted(
@@ -26,17 +26,24 @@ internal static class PlanStoreUpdater
         string?                  executingTaskId)
     {
         var now      = DateTimeOffset.UtcNow;
-        var tasks    = MapTasks(group.Tasks, items);
+        var tasks    = existing is null
+            ? MapTasks(group.Tasks, items)
+            : MapTasks(existing.Tasks, group.Tasks, items);
         var progress = BuildProgress(items, executingTaskId);
 
         if (existing is not null)
         {
             return existing with
             {
+                Revision         = revision,
+                Title            = group.GroupTitle,
+                Branch           = group.Branch,
+                Summary          = group.Summary,
                 LifecycleStatus  = PlanLifecycleStatus.Executing,
                 Tasks            = tasks,
                 Progress         = progress,
                 InterruptionData = null,
+                HostRevision     = group.HostRevision ?? revision,
                 Timestamps       = existing.Timestamps with
                 {
                     StartedAt = existing.Timestamps.StartedAt ?? now,
@@ -57,20 +64,24 @@ internal static class PlanStoreUpdater
             Progress:        progress,
             Timestamps:      new PlanTimestamps(
                 CreatedAt: now,
-                StartedAt: now));
+                StartedAt: now),
+            HostRevision:    group.HostRevision ?? revision);
     }
 
     /// <summary>
-    /// Updates progress after a single step result is accepted by SquadDash.
-    /// Re-reads item statuses from <paramref name="items"/> and points
+    /// Updates progress and durable result provenance after a single step result is accepted by
+    /// SquadDash. Re-reads item statuses from <paramref name="items"/> and points
     /// <see cref="PlanProgress.ExecutingTaskId"/> at <paramref name="nextExecutingTaskId"/>.
     /// </summary>
     internal static Plan ApplyStepAccepted(
         Plan                    existing,
         IReadOnlyList<TaskItem> items,
-        string?                 nextExecutingTaskId)
+        string?                 nextExecutingTaskId,
+        DecomposeStepResult?    acceptedResult = null)
     {
         var updated = MapTasks(existing.Tasks, items);
+        if (acceptedResult is not null)
+            updated = ApplyAcceptedResult(updated, acceptedResult);
         var progress = BuildProgress(items, nextExecutingTaskId);
         return existing with
         {
@@ -336,7 +347,47 @@ internal static class PlanStoreUpdater
                 DependsOn:   sub.DependsOn,
                 Priority:    sub.Priority,
                 Status:      MapTaskStatus(item),
-                ParentTaskId: sub.ParentTaskId);
+                ParentTaskId: sub.ParentTaskId,
+                AgentAssignments: MapAgentAssignments(sub.AgentAssignments),
+                ParallelEligible: sub.ParallelEligible,
+                AgentRoutingMode: sub.AgentRoutingMode,
+                GenericAgentReason: sub.GenericAgentReason);
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Reconciles the latest plan definition and tasks.md projection into an existing durable
+    /// plan without discarding accepted-result provenance already stored on its tasks.
+    /// </summary>
+    private static IReadOnlyList<PlanTask> MapTasks(
+        IReadOnlyList<PlanTask>          existing,
+        IReadOnlyList<DecomposedSubTask> subtasks,
+        IReadOnlyList<TaskItem>          items)
+    {
+        var existingById = existing.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        var itemsById = items
+            .Where(item => item.TaskId is not null)
+            .ToDictionary(item => item.TaskId!, StringComparer.Ordinal);
+
+        return subtasks.Select(sub =>
+        {
+            itemsById.TryGetValue(sub.Id, out var item);
+            if (!existingById.TryGetValue(sub.Id, out var durable))
+                return CreatePlanTask(sub, item);
+
+            return durable with
+            {
+                Title              = sub.Title,
+                Description        = sub.Description,
+                DependsOn          = sub.DependsOn,
+                Priority           = sub.Priority,
+                Status             = MapTaskStatus(item),
+                ParentTaskId       = sub.ParentTaskId,
+                AgentAssignments   = MapAgentAssignments(sub.AgentAssignments),
+                ParallelEligible   = sub.ParallelEligible,
+                AgentRoutingMode   = sub.AgentRoutingMode,
+                GenericAgentReason = sub.GenericAgentReason,
+            };
         }).ToList();
     }
 
@@ -358,6 +409,48 @@ internal static class PlanStoreUpdater
             return pt with { Status = MapTaskStatus(item) };
         }).ToList();
     }
+
+    private static IReadOnlyList<PlanTask> ApplyAcceptedResult(
+        IReadOnlyList<PlanTask> tasks,
+        DecomposeStepResult result)
+    {
+        var completedAt = DateTimeOffset.UtcNow;
+        return tasks.Select(task =>
+        {
+            if (!string.Equals(task.TaskId, result.TaskId, StringComparison.Ordinal))
+                return task;
+
+            return task with
+            {
+                Commit = string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
+                CompletedAt = result.Status == "complete"
+                    ? task.CompletedAt ?? completedAt
+                    : task.CompletedAt,
+                CompletionSummary = result.Summary,
+            };
+        }).ToList();
+    }
+
+    private static PlanTask CreatePlanTask(DecomposedSubTask sub, TaskItem? item) =>
+        new(
+            TaskId:             sub.Id,
+            Title:              sub.Title,
+            Description:        sub.Description,
+            DependsOn:          sub.DependsOn,
+            Priority:           sub.Priority,
+            Status:             MapTaskStatus(item),
+            ParentTaskId:       sub.ParentTaskId,
+            AgentAssignments:   MapAgentAssignments(sub.AgentAssignments),
+            ParallelEligible:   sub.ParallelEligible,
+            AgentRoutingMode:   sub.AgentRoutingMode,
+            GenericAgentReason: sub.GenericAgentReason);
+
+    private static IReadOnlyList<PlanAgentAssignment>? MapAgentAssignments(
+        IReadOnlyList<DecomposedAgentAssignment>? assignments) =>
+        assignments?.Select(assignment => new PlanAgentAssignment(
+            assignment.AgentHandle,
+            assignment.Role,
+            assignment.AllowGenericChildren)).ToArray();
 
     private static string MapTaskStatus(TaskItem? item)
     {

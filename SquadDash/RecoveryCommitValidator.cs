@@ -50,20 +50,30 @@ internal static class RecoveryCommitValidator
     }
 
     /// <summary>
-    /// Returns <see langword="true"/> if <paramref name="changedPaths"/> contains at least one
-    /// file that is NOT present in <paramref name="hostOwnedPaths"/>.
-    /// A commit that only touched host-owned files (tasks.md, plan JSON) should not be adopted
-    /// as task work without scrutiny.
+    /// Returns <see langword="true"/> only when the commit changed at least one file and every
+    /// changed file is outside the host-owned paths. Directory entries ending in a slash match
+    /// all descendants. A mixed source/host-state commit must not be adopted as task work.
     /// </summary>
-    internal static bool HasNonHostChanges(
+    internal static bool ContainsOnlyNonHostChanges(
         IEnumerable<string> changedPaths,
         IReadOnlyCollection<string> hostOwnedPaths)
     {
-        return changedPaths.Any(path =>
-            !hostOwnedPaths.Any(h =>
-                string.Equals(
-                    path.Replace('\\', '/'),
-                    h.Replace('\\', '/'),
-                    StringComparison.OrdinalIgnoreCase)));
+        var paths = changedPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizePath)
+            .ToArray();
+        return paths.Length > 0 && paths.All(path =>
+            !hostOwnedPaths.Any(hostPath => IsHostOwnedPath(path, hostPath)));
     }
+
+    private static bool IsHostOwnedPath(string normalizedPath, string hostPath)
+    {
+        var normalizedHost = NormalizePath(hostPath);
+        var isDirectory = normalizedHost.EndsWith("/", StringComparison.Ordinal);
+        normalizedHost = normalizedHost.TrimEnd('/');
+        return string.Equals(normalizedPath.TrimEnd('/'), normalizedHost, StringComparison.OrdinalIgnoreCase) ||
+               (isDirectory && normalizedPath.StartsWith(normalizedHost + "/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizePath(string path) => path.Trim().Replace('\\', '/');
 }

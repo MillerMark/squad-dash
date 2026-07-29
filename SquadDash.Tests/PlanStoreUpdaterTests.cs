@@ -81,6 +81,7 @@ internal sealed class PlanStoreUpdaterTests
 
         Assert.That(plan.PlanId,          Is.EqualTo("GROUP-001"));
         Assert.That(plan.Revision,        Is.EqualTo("rev1"));
+        Assert.That(plan.HostRevision,    Is.EqualTo("rev1"));
         Assert.That(plan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
         Assert.That(plan.Title,           Is.EqualTo("Test Plan"));
         Assert.That(plan.Branch,          Is.EqualTo("feature/test"));
@@ -166,6 +167,109 @@ internal sealed class PlanStoreUpdaterTests
             "StartedAt must not be reset on resume.");
     }
 
+    [Test]
+    public void ApplyExecutionStarted_PreservesAcceptedResultProvenanceOnResume()
+    {
+        var completedAt = new DateTimeOffset(2026, 7, 29, 15, 21, 42, TimeSpan.Zero);
+        var durableTask = new PlanTask(
+            TaskId: "GROUP-001-001",
+            Title: "Old title",
+            Description: "Old description",
+            DependsOn: [],
+            Priority: "low",
+            Status: PlanTaskStatus.Complete,
+            Commit: "774a047",
+            CompletedAt: completedAt,
+            CompletionSummary: "Verified and adopted.");
+        var existing = MakeExecutingPlan(1, 1) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = [durableTask],
+        };
+        var assignment = new DecomposedAgentAssignment("vesper-knox", "test verifier", false);
+        var group = new DecomposedTaskGroup(
+            "GROUP-001",
+            "Test Plan",
+            "feature/test",
+            "A test plan",
+            [new DecomposedSubTask(
+                "GROUP-001-001",
+                "Current description",
+                [],
+                "high",
+                "Current title",
+                AgentAssignments: [assignment],
+                ParallelEligible: true,
+                AgentRoutingMode: "assigned")]);
+
+        var resumed = PlanStoreUpdater.ApplyExecutionStarted(
+            existing,
+            group,
+            "rev1",
+            [MakeItem("GROUP-001-001", isChecked: true)],
+            executingTaskId: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.Tasks[0].Commit, Is.EqualTo("774a047"));
+            Assert.That(resumed.Tasks[0].CompletedAt, Is.EqualTo(completedAt));
+            Assert.That(resumed.Tasks[0].CompletionSummary, Is.EqualTo("Verified and adopted."));
+            Assert.That(resumed.Tasks[0].Title, Is.EqualTo("Current title"));
+            Assert.That(resumed.Tasks[0].AgentAssignments?.Single().AgentHandle,
+                Is.EqualTo("vesper-knox"));
+            Assert.That(resumed.Tasks[0].AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(resumed.Tasks[0].ParallelEligible, Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyExecutionStarted_ReplacesStaleRoutingMetadataFromRevisedPlan()
+    {
+        var staleTask = new PlanTask(
+            TaskId: "GROUP-001-001",
+            Title: "Task",
+            Description: "Assigned task",
+            DependsOn: [],
+            Priority: "high",
+            Status: PlanTaskStatus.Pending,
+            AgentAssignments: [new PlanAgentAssignment("old-agent", "old role", false)],
+            AgentRoutingMode: "assigned");
+        var existing = MakeExecutingPlan(0, 1) with { Tasks = [staleTask] };
+        var revisedGroup = new DecomposedTaskGroup(
+            "GROUP-001",
+            "Revised Plan",
+            "feature/revised",
+            "A revised plan",
+            [new DecomposedSubTask(
+                "GROUP-001-001",
+                "Explicit generic task",
+                [],
+                "high",
+                "Task",
+                AgentRoutingMode: "generic",
+                GenericAgentReason: "No roster specialist is required.")]);
+
+        var updated = PlanStoreUpdater.ApplyExecutionStarted(
+            existing,
+            revisedGroup,
+            "rev2",
+            [MakeItem("GROUP-001-001")],
+            "GROUP-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.Revision, Is.EqualTo("rev2"));
+            Assert.That(updated.HostRevision, Is.EqualTo("rev2"));
+            Assert.That(updated.Title, Is.EqualTo("Revised Plan"));
+            Assert.That(updated.Branch, Is.EqualTo("feature/revised"));
+            Assert.That(updated.Summary, Is.EqualTo("A revised plan"));
+            Assert.That(updated.Tasks[0].AgentAssignments, Is.Null);
+            Assert.That(updated.Tasks[0].AgentRoutingMode, Is.EqualTo("generic"));
+            Assert.That(updated.Tasks[0].GenericAgentReason,
+                Is.EqualTo("No roster specialist is required."));
+        });
+    }
+
     // ── ApplyStepAccepted ─────────────────────────────────────────────────────
 
     [Test]
@@ -217,6 +321,45 @@ internal sealed class PlanStoreUpdaterTests
         var updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, "GROUP-001-002");
 
         Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+    }
+
+    [Test]
+    public void ApplyStepAccepted_RecordsAcceptedResultProvenance()
+    {
+        var group = MakeGroup(1);
+        var started = PlanStoreUpdater.ApplyExecutionStarted(
+            null,
+            group,
+            "rev1",
+            [MakeItem("GROUP-001-001")],
+            "GROUP-001-001");
+        var result = new DecomposeStepResult(
+            GroupId: "GROUP-001",
+            TaskId: "GROUP-001-001",
+            Revision: "rev1",
+            Status: "complete",
+            Commit: "8935e51",
+            Summary: "Documented verified routing.",
+            RemainingWork: [],
+            Verification: new DecomposeStepVerification("passed", "path-check", "Paths verified."));
+        var before = DateTimeOffset.UtcNow;
+
+        var accepted = PlanStoreUpdater.ApplyStepAccepted(
+            started,
+            [MakeItem("GROUP-001-001", isChecked: true)],
+            nextExecutingTaskId: null,
+            acceptedResult: result);
+        var completed = PlanStoreUpdater.ApplyCompleted(accepted);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(completed.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(completed.Tasks[0].Commit, Is.EqualTo("8935e51"));
+            Assert.That(completed.Tasks[0].CompletionSummary,
+                Is.EqualTo("Documented verified routing."));
+            Assert.That(completed.Tasks[0].CompletedAt, Is.GreaterThanOrEqualTo(before));
+            Assert.That(completed.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+        });
     }
 
     // ── ApplyBlocked ──────────────────────────────────────────────────────────

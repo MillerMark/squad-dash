@@ -1,4 +1,4 @@
-# Plan Agent Routing Contract
+# Verified Plan Agent Routing
 
 This document covers the full assignment transport pipeline used when a coordinator launches a verified roster agent from a plan step. It is intended for developers working on the SquadDash host, the Squad SDK, or the agent infrastructure layer.
 
@@ -7,6 +7,26 @@ This document covers the full assignment transport pipeline used when a coordina
 ## Overview
 
 When a plan step assigns work to a named roster agent, SquadDash transports the assignment through the **prompt layer** — the agent's full instructions are embedded in the `prompt` argument of the background task launch call. The host validates that the agent actually received the right charter and produced observable evidence of the required context reads before accepting the work as complete.
+
+---
+
+## Routing Modes
+
+Plan routing is explicit and fail-closed:
+
+- **Assigned roster routing** uses `agentRoutingMode: "assigned"` with one or more
+  `agentAssignments`. SquadDash resolves each handle against the active roster, creates a
+  host-owned execution attempt, injects the complete charter and required context paths, and
+  displays the roster identity only after the assignment envelope and charter verify.
+- **Explicit generic routing** uses `agentRoutingMode: "generic"` with a recorded reason.
+  SquadDash creates a generic execution attempt, permits exactly one coordinator-owned primary
+  worker, prohibits children, and expects no `agentExecutions` roster claims. The worker retains
+  **Temporary Agent** identity.
+- **Ordinary interactive delegation** may prefer a roster member according to settings, but it is
+  advisory unless a host-owned executable-plan attempt supplies the assignment authorization.
+
+A generic worker is never upgraded to a roster identity because its prose resembles a charter or
+because the coordinator supplies a roster-like name.
 
 ---
 
@@ -27,7 +47,7 @@ SQUADDASH_AGENT_ASSIGNMENT_JSON:
 | `taskId` | `string` | Stable identifier of the plan task. |
 | `revision` | `string` | Plan file revision hash being executed. |
 | `agentHandle` | `string` | Roster key of the target agent (e.g. `mira-quill`). |
-| `role` | `string` | Role description, must match the roster entry exactly. |
+| `role` | `string` | Role description, must match the host authorization record exactly. |
 | `allowGenericChildren` | `bool` | `false` = the worker must not spawn child workers. |
 | `capability` | `string` | Opaque capability token issued by the host. |
 | `charterSha256` | `string` | SHA-256 of the **normalized** charter text (see §2). |
@@ -128,7 +148,7 @@ After all workers complete, the coordinator emits a result block. For a verified
 
 ```
 SQUADDASH_AGENT_ASSIGNMENT_JSON:
-{"attemptId":"657b229530a04055ac4310e5a47a94c3","taskId":"ROUTEPROBE-20260729-002","revision":"1be54f689db9ae40","agentHandle":"mira-quill","role":"developer documentation author and verifier","allowGenericChildren":false,"capability":"514a4e37d106382a81f43044d177b14b342f03802368fd85bde14959028df61a","charterSha256":"e0f3dc7e0a86e03aa4a2288716357c162685d3125c08d5f842998611948c11a9"}
+{"attemptId":"657b229530a04055ac4310e5a47a94c3","taskId":"ROUTEPROBE-20260729-002","revision":"1be54f689db9ae40","agentHandle":"mira-quill","role":"developer documentation author and verifier","allowGenericChildren":false,"capability":"<host-issued-capability>","charterSha256":"<normalized-charter-sha256>"}
 ```
 
 ### Worker obligations
@@ -162,3 +182,77 @@ SQUADDASH_AGENT_ASSIGNMENT_JSON:
 | `SquadDash/PlanAgentAssignmentValidator.cs` | Validates context reads, lifecycle, wrap-up echo |
 | `SquadDash/DecomposePlanningInstructions.cs` | Builds the prompt including the assignment block |
 | `SquadDash.Tests/PlanAgentExecutionContractIntegrationTests.cs` | Integration tests for the full transport pipeline |
+
+---
+
+## 9. Live Identity Evidence
+
+The `ROUTEPROBE-20260729` live plan verified both assigned roster identities through the production
+prompt and event pipeline. The trace contained these host-resolved launch records:
+
+```text
+TaskLaunch.Captured requested=vesper-knox ... display=Vesper Knox ... assignedAgent=vesper-knox verified=True
+TaskLaunch.Captured requested=mira-quill ... display=Mira Quill ... assignedAgent=mira-quill verified=True
+```
+
+The corresponding agent cards and transcript title bars displayed **Vesper Knox** and **Mira
+Quill**. Persisted conversation state recorded `RosterIdentityVerified: true`; the same Mira thread
+then reached `AgentThread.Lifecycle status=Completed`. A display name alone is not evidence—the
+`assignedAgent` and `verified=True` fields must agree with the host-owned attempt.
+
+---
+
+## 10. Fail-Closed Symptoms
+
+Expected rejection signals include:
+
+- an invalid, stale, modified, or incomplete assignment envelope resolves with `verified=False`
+  and retains **Temporary Agent** identity;
+- a missing launch, failed worker, undeclared primary, forbidden child, or missing context read
+  causes `PlanAgentAssignmentValidator.Validate` to return a specific error;
+- a missing/wrong attempt ID, omitted assignment wrap-up, duplicate assignment, or mismatched
+  requested/actual handle causes `ValidateWrapUp` to reject the result;
+- SquadDash requests one bounded repair and blocks the plan if the repaired result still fails.
+
+Model-reported tool-call IDs and child lineage are ignored for authority. SquadDash accepts those
+facts only from its own launch and lifecycle evidence.
+
+---
+
+## 11. Interrupted-Plan Recovery
+
+An interrupted plan remains durable across application restarts. Its plan record should retain the
+interrupted task, last accepted task and commit, affected paths, execution progress, and recovery
+state. Accepted task provenance (`commit`, `completedAt`, and `completionSummary`) must survive a
+resume; starting the next task must not reconstruct completed tasks from `tasks.md` and erase it.
+
+For a clean fresh attempt:
+
+1. Stop the loop and inspect `git status`, the candidate commit, its parent, and changed paths.
+2. Adopt an orphan commit only after its task/revision, single-commit boundary, source-only paths,
+   and required verification succeed. Otherwise preserve or revert it only with explicit approval.
+3. Leave `.squad/tasks.md` as host-owned state; do not include it in a task commit.
+4. Ensure no unrelated source changes remain, then use **Resume Plan**. If an earlier task was
+   safely adopted, do not use **Continue / Retry Task** for that completed task.
+5. SquadDash creates a new execution-attempt ID for the pending task. Evidence from a superseded or
+   prior attempt must fail validation.
+
+---
+
+## 12. Deterministic Verification
+
+Run the focused routing and wrap-up contract tests:
+
+```powershell
+dotnet test SquadDash.Tests\SquadDash.Tests.csproj --no-restore --filter "FullyQualifiedName~PlanAgentAssignmentValidatorTests|FullyQualifiedName~PlanAgentExecutionContractIntegrationTests" --verbosity minimal
+```
+
+Then run the full suite:
+
+```powershell
+dotnet test SquadDash.Tests\SquadDash.Tests.csproj --no-restore --verbosity minimal
+```
+
+The focused coverage includes CRLF-to-LF charter transport, trailing-newline loss, modified-charter
+rejection, stale attempts, undeclared primaries, forbidden children, required context reads,
+host-owned internal evidence, and requested/actual roster-handle correlation.

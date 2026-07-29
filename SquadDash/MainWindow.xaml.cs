@@ -7738,7 +7738,26 @@ public partial class MainWindow : Window
                 revision,
                 PreviousPlanExecutionAttempts: previousAttempts));
 
-        TryPublishPlanStarted(groupId, group, revision);
+        if (!TryPublishPlanStarted(groupId, executionGroup, revision, out var planStartError))
+        {
+            _planExecutionLog.Append(new PlanExecutionLogEntry(
+                Kind: "plan_start_failed",
+                Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+                PlanId: groupId,
+                Revision: revision,
+                Round: resumeFromIteration > 0 ? resumeFromIteration : null,
+                TaskId: _CodeHealthGroupRunner?.CurrentStepId,
+                TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+                Message: planStartError,
+                Outcome: "blocked"));
+            ScheduleDecomposeSystemEntry(
+                $"Plan {groupId} did not start because its durable state could not be initialized: " +
+                (planStartError ?? "unknown persistence failure"));
+            _activeDecomposeGroupId = null;
+            _CodeHealthGroupRunner = null;
+            _conversationManager.UpdateActiveLoopExecutionState(null);
+            return false;
+        }
 
         _activeLoopMode = LoopMode.NativeAgents;
         _loopPanelVisible = true;
@@ -8637,7 +8656,16 @@ public partial class MainWindow : Window
         }
 
         var state = _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId);
-        TryPublishPlanStepAccepted(groupId, state);
+        if (!TryPublishPlanStepAccepted(groupId, state, result, out var persistenceError))
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId,
+                taskId,
+                revision,
+                "SquadDash accepted the task commit but could not durably record plan progress: " +
+                (persistenceError ?? "unknown persistence failure"));
+            return;
+        }
         if (state == DecomposeGroupExecutionState.Complete)
         {
             SuppressLoopResume("plan-complete");
@@ -9356,18 +9384,33 @@ public partial class MainWindow : Window
             { ".squad/plans/", ".squad/" };
         if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
 
-        if (!RecoveryCommitValidator.HasNonHostChanges(changedFilesRaw, hostOwnedPaths))
+        if (!RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedFilesRaw, hostOwnedPaths))
         {
             MessageBox.Show(this,
-                $"Commit {candidateCommit} only touched host-owned files (tasks.md, plan files). " +
-                "This does not look like task work. Verify the commit and retry.",
+                $"Commit {candidateCommit} has no task changes or also modifies SquadDash-owned state " +
+                "(tasks.md or plan files). Use a source-only task commit before adopting it.",
                 "Suspicious Commit", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         // 7. Downstream dependency check (warning only, not a blocker)
         var storedPlan  = _planStore?.Load(plan.Group.GroupId);
-        var planTasks   = storedPlan?.Tasks ?? [];
+        string? projectionError = null;
+        if (storedPlan is null || !PlanTaskProjectionValidator.TryGetValidatedItems(
+                storedPlan,
+                parsed,
+                plan.Group.GroupId,
+                requireAllComplete: false,
+                out _,
+                out projectionError))
+        {
+            MessageBox.Show(this,
+                "Cannot adopt this commit because the durable plan and tasks.md are not synchronized. " +
+                (projectionError ?? "The durable plan could not be loaded."),
+                "Plan State Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        var planTasks   = storedPlan.Tasks;
         var downstream  = RecoveryCommitValidator.FindDownstreamCompletedDependents(planTasks, taskId);
         var warningNote = downstream.Count > 0
             ? $"\n\n⚠ Warning: tasks that depend on {taskId} are already complete: " +
@@ -9429,9 +9472,35 @@ public partial class MainWindow : Window
             var freshParsed = File.Exists(tasksPath)
                 ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
                 : null;
-            var items   = GetGroupTaskItems(freshParsed, plan.Group.GroupId);
-            var updated = PlanStoreUpdater.ApplyStepAccepted(storedPlan, items, nextExecutingTaskId: null);
-            PublishPlanProgress(updated);
+            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                    storedPlan,
+                    freshParsed,
+                    plan.Group.GroupId,
+                    requireAllComplete: false,
+                    out var items,
+                    out projectionError))
+            {
+                MessageBox.Show(this,
+                    "The commit was adopted in tasks.md, but SquadDash could not validate the durable plan update. " +
+                    (projectionError ?? "Unknown projection error") +
+                    " The plan will remain stopped for recovery.",
+                    "Plan Progress Not Saved", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            var updated = PlanStoreUpdater.ApplyStepAccepted(
+                storedPlan,
+                items,
+                nextExecutingTaskId: null,
+                acceptedResult: syntheticResult);
+            if (!TryPublishPlanProgress(updated, out var saveError))
+            {
+                MessageBox.Show(this,
+                    "The commit was adopted in tasks.md, but durable plan progress could not be saved. " +
+                    (saveError ?? "Unknown persistence error") +
+                    " The plan will remain stopped for recovery.",
+                    "Plan Progress Not Saved", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
         }
 
         LoadTasksPanel();
@@ -39728,27 +39797,58 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General, $"RepairStalePlanExecutingState: {ex.Message}");
         }
     }
-    private void PublishPlanProgress(Plan plan)
+    private bool TryPublishPlanProgress(Plan plan, out string? error)
     {
-        try
+        error = null;
+        if (_planStore is null)
         {
-            _planStore?.Save(plan);
-            _broker.Publish(new PlanProgressEvent(plan.PlanId, plan));
+            error = "The plan store is unavailable.";
+            return false;
         }
-        catch (Exception ex)
+        var published = PlanProgressPublisher.TryPublish(
+            plan,
+            persisted => _planStore.Save(persisted),
+            persisted => _broker.Publish(new PlanProgressEvent(persisted.PlanId, persisted)),
+            out error,
+            out var notificationError);
+        if (!published)
         {
-            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanProgress: {ex.Message}");
+            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanProgress: {error}");
+            return false;
         }
+        if (notificationError is not null)
+        {
+            // The durable transition succeeded. A UI refresh failure must not cause the task to
+            // execute again; the panel can recover from PlanStore on its next refresh.
+            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanProgress event: {notificationError}");
+        }
+        return true;
     }
+
+    private void PublishPlanProgress(Plan plan) => TryPublishPlanProgress(plan, out _);
 
     /// <summary>
     /// Called when a decompose loop starts or resumes. Creates or updates the Plan in
     /// <see cref="PlanStore"/> and fires a progress event so the panel reflects
     /// <see cref="PlanLifecycleStatus.Executing"/>.
     /// </summary>
-    private void TryPublishPlanStarted(string groupId, DecomposedTaskGroup? group, string revision)
+    private bool TryPublishPlanStarted(
+        string groupId,
+        DecomposedTaskGroup? group,
+        string revision,
+        out string? error)
     {
-        if (_currentWorkspace is null || _planStore is null) return;
+        error = null;
+        if (_currentWorkspace is null)
+        {
+            error = "No workspace is active.";
+            return false;
+        }
+        if (_planStore is null)
+        {
+            error = "The plan store is unavailable.";
+            return false;
+        }
         try
         {
             var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
@@ -39757,18 +39857,32 @@ public partial class MainWindow : Window
                 : null;
             var resolvedGroup = group
                 ?? (parsed?.DecomposeGroups.TryGetValue(groupId, out var g) == true ? g : null);
-            if (resolvedGroup is null) return;
+            if (resolvedGroup is null)
+            {
+                error = $"Plan {groupId} is missing from tasks.md.";
+                return false;
+            }
 
             var items    = GetGroupTaskItems(parsed, groupId);
             var existing = _planStore.Load(groupId);
             var updated  = PlanStoreUpdater.ApplyExecutionStarted(
                 existing, resolvedGroup, revision, items,
                 _CodeHealthGroupRunner?.CurrentStepId);
-            PublishPlanProgress(updated);
+            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                    updated,
+                    parsed,
+                    groupId,
+                    requireAllComplete: false,
+                    out _,
+                    out error))
+                return false;
+            return TryPublishPlanProgress(updated, out error);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanStarted: {ex.Message}");
+            error = ex.Message;
+            return false;
         }
     }
 
@@ -39777,45 +39891,77 @@ public partial class MainWindow : Window
     /// <paramref name="groupState"/> tells us whether the plan is now complete or still has
     /// eligible steps.
     /// </summary>
-    private void TryPublishPlanStepAccepted(string groupId, DecomposeGroupExecutionState groupState)
+    private bool TryPublishPlanStepAccepted(
+        string groupId,
+        DecomposeGroupExecutionState groupState,
+        DecomposeStepResult acceptedResult,
+        out string? error)
     {
-        if (_currentWorkspace is null || _planStore is null) return;
+        error = null;
+        if (_currentWorkspace is null)
+        {
+            error = "No workspace is active.";
+            return false;
+        }
+        if (_planStore is null)
+        {
+            error = "The plan store is unavailable.";
+            return false;
+        }
         try
         {
+            if (groupState is not (DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.Complete))
+            {
+                error = $"Plan {groupId} has no valid next execution state ({groupState}).";
+                return false;
+            }
             var existing = _planStore.Load(groupId);
-            if (existing is null) return;
+            if (existing is null)
+            {
+                error = $"Durable plan {groupId} could not be loaded.";
+                return false;
+            }
+
+            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+            var parsed = File.Exists(tasksPath)
+                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                : null;
+            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                    existing,
+                    parsed,
+                    groupId,
+                    requireAllComplete: groupState == DecomposeGroupExecutionState.Complete,
+                    out var items,
+                    out error))
+                return false;
 
             Plan updated;
             if (groupState == DecomposeGroupExecutionState.Complete)
             {
                 // Read tasks.md so task statuses and Completed lifecycle are persisted in one save,
                 // eliminating the window between ApplyStepAccepted and ApplyCompleted.
-                var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-                var parsed    = File.Exists(tasksPath)
-                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                    : null;
-                var items     = GetGroupTaskItems(parsed, groupId);
-                var withTasks = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextExecutingTaskId: null);
+                var withTasks = PlanStoreUpdater.ApplyStepAccepted(
+                    existing,
+                    items,
+                    nextExecutingTaskId: null,
+                    acceptedResult: acceptedResult);
                 updated       = PlanStoreUpdater.ApplyCompleted(withTasks);
             }
             else
             {
-                var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-                var parsed    = File.Exists(tasksPath)
-                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                    : null;
-                var items   = GetGroupTaskItems(parsed, groupId);
                 var nextId  = groupState == DecomposeGroupExecutionState.Eligible
                     ? _CodeHealthGroupRunner?.CurrentStepId
                     : null;
-                updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextId);
+                updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextId, acceptedResult);
             }
 
-            PublishPlanProgress(updated);
+            return TryPublishPlanProgress(updated, out error);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanStepAccepted: {ex.Message}");
+            error = ex.Message;
+            return false;
         }
     }
 

@@ -74,32 +74,59 @@ internal sealed class RecoveryActionValidationTests
         Assert.That(result, Is.Empty);
     }
 
-    // ── HasNonHostChanges ────────────────────────────────────────────────────
+    // ── ContainsOnlyNonHostChanges ───────────────────────────────────────────
 
     [Test]
-    public void HasNonHostChanges_AllHostOwned_ReturnsFalse()
+    public void ContainsOnlyNonHostChanges_AllHostOwned_ReturnsFalse()
     {
         var changedPaths  = new[] { ".squad/tasks.md", ".squad/plans/plan.json" };
         var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".squad/tasks.md", ".squad/plans/plan.json" };
-        var result = RecoveryCommitValidator.HasNonHostChanges(changedPaths, hostOwnedPaths);
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths);
         Assert.That(result, Is.False);
     }
 
     [Test]
-    public void HasNonHostChanges_SomeNonHost_ReturnsTrue()
+    public void ContainsOnlyNonHostChanges_MixedSourceAndHostOwned_ReturnsFalse()
     {
         var changedPaths  = new[] { ".squad/tasks.md", "src/Feature.cs" };
         var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".squad/tasks.md" };
-        var result = RecoveryCommitValidator.HasNonHostChanges(changedPaths, hostOwnedPaths);
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths);
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void ContainsOnlyNonHostChanges_SourceOnly_ReturnsTrue()
+    {
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(
+            ["src/Feature.cs", "tests/FeatureTests.cs"],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
         Assert.That(result, Is.True);
     }
 
     [Test]
-    public void HasNonHostChanges_EmptyChanges_ReturnsFalse()
+    public void ContainsOnlyNonHostChanges_DirectoryPrefixMatchesDescendant_ReturnsFalse()
     {
-        var result = RecoveryCommitValidator.HasNonHostChanges(
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(
+            [".squad/plans/plan.json"],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void ContainsOnlyNonHostChanges_SimilarPrefixOutsideDirectory_ReturnsTrue()
+    {
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(
+            [".squad-tools/Feature.cs"],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void ContainsOnlyNonHostChanges_EmptyChanges_ReturnsFalse()
+    {
+        var result = RecoveryCommitValidator.ContainsOnlyNonHostChanges(
             [],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/tasks.md" });
         Assert.That(result, Is.False);

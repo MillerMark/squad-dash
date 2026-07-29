@@ -201,8 +201,9 @@ internal sealed record Plan(
     [property: JsonPropertyName("planId")]          string PlanId,
 
     /// <summary>
-    /// Immutable content revision hash. Computed by <see cref="PendingDecomposePlanStore.ComputeRevision"/>
-    /// and sealed at the moment of approval. Used to reject stale decisions.
+    /// Approved content revision hash. Computed by <see cref="PendingDecomposePlanStore.ComputeRevision"/>
+    /// and sealed for that approved definition. An explicitly approved replacement definition may
+    /// advance the revision while retaining the stable PlanId. Used to reject stale decisions.
     /// </summary>
     [property: JsonPropertyName("revision")]        string Revision,
 
