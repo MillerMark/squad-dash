@@ -85,24 +85,48 @@ internal sealed class PlanAgentAssignmentValidatorTests
     }
 
     [Test]
-    public void ValidateWrapUp_CorrelatesAttemptPrimaryAndChildToolCalls()
+    public void ValidateWrapUp_UsesHostEvidenceWhenInternalIdsAreNotModelVisible()
     {
         var attempt = Attempt(launched: true)
             .RecordChildLaunch("tool-primary", "tool-child");
-        var valid = new[] {
-            new DecomposeAgentExecution(
-                "talia-rune", "talia-rune", ["tool-child"], "tool-primary")
+        var modelVisible = new[] {
+            new DecomposeAgentExecution("talia-rune", "talia-rune", null)
         };
 
         Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
-            attempt.TaskId, [Expected], attempt, attempt.AttemptId, valid), Is.Null);
+            attempt.TaskId, [Expected], attempt, attempt.AttemptId, modelVisible), Is.Null);
 
-        var wrong = new[] {
+        var legacyButNonAuthoritative = new[] {
             new DecomposeAgentExecution(
                 "talia-rune", "talia-rune", ["invented-child"], "wrong-primary")
         };
         Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
-            attempt.TaskId, [Expected], attempt, attempt.AttemptId, wrong), Does.Contain("correlate"));
+            attempt.TaskId, [Expected], attempt, attempt.AttemptId, legacyButNonAuthoritative), Is.Null,
+            "Legacy model-reported internal IDs must not override host-owned evidence.");
+    }
+
+    [Test]
+    public void ValidateWrapUp_RejectsMissingDuplicateOrMisattributedRosterHandles()
+    {
+        var attempt = Attempt(launched: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
+                attempt.TaskId, [Expected], attempt, attempt.AttemptId, null),
+                Does.Contain("omitted"));
+            Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
+                attempt.TaskId, [Expected], attempt, attempt.AttemptId,
+                [new DecomposeAgentExecution("talia-rune", "temporary-agent", null)]),
+                Does.Contain("did not identify"));
+            Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
+                attempt.TaskId, [Expected], attempt, attempt.AttemptId,
+                [
+                    new DecomposeAgentExecution("talia-rune", "talia-rune", null),
+                    new DecomposeAgentExecution("temporary-agent", "temporary-agent", null)
+                ]),
+                Does.Contain("undeclared"));
+        });
     }
 
     [Test]

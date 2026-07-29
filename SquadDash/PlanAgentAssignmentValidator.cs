@@ -92,26 +92,28 @@ internal static class PlanAgentAssignmentValidator
         if (reported is not { Count: > 0 })
             return $"Task {taskId} omitted its structured agentExecutions coordinator wrap-up.";
 
+        if (reported.Count != expected.Count)
+            return $"Task {taskId} coordinator wrap-up contained undeclared primary assignments.";
+
         foreach (var expectedAssignment in expected)
         {
-            var evidence = attempt.Assignments.First(item =>
+            var evidence = attempt.Assignments.FirstOrDefault(item =>
                 string.Equals(item.AgentHandle, expectedAssignment.AgentHandle, StringComparison.OrdinalIgnoreCase));
+            if (evidence is null)
+                return $"Task {taskId} has no host-owned evidence for required primary assignment '{expectedAssignment.AgentHandle}'.";
+
             var matchingReports = reported.Where(item =>
                 string.Equals(item.RequestedAgent, expectedAssignment.AgentHandle, StringComparison.OrdinalIgnoreCase)).ToArray();
             var report = matchingReports.Length == 1 ? matchingReports[0] : null;
             if (report is null ||
-                !string.Equals(report.ActualPrimaryAgent, expectedAssignment.AgentHandle, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(report.PrimaryToolCallId, evidence.PrimaryToolCallId, StringComparison.Ordinal))
-                return $"Task {taskId} coordinator wrap-up did not correlate required primary assignment '{expectedAssignment.AgentHandle}' with its host-observed launch.";
+                !string.Equals(report.ActualPrimaryAgent, expectedAssignment.AgentHandle, StringComparison.OrdinalIgnoreCase))
+                return $"Task {taskId} coordinator wrap-up did not identify required primary assignment '{expectedAssignment.AgentHandle}'.";
 
-            var observedChildren = (evidence.ChildToolCallIds ?? []).ToHashSet(StringComparer.Ordinal);
-            var reportedChildren = (report.Children ?? []).ToHashSet(StringComparer.Ordinal);
-            if (!observedChildren.SetEquals(reportedChildren))
-                return $"Task {taskId} coordinator wrap-up reported incorrect child lineage for '{expectedAssignment.AgentHandle}'.";
+            // Tool-call IDs and child lineage are host-internal evidence. Older result payloads may
+            // still contain those fields, but model-reported values are intentionally non-authoritative.
+            // Validate() has already checked the host-observed launch, lifecycle, context reads, and
+            // child policy for this exact attempt.
         }
-
-        if (reported.Count != expected.Count)
-            return $"Task {taskId} coordinator wrap-up contained undeclared primary assignments.";
 
         return null;
     }

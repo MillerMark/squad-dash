@@ -322,7 +322,8 @@ internal static class DecomposePlanningInstructions
 
         builder.AppendLine("After every assigned worker finishes, perform coordinator synthesis and return one task result.");
         builder.AppendLine($"Its DECOMPOSE_STEP_RESULT_JSON must include `executionAttemptId`: `{executionAttempt.AttemptId}`.");
-        builder.AppendLine("It must also include `agentExecutions`, one object per assignment, with `requestedAgent`, `actualPrimaryAgent`, `primaryToolCallId`, and direct generic child tool-call IDs in `children`.");
+        builder.AppendLine("It must also include `agentExecutions`, one object per assignment, with only `requestedAgent` and `actualPrimaryAgent` set to the assigned roster handle.");
+        builder.AppendLine("Do not report tool-call IDs or child lineage. Those values are host-internal evidence that SquadDash correlates and validates directly.");
         builder.AppendLine("The task is incomplete if any required assigned worker is missing, substituted, or unresolved.");
         return builder.ToString().TrimEnd();
     }

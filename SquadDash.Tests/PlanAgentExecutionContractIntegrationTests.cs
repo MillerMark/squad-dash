@@ -72,7 +72,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             succeeded: true);
 
         attempt = PersistAndReload(attempt);
-        var resultText = BuildResult(attempt.AttemptId, ToolCallId);
+        var resultText = BuildResult(attempt.AttemptId);
         Assert.That(DecomposeStepResultParser.TryParse(
             resultText, out var result, out var parseError), Is.True, parseError);
 
@@ -341,7 +341,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             Does.Contain("host-observed reads"));
     }
 
-    private static string BuildResult(string attemptId, string primaryToolCallId) =>
+    private static string BuildResult(string attemptId) =>
         DecomposeStepResultParser.Marker + "\n" + JsonSerializer.Serialize(new
         {
             groupId = PlanId,
@@ -360,9 +360,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             agentExecutions = new[] {
                 new {
                     requestedAgent = "talia-rune",
-                    actualPrimaryAgent = "talia-rune",
-                    primaryToolCallId,
-                    children = Array.Empty<string>()
+                    actualPrimaryAgent = "talia-rune"
                 }
             }
         });

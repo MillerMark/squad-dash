@@ -82,15 +82,17 @@ DECOMPOSE_STEP_RESULT_JSON:
   "agentExecutions": [
     {
       "requestedAgent": "exact plan-assigned roster handle",
-      "actualPrimaryAgent": "verified primary roster handle",
-      "primaryToolCallId": "host-observed primary task tool-call ID",
-      "children": ["direct generic child tool-call IDs, if any"]
+      "actualPrimaryAgent": "same plan-assigned roster handle"
     }
   ]
 }
 ```
 
-When the task has agent assignments, `executionAttemptId` and `agentExecutions` are required and must exactly match the host-supplied attempt and observed launches. Omit them only for legacy or explicitly generic tasks with no structured assignments.
+When the task has agent assignments, `executionAttemptId` and `agentExecutions` are required. The
+attempt ID must match the host-supplied value, and each requested/actual handle must match one exact
+plan assignment. Do not report tool-call IDs or child lineage; SquadDash validates those host-owned
+values directly. Omit the assignment fields only for legacy or explicitly generic tasks with no
+structured assignments.
 
 Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
 List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`

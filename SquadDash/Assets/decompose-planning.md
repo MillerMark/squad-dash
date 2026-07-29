@@ -175,9 +175,7 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "agentExecutions": [
     {
       "requestedAgent": "host-assigned roster handle",
-      "actualPrimaryAgent": "same roster handle",
-      "primaryToolCallId": "host-observed task tool-call ID",
-      "children": []
+      "actualPrimaryAgent": "same roster handle"
     }
   ]
 }
@@ -187,8 +185,9 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
 verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
 validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
 before changing any plan status. `executionAttemptId` and `agentExecutions` are required only when
-SquadDash supplies a verified roster assignment context for the current attempt; copy the host values
-exactly and report direct generic child tool-call IDs in `children`.
+SquadDash supplies a verified roster assignment context for the current attempt. Report the supplied
+attempt ID and the observable requested/actual roster handles. Do not report tool-call IDs or child
+lineage: SquadDash owns and validates that internal evidence directly.
 
 ## PLAN_GATE_APPROVAL_JSON schema
 
