@@ -924,7 +924,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 addBeforeItem.IsEnabled = !PlanGateManager.IsRootTask(durablePlan, capturedTask.Id);
                 addBeforeItem.Click += (_, _) =>
                 {
-                    var msg = SimpleInputDialog.Show(this,
+                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
                         "Enter a message for this approval gate:",
                         "Require Approval Before",
                         $"Review before: {capturedTask.Title ?? capturedTask.Id}");
@@ -937,7 +937,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 addAfterItem.IsEnabled = !PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id);
                 addAfterItem.Click += (_, _) =>
                 {
-                    var msg = SimpleInputDialog.Show(this,
+                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
                         "Enter a message for this approval gate:",
                         "Require Approval After",
                         $"Review after: {capturedTask.Title ?? capturedTask.Id}");
