@@ -760,36 +760,68 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private static void AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0)
     {
         var brush = new SolidColorBrush(ConnectorColor(skipCount));
-        var line = new Line
-        {
-            X1 = from.X,
-            Y1 = from.Y,
-            X2 = to.X,
-            Y2 = to.Y,
-            StrokeThickness = 2,
-            Stroke = brush,
-        };
-        canvas.Children.Add(line);
-        if (!arrowHead) return;
+        const double arrowLength   = 11;
+        const double arrowHalfWidth = 5;
 
-        var vector = from - to;
-        if (vector.Length < 0.1) return;
-        vector.Normalize();
-        var perpendicular = new Vector(-vector.Y, vector.X);
-        const double length = 11;
-        const double halfWidth = 5;
-        var basePoint = to + vector * length;
-        var arrow = new Polygon
+        if (Math.Abs(to.Y - from.Y) < 1.0)
         {
-            Fill   = brush,
-            Points =
-            [
-                to,
-                basePoint + perpendicular * halfWidth,
-                basePoint - perpendicular * halfWidth,
-            ],
-        };
-        canvas.Children.Add(arrow);
+            // Same Y — straight horizontal line.
+            var line = new Line
+            {
+                X1 = from.X, Y1 = from.Y,
+                X2 = to.X,   Y2 = to.Y,
+                StrokeThickness = 2,
+                Stroke = brush,
+            };
+            canvas.Children.Add(line);
+
+            if (!arrowHead) return;
+            var vec = from - to;
+            if (vec.Length < 0.1) return;
+            vec.Normalize();
+            var perp = new Vector(-vec.Y, vec.X);
+            var basePoint = to + vec * arrowLength;
+            canvas.Children.Add(new Polygon
+            {
+                Fill   = brush,
+                Points = [to, basePoint + perp * arrowHalfWidth, basePoint - perp * arrowHalfWidth],
+            });
+        }
+        else
+        {
+            // Different Y — S-curve Bézier with horizontal tangents at both endpoints.
+            // Each control handle extends horizontally; length is half the horizontal span
+            // (clamped to a minimum so the curve stays shallow even on short hops).
+            double dx = to.X - from.X;
+            double handleLen = Math.Max(dx * 0.5, 40.0);
+            var cp1 = new Point(from.X + handleLen, from.Y);
+            var cp2 = new Point(to.X   - handleLen, to.Y);
+
+            var figure = new PathFigure { StartPoint = from };
+            figure.Segments.Add(new BezierSegment(cp1, cp2, to, isStroked: true));
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            canvas.Children.Add(new Path
+            {
+                Data            = geometry,
+                StrokeThickness = 2,
+                Stroke          = brush,
+                Fill            = Brushes.Transparent,
+            });
+
+            if (!arrowHead) return;
+            // Tangent at 'to' points in the direction (to – cp2), which is horizontal.
+            var tangent = to - cp2;
+            if (tangent.Length < 0.1) return;
+            tangent.Normalize();
+            var perp = new Vector(-tangent.Y, tangent.X);
+            var basePoint = to - tangent * arrowLength;
+            canvas.Children.Add(new Polygon
+            {
+                Fill   = brush,
+                Points = [to, basePoint + perp * arrowHalfWidth, basePoint - perp * arrowHalfWidth],
+            });
+        }
     }
 
     // Base hue for adjacent-stage connectors. Each skipped stage rotates the hue by 45°.
