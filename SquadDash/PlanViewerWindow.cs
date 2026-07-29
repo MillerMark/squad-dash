@@ -296,7 +296,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 FontWeight = FontWeights.SemiBold,
             };
             stageHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            stageHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            stageHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
             Canvas.SetLeft(stageHeader, x);
             Canvas.SetTop(stageHeader, 18);
             canvas.Children.Add(stageHeader);
