@@ -9,6 +9,7 @@ internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revisi
 internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
 internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
+internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
 
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
@@ -55,7 +56,8 @@ internal static class TranscriptQuickReplyFactory
         };
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
-        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or PlanGateApprovalTag or ContainerMarker;
+        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or
+            PlanGateApprovalTag or PlanPreflightRecoveryTag or ContainerMarker;
 
     internal static void RemovePendingDecomposeApprovalContainers(
         BlockCollection blocks,

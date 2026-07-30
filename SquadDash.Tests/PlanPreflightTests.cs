@@ -10,6 +10,25 @@ namespace SquadDash.Tests;
 internal sealed class PlanPreflightTests
 {
     [Test]
+    public void RecoveryContent_ExplainsThatPlanDidNotStartAndListsEveryPath()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Uncommitted changes", [".squad/tasks.md", "src/App.cs"], "feature/recovery");
+
+        var content = PlanPreflightRecoveryContent.From(exception);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.Title, Is.EqualTo("Plan not started"));
+            Assert.That(content.Summary, Does.Contain("No plan work was started"));
+            Assert.That(content.Summary, Does.Contain("feature/recovery"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain(".squad/tasks.md"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain("src/App.cs"));
+            Assert.That(content.TechnicalDetails, Does.Contain("Changed files: 2"));
+        });
+    }
+
+    [Test]
     public void PlanPreflightBlockedException_Properties_StoredCorrectly()
     {
         var paths = new List<string> { "src/Foo.cs", "src/Bar.cs" };

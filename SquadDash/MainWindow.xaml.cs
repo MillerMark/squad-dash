@@ -7954,6 +7954,11 @@ public partial class MainWindow : Window
                         panel.Visibility = Visibility.Visible;
                     }
                 }
+                catch (PlanPreflightBlockedException blocked)
+                {
+                    ShowTranscriptPlanPreflightRecovery(
+                        plan, action.Action, action.Branch, blocked, panel, blocks);
+                }
                 catch (Exception ex)
                 {
                     panel.IsEnabled = true;
@@ -8154,10 +8159,171 @@ public partial class MainWindow : Window
         catch (PlanPreflightBlockedException blocked)
         {
             SquadDashTrace.Write("UI", $"Plan preflight blocked: {blocked.Message}");
-            var dlg = new PlanPreflightBlockedDialog(blocked, owner: CanShowOwnedWindow() ? this : null);
-            dlg.ShowDialog();
+            ShowTranscriptPlanPreflightRecovery(
+                plan, action, branchOverride, blocked,
+                sourceActionsPanel: null,
+                CoordinatorThread.Document.Blocks);
         }
         catch (Exception ex) { HandleUiCallbackException("Decompose plan", ex); }
+    }
+
+    private void ShowTranscriptPlanPreflightRecovery(
+        PendingDecomposePlan plan,
+        string action,
+        string? branchOverride,
+        PlanPreflightBlockedException exception,
+        WrapPanel? sourceActionsPanel,
+        BlockCollection blocks)
+    {
+        foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
+                     block.Tag is PlanPreflightRecoveryTag tag &&
+                     string.Equals(tag.GroupId, plan.Group.GroupId, StringComparison.Ordinal)).ToArray())
+            blocks.Remove(existing);
+
+        var content = PlanPreflightRecoveryContent.From(exception);
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = content.Title,
+            FontWeight = FontWeights.SemiBold,
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        stack.Children.Add(title);
+
+        var summary = new TextBlock
+        {
+            Text = content.Summary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 6),
+        };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(summary);
+
+        var files = new TextBlock
+        {
+            Text = content.ChangedFilesSummary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        files.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(files);
+
+        var detailsText = new TextBlock
+        {
+            Text = content.TechnicalDetails,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(8, 4, 0, 6),
+        };
+        detailsText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        var details = new Expander
+        {
+            Header = "Technical details",
+            Content = detailsText,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        details.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+        if (TryFindResource("TranscriptExpanderStyle") is Style transcriptExpanderStyle)
+            details.Style = transcriptExpanderStyle;
+        stack.Children.Add(details);
+
+        var readiness = new TextBlock
+        {
+            Text = "Commit or stash the changes, then retry.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        readiness.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelSubtitle");
+        readiness.FontSize = _transcriptFontSize;
+        stack.Children.Add(readiness);
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _transcriptFontSize);
+        var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _transcriptFontSize);
+        var dismissButton = TranscriptQuickReplyFactory.CreateButton("Dismiss", _transcriptFontSize);
+        buttons.Children.Add(viewButton);
+        buttons.Children.Add(retryButton);
+        buttons.Children.Add(dismissButton);
+        stack.Children.Add(buttons);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "ActivePanelSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        var container = TranscriptQuickReplyFactory.CreateContainer(
+            card,
+            new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision));
+        blocks.Add(container);
+        sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+
+        viewButton.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
+        dismissButton.Click += (_, _) =>
+        {
+            if (blocks.Contains(container)) blocks.Remove(container);
+            if (sourceActionsPanel is not null)
+            {
+                sourceActionsPanel.IsEnabled = true;
+                sourceActionsPanel.Visibility = Visibility.Visible;
+            }
+        };
+        retryButton.Click += async (_, _) =>
+        {
+            buttons.IsEnabled = false;
+            readiness.Text = "Checking the workspace and retrying…";
+            try
+            {
+                if (await ApplyDecomposeDecisionAsync(plan, action, branchOverride))
+                {
+                    if (blocks.Contains(container)) blocks.Remove(container);
+                    return;
+                }
+                buttons.IsEnabled = true;
+                readiness.Text = "The plan did not start. Review the workspace and retry.";
+            }
+            catch (PlanPreflightBlockedException blocked)
+            {
+                if (blocks.Contains(container)) blocks.Remove(container);
+                ShowTranscriptPlanPreflightRecovery(
+                    plan, action, branchOverride, blocked, sourceActionsPanel, blocks);
+            }
+            catch (Exception ex)
+            {
+                buttons.IsEnabled = true;
+                readiness.Text = "Retry failed. Expand technical details or review the error output.";
+                HandleUiCallbackException("Decompose plan", ex);
+            }
+        };
+
+        var pollInFlight = false;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += async (_, _) =>
+        {
+            if (pollInFlight || !blocks.Contains(container))
+            {
+                if (!blocks.Contains(container)) timer.Stop();
+                return;
+            }
+            pollInFlight = true;
+            try
+            {
+                if (!await IsPlanPreflightWorkspaceCleanAsync()) return;
+                timer.Stop();
+                readiness.Text = "Workspace is clean. Retry is ready.";
+                retryButton.FontWeight = FontWeights.SemiBold;
+            }
+            finally { pollInFlight = false; }
+        };
+        timer.Start();
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     private async Task<bool> ApplyDecomposeDecisionAsync(PendingDecomposePlan plan, string action, string? branchOverride)
@@ -8383,7 +8549,11 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveGateAndResume(p, gate);
               }
             : null;
-        win = new PlanViewerWindow(displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan, onGatesChanged, onResumePlan, onEndPlan, onApproveGate)
+        win = new PlanViewerWindow(
+            displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan,
+            onGatesChanged, onResumePlan, onEndPlan, onApproveGate,
+            viewPreflightChanges: ShowPlanPreflightChangesAsync,
+            isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -8399,6 +8569,10 @@ public partial class MainWindow : Window
                 if (_isPromptRunning)
                     throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
                 return await ApplyDecomposeDecisionAsync(displayedPlan, action.Action, action.Branch);
+            }
+            catch (PlanPreflightBlockedException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -40458,9 +40632,74 @@ public partial class MainWindow : Window
             if (coordItem is not null)
                 AttachInboxMessageFollowUp(message, coordItem.Id);
         }
+        catch (PlanPreflightBlockedException ex)
+        {
+            ShowInboxPlanPreflightRecovery(message, action, ex);
+        }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(DispatchInboxAction), ex);
+        }
+    }
+
+    private void ShowInboxPlanPreflightRecovery(
+        InboxMessage message,
+        InboxAction action,
+        PlanPreflightBlockedException exception)
+    {
+        var window = _openInboxWindows.FirstOrDefault(candidate => candidate.MessageId == message.Id);
+        if (window is null)
+        {
+            OpenOrFocusInboxMessage(message.Id);
+            window = _openInboxWindows.FirstOrDefault(candidate => candidate.MessageId == message.Id);
+        }
+        if (window is null)
+        {
+            HandleUiCallbackException(nameof(DispatchInboxAction), exception);
+            return;
+        }
+
+        window.ShowPlanPreflightRecovery(
+            exception,
+            retry: () => DispatchInboxAction(action, message),
+            viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
+            isWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync);
+        if (window.WindowState == WindowState.Minimized)
+            window.WindowState = WindowState.Normal;
+        window.Activate();
+    }
+
+    private async Task<bool> IsPlanPreflightWorkspaceCleanAsync()
+    {
+        if (_currentWorkspace is null) return false;
+        try
+        {
+            var status = await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                "status --porcelain --untracked-files=all");
+            return string.IsNullOrWhiteSpace(status);
+        }
+        catch { return false; }
+    }
+
+    private async Task ShowPlanPreflightChangesAsync(PlanPreflightBlockedException exception)
+    {
+        if (_currentWorkspace is null) return;
+        try
+        {
+            var workspace = _currentWorkspace.FolderPath;
+            var status = await RunGitAsync(workspace, "status --short --untracked-files=all");
+            var diff = await RunGitAsync(workspace, "diff --no-ext-diff --no-color");
+            var window = new PlanPreflightChangesWindow(
+                exception, status, diff, _transcriptFontSize)
+            {
+                Owner = CanShowOwnedWindow() ? this : null,
+            };
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("View plan preflight changes", ex);
         }
     }
 

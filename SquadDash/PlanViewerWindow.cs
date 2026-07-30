@@ -33,6 +33,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan>? _onResumePlan;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
+    private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
+    private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
+    private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
 
@@ -45,7 +48,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onGatesChanged = null,
         Action<Plan>? onResumePlan   = null,
         Action<Plan>? onEndPlan      = null,
-        Action<Plan, string>? onApproveGate = null)
+        Action<Plan, string>? onApproveGate = null,
+        Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
+        Func<Task<bool>>? isPreflightWorkspaceClean = null)
         : base(captionHeight: CloseButtonHeight)
     {
         const double baseFontSize = 12.0;
@@ -64,6 +69,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onResumePlan       = onResumePlan;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
+        _viewPreflightChanges = viewPreflightChanges;
+        _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
 
         Title     = plan.Group.GroupTitle;
         Width     = 1200;
@@ -72,6 +79,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         MinHeight = 480;
 
         BuildContent(plan, durablePlan);
+        Closed += (_, _) => _preflightPollTimer?.Stop();
     }
 
     internal void NotifyFontSizeChanged()
@@ -90,6 +98,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        _preflightPollTimer?.Stop();
+        _preflightPollTimer = null;
         _plan = plan;
         _durablePlan = durablePlan;
         var activeBranch       = _activeBranch;
@@ -110,9 +120,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (applyAction is not null)
         {
+            var actionRegion = new StackPanel();
             var actionsPanel = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            var recoveryHost = new ContentControl
+            {
+                Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 0, 8),
             };
             foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
@@ -133,6 +149,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         else
                             actionsPanel.IsEnabled = true;
                     }
+                    catch (PlanPreflightBlockedException blocked)
+                    {
+                        ShowPlanPreflightRecovery(
+                            blocked,
+                            actionsPanel,
+                            recoveryHost,
+                            async () =>
+                            {
+                                if (!await applyAction(capturedAction)) return false;
+                                Close();
+                                return true;
+                            });
+                    }
                     catch (Exception ex)
                     {
                         actionsPanel.IsEnabled = true;
@@ -143,7 +172,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 actionsPanel.Children.Add(button);
             }
-            header.Children.Add(actionsPanel);
+            actionRegion.Children.Add(actionsPanel);
+            actionRegion.Children.Add(recoveryHost);
+            header.Children.Add(actionRegion);
         }
 
         if (durablePlan is not null &&
@@ -1356,6 +1387,156 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // Defer expansion to after layout completes so we can measure without stealing graph space.
             Dispatcher.BeginInvoke(() => RevealApprovalSummary(approvalSummary),
                 System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    private void ShowPlanPreflightRecovery(
+        PlanPreflightBlockedException exception,
+        WrapPanel actionsPanel,
+        ContentControl recoveryHost,
+        Func<Task<bool>> retry)
+    {
+        _preflightPollTimer?.Stop();
+        var content = PlanPreflightRecoveryContent.From(exception);
+        actionsPanel.IsEnabled = false;
+        actionsPanel.Visibility = Visibility.Collapsed;
+
+        var stack = new StackPanel();
+        var title = new TextBlock { Text = content.Title, FontWeight = FontWeights.SemiBold };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        stack.Children.Add(title);
+
+        var summary = new TextBlock
+        {
+            Text = content.Summary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 6),
+        };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(summary);
+
+        var files = new TextBlock
+        {
+            Text = content.ChangedFilesSummary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        files.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(files);
+
+        var detailText = new TextBlock
+        {
+            Text = content.TechnicalDetails,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(8, 4, 0, 6),
+        };
+        detailText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        var details = new Expander
+        {
+            Header = "Technical details",
+            Content = detailText,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        details.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+        if (TryFindResource("ThemedExpanderStyle") is Style expanderStyle)
+            details.Style = expanderStyle;
+        stack.Children.Add(details);
+
+        var readiness = new TextBlock
+        {
+            Text = "Commit or stash the changes, then retry.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        readiness.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelSubtitle");
+        readiness.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        stack.Children.Add(readiness);
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _quickReplyFontSize);
+        var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _quickReplyFontSize);
+        var dismissButton = TranscriptQuickReplyFactory.CreateButton("Dismiss", _quickReplyFontSize);
+        buttons.Children.Add(viewButton);
+        buttons.Children.Add(retryButton);
+        buttons.Children.Add(dismissButton);
+        stack.Children.Add(buttons);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "ActivePanelSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        recoveryHost.Content = card;
+        recoveryHost.Visibility = Visibility.Visible;
+
+        viewButton.IsEnabled = _viewPreflightChanges is not null;
+        viewButton.Click += (_, _) =>
+        {
+            if (_viewPreflightChanges is not null)
+                _ = _viewPreflightChanges(exception);
+        };
+        dismissButton.Click += (_, _) =>
+        {
+            _preflightPollTimer?.Stop();
+            recoveryHost.Content = null;
+            recoveryHost.Visibility = Visibility.Collapsed;
+            actionsPanel.IsEnabled = true;
+            actionsPanel.Visibility = Visibility.Visible;
+        };
+        retryButton.Click += async (_, _) =>
+        {
+            buttons.IsEnabled = false;
+            readiness.Text = "Checking the workspace and retrying…";
+            try
+            {
+                if (await retry()) return;
+                buttons.IsEnabled = true;
+                readiness.Text = "The plan did not start. Review the workspace and retry.";
+            }
+            catch (PlanPreflightBlockedException blocked)
+            {
+                ShowPlanPreflightRecovery(blocked, actionsPanel, recoveryHost, retry);
+            }
+            catch (Exception ex)
+            {
+                buttons.IsEnabled = true;
+                readiness.Text = "Retry failed. Review the error details and try again.";
+                SquadDashTrace.Write(TraceCategory.General, $"Plan viewer retry failed: {ex}");
+                UIErrorHelper.ShowError("Task Plan", ex.Message, this);
+            }
+        };
+
+        if (_isPreflightWorkspaceClean is not null)
+        {
+            var pollInFlight = false;
+            _preflightPollTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1.5),
+            };
+            _preflightPollTimer.Tick += async (_, _) =>
+            {
+                if (pollInFlight) return;
+                pollInFlight = true;
+                try
+                {
+                    if (!await _isPreflightWorkspaceClean()) return;
+                    _preflightPollTimer?.Stop();
+                    readiness.Text = "Workspace is clean. Retry is ready.";
+                    retryButton.FontWeight = FontWeights.SemiBold;
+                }
+                catch { /* Leave the card unchanged when the readiness probe fails. */ }
+                finally { pollInFlight = false; }
+            };
+            _preflightPollTimer.Start();
         }
     }
 

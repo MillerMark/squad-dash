@@ -24,6 +24,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string, InboxMessage>? _attachSelectedTextToNewChat;
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
+    private readonly WrapPanel _actionsPanel;
+    private readonly ContentControl _preflightRecoveryHost;
+    private DispatcherTimer? _preflightPollTimer;
     private readonly Action? _onMarkedRead;
     private readonly Action? _onMarkedUnread;
     private readonly Action? _onRepliedInChat;
@@ -160,17 +163,27 @@ internal sealed class InboxMessageWindow : ChromedWindow
             attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _lookupTask, openDecomposePlan));
 
         // ── Actions ───────────────────────────────────────────────────────────
-        var actionsPanel = new WrapPanel
+        var actionRegion = new StackPanel();
+        Grid.SetRow(actionRegion, 2);
+        root.Children.Add(actionRegion);
+
+        _actionsPanel = new WrapPanel
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
             Visibility  = message.Actions is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed,
         };
-        Grid.SetRow(actionsPanel, 2);
-        root.Children.Add(actionsPanel);
+        actionRegion.Children.Add(_actionsPanel);
 
         foreach (var action in message.Actions)
-            actionsPanel.Children.Add(BuildActionButton(action, message, onActionClicked));
+            _actionsPanel.Children.Add(BuildActionButton(action, message, onActionClicked));
+
+        _preflightRecoveryHost = new ContentControl
+        {
+            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(12, 2, 12, 4),
+        };
+        actionRegion.Children.Add(_preflightRecoveryHost);
 
         // ── Body ──────────────────────────────────────────────────────────────
         var doc = MarkdownFlowDocumentBuilder.Build(message.Body ?? string.Empty, _bodyFontSize);
@@ -288,6 +301,158 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => _bodyViewer.Focus());
         };
+
+        Closed += (_, _) =>
+        {
+            _preflightPollTimer?.Stop();
+            _preflightPollTimer = null;
+        };
+    }
+
+    /// <summary>Shows a persistent, contextual recovery card for a blocked plan action.</summary>
+    internal void ShowPlanPreflightRecovery(
+        PlanPreflightBlockedException exception,
+        Action retry,
+        Action viewChanges,
+        Func<Task<bool>>? isWorkspaceClean = null)
+    {
+        _preflightPollTimer?.Stop();
+        var content = PlanPreflightRecoveryContent.From(exception);
+        _actionsPanel.IsEnabled = false;
+
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = content.Title,
+            FontWeight = FontWeights.SemiBold,
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        stack.Children.Add(title);
+
+        var summary = new TextBlock
+        {
+            Text = content.Summary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 6),
+        };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(summary);
+
+        var files = new TextBlock
+        {
+            Text = content.ChangedFilesSummary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        files.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        stack.Children.Add(files);
+
+        var details = new Expander
+        {
+            Header = "Technical details",
+            Content = new TextBlock
+            {
+                Text = content.TechnicalDetails,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(8, 4, 0, 6),
+            },
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        details.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+        if (TryFindResource("ThemedExpanderStyle") is Style expanderStyle)
+            details.Style = expanderStyle;
+        stack.Children.Add(details);
+
+        var readiness = new TextBlock
+        {
+            Text = "Commit or stash the changes, then retry.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        readiness.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelSubtitle");
+        readiness.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        stack.Children.Add(readiness);
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var viewButton = BuildRecoveryButton("View Changes");
+        var retryButton = BuildRecoveryButton("Retry");
+        var dismissButton = BuildRecoveryButton("Dismiss");
+        buttons.Children.Add(viewButton);
+        buttons.Children.Add(retryButton);
+        buttons.Children.Add(dismissButton);
+        stack.Children.Add(buttons);
+
+        viewButton.Click += (_, _) => viewChanges();
+        retryButton.Click += (_, _) =>
+        {
+            buttons.IsEnabled = false;
+            readiness.Text = "Checking the workspace and retrying…";
+            retry();
+        };
+        dismissButton.Click += (_, _) => ClearPlanPreflightRecovery();
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "ActivePanelSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        _preflightRecoveryHost.Content = card;
+        _preflightRecoveryHost.Visibility = Visibility.Visible;
+
+        if (isWorkspaceClean is not null)
+        {
+            var pollInFlight = false;
+            _preflightPollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            _preflightPollTimer.Tick += async (_, _) =>
+            {
+                if (pollInFlight) return;
+                pollInFlight = true;
+                try
+                {
+                    if (!await isWorkspaceClean()) return;
+                    _preflightPollTimer?.Stop();
+                    readiness.Text = "Workspace is clean. Retry is ready.";
+                    retryButton.FontWeight = FontWeights.SemiBold;
+                }
+                catch { /* A failed readiness probe leaves the recovery card unchanged. */ }
+                finally { pollInFlight = false; }
+            };
+            _preflightPollTimer.Start();
+        }
+
+        Button BuildRecoveryButton(string label)
+        {
+            var button = new Button
+            {
+                Content = label,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(10, 4, 10, 4),
+                MinHeight = 28,
+                Cursor = Cursors.Hand,
+            };
+            if (TryFindResource("QuickReplyButtonStyle") is Style style)
+                button.Style = style;
+            button.SetResourceReference(Button.BackgroundProperty, "QuickReplySurface");
+            button.SetResourceReference(Button.ForegroundProperty, "QuickReplyText");
+            button.SetResourceReference(Button.BorderBrushProperty, "QuickReplyBorder");
+            return button;
+        }
+    }
+
+    private void ClearPlanPreflightRecovery()
+    {
+        _preflightPollTimer?.Stop();
+        _preflightPollTimer = null;
+        _preflightRecoveryHost.Content = null;
+        _preflightRecoveryHost.Visibility = Visibility.Collapsed;
+        _actionsPanel.IsEnabled = true;
     }
 
     private void FireMarkRead()
