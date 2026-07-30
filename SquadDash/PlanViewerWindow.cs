@@ -1305,8 +1305,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
         }
 
-        canvas.Width  = positions.Values.Max(point => point.X) + NodeWidth + 70;
-        canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight + 70;
+        canvas.Width  = positions.Values.Max(point => point.X) + NodeWidth;
+        canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight;
 
         if (durablePlan is not null)
         {
