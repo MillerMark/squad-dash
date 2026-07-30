@@ -45,7 +45,8 @@ internal static class PlanGateManager
     /// affordances such as an ALL join or a milestone between two displayed stages.
     /// </summary>
     internal static Plan AddBoundaryGate(Plan plan,
-        IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds, string message)
+        IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds, string message,
+        string? presentationAnchor = null, bool removeSubsumedTaskGates = false)
     {
         var knownIds = plan.Tasks.Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal);
         var normalizedAfter = afterIds.Distinct(StringComparer.Ordinal).ToArray();
@@ -63,8 +64,46 @@ internal static class PlanGateManager
             AfterTaskIds:  normalizedAfter,
             BeforeTaskIds: normalizedBefore,
             Status:        PlanGateStatus.Pending,
-            PlanRevision:  plan.Revision);
-        return plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
+            PlanRevision:  plan.Revision,
+            PresentationAnchor: presentationAnchor);
+
+        var retained = removeSubsumedTaskGates
+            ? plan.ApprovalGates.Where(existing => !IsSubsumedTaskGate(
+                plan, existing, normalizedAfter, normalizedBefore)).ToArray()
+            : plan.ApprovalGates;
+        return plan with { ApprovalGates = [..retained, gate] };
+    }
+
+    private static bool IsSubsumedTaskGate(Plan plan, PlanApprovalGate existing,
+        IReadOnlyCollection<string> groupAfter, IReadOnlyCollection<string> groupBefore)
+    {
+        // A task exit/before gate is redundant only when the larger boundary covers every
+        // endpoint it controls. A task with an additional edge therefore keeps its own gate.
+        var taskExit = existing.AfterTaskIds.Count == 1 &&
+            plan.Tasks.Where(task => task.DependsOn.Contains(existing.AfterTaskIds[0], StringComparer.Ordinal))
+                .Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(existing.BeforeTaskIds);
+        var taskEntry = existing.BeforeTaskIds.Count == 1 &&
+            plan.Tasks.FirstOrDefault(task => task.TaskId == existing.BeforeTaskIds[0]) is { } entryTask &&
+            entryTask.DependsOn.ToHashSet(StringComparer.Ordinal).SetEquals(existing.AfterTaskIds);
+        var taskScoped = taskExit || taskEntry;
+        return taskScoped &&
+               existing.AfterTaskIds.All(id => groupAfter.Contains(id, StringComparer.Ordinal)) &&
+               existing.BeforeTaskIds.All(id => groupBefore.Contains(id, StringComparer.Ordinal));
+    }
+
+    internal static Plan SetPresentationAnchor(Plan plan, string gateId, string presentationAnchor)
+    {
+        var changed = false;
+        var gates = plan.ApprovalGates.Select(gate =>
+        {
+            if (!string.Equals(gate.GateId, gateId, StringComparison.Ordinal) ||
+                string.Equals(gate.PresentationAnchor, presentationAnchor, StringComparison.Ordinal))
+                return gate;
+            changed = true;
+            return gate with { PresentationAnchor = presentationAnchor };
+        }).ToArray();
+        return changed ? plan with { ApprovalGates = gates } : plan;
     }
 
     /// <summary>Generates next stable gate ID: "{planId}-GATE-001", "...GATE-002", etc.</summary>
@@ -97,7 +136,7 @@ internal static class PlanGateManager
         IReadOnlyList<string> afterIds  = task.DependsOn ?? [];
         IReadOnlyList<string> beforeIds = [taskId];
 
-        return AddBoundaryGate(plan, afterIds, beforeIds, message);
+        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-before:{taskId}");
     }
 
     /// <summary>
@@ -115,7 +154,7 @@ internal static class PlanGateManager
             .Select(t => t.TaskId)
             .ToArray();
 
-        return AddBoundaryGate(plan, afterIds, beforeIds, message);
+        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}");
     }
 
     /// <summary>Removes the gate with the given gateId. Returns plan unchanged if not found.</summary>

@@ -213,6 +213,49 @@ internal sealed class PlanGateManagerTests
         });
     }
 
+    [Test]
+    public void AddBoundaryGate_WithGroupNormalization_RemovesOnlyFullySubsumedTaskGate()
+    {
+        var plan = MakePlan(
+            ("A", []), ("B", []),
+            ("C", ["A", "B"]),
+            ("D", ["A"]));
+        plan = PlanGateManager.AddGateAfter(plan, "A", "Review A");
+        plan = PlanGateManager.AddGateAfter(plan, "B", "Review B");
+
+        var result = PlanGateManager.AddBoundaryGate(
+            plan, ["A", "B"], ["C"], "Review ALL", "all:C",
+            removeSubsumedTaskGates: true);
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ApprovalGates.Any(g => g.AfterTaskIds.SequenceEqual(new[] { "B" })), Is.False);
+            Assert.That(result.ApprovalGates.Any(g => g.AfterTaskIds.SequenceEqual(new[] { "A" })), Is.True,
+                "A's additional edge to D means its exit approval is not redundant.");
+            Assert.That(result.ApprovalGates.Single(g => g.AfterTaskIds.Count == 2).PresentationAnchor,
+                Is.EqualTo("all:C"));
+        });
+    }
+
+    [Test]
+    public void SetPresentationAnchor_TransfersEquivalentControlsWithoutChangingBoundary()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = PlanGateManager.AddBoundaryGate(plan, ["A"], ["B"], "Review", "all:B");
+
+        var result = PlanGateManager.SetPresentationAnchor(
+            plan, plan.ApprovalGates[0].GateId, "task-before:B");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(result.ApprovalGates[0].AfterTaskIds, Is.EquivalentTo(new[] { "A" }));
+            Assert.That(result.ApprovalGates[0].BeforeTaskIds, Is.EquivalentTo(new[] { "B" }));
+            Assert.That(result.ApprovalGates[0].PresentationAnchor, Is.EqualTo("task-before:B"));
+        });
+    }
+
     // ─── RemoveGate ──────────────────────────────────────────────────────────
 
     [Test]

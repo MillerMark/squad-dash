@@ -130,7 +130,10 @@ internal sealed record PlanApprovalGate(
                                                   string? PlanRevision         = null,
     [property: JsonPropertyName("notifiedAt")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  DateTimeOffset? NotifiedAt   = null);
+                                                  DateTimeOffset? NotifiedAt   = null,
+    [property: JsonPropertyName("presentationAnchor")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? PresentationAnchor  = null);
 
 /// <summary>Lightweight progress snapshot — does not store per-task detail.</summary>
 internal sealed record PlanProgress(

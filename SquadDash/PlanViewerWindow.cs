@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
@@ -319,6 +320,42 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
+        var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+
+        static string StageAnchor(int leftStage) => $"stage:{leftStage}";
+        static string AllAnchor(IEnumerable<string> targetIds) =>
+            "all:" + string.Join("|", targetIds.OrderBy(id => id, StringComparer.Ordinal));
+        static string TaskBeforeAnchor(string taskId) => $"task-before:{taskId}";
+        static string TaskAfterAnchor(string taskId) => $"task-after:{taskId}";
+        static string ApprovalLabel(string anchor) =>
+            anchor.StartsWith("all:", StringComparison.Ordinal) ? "ALL" :
+            anchor.StartsWith("stage:", StringComparison.Ordinal) ? "stage" : "task";
+
+        bool IsPrimary(PlanApprovalGate? gate, string anchor) => gate is not null &&
+            (string.IsNullOrWhiteSpace(gate.PresentationAnchor) ||
+             string.Equals(gate.PresentationAnchor, anchor, StringComparison.Ordinal));
+
+        void ShowCoveredGuidance(string controllingAnchor, string label)
+        {
+            if (!approvalControlsByAnchor.TryGetValue(controllingAnchor, out var target)) return;
+            var glow = new DropShadowEffect { Color = Color.FromRgb(0xC9, 0x4B, 0x4B), BlurRadius = 16 };
+            target.Effect = glow;
+            var pulse = new DoubleAnimation(0.25, 1, TimeSpan.FromMilliseconds(250))
+            {
+                AutoReverse = true,
+                RepeatBehavior = new RepeatBehavior(3),
+            };
+            pulse.Completed += (_, _) => target.Effect = null;
+            glow.BeginAnimation(DropShadowEffect.OpacityProperty, pulse);
+
+            var theme = AgentStatusCard.IsDarkTheme ? CalloutTheme.Dark : CalloutTheme.Light;
+            var angle = controllingAnchor.StartsWith("stage:", StringComparison.Ordinal)
+                ? FrmUltimateCallout.PlacementToAngle(CalloutPlacement.North)
+                : double.MinValue;
+            FrmUltimateCallout.ShowCallout(
+                $"Covered by this {label} approval requirement. Click here to **clear** it.",
+                target, width: 360, angle: angle, theme: theme, fontSize: 14);
+        }
 
         PlanApprovalGate? FindDurableGate(
             IReadOnlyList<string> afterIds,
@@ -455,6 +492,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], afterIds, beforeIds) ||
                 SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], legacyAfterIds, legacyBeforeIds));
             var isLocked = existingGate is not null || displayedGate is not null;
+            var milestoneAnchor = StageAnchor(columnIndex + 1);
+            var milestoneIsPrimary = existingGate is null || IsPrimary(existingGate, milestoneAnchor);
 
             var leftTasks = leftColumn.ToArray();
             var leftX = positions[leftTasks[0].Id].X;
@@ -484,25 +523,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? "Preview: human approval is required at this stage milestone."
                         : "Preview: this stop controls approval at the stage milestone."
                     : isLocked
-                        ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to remove."
+                        ? milestoneIsPrimary
+                            ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to remove."
+                            : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                         : "Require human approval after the stage to the left completes and before the next stage begins.",
                 onGatesChanged is null
                     ? null
                     : () =>
                 {
                     var updated = isLocked && existingGate is not null
-                        ? PlanGateManager.RemoveGate(durablePlan!, existingGate.GateId)
+                        ? milestoneIsPrimary
+                            ? PlanGateManager.RemoveGate(durablePlan!, existingGate.GateId)
+                            : PlanGateManager.SetPresentationAnchor(durablePlan!, existingGate.GateId, milestoneAnchor)
                         : PlanGateManager.AddBoundaryGate(
                             durablePlan!,
                             afterIds,
                             beforeIds,
-                            $"Review milestone before Stage {leftColumn.Key + 2}");
+                            $"Review milestone before Stage {leftColumn.Key + 2}",
+                            milestoneAnchor,
+                            removeSubsumedTaskGates: true);
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                });
+                },
+                isLocked && !milestoneIsPrimary ? 0.5 : 1.0);
             Canvas.SetLeft(milestoneStop, boundaryX - 8);
             Canvas.SetTop(milestoneStop, 10);
             Panel.SetZIndex(milestoneStop, 25);
             canvas.Children.Add(milestoneStop);
+            approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
         }
 
         DecomposedGate? FindDisplayedGate(
@@ -529,6 +576,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     .Select(task => task.Id)
                     .ToArray());
 
+        string? ResolvePresentationAnchor(PlanApprovalGate gate)
+        {
+            if (!string.IsNullOrWhiteSpace(gate.PresentationAnchor)) return gate.PresentationAnchor;
+            for (var i = 0; i < columns.Length - 1; i++)
+            {
+                var after = columns[i].Select(task => task.Id).ToArray();
+                var before = columns[i + 1].Select(task => task.Id).ToArray();
+                if (SameBoundary(gate.AfterTaskIds, gate.BeforeTaskIds, after, before))
+                    return StageAnchor(i + 1);
+            }
+            foreach (var allGate in gates)
+            {
+                var before = allGate.Targets.Select(task => task.Id).ToArray();
+                if (SameBoundary(gate.AfterTaskIds, gate.BeforeTaskIds, allGate.Dependencies, before))
+                    return AllAnchor(before);
+            }
+            if (gate.AfterTaskIds.Count == 1) return TaskAfterAnchor(gate.AfterTaskIds[0]);
+            if (gate.BeforeTaskIds.Count == 1) return TaskBeforeAnchor(gate.BeforeTaskIds[0]);
+            return null;
+        }
+
         // Pass 2: collect task-scoped and legacy approval edges. Stage and ALL-join boundaries
         // have dedicated visuals and must not produce an all-to-all dashed connector mesh.
         var lockedAfterTaskIds = new HashSet<string>(StringComparer.Ordinal);
@@ -546,6 +614,41 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var beforeId in approvalGate.BeforeTaskIds ?? [])
                         approvalDirectPairs.Add((afterId, beforeId));
                 }
+            }
+        }
+        if (durablePlan is not null)
+        {
+            foreach (var approvalGate in durablePlan.ApprovalGates)
+            {
+                if (approvalGate.AfterTaskIds.Count == 1)
+                {
+                    var afterId = approvalGate.AfterTaskIds[0];
+                    var directDependents = DirectDependents(afterId);
+                    if (SameBoundary(approvalGate.AfterTaskIds, approvalGate.BeforeTaskIds,
+                            [afterId], directDependents))
+                        lockedAfterTaskIds.Add(afterId);
+                }
+                foreach (var afterId in approvalGate.AfterTaskIds)
+                    foreach (var beforeId in approvalGate.BeforeTaskIds)
+                        approvalDirectPairs.Add((afterId, beforeId));
+            }
+        }
+
+        // A dashed path continues through every downstream task. Use graph reachability
+        // rather than column position so unrelated parallel branches remain solid.
+        var downstreamTaskIds = durablePlan is not null
+            ? PlanGateVisualizationPolicy.DownstreamTaskIds(durablePlan.Tasks, durablePlan.ApprovalGates)
+            : (group.ApprovalGates ?? []).SelectMany(gate => gate.BeforeTaskIds ?? [])
+                .ToHashSet(StringComparer.Ordinal);
+        if (durablePlan is null)
+        {
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var task in group.Tasks)
+                    if (!downstreamTaskIds.Contains(task.Id) && task.DependsOn.Any(downstreamTaskIds.Contains))
+                        changed |= downstreamTaskIds.Add(task.Id);
             }
         }
 
@@ -630,7 +733,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                FindDisplayedGate(dependencies, joinBeforeIds) is not null;
             // A task-exit gate belongs on that task's segment entering the ALL join. A gate on
             // the ALL join itself belongs on the shared outbound segment.
-            var outboundDashed = joinIsLocked;
+            var outboundDashed = joinIsLocked || dependencies.Any(dependency =>
+                lockedAfterTaskIds.Contains(dependency) ||
+                downstreamTaskIds.Contains(dependency) ||
+                targets.Any(target => approvalDirectPairs.Contains((dependency, target.Id))));
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
@@ -642,6 +748,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
                     dashed: lockedAfterTaskIds.Contains(dependency) ||
+                            downstreamTaskIds.Contains(dependency) ||
+                            targets.Any(target => approvalDirectPairs.Contains((dependency, target.Id))) ||
                             StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
@@ -680,6 +788,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     arrowHead: true,
                     skipCount: skipCount,
                     dashed: lockedAfterTaskIds.Contains(dependency) ||
+                            downstreamTaskIds.Contains(dependency) ||
                             approvalDirectPairs.Contains((dependency, task.Id)) ||
                             StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
@@ -695,7 +804,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinBeforeIds = gate.Targets.Select(task => task.Id).ToArray();
             var existingJoinGate = FindDurableGate(joinAfterIds, joinBeforeIds);
             var displayedJoinGate = FindDisplayedGate(joinAfterIds, joinBeforeIds);
-            var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null;
+            var coveringJoinGate = existingJoinGate is null && durablePlan is not null
+                ? durablePlan.ApprovalGates
+                    .Where(candidate => PlanGateVisualizationPolicy.CompletelyCovers(
+                        candidate, joinAfterIds, joinBeforeIds))
+                    .OrderByDescending(candidate => candidate.AfterTaskIds.Count + candidate.BeforeTaskIds.Count)
+                    .FirstOrDefault()
+                : null;
+            var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
+                               coveringJoinGate is not null;
+            var joinAnchor = AllAnchor(joinBeforeIds);
+            var joinIsPrimary = existingJoinGate is null || IsPrimary(existingJoinGate, joinAnchor);
+            var joinController = coveringJoinGate is null ? null : ResolvePresentationAnchor(coveringJoinGate);
             var badgeText = new TextBlock
             {
                 Text                = "ALL",
@@ -716,26 +836,42 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? joinIsLocked
                             ? "Preview: human approval is required at this ALL join."
                             : "Preview: this stop controls approval at the ALL join."
+                        : coveringJoinGate is not null
+                            ? "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
-                            ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
+                            ? joinIsPrimary
+                                ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval after every incoming task completes and before joined work begins.",
                     onGatesChanged is null
                         ? null
                         : () =>
                     {
+                        if (coveringJoinGate is not null)
+                        {
+                            if (joinController is not null)
+                                ShowCoveredGuidance(joinController, ApprovalLabel(joinController));
+                            return;
+                        }
                         var updated = joinIsLocked && existingJoinGate is not null
-                            ? PlanGateManager.RemoveGate(durablePlan!, existingJoinGate.GateId)
+                            ? joinIsPrimary
+                                ? PlanGateManager.RemoveGate(durablePlan!, existingJoinGate.GateId)
+                                : PlanGateManager.SetPresentationAnchor(durablePlan!, existingJoinGate.GateId, joinAnchor)
                             : PlanGateManager.AddBoundaryGate(
                                 durablePlan!,
                                 joinAfterIds,
                                 joinBeforeIds,
-                                $"Review joined work before: {string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id))}");
+                                $"Review joined work before: {string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id))}",
+                                joinAnchor,
+                                removeSubsumedTaskGates: true);
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                    });
+                    },
+                    joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null) ? 0.5 : 1.0);
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
                 badgeContent.Children.Add(joinStop);
+                approvalControlsByAnchor[joinAnchor] = joinStop;
             }
 
             var badge = new Border
@@ -983,47 +1119,96 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (!isRoot)
                 {
                     var existingBeforeGate = FindTaskGateBefore(capturedTaskForStop.Id);
-                    var beforeEngaged = existingBeforeGate is not null;
+                    var beforeAnchor = TaskBeforeAnchor(capturedTaskForStop.Id);
+                    var coveringBeforeGate = existingBeforeGate is null
+                        ? durablePlan.ApprovalGates
+                            .Where(gate => PlanGateVisualizationPolicy.CompletelyCovers(
+                                gate, capturedTaskForStop.DependsOn, [capturedTaskForStop.Id]))
+                            .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
+                            .FirstOrDefault()
+                        : null;
+                    var beforeEngaged = existingBeforeGate is not null || coveringBeforeGate is not null;
+                    var beforeIsPrimary = IsPrimary(existingBeforeGate, beforeAnchor);
+                    var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var beforeStop = CreateApprovalStop(
                         beforeEngaged,
-                        beforeEngaged
-                            ? "Human approval is required before this task begins. Click to remove."
+                        coveringBeforeGate is not null
+                            ? "This task entry is covered by a larger approval requirement."
+                            : beforeEngaged
+                            ? beforeIsPrimary
+                                ? "Human approval is required before this task begins. Click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval before this task begins.",
                         () =>
                         {
-                            var updated = beforeEngaged && existingBeforeGate is not null
-                                ? PlanGateManager.RemoveGate(durablePlan, existingBeforeGate.GateId)
+                            if (coveringBeforeGate is not null)
+                            {
+                                if (beforeController is not null)
+                                    ShowCoveredGuidance(beforeController, ApprovalLabel(beforeController));
+                                return;
+                            }
+                            var updated = existingBeforeGate is not null
+                                ? beforeIsPrimary
+                                    ? PlanGateManager.RemoveGate(durablePlan, existingBeforeGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingBeforeGate.GateId, beforeAnchor)
                                 : PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
                                     $"Review before starting: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                        });
+                        },
+                        beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null) ? 0.5 : 1.0);
                     Canvas.SetLeft(beforeStop, position.X + 6);
                     Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
                     Panel.SetZIndex(beforeStop, 25);
                     canvas.Children.Add(beforeStop);
+                    approvalControlsByAnchor[beforeAnchor] = beforeStop;
                 }
 
                 if (!isLeaf)
                 {
                     var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
-                    var afterEngaged = existingAfterGate is not null;
+                    var afterAnchor = TaskAfterAnchor(capturedTaskForStop.Id);
+                    var afterBoundary = DirectDependents(capturedTaskForStop.Id);
+                    var coveringAfterGate = existingAfterGate is null
+                        ? durablePlan.ApprovalGates
+                            .Where(gate => PlanGateVisualizationPolicy.CompletelyCovers(
+                                gate, [capturedTaskForStop.Id], afterBoundary))
+                            .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
+                            .FirstOrDefault()
+                        : null;
+                    var afterEngaged = existingAfterGate is not null || coveringAfterGate is not null;
+                    var afterIsPrimary = IsPrimary(existingAfterGate, afterAnchor);
+                    var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
                     var afterStop = CreateApprovalStop(
                         afterEngaged,
-                        afterEngaged
-                            ? "Human approval is required after this task completes. Click to remove."
+                        coveringAfterGate is not null
+                            ? "This task exit is covered by a larger approval requirement."
+                            : afterEngaged
+                            ? afterIsPrimary
+                                ? "Human approval is required after this task completes. Click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval after this task completes.",
                         () =>
                         {
-                            var updated = afterEngaged && existingAfterGate is not null
-                                ? PlanGateManager.RemoveGate(durablePlan, existingAfterGate.GateId)
+                            if (coveringAfterGate is not null)
+                            {
+                                if (afterController is not null)
+                                    ShowCoveredGuidance(afterController, ApprovalLabel(afterController));
+                                return;
+                            }
+                            var updated = existingAfterGate is not null
+                                ? afterIsPrimary
+                                    ? PlanGateManager.RemoveGate(durablePlan, existingAfterGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingAfterGate.GateId, afterAnchor)
                                 : PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
                                     $"Review after completing: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                        });
+                        },
+                        afterEngaged && (!afterIsPrimary || coveringAfterGate is not null) ? 0.5 : 1.0);
                     Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
                     Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
                     Panel.SetZIndex(afterStop, 25);
                     canvas.Children.Add(afterStop);
+                    approvalControlsByAnchor[afterAnchor] = afterStop;
                 }
             }
             else
@@ -1147,7 +1332,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    private static FrameworkElement CreateApprovalStop(bool engaged, string toolTip, Action? toggle)
+    private static FrameworkElement CreateApprovalStop(
+        bool engaged, string toolTip, Action? toggle, double engagedOpacity = 1.0)
     {
         var stop = new Polygon
         {
@@ -1170,6 +1356,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Background = Brushes.Transparent,
             Cursor = toggle is null ? Cursors.Arrow : Cursors.Hand,
             ToolTip = ToolTipHelper.MakeThemedToolTip(toolTip),
+            Opacity = engaged ? engagedOpacity : 1.0,
         };
         hitTarget.Children.Add(stop);
         if (toggle is not null)

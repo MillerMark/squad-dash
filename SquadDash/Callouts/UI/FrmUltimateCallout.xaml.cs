@@ -95,7 +95,27 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
             ContextMenu.ClosedEvent,
             new RoutedEventHandler(OnAnyContextMenuClosed),
             handledEventsToo: true);
+        InputManager.Current.PreProcessInput += OnPreProcessInputForAutoDismiss;
         InputManager.Current.PreProcessInput += OnPreProcessInputForContextMenuDragProtection;
+    }
+
+    /// <summary>
+    /// Dismisses transient callouts for clicks in any WPF window, not only MainWindow.
+    /// A callout click is excluded so its close button and drag surface keep working.
+    /// </summary>
+    private static void OnPreProcessInputForAutoDismiss(object sender, PreProcessInputEventArgs e)
+    {
+        if (e.StagingItem.Input is not MouseButtonEventArgs mouseArgs ||
+            mouseArgs.ChangedButton != MouseButton.Left ||
+            mouseArgs.ButtonState != MouseButtonState.Pressed)
+            return;
+
+        if (mouseArgs.RoutedEvent != Mouse.PreviewMouseDownEvent &&
+            mouseArgs.RoutedEvent != UIElement.PreviewMouseLeftButtonDownEvent)
+            return;
+
+        if (!TryGetCalloutUnderCursor(out _))
+            CloseAllNonSticky();
     }
 
     private static void OnAnyContextMenuOpened(object sender, RoutedEventArgs e)
@@ -1760,6 +1780,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     }
 
     private void TargetParentWindow_Deactivated(object? sender, EventArgs e) {
+        // Non-client clicks (for example dragging another SquadDash window by its title bar)
+        // do not enter WPF's input pipeline. Deactivation is the reliable cross-window signal.
+        if (initializationComplete && !IsSticky)
+        {
+            Close();
+            return;
+        }
         CheckTopMostWindow();
     }
 
