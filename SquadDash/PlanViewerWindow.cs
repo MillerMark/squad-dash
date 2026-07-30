@@ -1308,6 +1308,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         canvas.Width  = positions.Values.Max(point => point.X) + NodeWidth;
         canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight;
 
+        SizeWindowToContent(canvas.Width, canvas.Height);
+
         if (durablePlan is not null)
         {
             var approvalSummary = BuildApprovalSummaryPanel(durablePlan, levels);
@@ -1484,6 +1486,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
         border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         return border;
+    }
+
+    private void SizeWindowToContent(double canvasWidth, double canvasHeight)
+    {
+        const double horizontalChrome = 18 * 2 + 20;
+        const double verticalChrome = 18 * 2 + 60 + 40;
+        const double approvalReserve = 180;
+
+        var idealWidth = canvasWidth + horizontalChrome;
+        var idealHeight = canvasHeight + verticalChrome + approvalReserve;
+
+        var workArea = SystemParameters.WorkArea;
+
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd != nint.Zero)
+        {
+            var physicalWorkArea = NativeMethods.GetWorkAreaForWindow(hwnd);
+            var source = PresentationSource.FromVisual(this);
+            var dpiX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+            var dpiY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+            workArea = new Rect(
+                physicalWorkArea.X / dpiX, physicalWorkArea.Y / dpiY,
+                physicalWorkArea.Width / dpiX, physicalWorkArea.Height / dpiY);
+        }
+
+        Width = Math.Max(MinWidth, Math.Min(idealWidth, workArea.Width));
+        Height = Math.Max(MinHeight, Math.Min(idealHeight, workArea.Height));
     }
 
     private void RevealApprovalSummary(FrameworkElement approvalSummary)
