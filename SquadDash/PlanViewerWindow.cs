@@ -101,6 +101,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 IsChecked = _approvalLineCombineMode == mode,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 14, 0),
+                Focusable = false,
             };
             option.SetResourceReference(Control.ForegroundProperty, "LabelText");
             option.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
@@ -132,6 +133,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     action.Label,
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
+                button.Focusable = false;
                 button.Click += async (_, _) =>
                 {
                     actionsPanel.IsEnabled = false;
@@ -172,6 +174,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "Resume Plan",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip("Resume executing this interrupted plan from where it left off."));
+                resumeButton.Focusable = false;
                 resumeButton.Click += (_, _) =>
                 {
                     capturedAction(capturedPlan);
@@ -187,6 +190,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "End Plan",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip("Set this plan to Stopped. History is preserved but the plan cannot be resumed."));
+                endButton.Focusable = false;
                 endButton.Click += (_, _) =>
                 {
                     capturedAction(capturedPlan);
@@ -333,6 +337,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "Approve & Continue",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip("Approve this gate and resume plan execution."));
+                approveButton.Focusable = false;
                 approveButton.Click += (_, _) =>
                 {
                     capturedApprove(capturedApprPlan, capturedApprGate.GateId);
