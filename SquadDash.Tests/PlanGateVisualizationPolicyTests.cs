@@ -160,4 +160,61 @@ internal sealed class PlanGateVisualizationPolicyTests
             Assert.That(result, Does.Not.Contain(("JOIN", "NEXT")));
         });
     }
+
+    [Test]
+    public void TaskExitIsCollectivelyCovered_WhenEveryExitEntersAnEnabledAllJoin()
+    {
+        PlanTask[] tasks =
+        [
+            Task("SOURCE"), Task("LEFT_PEER"), Task("RIGHT_PEER"),
+            Task("LEFT", "SOURCE", "LEFT_PEER"),
+            Task("RIGHT", "SOURCE", "RIGHT_PEER"),
+        ];
+        PlanApprovalGate[] enabledAllJoins =
+        [
+            new("LEFT-GATE", "Review left", ["SOURCE", "LEFT_PEER"], ["LEFT"], PlanGateStatus.Pending),
+            new("RIGHT-GATE", "Review right", ["SOURCE", "RIGHT_PEER"], ["RIGHT"], PlanGateStatus.Pending),
+        ];
+
+        Assert.That(PlanGateVisualizationPolicy.TaskExitIsCollectivelyCovered(
+            tasks, "SOURCE", enabledAllJoins), Is.True);
+    }
+
+    [Test]
+    public void TaskExitIsNotCollectivelyCovered_WhenAnyExitBypassesEnabledAllJoins()
+    {
+        PlanTask[] tasks =
+        [
+            Task("SOURCE"), Task("PEER"),
+            Task("COVERED", "SOURCE", "PEER"), Task("UNCOVERED", "SOURCE"),
+        ];
+        PlanApprovalGate[] enabledAllJoins =
+        [new("GATE", "Review", ["SOURCE", "PEER"], ["COVERED"], PlanGateStatus.Pending)];
+
+        Assert.That(PlanGateVisualizationPolicy.TaskExitIsCollectivelyCovered(
+            tasks, "SOURCE", enabledAllJoins), Is.False);
+    }
+
+    [Test]
+    public void BoundaryIsCollectivelyCovered_WhenEveryIncomingBranchHasItsOwnGate()
+    {
+        PlanApprovalGate[] taskExitGates =
+        [
+            new("A-GATE", "Review A", ["A"], ["TARGET"], PlanGateStatus.Pending),
+            new("B-GATE", "Review B", ["B"], ["TARGET"], PlanGateStatus.Pending),
+        ];
+
+        Assert.That(PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
+            ["A", "B"], ["TARGET"], taskExitGates), Is.True);
+    }
+
+    [Test]
+    public void BoundaryIsNotCollectivelyCovered_WhenOneIncomingBranchHasNoGate()
+    {
+        PlanApprovalGate[] taskExitGates =
+        [new("A-GATE", "Review A", ["A"], ["TARGET"], PlanGateStatus.Pending)];
+
+        Assert.That(PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
+            ["A", "B"], ["TARGET"], taskExitGates), Is.False);
+    }
 }

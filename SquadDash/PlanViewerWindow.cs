@@ -801,8 +801,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     .OrderByDescending(candidate => candidate.AfterTaskIds.Count + candidate.BeforeTaskIds.Count)
                     .FirstOrDefault()
                 : null;
+            var collectivelyCoveredJoin = existingJoinGate is null && coveringJoinGate is null &&
+                durablePlan is not null &&
+                PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
+                    joinAfterIds, joinBeforeIds, durablePlan.ApprovalGates);
+            var collectiveJoinController = collectivelyCoveredJoin && durablePlan is not null
+                ? durablePlan.ApprovalGates
+                    .Where(candidate => joinAfterIds.Any(id =>
+                        candidate.AfterTaskIds.Contains(id, StringComparer.Ordinal)) &&
+                        joinBeforeIds.Any(id => candidate.BeforeTaskIds.Contains(id, StringComparer.Ordinal)))
+                    .Select(ResolvePresentationAnchor)
+                    .FirstOrDefault(anchor => anchor is not null)
+                : null;
             var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
-                               coveringJoinGate is not null;
+                               coveringJoinGate is not null || collectivelyCoveredJoin;
             var joinAnchor = AllAnchor(joinBeforeIds);
             var joinIsPrimary = existingJoinGate is null || IsPrimary(existingJoinGate, joinAnchor);
             var joinController = coveringJoinGate is null ? null : ResolvePresentationAnchor(coveringJoinGate);
@@ -826,6 +838,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? joinIsLocked
                             ? "Preview: human approval is required at this ALL join."
                             : "Preview: this stop controls approval at the ALL join."
+                        : collectivelyCoveredJoin
+                            ? "This ALL join is covered by every incoming task's approval requirement."
                         : coveringJoinGate is not null
                             ? "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
@@ -837,6 +851,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? null
                         : () =>
                     {
+                        if (collectivelyCoveredJoin)
+                        {
+                            if (collectiveJoinController is not null)
+                                ShowCoveredGuidance(collectiveJoinController, ApprovalLabel(collectiveJoinController));
+                            return;
+                        }
                         if (coveringJoinGate is not null)
                         {
                             if (joinController is not null)
@@ -856,7 +876,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 removeSubsumedTaskGates: true);
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
-                    joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null) ? 0.5 : 1.0);
+                    joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
+                                     collectivelyCoveredJoin) ? 0.5 : 1.0);
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -1117,12 +1138,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
                             .FirstOrDefault()
                         : null;
-                    var beforeEngaged = existingBeforeGate is not null || coveringBeforeGate is not null;
+                    var collectivelyCoveredEntry = existingBeforeGate is null && coveringBeforeGate is null &&
+                        PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
+                            capturedTaskForStop.DependsOn, [capturedTaskForStop.Id],
+                            durablePlan.ApprovalGates);
+                    var collectiveEntryController = collectivelyCoveredEntry
+                        ? durablePlan.ApprovalGates
+                            .Where(candidate => capturedTaskForStop.DependsOn.Any(id =>
+                                candidate.AfterTaskIds.Contains(id, StringComparer.Ordinal)) &&
+                                candidate.BeforeTaskIds.Contains(capturedTaskForStop.Id, StringComparer.Ordinal))
+                            .Select(ResolvePresentationAnchor)
+                            .FirstOrDefault(anchor => anchor is not null)
+                        : null;
+                    var beforeEngaged = existingBeforeGate is not null || coveringBeforeGate is not null ||
+                                        collectivelyCoveredEntry;
                     var beforeIsPrimary = IsPrimary(existingBeforeGate, beforeAnchor);
                     var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var beforeStop = CreateApprovalStop(
                         beforeEngaged,
-                        coveringBeforeGate is not null
+                        collectivelyCoveredEntry
+                            ? "This task entry is covered by every incoming approval requirement."
+                        : coveringBeforeGate is not null
                             ? "This task entry is covered by a larger approval requirement."
                             : beforeEngaged
                             ? beforeIsPrimary
@@ -1131,6 +1167,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             : "Require human approval before this task begins.",
                         () =>
                         {
+                            if (collectivelyCoveredEntry)
+                            {
+                                if (collectiveEntryController is not null)
+                                    ShowCoveredGuidance(collectiveEntryController, ApprovalLabel(collectiveEntryController));
+                                return;
+                            }
                             if (coveringBeforeGate is not null)
                             {
                                 if (beforeController is not null)
@@ -1145,7 +1187,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     $"Review before starting: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                        beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null) ? 0.5 : 1.0);
+                        beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
+                                          collectivelyCoveredEntry) ? 0.5 : 1.0);
                     Canvas.SetLeft(beforeStop, position.X + 6);
                     Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
                     Panel.SetZIndex(beforeStop, 25);
@@ -1158,6 +1201,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
                     var afterAnchor = TaskAfterAnchor(capturedTaskForStop.Id);
                     var afterBoundary = DirectDependents(capturedTaskForStop.Id);
+                    var lockedAllJoinGates = gates
+                        .Select(allGate => FindDurableGate(
+                            allGate.Dependencies,
+                            allGate.Targets.Select(target => target.Id).ToArray()))
+                        .Where(gate => gate is not null)
+                        .Cast<PlanApprovalGate>()
+                        .DistinctBy(gate => gate.GateId)
+                        .ToArray();
                     var coveringAfterGate = existingAfterGate is null
                         ? durablePlan.ApprovalGates
                             .Where(gate => PlanGateVisualizationPolicy.CompletelyCovers(
@@ -1165,12 +1216,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
                             .FirstOrDefault()
                         : null;
-                    var afterEngaged = existingAfterGate is not null || coveringAfterGate is not null;
+                    var collectivelyCoveredByAllJoins = existingAfterGate is null &&
+                        PlanGateVisualizationPolicy.TaskExitIsCollectivelyCovered(
+                            durablePlan.Tasks, capturedTaskForStop.Id, lockedAllJoinGates);
+                    var collectiveController = collectivelyCoveredByAllJoins
+                        ? lockedAllJoinGates
+                            .Select(ResolvePresentationAnchor)
+                            .FirstOrDefault(anchor => anchor is not null)
+                        : null;
+                    var afterEngaged = existingAfterGate is not null || coveringAfterGate is not null ||
+                                       collectivelyCoveredByAllJoins;
                     var afterIsPrimary = IsPrimary(existingAfterGate, afterAnchor);
                     var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
                     var afterStop = CreateApprovalStop(
                         afterEngaged,
-                        coveringAfterGate is not null
+                        collectivelyCoveredByAllJoins
+                            ? "This task exit is covered by its enabled ALL approval requirements."
+                        : coveringAfterGate is not null
                             ? "This task exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
@@ -1179,6 +1241,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             : "Require human approval after this task completes.",
                         () =>
                         {
+                            if (collectivelyCoveredByAllJoins)
+                            {
+                                if (collectiveController is not null)
+                                    ShowCoveredGuidance(collectiveController, ApprovalLabel(collectiveController));
+                                return;
+                            }
                             if (coveringAfterGate is not null)
                             {
                                 if (afterController is not null)
@@ -1193,7 +1261,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     $"Review after completing: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                        afterEngaged && (!afterIsPrimary || coveringAfterGate is not null) ? 0.5 : 1.0);
+                        afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
+                                         collectivelyCoveredByAllJoins) ? 0.5 : 1.0);
                     Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
                     Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
                     Panel.SetZIndex(afterStop, 25);

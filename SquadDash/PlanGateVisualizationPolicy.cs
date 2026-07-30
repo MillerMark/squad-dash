@@ -170,4 +170,37 @@ internal static class PlanGateVisualizationPolicy
         return afterIds.All(id => IsAncestorOrSelfOfAny(id, larger.AfterTaskIds)) &&
                beforeIds.All(id => IsDescendantOrSelfOfAny(id, larger.BeforeTaskIds));
     }
+
+    internal static bool TaskExitIsCollectivelyCovered(
+        IReadOnlyList<PlanTask> tasks,
+        string taskId,
+        IReadOnlyList<PlanApprovalGate> coveringBoundaries)
+    {
+        var directDependents = tasks
+            .Where(task => task.DependsOn.Contains(taskId, StringComparer.Ordinal))
+            .Select(task => task.TaskId)
+            .ToArray();
+        if (directDependents.Length == 0) return false;
+
+        // Several independently selected ALL joins can collectively cover a task's exit.
+        // It is covered only when every actual outgoing edge crosses at least one boundary.
+        return directDependents.All(dependent => coveringBoundaries.Any(boundary =>
+            boundary.AfterTaskIds.Contains(taskId, StringComparer.Ordinal) &&
+            boundary.BeforeTaskIds.Contains(dependent, StringComparer.Ordinal)));
+    }
+
+    internal static bool BoundaryIsCollectivelyCoveredByIncomingGates(
+        IReadOnlyList<string> afterIds,
+        IReadOnlyList<string> beforeIds,
+        IReadOnlyList<PlanApprovalGate> coveringBoundaries)
+    {
+        if (afterIds.Count == 0 || beforeIds.Count == 0) return false;
+
+        // Each incoming branch must independently cross an approval boundary before it
+        // reaches every target represented by this convergence boundary.
+        return afterIds.All(afterId => beforeIds.All(beforeId =>
+            coveringBoundaries.Any(boundary =>
+                boundary.AfterTaskIds.Contains(afterId, StringComparer.Ordinal) &&
+                boundary.BeforeTaskIds.Contains(beforeId, StringComparer.Ordinal))));
+    }
 }
