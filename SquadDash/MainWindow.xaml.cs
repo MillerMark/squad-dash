@@ -8509,6 +8509,23 @@ public partial class MainWindow : Window
                 livePlan = candidate;
         }
 
+        // Enable gate editing for pending inbox plans that have not yet started executing.
+        // Synthesise a staged Plan so the viewer receives a non-null durablePlan and enables
+        // its approval-stop controls.
+        var isPendingPlanEdit = false;
+        if (durablePlan is null && livePlan is not null && !isInteractiveVisualizationFixture)
+        {
+            durablePlan = PendingDecomposePlanAdapter.ToPlan(livePlan, livePlan.CreatedAt ?? DateTimeOffset.UtcNow);
+            isPendingPlanEdit = true;
+        }
+
+        // Mutable reference so that gate edits keep the execution-action closure in sync
+        // with the latest persisted revision.
+        var latestLivePlan = livePlan;
+        var latestInboxMessageId = livePlan is not null
+            ? DecomposePlanInbox.BuildMessageId(livePlan)
+            : (string?)null;
+
         var displayedPlan = durablePlan is not null
             ? PendingDecomposePlanAdapter.FromPlan(durablePlan)
             : livePlan ?? plan;
@@ -8520,20 +8537,37 @@ public partial class MainWindow : Window
         PlanViewerWindow? win = null;
         Action<Plan>? onGatesChanged = durablePlan is not null &&
                                        !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
-            ? isInteractiveVisualizationFixture
+            ? isPendingPlanEdit
                 ? gatedPlan =>
                   {
-                      // Intentionally refresh only this window. The sandbox never touches
-                      // PlanStore, tasks.md, Inbox content, or execution state.
+                      // Persist gate edits to the pending plan store, recompute revision,
+                      // and atomically replace the host-owned inbox message.
+                      var pendingStore = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
+                      var branchNow = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
+                      var result = PendingPlanGateEditor.Apply(
+                          gatedPlan, latestInboxMessageId, pendingStore, _inboxStore, branchNow);
+                      latestLivePlan = result.UpdatedPlan;
+                      latestInboxMessageId = result.NewInboxMessageId ?? latestInboxMessageId;
+                      win?.RefreshPlan(
+                          PendingDecomposePlanAdapter.FromPlan(result.SyntheticDurablePlan),
+                          result.SyntheticDurablePlan);
+                      if (_inboxStore is not null)
+                          _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                  }
+                : isInteractiveVisualizationFixture
+                    ? gatedPlan =>
+                      {
+                          // Intentionally refresh only this window. The sandbox never touches
+                          // PlanStore, tasks.md, Inbox content, or execution state.
+                          win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
+                      }
+                    : gatedPlan =>
+                  {
+                      PublishPlanProgress(gatedPlan);
+                      // Refresh the existing viewer in place so its handlers capture the newly saved
+                      // immutable Plan without closing, flashing, or losing the window placement.
                       win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
                   }
-                : gatedPlan =>
-              {
-                  PublishPlanProgress(gatedPlan);
-                  // Refresh the existing viewer in place so its handlers capture the newly saved
-                  // immutable Plan without closing, flashing, or losing the window placement.
-                  win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
-              }
             : null;
         Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? p => _ = StartDecomposeLoopAsync(p.PlanId)
@@ -8568,7 +8602,9 @@ public partial class MainWindow : Window
             {
                 if (_isPromptRunning)
                     throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
-                return await ApplyDecomposeDecisionAsync(displayedPlan, action.Action, action.Branch);
+                // Use the latest live plan so execution seals the most recent gate revision,
+                // not the revision that was displayed when the viewer was first opened.
+                return await ApplyDecomposeDecisionAsync(latestLivePlan ?? displayedPlan, action.Action, action.Branch);
             }
             catch (PlanPreflightBlockedException)
             {
@@ -10050,10 +10086,10 @@ public partial class MainWindow : Window
         {
             var live = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
                 .Load(attachment.PlanGroupId);
-            if (live is not null && string.Equals(live.Revision, attachment.PlanRevision, StringComparison.Ordinal))
-            {
+            // Prefer the live plan when it exists — gate edits may have advanced the
+            // revision beyond the snapshot embedded in the inbox attachment.
+            if (live is not null)
                 plan = live;
-            }
         }
         if (plan is null)
             DecomposePlanInbox.TryReadSnapshot(attachment, out plan);
