@@ -12,8 +12,6 @@ namespace SquadDash;
 
 internal sealed class PlanViewerWindow : ChromedWindow
 {
-    private enum ApprovalLineCombineMode { Or, And }
-
     private const double NodeWidth = 220;
     private const double NodeHeight = 100;
     private const double ColumnSpacing = 360;
@@ -28,7 +26,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onApproveGate;
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
-    private ApprovalLineCombineMode _approvalLineCombineMode = ApprovalLineCombineMode.Or;
 
     internal PlanViewerWindow(
         PendingDecomposePlan plan,
@@ -76,48 +73,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
-
-        var combinePanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 8),
-        };
-        var combineLabel = new TextBlock
-        {
-            Text = "Combine approval lines:",
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 10, 0),
-        };
-        combineLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        combineLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        combinePanel.Children.Add(combineLabel);
-
-        RadioButton AddCombineOption(string text, ApprovalLineCombineMode mode)
-        {
-            var option = new RadioButton
-            {
-                Content = text,
-                GroupName = "ApprovalLineCombineMode",
-                IsChecked = _approvalLineCombineMode == mode,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 14, 0),
-                Focusable = false,
-            };
-            option.SetResourceReference(Control.ForegroundProperty, "LabelText");
-            option.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
-            option.Checked += (_, _) =>
-            {
-                if (_approvalLineCombineMode == mode) return;
-                _approvalLineCombineMode = mode;
-                RebuildPreservingScroll(plan, durablePlan);
-            };
-            combinePanel.Children.Add(option);
-            return option;
-        }
-
-        AddCombineOption("OR — any incoming approval line", ApprovalLineCombineMode.Or);
-        AddCombineOption("AND — every incoming approval line", ApprovalLineCombineMode.And);
-        header.Children.Add(combinePanel);
 
         if (applyAction is not null)
         {
@@ -654,8 +609,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var dashedTaskEdges = PlanGateVisualizationPolicy.DashedEdges(
             visualizationTasks,
             visualizationGates,
-            requireEveryIncomingAtConvergence:
-                _approvalLineCombineMode == ApprovalLineCombineMode.And);
+            requireEveryIncomingAtConvergence: true);
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
@@ -756,9 +710,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var incomingStates = dependencies
                     .Select(dependency => dashedTaskEdges.Contains((dependency, target.Id)))
                     .ToArray();
-                var combinedDashed = _approvalLineCombineMode == ApprovalLineCombineMode.And
-                    ? incomingStates.All(value => value)
-                    : incomingStates.Any(value => value);
+                var combinedDashed = incomingStates.All(value => value);
                 var cg = AddConnector(canvas,
                     fromPt, toPt,
                     arrowHead: true,
@@ -810,14 +762,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 durablePlan is not null &&
                 PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
                     joinAfterIds, joinBeforeIds, durablePlan.ApprovalGates);
-            var collectiveJoinController = collectivelyCoveredJoin && durablePlan is not null
-                ? durablePlan.ApprovalGates
-                    .Where(candidate => joinAfterIds.Any(id =>
-                        candidate.AfterTaskIds.Contains(id, StringComparer.Ordinal)) &&
-                        joinBeforeIds.Any(id => candidate.BeforeTaskIds.Contains(id, StringComparer.Ordinal)))
-                    .Select(ResolvePresentationAnchor)
-                    .FirstOrDefault(anchor => anchor is not null)
-                : null;
             var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
                                coveringJoinGate is not null || collectivelyCoveredJoin;
             var joinAnchor = AllAnchor(joinBeforeIds);
@@ -844,7 +788,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "Preview: human approval is required at this ALL join."
                             : "Preview: this stop controls approval at the ALL join."
                         : collectivelyCoveredJoin
-                            ? "This ALL join is covered by every incoming task's approval requirement."
+                            ? "Every incoming path is approved separately. Click to consolidate them into this ALL approval requirement."
                         : coveringJoinGate is not null
                             ? "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
@@ -856,12 +800,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? null
                         : () =>
                     {
-                        if (collectivelyCoveredJoin)
-                        {
-                            if (collectiveJoinController is not null)
-                                ShowCoveredGuidance(collectiveJoinController, ApprovalLabel(collectiveJoinController));
-                            return;
-                        }
                         if (coveringJoinGate is not null)
                         {
                             if (joinController is not null)
