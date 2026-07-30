@@ -12,10 +12,16 @@ namespace SquadDash;
 
 internal sealed class PlanViewerWindow : ChromedWindow
 {
-    private const double NodeWidth = 220;
-    private const double NodeHeight = 100;
-    private const double ColumnSpacing = 360;
-    private const double RowSpacing = 152;
+    private const double BaseNodeWidth = 220;
+    private const double BaseNodeHeight = 100;
+    private const double BaseColumnSpacing = 360;
+    private const double BaseRowSpacing = 152;
+
+    private readonly double _scaleFactor;
+    private readonly double NodeWidth;
+    private readonly double NodeHeight;
+    private readonly double ColumnSpacing;
+    private readonly double RowSpacing;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -39,6 +45,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onApproveGate = null)
         : base(captionHeight: CloseButtonHeight)
     {
+        const double baseFontSize = 12.0;
+        var currentFontSize = Application.Current?.Resources["FontSizeBody"] is double fs ? fs : baseFontSize;
+        _scaleFactor = currentFontSize / baseFontSize;
+
+        NodeWidth      = BaseNodeWidth * _scaleFactor;
+        NodeHeight     = BaseNodeHeight * _scaleFactor;
+        ColumnSpacing  = BaseColumnSpacing * _scaleFactor;
+        RowSpacing     = BaseRowSpacing * _scaleFactor;
+
         _activeBranch       = activeBranch;
         _quickReplyFontSize = quickReplyFontSize;
         _applyAction        = applyAction;
@@ -400,7 +415,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var column in columns)
         {
             var tasks = column.ToArray();
-            var x = 42 + column.Key * ColumnSpacing;
+            var x = 42 * _scaleFactor + column.Key * ColumnSpacing;
 
             var mainTitle    = $"Stage {column.Key + 1}";
 
@@ -419,7 +434,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(headerElement);
 
             for (var row = 0; row < tasks.Length; row++)
-                positions[tasks[row].Id] = new Point(x, 68 + row * RowSpacing);
+                positions[tasks[row].Id] = new Point(x, 68 * _scaleFactor + row * RowSpacing);
         }
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
@@ -509,14 +524,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (isLocked) lockedMilestoneBoundaryXs.Add(boundaryX);
             var milestoneBand = new Border
             {
-                Width        = 24,
+                Width        = 24 * _scaleFactor,
                 Height       = Math.Max(1, globalBandBottom - globalBandTop),
                 CornerRadius = new CornerRadius(4),
                 Opacity      = isLocked ? 0.90 : 0.56,
                 ToolTip      = "Stage milestone boundary",
             };
             milestoneBand.SetResourceReference(Border.BackgroundProperty, "ActivePanelBorder");
-            Canvas.SetLeft(milestoneBand, boundaryX - 12);
+            Canvas.SetLeft(milestoneBand, boundaryX - 12 * _scaleFactor);
             Canvas.SetTop(milestoneBand, globalBandTop);
             Panel.SetZIndex(milestoneBand, -2);
             canvas.Children.Add(milestoneBand);
@@ -823,17 +838,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var badge = new Border
             {
-                Width           = 58,
-                Height          = 34,
-                CornerRadius    = new CornerRadius(17),
+                Width           = 58 * _scaleFactor,
+                Height          = 34 * _scaleFactor,
+                CornerRadius    = new CornerRadius(17 * _scaleFactor),
                 BorderThickness = new Thickness(1.5),
                 ToolTip         = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
                 Child           = badgeContent,
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            Canvas.SetLeft(badge, gate.Center.X - 29);
-            Canvas.SetTop(badge, gate.Center.Y - 17);
+            Canvas.SetLeft(badge, gate.Center.X - 29 * _scaleFactor);
+            Canvas.SetTop(badge, gate.Center.Y - 17 * _scaleFactor);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
 
@@ -1575,15 +1590,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    private static FrameworkElement CreateApprovalStop(
+    private FrameworkElement CreateApprovalStop(
         bool engaged, string toolTip, Action? toggle, double engagedOpacity = 1.0)
     {
+        var s = _scaleFactor;
         var stop = new Polygon
         {
             Points =
             [
-                new Point(5, 1), new Point(11, 1), new Point(15, 5), new Point(15, 11),
-                new Point(11, 15), new Point(5, 15), new Point(1, 11), new Point(1, 5),
+                new Point(5 * s, 1 * s), new Point(11 * s, 1 * s), new Point(15 * s, 5 * s), new Point(15 * s, 11 * s),
+                new Point(11 * s, 15 * s), new Point(5 * s, 15 * s), new Point(1 * s, 11 * s), new Point(1 * s, 5 * s),
             ],
             StrokeThickness = 1.6,
             Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
@@ -1594,8 +1610,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hitTarget = new Grid
         {
-            Width = 16,
-            Height = 16,
+            Width = 16 * s,
+            Height = 16 * s,
             Background = Brushes.Transparent,
             Cursor = toggle is null ? Cursors.Arrow : Cursors.Hand,
             ToolTip = ToolTipHelper.MakeThemedToolTip(toolTip),
