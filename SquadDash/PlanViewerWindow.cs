@@ -449,7 +449,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             UIElement headerElement = titleBlock;
 
             Canvas.SetLeft(headerElement, x);
-            Canvas.SetTop(headerElement, 10);
+            Canvas.SetTop(headerElement, (68 - 36) * _scaleFactor);
             canvas.Children.Add(headerElement);
 
             for (var row = 0; row < tasks.Length; row++)
@@ -495,9 +495,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var lockedMilestoneBoundaryXs = new List<double>();
         var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
 
-        // Compute a uniform band height from the tallest stage (most tasks), with 10px padding.
-        var globalBandTop = columns.SelectMany(col => col).Min(task => positions[task.Id].Y) - 10;
-        var globalBandBottom = columns.SelectMany(col => col).Max(task => positions[task.Id].Y + NodeHeight) + 10;
+        // Compute a uniform band height from the tallest stage (most tasks), extending by the
+        // octagon control height above and below so the band visually connects to the stop.
+        var octagonSize = 16 * _scaleFactor;
+        var globalBandTop = columns.SelectMany(col => col).Min(task => positions[task.Id].Y) - octagonSize;
+        var globalBandBottom = columns.SelectMany(col => col).Max(task => positions[task.Id].Y + NodeHeight) + octagonSize;
 
         for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
         {
@@ -585,7 +587,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 },
                 isLocked && !milestoneIsPrimary ? 0.5 : 1.0);
             Canvas.SetLeft(milestoneStop, boundaryX - 8 * _scaleFactor);
-            Canvas.SetTop(milestoneStop, 10);
+            Canvas.SetTop(milestoneStop, globalBandTop - octagonSize);
             Panel.SetZIndex(milestoneStop, 25);
             canvas.Children.Add(milestoneStop);
             approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
