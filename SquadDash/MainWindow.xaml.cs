@@ -8288,6 +8288,10 @@ public partial class MainWindow : Window
     private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
     {
         var groupId = plan.Group.GroupId;
+        var isInteractiveVisualizationFixture = groupId is
+            "VIZLINEAR-20260729" or
+            "VIZDIAMOND-20260729" or
+            "VIZPARALLEL-20260729";
 
         // If a viewer for this plan is already open, bring it to the front instead of opening another.
         var existing = _openPlanViewerWindows.FirstOrDefault(e =>
@@ -8316,6 +8320,18 @@ public partial class MainWindow : Window
             durablePlan = null;
         }
 
+        // The three visualization fixtures are an explicit, non-persistent approval-gate
+        // playground. Give the viewer a durable-shaped in-memory model so every stop control is
+        // interactive, but never publish it to PlanStore/tasks.md or expose execution actions.
+        if (durablePlan is null && isInteractiveVisualizationFixture)
+        {
+            durablePlan = PendingDecomposePlanAdapter.ToPlan(plan, plan.CreatedAt ?? DateTimeOffset.UtcNow) with
+            {
+                Summary = "INTERACTIVE PREVIEW — approval-stop changes are temporary and reset when this window closes. " +
+                          plan.Group.Summary,
+            };
+        }
+
         PendingDecomposePlan? livePlan = null;
         if (_currentWorkspace is not null)
         {
@@ -8337,7 +8353,14 @@ public partial class MainWindow : Window
         PlanViewerWindow? win = null;
         Action<Plan>? onGatesChanged = durablePlan is not null &&
                                        !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
-            ? gatedPlan =>
+            ? isInteractiveVisualizationFixture
+                ? gatedPlan =>
+                  {
+                      // Intentionally refresh only this window. The sandbox never touches
+                      // PlanStore, tasks.md, Inbox content, or execution state.
+                      win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
+                  }
+                : gatedPlan =>
               {
                   PublishPlanProgress(gatedPlan);
                   // Refresh the existing viewer in place so its handlers capture the newly saved
