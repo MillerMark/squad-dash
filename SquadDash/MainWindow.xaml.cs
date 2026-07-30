@@ -9174,45 +9174,123 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Appends a system transcript entry explaining the gate and a host-owned
-    /// "Approve &amp; Continue Plan" button.
+    /// Appends a rich transcript approval card explaining the gate and a host-owned
+    /// "Approve Checkpoint &amp; Continue" button.
     /// Must be called on the UI thread.
     /// </summary>
     private void AppendGateApprovalActions(Plan plan, PlanApprovalGate gate)
     {
-        ShowSystemTranscriptEntry(
-            $"⏸ Plan {plan.PlanId} is paused at a human approval gate.\n" +
-            $"{gate.Message}\n\n" +
-            $"Approve to continue executing the remaining tasks.");
+        // Build a lightweight snapshot from plan data available synchronously.
+        var snapshot = BuildLightweightApprovalSnapshot(plan, gate);
 
-        var panel = new System.Windows.Controls.WrapPanel
-        {
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
-        };
-        var button = TranscriptQuickReplyFactory.CreateButton(
-            "Approve & Continue Plan",
+        var cardResult = TranscriptApprovalCardBuilder.Build(
+            snapshot,
+            plan,
+            gate,
             _transcriptFontSize,
-            toolTip: ToolTipHelper.MakeThemedToolTip(
-                $"Approve gate '{gate.GateId}' and resume executing plan {plan.PlanId}."));
-        button.Click += (_, _) =>
-        {
-            panel.Visibility = System.Windows.Visibility.Collapsed;
-            ApproveGateAndResume(plan, gate);
-        };
-        panel.Children.Add(button);
+            onApprove: note => ApproveGateAndResume(plan, gate, note));
 
         var blocks = CoordinatorThread.Document.Blocks;
-        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
-            panel,
-            new PlanGateApprovalTag(plan.PlanId, gate.GateId)));
+        blocks.Add(cardResult.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
+
+        // Also trigger the one-time Ultimate Callout for approval when MainWindow itself is the target
+        TryShowApprovalCallout(plan, gate);
+    }
+
+    /// <summary>
+    /// Builds a lightweight <see cref="ApprovalReviewSnapshot"/> from in-memory plan data
+    /// without requiring async git operations. Used for immediate transcript card rendering.
+    /// </summary>
+    private static ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(Plan plan, PlanApprovalGate gate)
+    {
+        var afterSet = gate.AfterTaskIds.ToHashSet(StringComparer.Ordinal);
+        var beforeSet = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+
+        var completedTasks = plan.Tasks
+            .Where(t => afterSet.Contains(t.TaskId) &&
+                        t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)
+            .Select(t =>
+            {
+                var commits = new List<ReviewCommitEntry>();
+                if (!string.IsNullOrEmpty(t.Commit))
+                {
+                    var sha = t.Commit!;
+                    var shortSha = sha.Length >= 7 ? sha[..7] : sha;
+                    commits.Add(new ReviewCommitEntry(
+                        new CommitLink(shortSha, sha, t.CompletionSummary ?? t.Title ?? t.TaskId),
+                        VerificationPassed: null,
+                        ChangedFiles: []));
+                }
+                return new ReviewTaskEntry(t.TaskId, t.Title ?? t.TaskId, t.CompletionSummary, commits);
+            })
+            .ToList();
+
+        var downstreamTasks = plan.Tasks
+            .Where(t => beforeSet.Contains(t.TaskId) &&
+                        t.Status is PlanTaskStatus.Pending or PlanTaskStatus.Executing)
+            .Select(t => new DownstreamTaskEntry(t.TaskId, t.Title ?? t.TaskId, t.Status))
+            .ToList();
+
+        return new ApprovalReviewSnapshot(
+            PlanId: plan.PlanId,
+            PlanTitle: plan.Title,
+            CompletedTaskCount: plan.Progress.CompletedCount,
+            TotalTaskCount: plan.Progress.TotalCount,
+            CurrentStage: null,
+            GateId: gate.GateId,
+            GateReason: gate.Message,
+            AfterTaskIds: gate.AfterTaskIds,
+            BeforeTaskIds: gate.BeforeTaskIds,
+            CompletedTasks: completedTasks,
+            DownstreamTasks: downstreamTasks,
+            AllChangedFiles: [],
+            IndependentWork: [],
+            BuiltAt: DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Shows a one-time Ultimate Callout beside the main window for approval attention.
+    /// </summary>
+    private void TryShowApprovalCallout(Plan plan, PlanApprovalGate gate)
+    {
+        try
+        {
+            var calloutText = $"🔒 **Approval Required**\n\n" +
+                $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks\n\n" +
+                $"{gate.Message}";
+            FrmUltimateCallout.ShowCalloutBesideTarget(calloutText, this, width: 380, fontSize: 12);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Approval", $"Callout display failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Notifies open inbox windows for an approval message that an update is starting,
+    /// then replaces their content once the updated message is ready.
+    /// </summary>
+    private void RefreshOpenApprovalInboxWindows(string messageId, InboxMessage updatedMessage)
+    {
+        foreach (var win in _openInboxWindows.Where(w => w.MessageId == messageId).ToArray())
+        {
+            try
+            {
+                win.CompleteApprovalUpdate(updatedMessage, DispatchInboxAction);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Approval", $"Inbox window refresh failed: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Marks the gate approved and resumes the executing plan loop.</summary>
-    private void ApproveGateAndResume(Plan plan, PlanApprovalGate gate)
+    private void ApproveGateAndResume(Plan plan, PlanApprovalGate gate, string? note = null)
     {
         _activePlanAwaitingGateApproval = null;
-        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, note: null);
+        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, note);
         PublishPlanProgress(approved);
         _ = StartDecomposeLoopAsync(plan.PlanId);
     }

@@ -57,7 +57,7 @@ internal static class TranscriptQuickReplyFactory
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
         container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or
-            PlanGateApprovalTag or PlanPreflightRecoveryTag or ContainerMarker;
+            PlanGateApprovalTag or PlanPreflightRecoveryTag or TranscriptApprovalCardTag or ContainerMarker;
 
     internal static void RemovePendingDecomposeApprovalContainers(
         BlockCollection blocks,

@@ -908,4 +908,92 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         return new TextRange(matchStart, matchEnd);
     }
+
+    // ── Approval update flow ─────────────────────────────────────────────────
+
+    private Border? _approvalUpdatingOverlay;
+
+    /// <summary>
+    /// Shows a compact spinner overlay and disables all action buttons.
+    /// Call when the host begins updating the approval message content.
+    /// </summary>
+    internal void BeginApprovalUpdate()
+    {
+        foreach (var child in _actionsPanel.Children)
+        {
+            if (child is Button btn)
+                btn.IsEnabled = false;
+        }
+
+        if (_approvalUpdatingOverlay is null)
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 6, 8, 6),
+            };
+            var spinner = new TextBlock
+            {
+                Text = "⟳",
+                FontSize = _bodyFontSize + 2,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            spinner.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            panel.Children.Add(spinner);
+            var label = new TextBlock
+            {
+                Text = "Updating approval request…",
+                FontSize = _bodyFontSize,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            panel.Children.Add(label);
+
+            _approvalUpdatingOverlay = new Border
+            {
+                Child = panel,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(12, 4, 12, 4),
+            };
+            _approvalUpdatingOverlay.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        }
+
+        _approvalUpdatingOverlay.Visibility = Visibility.Visible;
+        if (!((Grid)Content).Children.Contains(_approvalUpdatingOverlay))
+        {
+            // Insert the overlay before the body row
+            Grid.SetRow(_approvalUpdatingOverlay, 2);
+            ((Grid)((Border)Content).Child).Children.Add(_approvalUpdatingOverlay);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the body content and action buttons after an atomic update.
+    /// Hides the spinner overlay and re-enables actions.
+    /// </summary>
+    internal void CompleteApprovalUpdate(
+        InboxMessage updatedMessage,
+        Action<InboxAction, InboxMessage> onActionClicked)
+    {
+        // Replace body document
+        var doc = MarkdownFlowDocumentBuilder.Build(updatedMessage.Body ?? string.Empty, _bodyFontSize);
+        _bodyViewer.Document = doc;
+
+        // Replace action buttons
+        _actionsPanel.Children.Clear();
+        foreach (var action in updatedMessage.Actions)
+            _actionsPanel.Children.Add(BuildActionButton(action, updatedMessage, onActionClicked));
+        _actionsPanel.Visibility = updatedMessage.Actions is { Count: > 0 }
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        // Hide overlay
+        if (_approvalUpdatingOverlay is not null)
+            _approvalUpdatingOverlay.Visibility = Visibility.Collapsed;
+
+        Title = updatedMessage.Subject;
+    }
 }
