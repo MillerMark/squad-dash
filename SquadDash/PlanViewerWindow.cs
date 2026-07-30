@@ -454,6 +454,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // next stage also blocks its downstream stages through the dependency graph.
         var lockedMilestoneBoundaryXs = new List<double>();
         var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
+
+        // Compute a uniform band height from the tallest stage (most tasks), with 10px padding.
+        var globalBandTop = columns.SelectMany(col => col).Min(task => positions[task.Id].Y) - 10;
+        var globalBandBottom = columns.SelectMany(col => col).Max(task => positions[task.Id].Y + NodeHeight) + 10;
+
         for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
         {
             var leftColumn = columns[columnIndex];
@@ -496,19 +501,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var nextX = positions[columns[columnIndex + 1].First().Id].X;
             var boundaryX = (leftX + NodeWidth + nextX) / 2.0;
             if (isLocked) lockedMilestoneBoundaryXs.Add(boundaryX);
-            var bandTop = leftTasks.Min(task => positions[task.Id].Y);
-            var bandBottom = leftTasks.Max(task => positions[task.Id].Y + NodeHeight);
             var milestoneBand = new Border
             {
-                Width        = 30,
-                Height       = Math.Max(1, bandBottom - bandTop),
-                CornerRadius = new CornerRadius(15),
-                Opacity      = isLocked ? 0.45 : 0.28,
+                Width        = 24,
+                Height       = Math.Max(1, globalBandBottom - globalBandTop),
+                CornerRadius = new CornerRadius(4),
+                Opacity      = isLocked ? 0.90 : 0.56,
                 ToolTip      = "Stage milestone boundary",
             };
             milestoneBand.SetResourceReference(Border.BackgroundProperty, "ActivePanelBorder");
-            Canvas.SetLeft(milestoneBand, boundaryX - 15);
-            Canvas.SetTop(milestoneBand, bandTop);
+            Canvas.SetLeft(milestoneBand, boundaryX - 12);
+            Canvas.SetTop(milestoneBand, globalBandTop);
             Panel.SetZIndex(milestoneBand, -2);
             canvas.Children.Add(milestoneBand);
 
