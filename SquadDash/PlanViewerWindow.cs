@@ -1161,10 +1161,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             StrokeLineJoin = PenLineJoin.Round,
             Stretch = Stretch.None,
         };
-        if (engaged)
-            stop.Stroke = new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B));
-        else
-            stop.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+        stop.SetResourceReference(Shape.StrokeProperty, "LineColor");
 
         var hitTarget = new Grid
         {
