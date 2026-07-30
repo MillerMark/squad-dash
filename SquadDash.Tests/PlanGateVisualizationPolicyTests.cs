@@ -116,4 +116,48 @@ internal sealed class PlanGateVisualizationPolicyTests
             ["A"], ["B", "C"],
             ["A"], ["B", "C", "FINAL"]), Is.True);
     }
+
+    [Test]
+    public void DashedEdges_OrPropagatesWhenAnyIncomingPathIsDashed()
+    {
+        PlanTask[] tasks =
+        [
+            Task("A"), Task("B"), Task("X", "A"),
+            Task("JOIN", "X", "B"), Task("NEXT", "JOIN"),
+        ];
+        PlanApprovalGate[] gates =
+        [new("G", "Review", ["A"], ["X"], PlanGateStatus.Pending)];
+
+        var result = PlanGateVisualizationPolicy.DashedEdges(
+            tasks, gates, requireEveryIncomingAtConvergence: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain(("X", "JOIN")));
+            Assert.That(result, Does.Not.Contain(("B", "JOIN")));
+            Assert.That(result, Does.Contain(("JOIN", "NEXT")));
+        });
+    }
+
+    [Test]
+    public void DashedEdges_AndStopsWhenOnlySomeIncomingPathsAreDashed()
+    {
+        PlanTask[] tasks =
+        [
+            Task("A"), Task("B"), Task("X", "A"),
+            Task("JOIN", "X", "B"), Task("NEXT", "JOIN"),
+        ];
+        PlanApprovalGate[] gates =
+        [new("G", "Review", ["A"], ["X"], PlanGateStatus.Pending)];
+
+        var result = PlanGateVisualizationPolicy.DashedEdges(
+            tasks, gates, requireEveryIncomingAtConvergence: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain(("X", "JOIN")));
+            Assert.That(result, Does.Not.Contain(("B", "JOIN")));
+            Assert.That(result, Does.Not.Contain(("JOIN", "NEXT")));
+        });
+    }
 }

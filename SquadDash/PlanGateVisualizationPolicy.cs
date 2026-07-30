@@ -59,6 +59,72 @@ internal static class PlanGateVisualizationPolicy
         return downstream;
     }
 
+    internal static HashSet<(string From, string To)> DashedEdges(
+        IReadOnlyList<PlanTask> tasks,
+        IReadOnlyList<PlanApprovalGate> gates,
+        bool requireEveryIncomingAtConvergence)
+    {
+        var edges = tasks.SelectMany(task => task.DependsOn.Select(dependency =>
+            (From: dependency, To: task.TaskId))).ToArray();
+        var dashed = new HashSet<(string From, string To)>();
+
+        // Seed the actual graph cut for every approval gate. A target beyond the gate is
+        // downstream; an edge entering that territory is the first dashed segment.
+        foreach (var gate in gates)
+        {
+            var downstream = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var task in tasks)
+                    if (!downstream.Contains(task.TaskId) && task.DependsOn.Any(downstream.Contains))
+                        changed |= downstream.Add(task.TaskId);
+            }
+            foreach (var edge in edges)
+                if (gate.AfterTaskIds.Contains(edge.From, StringComparer.Ordinal) &&
+                    downstream.Contains(edge.To))
+                    dashed.Add(edge);
+        }
+
+        var byLevel = TopologicalLevels(tasks);
+        foreach (var task in tasks.OrderBy(task => byLevel.GetValueOrDefault(task.TaskId)))
+        {
+            if (task.DependsOn.Count == 0) continue;
+            var incoming = task.DependsOn.Select(dependency =>
+                dashed.Contains((dependency, task.TaskId))).ToArray();
+            var propagate = requireEveryIncomingAtConvergence
+                ? incoming.All(value => value)
+                : incoming.Any(value => value);
+            if (!propagate) continue;
+            foreach (var edge in edges.Where(edge => edge.From == task.TaskId)) dashed.Add(edge);
+        }
+        return dashed;
+    }
+
+    private static Dictionary<string, int> TopologicalLevels(IReadOnlyList<PlanTask> tasks)
+    {
+        var levels = new Dictionary<string, int>(StringComparer.Ordinal);
+        var unresolved = tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        while (unresolved.Count > 0)
+        {
+            var progressed = false;
+            foreach (var task in unresolved.Values.ToArray())
+            {
+                if (task.DependsOn.Any(id => unresolved.ContainsKey(id))) continue;
+                levels[task.TaskId] = task.DependsOn.Count == 0
+                    ? 0
+                    : task.DependsOn.Select(id => levels.GetValueOrDefault(id)).Max() + 1;
+                unresolved.Remove(task.TaskId);
+                progressed = true;
+            }
+            if (progressed) continue;
+            foreach (var task in unresolved.Values) levels[task.TaskId] = 0;
+            break;
+        }
+        return levels;
+    }
+
     internal static bool CompletelyCovers(
         IReadOnlyList<PlanTask> tasks,
         PlanApprovalGate larger,

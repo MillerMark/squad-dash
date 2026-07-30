@@ -12,6 +12,8 @@ namespace SquadDash;
 
 internal sealed class PlanViewerWindow : ChromedWindow
 {
+    private enum ApprovalLineCombineMode { Or, And }
+
     private const double NodeWidth = 220;
     private const double NodeHeight = 100;
     private const double ColumnSpacing = 360;
@@ -26,6 +28,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onApproveGate;
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
+    private ApprovalLineCombineMode _approvalLineCombineMode = ApprovalLineCombineMode.Or;
 
     internal PlanViewerWindow(
         PendingDecomposePlan plan,
@@ -73,6 +76,47 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
+
+        var combinePanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        var combineLabel = new TextBlock
+        {
+            Text = "Combine approval lines:",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 10, 0),
+        };
+        combineLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        combineLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        combinePanel.Children.Add(combineLabel);
+
+        RadioButton AddCombineOption(string text, ApprovalLineCombineMode mode)
+        {
+            var option = new RadioButton
+            {
+                Content = text,
+                GroupName = "ApprovalLineCombineMode",
+                IsChecked = _approvalLineCombineMode == mode,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 14, 0),
+            };
+            option.SetResourceReference(Control.ForegroundProperty, "LabelText");
+            option.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+            option.Checked += (_, _) =>
+            {
+                if (_approvalLineCombineMode == mode) return;
+                _approvalLineCombineMode = mode;
+                RebuildPreservingScroll(plan, durablePlan);
+            };
+            combinePanel.Children.Add(option);
+            return option;
+        }
+
+        AddCombineOption("OR — any incoming approval line", ApprovalLineCombineMode.Or);
+        AddCombineOption("AND — every incoming approval line", ApprovalLineCombineMode.And);
+        header.Children.Add(combinePanel);
 
         if (applyAction is not null)
         {
@@ -574,16 +618,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [],
                 allGate.Dependencies, allGate.Targets.Select(task => task.Id).ToArray()));
 
-        bool IsTaskBoundary(DecomposedGate gate) => gate.AfterTaskIds?.Count == 1 &&
-            SameBoundary(
-                gate.AfterTaskIds ?? [],
-                gate.BeforeTaskIds ?? [],
-                gate.AfterTaskIds ?? [],
-                group.Tasks
-                    .Where(task => task.DependsOn.Contains(gate.AfterTaskIds![0], StringComparer.Ordinal))
-                    .Select(task => task.Id)
-                    .ToArray());
-
         string? ResolvePresentationAnchor(PlanApprovalGate gate)
         {
             if (!string.IsNullOrWhiteSpace(gate.PresentationAnchor)) return gate.PresentationAnchor;
@@ -605,60 +639,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return null;
         }
 
-        // Pass 2: collect task-scoped and legacy approval edges. Stage and ALL-join boundaries
-        // have dedicated visuals and must not produce an all-to-all dashed connector mesh.
-        var lockedAfterTaskIds = new HashSet<string>(StringComparer.Ordinal);
-        var approvalDirectPairs = new HashSet<(string AfterId, string BeforeId)>();
-        if (group.ApprovalGates is { Count: > 0 })
-        {
-            foreach (var approvalGate in group.ApprovalGates)
-            {
-                if (IsStageBoundary(approvalGate) || IsAllJoinBoundary(approvalGate))
-                    continue;
-                var taskBoundary = IsTaskBoundary(approvalGate);
-                foreach (var afterId in approvalGate.AfterTaskIds ?? [])
-                {
-                    if (taskBoundary) lockedAfterTaskIds.Add(afterId);
-                    foreach (var beforeId in approvalGate.BeforeTaskIds ?? [])
-                        approvalDirectPairs.Add((afterId, beforeId));
-                }
-            }
-        }
-        if (durablePlan is not null)
-        {
-            foreach (var approvalGate in durablePlan.ApprovalGates)
-            {
-                if (approvalGate.AfterTaskIds.Count == 1)
-                {
-                    var afterId = approvalGate.AfterTaskIds[0];
-                    var directDependents = DirectDependents(afterId);
-                    if (SameBoundary(approvalGate.AfterTaskIds, approvalGate.BeforeTaskIds,
-                            [afterId], directDependents))
-                        lockedAfterTaskIds.Add(afterId);
-                }
-                foreach (var afterId in approvalGate.AfterTaskIds)
-                    foreach (var beforeId in approvalGate.BeforeTaskIds)
-                        approvalDirectPairs.Add((afterId, beforeId));
-            }
-        }
-
-        // A dashed path continues through every downstream task. Use graph reachability
-        // rather than column position so unrelated parallel branches remain solid.
-        var downstreamTaskIds = durablePlan is not null
-            ? PlanGateVisualizationPolicy.DownstreamTaskIds(durablePlan.Tasks, durablePlan.ApprovalGates)
-            : (group.ApprovalGates ?? []).SelectMany(gate => gate.BeforeTaskIds ?? [])
-                .ToHashSet(StringComparer.Ordinal);
-        if (durablePlan is null)
-        {
-            var changed = true;
-            while (changed)
-            {
-                changed = false;
-                foreach (var task in group.Tasks)
-                    if (!downstreamTaskIds.Contains(task.Id) && task.DependsOn.Any(downstreamTaskIds.Contains))
-                        changed |= downstreamTaskIds.Add(task.Id);
-            }
-        }
+        var visualizationTasks = durablePlan?.Tasks ?? group.Tasks.Select(task => new PlanTask(
+            task.Id, task.Title, task.Description, task.DependsOn, task.Priority,
+            PlanTaskStatus.Pending)).ToArray();
+        var visualizationGates = durablePlan?.ApprovalGates ?? (group.ApprovalGates ?? [])
+            .Select(gate => new PlanApprovalGate(
+                gate.GateId, gate.Message, gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [],
+                PlanGateStatus.Pending)).ToArray();
+        var dashedTaskEdges = PlanGateVisualizationPolicy.DashedEdges(
+            visualizationTasks,
+            visualizationGates,
+            requireEveryIncomingAtConvergence:
+                _approvalLineCombineMode == ApprovalLineCombineMode.And);
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
@@ -725,12 +717,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             lockedMilestoneBoundaryXs.Where(bx => bx > fromX + 1.0 && bx < toX - 1.0)
                 .OrderBy(bx => bx).Cast<double?>().FirstOrDefault() ?? double.NaN;
 
-        // Once a connector begins to the right of an engaged milestone, it is already in
-        // blocked territory and must remain dashed even though it no longer geometrically
-        // crosses the boundary. This includes ALL badges centered directly on a milestone.
-        bool StartsAfterLockedMilestone(double fromX) =>
-            lockedMilestoneBoundaryXs.Any(boundaryX => boundaryX <= fromX + 1.0);
-
         // Draw ALL-gate connectors; collect per-gate groups so the badge can reference them later.
         var gateConnectorGroups = new List<List<ConnectorGroup>>(gates.Count);
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
@@ -741,10 +727,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                FindDisplayedGate(dependencies, joinBeforeIds) is not null;
             // A task-exit gate belongs on that task's segment entering the ALL join. A gate on
             // the ALL join itself belongs on the shared outbound segment.
-            var outboundDashed = joinIsLocked || dependencies.Any(dependency =>
-                lockedAfterTaskIds.Contains(dependency) ||
-                downstreamTaskIds.Contains(dependency) ||
-                targets.Any(target => approvalDirectPairs.Contains((dependency, target.Id))));
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
@@ -755,10 +737,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: lockedAfterTaskIds.Contains(dependency) ||
-                            downstreamTaskIds.Contains(dependency) ||
-                            targets.Any(target => approvalDirectPairs.Contains((dependency, target.Id))) ||
-                            StartsAfterLockedMilestone(fromPt.X),
+                    dashed: targets.Any(target => dashedTaskEdges.Contains((dependency, target.Id))),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
@@ -769,11 +748,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var targetSkip  = levels[target.Id] - maxDepLevel - 1;
                 var fromPt      = new Point(gateCenter.X + 29, gateCenter.Y);
                 var toPt        = new Point(targetPoint.X, SpreadEntryY(target.Id, gateCenter.Y));
+                var incomingStates = dependencies
+                    .Select(dependency => dashedTaskEdges.Contains((dependency, target.Id)))
+                    .ToArray();
+                var combinedDashed = _approvalLineCombineMode == ApprovalLineCombineMode.And
+                    ? incomingStates.All(value => value)
+                    : incomingStates.Any(value => value);
                 var cg = AddConnector(canvas,
                     fromPt, toPt,
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip),
-                    dashed: outboundDashed || StartsAfterLockedMilestone(fromPt.X),
+                    dashed: joinIsLocked || combinedDashed,
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(target.Id, cg);
                 cgsForGate.Add(cg);
@@ -795,10 +780,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: true,
                     skipCount: skipCount,
-                    dashed: lockedAfterTaskIds.Contains(dependency) ||
-                            downstreamTaskIds.Contains(dependency) ||
-                            approvalDirectPairs.Contains((dependency, task.Id)) ||
-                            StartsAfterLockedMilestone(fromPt.X),
+                    dashed: dashedTaskEdges.Contains((dependency, task.Id)),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 RegisterConnector(task.Id,   cg);
@@ -1334,17 +1316,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
     /// existing window, location, size, focus, and owner. Rebuilding on this window also ensures
     /// every interaction handler targets the visible viewer and does not create a hidden WPF window.
     /// </summary>
-    internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
+    private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)
     {
         var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
         var verticalOffset = _graphScroll?.VerticalOffset ?? 0;
         BuildContent(plan, durablePlan);
-        Title = plan.Group.GroupTitle;
         Dispatcher.BeginInvoke(() =>
         {
             _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
             _graphScroll?.ScrollToVerticalOffset(verticalOffset);
         }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
+    {
+        RebuildPreservingScroll(plan, durablePlan);
+        Title = plan.Group.GroupTitle;
     }
 
     private static FrameworkElement BuildApprovalSummaryPanel(

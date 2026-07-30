@@ -19,8 +19,11 @@ internal sealed class PlanViewerRefreshArchitectureTests
         var refreshMethod = source[methodStart..nextMethod];
         Assert.Multiple(() =>
         {
-            Assert.That(refreshMethod, Does.Contain("BuildContent(plan, durablePlan)"),
-                "Refresh should rebuild the existing viewer's visual tree.");
+            Assert.That(refreshMethod, Does.Contain("RebuildPreservingScroll(plan, durablePlan)"),
+                "Refresh should rebuild the existing viewer's visual tree through the scroll-preserving helper.");
+            Assert.That(source, Does.Contain("private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)")
+                .And.Contain("BuildContent(plan, durablePlan)"),
+                "The shared helper must rebuild this existing viewer rather than constructing another window.");
             Assert.That(refreshMethod, Does.Not.Contain("new PlanViewerWindow"),
                 "Constructing a hidden Window during refresh can keep WPF alive during restart and binds handlers to the wrong owner.");
         });
