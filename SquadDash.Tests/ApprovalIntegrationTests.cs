@@ -985,4 +985,528 @@ internal sealed class ApprovalIntegrationTests
         Assert.That(body, Does.Contain("archived"));
         Assert.That(body, Does.Not.Contain("awaiting approval"));
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AlreadyResolved result path
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task AlreadyResolved_DoubleApproveWithFreshToken_ReturnsAlreadyResolved()
+    {
+        var token1 = await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A", "GATE-B"]);
+
+        // Approve GATE-A first
+        var first = await _coordinator.TryApproveAsync(token1, ["GATE-A"]);
+        Assert.That(first, Is.EqualTo(ApprovalClickResult.Approved));
+
+        // Fetch fresh token after first approval
+        var token2 = _coordinator.GetCurrentToken("PLAN-001")!;
+
+        // Attempt GATE-A again with the fresh token — already resolved
+        var second = await _coordinator.TryApproveAsync(token2, ["GATE-A"]);
+        Assert.That(second, Is.EqualTo(ApprovalClickResult.AlreadyResolved),
+            "Re-approving an already-resolved gate with a current token must return AlreadyResolved");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Multi-plan isolation: coordinators track plans independently
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task MultiPlanIsolation_ApprovingOnePlanDoesNotAffectAnother()
+    {
+        var tokenA = await _coordinator.RegisterAsync("PLAN-A", "rev1", ["GATE-A"]);
+        var tokenB = await _coordinator.RegisterAsync("PLAN-B", "rev1", ["GATE-X"]);
+
+        // Approve PLAN-A gate
+        var resultA = await _coordinator.TryApproveAsync(tokenA, ["GATE-A"]);
+        Assert.That(resultA, Is.EqualTo(ApprovalClickResult.Approved));
+
+        // PLAN-B must still have its gate active and accept approval
+        Assert.That(_coordinator.HasActiveGates("PLAN-B"), Is.True);
+        var resultB = await _coordinator.TryApproveAsync(tokenB, ["GATE-X"]);
+        Assert.That(resultB, Is.EqualTo(ApprovalClickResult.Approved),
+            "Approving PLAN-A must not invalidate PLAN-B's token");
+    }
+
+    [Test]
+    public async Task MultiPlanIsolation_DurableStateIndependent()
+    {
+        var planA = MakePlan("PLAN-A", t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var planB = MakePlan("PLAN-B", t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+
+        await _durableManager.AppendCheckpointAsync(planA, planA.ApprovalGates[0], MakeSnapshot("PLAN-A"));
+        await _durableManager.AppendCheckpointAsync(planB, planB.ApprovalGates[0], MakeSnapshot("PLAN-B"));
+
+        // Resolve only PLAN-A
+        await _durableManager.ResolveCheckpointAsync(planA, "GATE-A");
+
+        Assert.That(_durableManager.IsArchived("PLAN-A"), Is.True);
+        Assert.That(_durableManager.IsArchived("PLAN-B"), Is.False,
+            "Resolving PLAN-A must not archive PLAN-B");
+        Assert.That(_durableManager.GetState("PLAN-B")!.ActiveGateIds, Does.Contain("GATE-A"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AppendGateAsync: RefreshNeeded event, idempotency, unregistered plan
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task AppendGateAsync_FiresRefreshNeededEvent()
+    {
+        await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A"]);
+
+        string? refreshedPlanId = null;
+        _coordinator.ApprovalRefreshNeeded += (_, id) => refreshedPlanId = id;
+
+        await _coordinator.AppendGateAsync("PLAN-001", "rev1", "GATE-B");
+
+        Assert.That(refreshedPlanId, Is.EqualTo("PLAN-001"),
+            "ApprovalRefreshNeeded must fire with the plan ID when a gate is appended");
+    }
+
+    [Test]
+    public async Task AppendGateAsync_DuplicateGate_NoVersionBump()
+    {
+        var token = await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A"]);
+        var versionBefore = token.RequestVersion;
+
+        await _coordinator.AppendGateAsync("PLAN-001", "rev1", "GATE-A");
+
+        var tokenAfter = _coordinator.GetCurrentToken("PLAN-001")!;
+        Assert.That(tokenAfter.RequestVersion, Is.EqualTo(versionBefore),
+            "Duplicate gate append must be idempotent — no version bump");
+    }
+
+    [Test]
+    public async Task AppendGateAsync_UnregisteredPlan_CreatesNewState()
+    {
+        await _coordinator.AppendGateAsync("PLAN-NEW", "rev1", "GATE-X");
+
+        Assert.That(_coordinator.HasActiveGates("PLAN-NEW"), Is.True);
+        var token = _coordinator.GetCurrentToken("PLAN-NEW");
+        Assert.That(token, Is.Not.Null);
+        Assert.That(token!.GateIds, Is.EqualTo(new[] { "GATE-X" }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GetCurrentToken: returns null for unregistered plan
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void GetCurrentToken_UnregisteredPlan_ReturnsNull()
+    {
+        var token = _coordinator.GetCurrentToken("NONEXISTENT");
+        Assert.That(token, Is.Null);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // HasActiveGates: false after unregister
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task HasActiveGates_FalseAfterUnregister()
+    {
+        await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A"]);
+        Assert.That(_coordinator.HasActiveGates("PLAN-001"), Is.True);
+
+        _coordinator.Unregister("PLAN-001");
+        Assert.That(_coordinator.HasActiveGates("PLAN-001"), Is.False);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Concurrent multi-surface approval (truly concurrent with Task.WhenAll)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task ConcurrentMultiSurfaceApproval_ExactlyOneWins()
+    {
+        var token = await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A"]);
+
+        // Fire 10 concurrent approval attempts from different "surfaces"
+        var tasks = Enumerable.Range(0, 10)
+            .Select(_ => _coordinator.TryApproveAsync(token, ["GATE-A"], "Concurrent"))
+            .ToArray();
+
+        var results = await Task.WhenAll(tasks);
+
+        var approvedCount = results.Count(r => r == ApprovalClickResult.Approved);
+        var staleCount = results.Count(r => r == ApprovalClickResult.StaleRejected);
+
+        Assert.That(approvedCount, Is.EqualTo(1),
+            "Exactly one concurrent approval must succeed");
+        Assert.That(staleCount, Is.EqualTo(9),
+            "All other concurrent approvals must be stale-rejected");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DurableManager idempotent AppendCheckpoint (same gate twice)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task DurableManager_AppendCheckpoint_SameGateTwice_Idempotent()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var snap = MakeSnapshot();
+
+        var id1 = await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], snap);
+        var id2 = await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], snap);
+
+        Assert.That(id1, Is.EqualTo(id2));
+
+        var state = _durableManager.GetState("PLAN-001");
+        Assert.That(state!.ActiveGateIds.Count(g => g == "GATE-A"), Is.EqualTo(1),
+            "Same gate must not be duplicated in active list");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Notification dedup resets on new checkpoint after unarchive
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task NotificationDedup_ResetsOnNewCheckpointAfterUnarchive()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var snap = MakeSnapshot();
+
+        await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], snap);
+
+        // Mark notified
+        Assert.That(await _durableManager.TryMarkNotifiedAsync("PLAN-001"), Is.True);
+        Assert.That(await _durableManager.TryMarkNotifiedAsync("PLAN-001"), Is.False);
+
+        // Resolve and archive
+        await _durableManager.ResolveCheckpointAsync(plan, "GATE-A");
+
+        // New gate arrives — unarchive
+        var gate2 = new PlanApprovalGate("GATE-B", "Second", ["T3"], ["T4"], PlanGateStatus.AwaitingApproval);
+        var planWithGate2 = MakePlan(extraGates: [gate2],
+            t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        await _durableManager.AppendCheckpointAsync(planWithGate2, gate2, MakeSnapshot(gateId: "GATE-B"));
+
+        // Notification should succeed again for the new version
+        var state = _durableManager.GetState("PLAN-001");
+        Assert.That(state!.Archived, Is.False, "Should be unarchived after new gate");
+        Assert.That(state.ActiveGateIds, Does.Contain("GATE-B"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Skipped gate excluded from evaluation
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void SkippedGate_ExcludedFromReadinessEvaluation()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("T1", "Task 1", "desc", [], "high", PlanTaskStatus.Complete),
+            new PlanTask("T2", "Task 2", "desc", ["T1"], "high", PlanTaskStatus.Pending),
+        };
+        var gate = new PlanApprovalGate("GATE-A", "Review", ["T1"], ["T2"], PlanGateStatus.Skipped);
+        var plan = new Plan("PLAN-001", "rev1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.Executing, "Test", "main", "",
+            tasks, [gate], new PlanProgress(1, 2), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var gateStates = ApprovalGateReadinessEvaluator.EvaluateGates(plan);
+        Assert.That(gateStates, Is.Empty, "Skipped gate must not appear in readiness evaluation");
+
+        var blocked = ApprovalGateReadinessEvaluator.ComputeAllBlockedTaskIds(plan, gateStates);
+        Assert.That(blocked, Is.Empty, "No tasks should be blocked by a skipped gate");
+
+        var next = ApprovalGateReadinessEvaluator.SelectNextUngatedTask(plan, gateStates);
+        Assert.That(next, Is.EqualTo("T2"), "T2 must be eligible when gate is skipped");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Failed and Executing tasks excluded from next-task selection
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void FailedAndExecutingTasks_ExcludedFromSelection()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("T1", "Task 1", "desc", [], "high", PlanTaskStatus.Executing),
+            new PlanTask("T2", "Task 2", "desc", [], "high", PlanTaskStatus.Failed),
+            new PlanTask("T3", "Task 3", "desc", [], "high", PlanTaskStatus.Pending),
+        };
+        var plan = new Plan("PLAN-001", "rev1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.Executing, "Test", "main", "",
+            tasks, [], new PlanProgress(0, 3), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var next = ApprovalGateReadinessEvaluator.SelectNextUngatedTask(plan);
+        Assert.That(next, Is.EqualTo("T3"),
+            "Executing and Failed tasks must be skipped; only Pending T3 is eligible");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Token gate-order sensitivity (ordered comparison)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task TokenGateOrder_DifferentOrder_RejectsClick()
+    {
+        // Register with [GATE-A, GATE-B]
+        var token = await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-A", "GATE-B"]);
+
+        // Re-register with reversed order [GATE-B, GATE-A] — token becomes stale
+        await _coordinator.RegisterAsync("PLAN-001", "rev1", ["GATE-B", "GATE-A"]);
+
+        var result = await _coordinator.TryApproveAsync(token, ["GATE-A"]);
+        Assert.That(result, Is.EqualTo(ApprovalClickResult.StaleRejected),
+            "Gate order is significant — reversed order must invalidate the old token");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // RefreshEvidenceAsync updates body without changing active gates
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task RefreshEvidence_UpdatesBodyWithoutChangingGates()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var snap = MakeSnapshot();
+
+        await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], snap);
+
+        // Refresh with updated snapshot (e.g. new progress)
+        var updatedSnap = MakeSnapshot(completedTaskCount: 3);
+        await _durableManager.RefreshEvidenceAsync(plan, updatedSnap);
+
+        var state = _durableManager.GetState("PLAN-001");
+        Assert.That(state!.ActiveGateIds, Does.Contain("GATE-A"),
+            "RefreshEvidence must not alter active gate list");
+        Assert.That(state.Archived, Is.False);
+        Assert.That(state.Version, Is.EqualTo(1),
+            "RefreshEvidence must not bump state version");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BuildActions generates correct labels and routes
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void BuildActions_ActiveGates_GeneratesApproveActions()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B"]);
+
+        Assert.That(actions, Has.Count.EqualTo(2));
+        Assert.That(actions[0].Label, Does.Contain("GATE-A"));
+        Assert.That(actions[1].Label, Does.Contain("GATE-B"));
+        Assert.That(actions.All(a => a.RouteMode == "done"), Is.True);
+    }
+
+    [Test]
+    public void BuildActions_NoActiveGates_ReturnsEmpty()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var actions = DurableApprovalRequestManager.BuildActions(plan, []);
+
+        Assert.That(actions, Is.Empty);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Partial gate approval: approve one of many, rest stays active
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task PartialGateApproval_RemainingGatesStayActive()
+    {
+        var token = await _coordinator.RegisterAsync("PLAN-001", "rev1",
+            ["GATE-A", "GATE-B", "GATE-C"]);
+
+        // Approve only GATE-B
+        var result = await _coordinator.TryApproveAsync(token, ["GATE-B"]);
+        Assert.That(result, Is.EqualTo(ApprovalClickResult.Approved));
+
+        var remaining = _coordinator.GetActiveGateIds("PLAN-001");
+        Assert.That(remaining, Does.Contain("GATE-A"));
+        Assert.That(remaining, Does.Contain("GATE-C"));
+        Assert.That(remaining, Does.Not.Contain("GATE-B"));
+        Assert.That(_coordinator.HasActiveGates("PLAN-001"), Is.True);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DurableManager partial resolution: resolve one gate, keep others
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task DurableManager_PartialResolution_KeepsMessageActive()
+    {
+        var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+        var snap = MakeSnapshot();
+        var gate2 = new PlanApprovalGate("GATE-B", "Second", ["T3"], ["T4"], PlanGateStatus.AwaitingApproval);
+        var planWith2 = MakePlan(extraGates: [gate2],
+            t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
+
+        await _durableManager.AppendCheckpointAsync(planWith2, planWith2.ApprovalGates[0], snap);
+        await _durableManager.AppendCheckpointAsync(planWith2, gate2, MakeSnapshot(gateId: "GATE-B"));
+
+        // Resolve only GATE-A
+        await _durableManager.ResolveCheckpointAsync(planWith2, "GATE-A", "First pass");
+
+        var state = _durableManager.GetState("PLAN-001");
+        Assert.That(state!.Archived, Is.False, "Message must stay active while GATE-B is pending");
+        Assert.That(state.ActiveGateIds, Does.Contain("GATE-B"));
+        Assert.That(state.ActiveGateIds, Does.Not.Contain("GATE-A"));
+        Assert.That(state.ResolvedCheckpoints, Has.Count.EqualTo(1));
+        Assert.That(state.ResolvedCheckpoints[0].GateId, Is.EqualTo("GATE-A"));
+
+        var msg = _inbox.GetById("approval-gate-PLAN-001");
+        Assert.That(msg!.Read, Is.False, "Message must stay unread while gates remain");
+        Assert.That(msg.Actions, Has.Count.GreaterThan(0), "Actions must remain for active gates");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Downstream frontier transitivity with diamond dependency
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void DownstreamFrontier_DiamondDependency_CapturesAll()
+    {
+        //  T1 ──► [GATE] ──► T2 ──► T4
+        //                 └──► T3 ──┘
+        var tasks = new[]
+        {
+            new PlanTask("T1", "Task 1", "desc", [], "high", PlanTaskStatus.Complete),
+            new PlanTask("T2", "Task 2", "desc", ["T1"], "high", PlanTaskStatus.Pending),
+            new PlanTask("T3", "Task 3", "desc", ["T1"], "high", PlanTaskStatus.Pending),
+            new PlanTask("T4", "Task 4", "desc", ["T2", "T3"], "high", PlanTaskStatus.Pending),
+        };
+        var gate = new PlanApprovalGate("GATE-A", "Review", ["T1"], ["T2", "T3"], PlanGateStatus.Pending);
+        var plan = new Plan("PLAN-001", "rev1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.Executing, "Diamond", "main", "",
+            tasks, [gate], new PlanProgress(1, 4), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var frontier = ApprovalGateReadinessEvaluator.ComputeDownstreamFrontier(plan, gate);
+        Assert.That(frontier, Does.Contain("T2"));
+        Assert.That(frontier, Does.Contain("T3"));
+        Assert.That(frontier, Does.Contain("T4"),
+            "T4 depends on T2 and T3 — must be transitively blocked");
+        Assert.That(frontier, Does.Not.Contain("T1"),
+            "T1 is upstream of the gate — never in downstream frontier");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ShouldStopForApproval: false when no gates exist
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void ShouldStopForApproval_NoGates_ReturnsFalse()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("T1", "Task 1", "desc", [], "high", PlanTaskStatus.Pending),
+        };
+        var plan = new Plan("PLAN-001", "rev1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.Executing, "No gates", "main", "",
+            tasks, [], new PlanProgress(0, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        Assert.That(ApprovalGateReadinessEvaluator.ShouldStopForApproval(plan), Is.False,
+            "No gates means no reason to stop");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Stable message ID determinism
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void BuildMessageId_IsDeterministic()
+    {
+        var id1 = DurableApprovalRequestManager.BuildMessageId("PLAN-001");
+        var id2 = DurableApprovalRequestManager.BuildMessageId("PLAN-001");
+        var id3 = DurableApprovalRequestManager.BuildMessageId("PLAN-002");
+
+        Assert.That(id1, Is.EqualTo(id2), "Same plan must always produce same message ID");
+        Assert.That(id1, Is.Not.EqualTo(id3), "Different plans must produce different IDs");
+        Assert.That(id1, Is.EqualTo("approval-gate-PLAN-001"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ParseShowOutput: edge cases
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void ParseShowOutput_EmptyOutput_ReturnsEmpty()
+    {
+        var result = new Dictionary<string, List<ChangedFileEntry>>(StringComparer.OrdinalIgnoreCase);
+        ApprovalReviewSnapshotBuilder.ParseShowOutput("", result);
+        Assert.That(result, Is.Empty);
+    }
+
+    [Test]
+    public void ParseShowOutput_MultipleCommits_ParsedCorrectly()
+    {
+        var output = """
+            COMMIT:abc1234567890 Add feature
+            10	0	src/Feature.cs
+            5	3	src/Helper.cs
+            COMMIT:def7890123456 Fix bug
+            0	15	src/OldCode.cs
+            """;
+
+        var result = new Dictionary<string, List<ChangedFileEntry>>(StringComparer.OrdinalIgnoreCase);
+        ApprovalReviewSnapshotBuilder.ParseShowOutput(output, result);
+
+        Assert.That(result, Has.Count.EqualTo(2));
+        Assert.That(result["abc1234567890"], Has.Count.EqualTo(2));
+        Assert.That(result["def7890123456"], Has.Count.EqualTo(1));
+        Assert.That(result["def7890123456"][0].Status, Is.EqualTo(FileChangeStatus.Deleted));
+    }
+
+    [Test]
+    public void ParseShowOutputWithSubjects_ExtractsSubjects()
+    {
+        var output = """
+            COMMIT:abc1234567890 Add feature X
+            10	0	src/Feature.cs
+            COMMIT:def7890123456
+            0	5	src/Other.cs
+            """;
+
+        var (files, subjects) = ApprovalReviewSnapshotBuilder.ParseShowOutputWithSubjects(output);
+
+        Assert.That(subjects["abc1234567890"], Is.EqualTo("Add feature X"));
+        Assert.That(subjects.ContainsKey("def7890123456"), Is.False,
+            "Commit with no subject text should not appear in subjects dictionary");
+        Assert.That(files, Has.Count.EqualTo(2));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // FileChangeStatus inference edge cases
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void ChangedFileEntry_RenamedFileDetected()
+    {
+        var output = """
+            COMMIT:abc1234567890 Rename file
+            5	5	src/Old.cs => src/New.cs
+            """;
+
+        var result = new Dictionary<string, List<ChangedFileEntry>>(StringComparer.OrdinalIgnoreCase);
+        ApprovalReviewSnapshotBuilder.ParseShowOutput(output, result);
+
+        Assert.That(result["abc1234567890"][0].Status, Is.EqualTo(FileChangeStatus.Renamed));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AwaitingApproval gate status in gate readiness
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void AwaitingApprovalGate_IncludedInReadinessEvaluation()
+    {
+        var plan = MakePlan(
+            t1Status: PlanTaskStatus.Complete,
+            t2Status: PlanTaskStatus.Complete,
+            gateAStatus: PlanGateStatus.AwaitingApproval);
+
+        var gateStates = ApprovalGateReadinessEvaluator.EvaluateGates(plan);
+        Assert.That(gateStates, Has.Count.EqualTo(1),
+            "AwaitingApproval gate must be included in readiness evaluation");
+        Assert.That(gateStates[0].IsReady, Is.True);
+        Assert.That(gateStates[0].GateId, Is.EqualTo("GATE-A"));
+    }
 }
