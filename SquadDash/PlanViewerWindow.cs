@@ -1313,6 +1313,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var approvalSummary = BuildApprovalSummaryPanel(durablePlan, levels);
             Grid.SetRow(approvalSummary, 2);
             root.Children.Add(approvalSummary);
+
+            // Auto-expand the window downward to fit the approval summary without scrollbars,
+            // if the window is fully contained on one monitor and has room below.
+            approvalSummary.Loaded += (_, _) => TryExpandForApprovalSummary(approvalSummary);
         }
     }
 
@@ -1456,7 +1460,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             Document = document,
             IsToolBarVisible = false,
-            MaxHeight = 170,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Margin = new Thickness(0),
@@ -1480,6 +1483,55 @@ internal sealed class PlanViewerWindow : ChromedWindow
         border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         return border;
+    }
+
+    private void TryExpandForApprovalSummary(FrameworkElement approvalSummary)
+    {
+        approvalSummary.Measure(new Size(ActualWidth, double.PositiveInfinity));
+        var desiredHeight = approvalSummary.DesiredSize.Height;
+        var currentHeight = approvalSummary.ActualHeight;
+        var delta = desiredHeight - currentHeight;
+        if (delta <= 0) return;
+
+        // Get the monitor work area in physical pixels via the window's HWND.
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == nint.Zero)
+        {
+            approvalSummary.MaxHeight = 170;
+            return;
+        }
+
+        var workArea = NativeMethods.GetWorkAreaForWindow(hwnd);
+
+        // Convert window bounds to physical pixels for comparison.
+        var source = PresentationSource.FromVisual(this);
+        var dpiY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
+        var windowBottomPhysical = (Top + ActualHeight) * dpiY;
+        var windowTopPhysical = Top * dpiY;
+
+        // Check that the window is fully contained within this monitor's work area.
+        if (windowTopPhysical < workArea.Top || windowBottomPhysical > workArea.Bottom)
+        {
+            approvalSummary.MaxHeight = 170;
+            return;
+        }
+
+        var availableBelowPhysical = workArea.Bottom - windowBottomPhysical;
+        var availableBelow = availableBelowPhysical / dpiY;
+
+        if (availableBelow >= delta)
+        {
+            Height = ActualHeight + delta;
+        }
+        else if (availableBelow > 0)
+        {
+            Height = ActualHeight + availableBelow;
+            approvalSummary.MaxHeight = currentHeight + availableBelow;
+        }
+        else
+        {
+            approvalSummary.MaxHeight = 170;
+        }
     }
 
     private static FrameworkElement CreateApprovalStop(
