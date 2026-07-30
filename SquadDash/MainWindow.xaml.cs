@@ -11823,7 +11823,12 @@ public partial class MainWindow : Window
                 _guidedTourCoordinator.RaiseEnvironmentFontZoomed();
                 // Graph window can wait until after the font layout pass settles.
                 Dispatcher.BeginInvoke(DispatcherPriority.Background,
-                    () => _commitActivityGraphWindow?.NotifyFontSizeChanged());
+                    () =>
+                    {
+                        _commitActivityGraphWindow?.NotifyFontSizeChanged();
+                        foreach (var (_, win) in _openPlanViewerWindows)
+                            win.NotifyFontSizeChanged();
+                    });
                 SquadDashTrace.Write(TraceCategory.Performance,
                     $"SetFontSizeScale applied level={_fontScaleLevel} NotifyFontSizeChanged deferred to Background priority");
             });

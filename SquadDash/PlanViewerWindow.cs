@@ -13,15 +13,18 @@ namespace SquadDash;
 internal sealed class PlanViewerWindow : ChromedWindow
 {
     private const double BaseNodeWidth = 220;
-    private const double BaseNodeHeight = 100;
+    private const double BaseNodeHeight = 78;
     private const double BaseColumnSpacing = 360;
     private const double BaseRowSpacing = 152;
 
-    private readonly double _scaleFactor;
-    private readonly double NodeWidth;
-    private readonly double NodeHeight;
-    private readonly double ColumnSpacing;
-    private readonly double RowSpacing;
+    private double _scaleFactor;
+    private double NodeWidth;
+    private double NodeHeight;
+    private double ColumnSpacing;
+    private double RowSpacing;
+
+    private PendingDecomposePlan? _plan;
+    private Plan? _durablePlan;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -71,8 +74,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
         BuildContent(plan, durablePlan);
     }
 
+    internal void NotifyFontSizeChanged()
+    {
+        const double baseFontSize = 12.0;
+        var currentFontSize = Application.Current?.Resources["FontSizeBody"] is double fs ? fs : baseFontSize;
+        _scaleFactor = currentFontSize / baseFontSize;
+        NodeWidth = BaseNodeWidth * _scaleFactor;
+        NodeHeight = BaseNodeHeight * _scaleFactor;
+        ColumnSpacing = BaseColumnSpacing * _scaleFactor;
+        RowSpacing = BaseRowSpacing * _scaleFactor;
+
+        if (_plan is not null)
+            BuildContent(_plan, _durablePlan);
+    }
+
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        _plan = plan;
+        _durablePlan = durablePlan;
         var activeBranch       = _activeBranch;
         var quickReplyFontSize = _quickReplyFontSize;
         var applyAction        = _applyAction;
@@ -565,7 +584,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 },
                 isLocked && !milestoneIsPrimary ? 0.5 : 1.0);
-            Canvas.SetLeft(milestoneStop, boundaryX - 8);
+            Canvas.SetLeft(milestoneStop, boundaryX - 8 * _scaleFactor);
             Canvas.SetTop(milestoneStop, 10);
             Panel.SetZIndex(milestoneStop, 25);
             canvas.Children.Add(milestoneStop);
@@ -1140,8 +1159,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         },
                         beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
                                           collectivelyCoveredEntry) ? 0.5 : 1.0);
-                    Canvas.SetLeft(beforeStop, position.X + 6);
-                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
+                    Canvas.SetLeft(beforeStop, position.X + 6 * _scaleFactor);
+                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(beforeStop, 25);
                     canvas.Children.Add(beforeStop);
                     approvalControlsByAnchor[beforeAnchor] = beforeStop;
@@ -1214,8 +1233,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         },
                         afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
                                          collectivelyCoveredByAllJoins) ? 0.5 : 1.0);
-                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
-                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
+                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22 * _scaleFactor);
+                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(afterStop, 25);
                     canvas.Children.Add(afterStop);
                     approvalControlsByAnchor[afterAnchor] = afterStop;
@@ -1241,8 +1260,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "Preview: human approval is required before this task."
                             : "Preview: this stop controls approval before the task.",
                         null);
-                    Canvas.SetLeft(beforeStop, position.X + 6);
-                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20);
+                    Canvas.SetLeft(beforeStop, position.X + 6 * _scaleFactor);
+                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(beforeStop, 25);
                     canvas.Children.Add(beforeStop);
                 }
@@ -1256,8 +1275,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "Preview: human approval is required after this task."
                             : "Preview: this stop controls approval after the task.",
                         null);
-                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22);
-                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20);
+                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22 * _scaleFactor);
+                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(afterStop, 25);
                     canvas.Children.Add(afterStop);
                 }
