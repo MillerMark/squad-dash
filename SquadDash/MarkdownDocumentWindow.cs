@@ -55,6 +55,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     private readonly List<MarkdownDocumentTabState> _documents;
     private readonly List<MarkdownDocumentTabState> _allTrackedDocuments = [];
     private readonly DockPanel _rootPanel;
+    private readonly Button _copyButton;
     private readonly Button _saveButton;
     private readonly Button _showSourceButton;
     private readonly TextBlock _statusTextBlock;
@@ -179,6 +180,18 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         _showSourceButton.Click += ShowSourceButton_Click;
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_showSourceButton, true);
         actionPanel.Children.Add(_showSourceButton);
+
+        _copyButton = new Button {
+            Content = "Copy",
+            MinWidth = 80,
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        _copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _copyButton.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
+        _copyButton.Click += CopyButton_Click;
+        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_copyButton, true);
+        actionPanel.Children.Add(_copyButton);
 
         _saveButton = new Button {
             Content = "Save",
@@ -586,6 +599,15 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
 
         SaveDocument(_activeDocument);
+    }
+
+    private void CopyButton_Click(object sender, RoutedEventArgs e) {
+        if (_activeDocument is null)
+            return;
+
+        var text = _activeDocument.WorkingText;
+        if (!string.IsNullOrEmpty(text))
+            Clipboard.SetText(text);
     }
 
     private void EditorTextBox_TextChanged(object sender, TextChangedEventArgs e) {
