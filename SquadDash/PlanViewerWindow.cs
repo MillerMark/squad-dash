@@ -1830,11 +1830,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             // Wide invisible hit-target so hovering near (but not pixel-perfect on) the line
             // still triggers the hover. Opacity must be > 0 for WPF hit testing to work.
+            // Use CardSurface so the hit-target blends with the canvas in both themes.
             var hitLine = new Line
             {
                 X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
-                StrokeThickness = 12, Stroke = Brushes.White, Opacity = 0.01,
+                StrokeThickness = 12, Opacity = 0.01,
             };
+            hitLine.SetResourceReference(Shape.StrokeProperty, "CardSurface");
             if (toolTip is not null) hitLine.ToolTip = toolTip;
             canvas.Children.Add(hitLine);
             group.MainElements.Add(hitLine);
@@ -1916,11 +1918,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
 
             // Wide invisible hit-target for the Bézier — same path, much thicker, nearly invisible.
+            // Use CardSurface so the hit-target blends with the canvas in both themes.
             var hitPath = new Path
             {
-                Data = MakeBezierGeometry(), StrokeThickness = 12, Stroke = Brushes.White,
+                Data = MakeBezierGeometry(), StrokeThickness = 12,
                 Fill = Brushes.Transparent, Opacity = 0.01,
             };
+            hitPath.SetResourceReference(Shape.StrokeProperty, "CardSurface");
             if (toolTip is not null) hitPath.ToolTip = toolTip;
             canvas.Children.Add(hitPath);
             group.MainElements.Add(hitPath);
