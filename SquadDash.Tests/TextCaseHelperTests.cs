@@ -24,13 +24,14 @@ internal class TextCaseHelperTests
     }
 
     // ──────────────────────────────────────────────────────────────
-    // 2. ComputeOrderedVariants — always returns exactly 6 items
+    // 2. ComputeOrderedVariants — multi-word input returns 6 distinct items;
+    //    single-word input deduplicates and returns fewer
     // ──────────────────────────────────────────────────────────────
 
     [Test]
     public void ComputeOrderedVariants_TitleCaseInput_Returns6Items()
     {
-        // Input has no minor interior words so ToTitleCase is idempotent → still 6 items with TitleCase at the end.
+        // Input has no minor interior words so ToTitleCase is idempotent → still 6 distinct items with TitleCase at the end.
         var variants = ComputeOrderedVariants("The Quick Brown Fox");
         Assert.That(variants, Has.Count.EqualTo(6));
     }
@@ -43,8 +44,31 @@ internal class TextCaseHelperTests
         Assert.That(variants, Has.Count.EqualTo(6));
     }
 
+    [Test]
+    public void ComputeOrderedVariants_SingleWord_DeduplicatesVariants()
+    {
+        // "Hello" is TitleCase. Title/Pascal/Sentence/Underscore all produce "Hello";
+        // UPPERCASE produces "HELLO"; kebab produces "hello". The list is rotated so TitleCase
+        // moves to the end, then duplicates are removed keeping first occurrence.
+        // Expected deduplicated cycle: ["Hello", "HELLO", "hello"]
+        var variants = ComputeOrderedVariants("Hello");
+        Assert.That(variants, Has.Count.LessThan(6), "Single word should have fewer than 6 variants after dedup");
+        Assert.That(variants, Is.Unique, "No duplicate results should remain");
+        Assert.That(variants, Does.Contain("HELLO"), "UPPERCASE variant must be present");
+        Assert.That(variants, Does.Contain("hello"), "kebab/lowercase variant must be present");
+    }
+
+    [Test]
+    public void ComputeOrderedVariants_SingleLowercaseWord_DeduplicatesVariants()
+    {
+        // "hello" matches TextCase.None. Title/Sentence are "Hello"; Pascal is "Hello";
+        // Upper is "HELLO"; kebab is "hello"; underscore is "hello".
+        var variants = ComputeOrderedVariants("hello");
+        Assert.That(variants, Is.Unique, "No duplicate results should remain");
+    }
+
     // ──────────────────────────────────────────────────────────────
-    // 3. ComputeOrderedVariants — None input returns canonical 6-item order
+    // 3. ComputeOrderedVariants — None input returns canonical order (6 distinct for multi-word)
     // ──────────────────────────────────────────────────────────────
 
     [Test]

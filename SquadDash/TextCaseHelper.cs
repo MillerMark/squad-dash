@@ -218,7 +218,10 @@ internal static class TextCaseHelper
     /// The canonical order is: Title Case, PascalCase, Sentence case, UPPERCASE, kebab-case, underscore_case.
     /// When starting from PascalCase, the split form is used as the base for all derived variants.
     /// If the input matches one of these, that case is moved to the end so the user cycles through
-    /// all 5 other cases before returning to the original. Always returns exactly 6 items.
+    /// all other cases before returning to the original.
+    /// Duplicate result strings are removed from the back of the list (keeping the first occurrence),
+    /// so short inputs like single words that produce identical Title/Sentence/Pascal forms will cycle
+    /// only through the genuinely distinct variants.
     /// </summary>
     internal static List<string> ComputeOrderedVariants(string text)
     {
@@ -254,6 +257,12 @@ internal static class TextCaseHelper
             canonical.RemoveAt(detectedIndex);
             canonical.Add(moved);
         }
+
+        // Remove duplicates, keeping the first occurrence of each result string.
+        // Duplicates are pulled from the back because the list is ordered by expected
+        // frequency of use — earlier entries are the higher-priority choices.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        canonical.RemoveAll(v => !seen.Add(v));
 
         return canonical;
     }
