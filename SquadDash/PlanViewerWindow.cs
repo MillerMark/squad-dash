@@ -1370,6 +1370,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             PagePadding = new Thickness(10, 2, 10, 8),
             ColumnWidth = double.PositiveInfinity,
+            FontFamily  = new FontFamily("Segoe UI, Segoe UI Emoji"),
         };
         document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
         document.SetResourceReference(FlowDocument.BackgroundProperty, "CardSurface");
