@@ -115,6 +115,10 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         var contentBorder = ApplyOuterBorder(titleText: Title);
         contentBorder.Child = content;
 
+        // Add a Copy button to the title bar for text attachments.
+        if (attachments.Any(a => a.ImagePath is null))
+            AddCopyButtonToTitleBar(attachments);
+
         // Auto-size the window to the image when we have a single image attachment.
         if (singleImage is not null)
         {
@@ -449,6 +453,89 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
         return textScroll2;
+    }
+
+    /// <summary>
+    /// Inserts a "Copy" button into the title bar row (to the left of the close button)
+    /// that copies the text content of all text attachments to the clipboard.
+    /// </summary>
+    private void AddCopyButtonToTitleBar(IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        // Navigate the visual tree: Content → Grid → outerBorder → layout(DockPanel) → titleBar(Border) → titleRow(DockPanel)
+        if (Content is not Grid overlay) return;
+        if (overlay.Children[0] is not Border outerBorder) return;
+        if (outerBorder.Child is not DockPanel layout) return;
+        if (layout.Children[0] is not Border titleBar) return;
+        if (titleBar.Child is not DockPanel titleRow) return;
+
+        var copyBtnText = new TextBlock
+        {
+            Text                = "📋",
+            VerticalAlignment   = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        copyBtnText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        var copyBtn = new Button
+        {
+            Width   = 38,
+            Padding = new Thickness(0),
+            ToolTip = "Copy text to clipboard",
+            Content = copyBtnText,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment   = VerticalAlignment.Stretch,
+        };
+        copyBtn.SetResourceReference(Button.StyleProperty, "CaptionButtonStyle");
+        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(copyBtn, true);
+
+        copyBtn.Click += (_, _) =>
+        {
+            var textParts = new List<string>();
+            foreach (var att in attachments)
+            {
+                if (att.ImagePath is not null) continue;
+                var text = GetAttachmentText(att);
+                if (!string.IsNullOrEmpty(text))
+                    textParts.Add(text);
+            }
+            if (textParts.Count > 0)
+                Clipboard.SetText(string.Join(Environment.NewLine + Environment.NewLine, textParts));
+        };
+
+        // Insert after the close button (index 0) but before the title label.
+        DockPanel.SetDock(copyBtn, Dock.Right);
+        titleRow.Children.Insert(1, copyBtn);
+    }
+
+    /// <summary>
+    /// Extracts the display text for a single text attachment (mirrors BuildAttachmentContent logic).
+    /// </summary>
+    private static string GetAttachmentText(FollowUpAttachment att)
+    {
+        if (att.FileReferencePath is not null)
+            return att.FileReferencePath;
+
+        if (att.TranscriptQuote is not null)
+            return att.TranscriptQuote;
+
+        if (!string.IsNullOrWhiteSpace(att.ContentBlock))
+            return StripAttachmentXmlTags(att.ContentBlock!.TrimEnd());
+
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(att.CommitSha))
+            sb.AppendLine($"Commit:  {att.CommitSha}");
+        if (!string.IsNullOrWhiteSpace(att.Description) && att.Description != "Attachment")
+            sb.AppendLine($"Summary: {att.Description}");
+        if (!string.IsNullOrWhiteSpace(att.OriginalPrompt))
+        {
+            if (sb.Length > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Original prompt:");
+            }
+            sb.Append(att.OriginalPrompt);
+        }
+        return sb.ToString().TrimEnd();
     }
 
     private static string SafeSha(string sha) => sha.Length >= 7 ? sha[..7] : sha;
