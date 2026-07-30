@@ -87,9 +87,11 @@ internal static class PlanGateManager
             plan.Tasks.FirstOrDefault(task => task.TaskId == existing.BeforeTaskIds[0]) is { } entryTask &&
             entryTask.DependsOn.ToHashSet(StringComparer.Ordinal).SetEquals(existing.AfterTaskIds);
         var taskScoped = taskExit || taskEntry;
-        return taskScoped &&
-               existing.AfterTaskIds.All(id => groupAfter.Contains(id, StringComparer.Ordinal)) &&
-               existing.BeforeTaskIds.All(id => groupBefore.Contains(id, StringComparer.Ordinal));
+        if (!taskScoped) return false;
+        var groupGate = new PlanApprovalGate(
+            "coverage", "coverage", groupAfter.ToArray(), groupBefore.ToArray(), PlanGateStatus.Pending);
+        return PlanGateVisualizationPolicy.CompletelyCovers(
+            plan.Tasks, groupGate, existing.AfterTaskIds, existing.BeforeTaskIds);
     }
 
     internal static Plan SetPresentationAnchor(Plan plan, string gateId, string presentationAnchor)

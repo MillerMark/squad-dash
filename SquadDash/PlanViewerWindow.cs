@@ -361,10 +361,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         PlanApprovalGate? FindDurableGate(
             IReadOnlyList<string> afterIds,
-            IReadOnlyList<string> beforeIds) =>
-            durablePlan is null
-                ? null
-                : PlanGateManager.FindEquivalentGate(durablePlan, afterIds, beforeIds);
+            IReadOnlyList<string> beforeIds)
+        {
+            if (durablePlan is null) return null;
+            return PlanGateManager.FindEquivalentGate(durablePlan, afterIds, beforeIds) ??
+                   durablePlan.ApprovalGates.FirstOrDefault(gate =>
+                       PlanGateVisualizationPolicy.GraphEquivalent(
+                           durablePlan.Tasks,
+                           gate.AfterTaskIds, gate.BeforeTaskIds,
+                           afterIds, beforeIds));
+        }
 
         string[] DirectDependents(string taskId) => durablePlan?.Tasks
             .Where(task => task.DependsOn.Contains(taskId, StringComparer.Ordinal))
@@ -809,7 +815,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var coveringJoinGate = existingJoinGate is null && durablePlan is not null
                 ? durablePlan.ApprovalGates
                     .Where(candidate => PlanGateVisualizationPolicy.CompletelyCovers(
-                        candidate, joinAfterIds, joinBeforeIds))
+                        durablePlan.Tasks, candidate, joinAfterIds, joinBeforeIds))
                     .OrderByDescending(candidate => candidate.AfterTaskIds.Count + candidate.BeforeTaskIds.Count)
                     .FirstOrDefault()
                 : null;
@@ -1125,7 +1131,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var coveringBeforeGate = existingBeforeGate is null
                         ? durablePlan.ApprovalGates
                             .Where(gate => PlanGateVisualizationPolicy.CompletelyCovers(
-                                gate, capturedTaskForStop.DependsOn, [capturedTaskForStop.Id]))
+                                durablePlan.Tasks, gate, capturedTaskForStop.DependsOn, [capturedTaskForStop.Id]))
                             .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
                             .FirstOrDefault()
                         : null;
@@ -1173,7 +1179,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var coveringAfterGate = existingAfterGate is null
                         ? durablePlan.ApprovalGates
                             .Where(gate => PlanGateVisualizationPolicy.CompletelyCovers(
-                                gate, [capturedTaskForStop.Id], afterBoundary))
+                                durablePlan.Tasks, gate, [capturedTaskForStop.Id], afterBoundary))
                             .OrderByDescending(gate => gate.AfterTaskIds.Count + gate.BeforeTaskIds.Count)
                             .FirstOrDefault()
                         : null;
