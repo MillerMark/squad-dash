@@ -152,6 +152,22 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test]
+    public void BuildApproveLabel_ExactlyTwoGates_IncludesCount()
+    {
+        var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(2);
+        Assert.That(label, Does.Contain("2"));
+        Assert.That(label, Does.Contain("Ready Checkpoints"));
+    }
+
+    [Test]
+    public void BuildApproveLabel_SingleGate_DoesNotContainReadyCheckpoints()
+    {
+        var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
+        Assert.That(label, Does.Not.Contain("Ready Checkpoints"));
+        Assert.That(label, Does.Contain("Checkpoint"));
+    }
+
+    [Test]
     public void Snapshot_WithNoCompletedTasks_HasEmptyList()
     {
         var snapshot = new ApprovalReviewSnapshot(
@@ -252,5 +268,46 @@ public class TranscriptApprovalCardBuilderTests
         var secondCommit = snapshot.CompletedTasks[1].Commits[0];
 
         Assert.That(secondCommit.VerificationPassed, Is.Null);
+    }
+
+    [Test]
+    public void FileLink_UriFormats_AreCorrect()
+    {
+        var link = new FileLink("src/auth.cs", "abc1234567890");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(link.ReviewedVersionUri, Is.EqualTo("app://file-at-commit:abc1234567890:src/auth.cs"));
+            Assert.That(link.WorkspaceFileUri, Is.EqualTo("app://open-workspace-file:src/auth.cs"));
+        });
+    }
+
+    [Test]
+    public void IndependentWorkEntry_PreservesFields()
+    {
+        var commits = new List<ReviewCommitEntry>
+        {
+            new(new CommitLink("aaa1111", "aaa1111222233334444", "Refactor utils"),
+                VerificationPassed: true,
+                ChangedFiles: []),
+        };
+        var entry = new IndependentWorkEntry("ind-1", "Independent refactor", "Cleaned up utilities", commits);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry.TaskId, Is.EqualTo("ind-1"));
+            Assert.That(entry.Title, Is.EqualTo("Independent refactor"));
+            Assert.That(entry.CompletionSummary, Is.EqualTo("Cleaned up utilities"));
+            Assert.That(entry.Commits, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void Snapshot_DownstreamTasks_ExactlyFive_AllPreserved()
+    {
+        var snapshot = BuildTestSnapshot(downstreamTaskCount: 5);
+
+        Assert.That(snapshot.DownstreamTasks, Has.Count.EqualTo(5));
+        Assert.That(snapshot.DownstreamTasks[4].Title, Is.EqualTo("Downstream task 4"));
     }
 }

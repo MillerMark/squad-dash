@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -22,11 +23,22 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Result of building the card, with handles for later update/disable.</summary>
     internal sealed class CardResult
     {
+        /// <summary>The <see cref="BlockUIContainer"/> to insert into the transcript <see cref="FlowDocument"/>.</summary>
         internal BlockUIContainer Container { get; init; } = null!;
+
+        /// <summary>The primary approve button — disable when processing.</summary>
         internal Button ApproveButton { get; init; } = null!;
+
+        /// <summary>Optional note text box where the user can add a comment before approving.</summary>
         internal TextBox NoteTextBox { get; init; } = null!;
+
+        /// <summary>Semi-transparent overlay shown during async approval processing.</summary>
         internal Border SpinnerOverlay { get; init; } = null!;
+
+        /// <summary>Panel containing the approve button and any future action buttons.</summary>
         internal WrapPanel ActionsPanel { get; init; } = null!;
+
+        /// <summary>Root content stack containing all card sections.</summary>
         internal StackPanel ContentStack { get; init; } = null!;
     }
 
@@ -188,7 +200,23 @@ internal static class TranscriptApprovalCardBuilder
         noteBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         noteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
-        stack.Children.Add(noteBox);
+        AutomationProperties.SetName(noteBox, "Approval note");
+
+        // Watermark overlay for the note box
+        var watermark = CreateStyledTextBlock("Add a note about why you're approving…", fontSize - 1, "SubtleText");
+        watermark.IsHitTestVisible = false;
+        watermark.Margin = new Thickness(7, 4, 0, 0);
+        watermark.Opacity = 0.7;
+        noteBox.TextChanged += (_, _) =>
+            watermark.Visibility = string.IsNullOrEmpty(noteBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        noteBox.GotFocus += (_, _) =>
+            watermark.Visibility = Visibility.Collapsed;
+        noteBox.LostFocus += (_, _) =>
+            watermark.Visibility = string.IsNullOrEmpty(noteBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        var noteContainer = new Grid();
+        noteContainer.Children.Add(noteBox);
+        noteContainer.Children.Add(watermark);
+        stack.Children.Add(noteContainer);
 
         // ── Approve button ───────────────────────────────────────────────
         var actionsPanel = new WrapPanel
@@ -209,18 +237,36 @@ internal static class TranscriptApprovalCardBuilder
             MinHeight = 32,
             Cursor = Cursors.Hand,
             BorderThickness = new Thickness(1),
+            ToolTip = activeGateCount > 1
+                ? $"Approve all {activeGateCount} pending checkpoints and resume plan execution"
+                : "Approve this checkpoint and resume plan execution",
         };
+        AutomationProperties.SetName(approveButton, approveLabel);
         if (Application.Current?.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
             approveButton.Style = qrStyle;
         approveButton.SetResourceReference(Control.BackgroundProperty, "ActivePanelSurface");
         approveButton.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
         approveButton.SetResourceReference(Control.BorderBrushProperty, "ActivePanelBorder");
 
-        approveButton.Click += (_, _) =>
+        // Shared approve action used by button click and keyboard shortcut
+        void DoApprove()
         {
+            if (!approveButton.IsEnabled) return;
             var note = string.IsNullOrWhiteSpace(noteBox.Text) ? null : noteBox.Text.Trim();
             approveButton.IsEnabled = false;
             onApprove(note);
+        }
+
+        approveButton.Click += (_, _) => DoApprove();
+
+        // Enter in the note box triggers approval for one-click keyboard flow
+        noteBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                DoApprove();
+            }
         };
 
         actionsPanel.Children.Add(approveButton);
@@ -253,6 +299,9 @@ internal static class TranscriptApprovalCardBuilder
         };
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+        AutomationProperties.SetName(border, $"Approval card for {snapshot.PlanTitle}");
+        AutomationProperties.SetHelpText(border,
+            $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} tasks complete. Gate: {snapshot.GateReason}");
 
         var tag = new TranscriptApprovalCardTag(
             snapshot.PlanId, gate.GateId, plan.Progress.CompletedCount);
@@ -291,6 +340,7 @@ internal static class TranscriptApprovalCardBuilder
 
     // ── Private helpers ──────────────────────────────────────────────────
 
+    /// <summary>Creates a themed <see cref="TextBlock"/> with the given text, size, and foreground resource key.</summary>
     private static TextBlock CreateStyledTextBlock(string text, double fontSize, string foregroundKey)
     {
         var tb = new TextBlock
@@ -303,6 +353,10 @@ internal static class TranscriptApprovalCardBuilder
         return tb;
     }
 
+    /// <summary>
+    /// Builds a themed <see cref="Expander"/> listing changed files with status indicators and diff stats.
+    /// Displays up to 50 files; remaining entries are summarised with a "… and N more" line.
+    /// </summary>
     private static Expander BuildChangedFilesExpander(
         IReadOnlyList<ChangedFileEntry> files,
         double fontSize)
@@ -391,12 +445,17 @@ internal static class TranscriptApprovalCardBuilder
             Margin = new Thickness(0, 2, 0, 4),
         };
         expander.SetResourceReference(Expander.ForegroundProperty, "LabelText");
+        AutomationProperties.SetName(expander, $"{files.Count} changed files");
         if (Application.Current?.TryFindResource("ThemedExpanderStyle") is Style expanderStyle)
             expander.Style = expanderStyle;
 
         return expander;
     }
 
+    /// <summary>
+    /// Builds the semi-transparent spinner overlay displayed over the card during async approval processing.
+    /// Initially <see cref="Visibility.Collapsed"/>; made visible by <see cref="ShowUpdatingState"/>.
+    /// </summary>
     private static Border BuildSpinnerOverlay(double fontSize)
     {
         var spinnerPanel = new StackPanel
@@ -433,6 +492,7 @@ internal static class TranscriptApprovalCardBuilder
             MinHeight = fontSize * 5,
         };
         overlay.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        AutomationProperties.SetName(overlay, "Updating approval request");
         return overlay;
     }
 }
