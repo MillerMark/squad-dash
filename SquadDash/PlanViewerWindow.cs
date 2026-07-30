@@ -306,7 +306,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         root.Children.Add(header);
 
-        var canvas = new Canvas { Background = Brushes.Transparent, Margin = new Thickness(18) };
+        var canvas = new Canvas
+        {
+            Background          = Brushes.Transparent,
+            Margin              = new Thickness(18),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment   = VerticalAlignment.Top,
+        };
         var scroll = new ScrollViewer
         {
             Content = canvas,
