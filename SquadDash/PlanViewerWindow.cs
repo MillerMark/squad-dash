@@ -417,28 +417,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
             actualBefore.OrderBy(id => id, StringComparer.Ordinal)
                 .SequenceEqual(expectedBefore.OrderBy(id => id, StringComparer.Ordinal));
 
-        // A stage milestone is one global boundary: every task in columns to its left must
-        // complete before any task in columns to its right may proceed.
+        // A stage milestone joins the two adjacent displayed columns. Blocking the immediate
+        // next stage also blocks its downstream stages through the dependency graph.
         var lockedMilestoneBoundaryXs = new List<double>();
         var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
         for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
         {
             var leftColumn = columns[columnIndex];
-            var afterIds = group.Tasks
+            var rightColumn = columns[columnIndex + 1];
+            var afterIds = leftColumn
+                .Select(task => task.Id)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            var beforeIds = rightColumn
+                .Select(task => task.Id)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+
+            // Recognize the cumulative boundary representation written by earlier builds so
+            // existing plans remain editable and render through the same milestone control.
+            var legacyAfterIds = group.Tasks
                 .Where(task => levels[task.Id] <= leftColumn.Key)
                 .Select(task => task.Id)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
-            var beforeIds = group.Tasks
+            var legacyBeforeIds = group.Tasks
                 .Where(task => levels[task.Id] > leftColumn.Key)
                 .Select(task => task.Id)
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToArray();
             stageBoundaries.Add((afterIds, beforeIds));
+            stageBoundaries.Add((legacyAfterIds, legacyBeforeIds));
 
-            var existingGate = FindDurableGate(afterIds, beforeIds);
+            var existingGate = FindDurableGate(afterIds, beforeIds) ??
+                               FindDurableGate(legacyAfterIds, legacyBeforeIds);
             var displayedGate = (group.ApprovalGates ?? []).FirstOrDefault(gate =>
-                SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], afterIds, beforeIds));
+                SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], afterIds, beforeIds) ||
+                SameBoundary(gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [], legacyAfterIds, legacyBeforeIds));
             var isLocked = existingGate is not null || displayedGate is not null;
 
             var leftTasks = leftColumn.ToArray();
@@ -469,8 +484,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ? "Preview: human approval is required at this stage milestone."
                         : "Preview: this stop controls approval at the stage milestone."
                     : isLocked
-                        ? "Human approval is required after all work to the left completes and before any work to the right begins. Click to remove."
-                        : "Require human approval after all work to the left completes and before any work to the right begins.",
+                        ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to remove."
+                        : "Require human approval after the stage to the left completes and before the next stage begins.",
                 onGatesChanged is null
                     ? null
                     : () =>
@@ -613,10 +628,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinBeforeIds = targets.Select(task => task.Id).ToArray();
             var joinIsLocked = FindDurableGate(dependencies, joinBeforeIds) is not null ||
                                FindDisplayedGate(dependencies, joinBeforeIds) is not null;
-            // Outbound is dashed when the whole gate is locked OR any individual dep is locked.
-            // Inbound connectors are never dashed — the approval barrier is AFTER the gate, not before it.
-            var outboundDashed = joinIsLocked ||
-                                 dependencies.Any(dep => lockedAfterTaskIds.Contains(dep));
+            // A task-exit gate belongs on that task's segment entering the ALL join. A gate on
+            // the ALL join itself belongs on the shared outbound segment.
+            var outboundDashed = joinIsLocked;
             foreach (var dependency in dependencies.Where(positions.ContainsKey))
             {
                 var source  = positions[dependency];
@@ -627,7 +641,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     fromPt, toPt,
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
-                    dashed: StartsAfterLockedMilestone(fromPt.X),
+                    dashed: lockedAfterTaskIds.Contains(dependency) ||
+                            StartsAfterLockedMilestone(fromPt.X),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
                 RegisterConnector(dependency, cg);
                 cgsForGate.Add(cg);
@@ -899,6 +914,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     contextMenu.Items.Add(addAfterItem);
 
                 var gatesForTask = (group.ApprovalGates ?? [])
+                    .Where(g => !IsStageBoundary(g) && !IsAllJoinBoundary(g))
                     .Where(g =>
                         (g.AfterTaskIds?.Contains(capturedTask.Id, StringComparer.Ordinal) ?? false) ||
                         (g.BeforeTaskIds?.Contains(capturedTask.Id, StringComparer.Ordinal) ?? false))
