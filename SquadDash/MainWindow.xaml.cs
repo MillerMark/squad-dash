@@ -16425,8 +16425,15 @@ public partial class MainWindow : Window
             if (sender is not MenuItem { Tag: AgentStatusCard agentCard })
                 return;
 
-            var fallbackPath = AgentImagePathResolver.ResolveBundledPath(agentCard, _workspacePaths.AgentImageAssetsDirectory);
-            ApplyAgentImage(agentCard, fallbackPath, persist: true);
+            if (_currentWorkspace is not null)
+            {
+                _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
+                    _currentWorkspace.FolderPath,
+                    agentCard.AccentStorageKey,
+                    imagePath: null));
+            }
+
+            ApplyAgentImage(agentCard, ResolveDefaultAgentImagePath(agentCard), persist: false);
         }
         catch (Exception ex)
         {
@@ -35146,6 +35153,7 @@ public partial class MainWindow : Window
         }
 
         var members = _teamRosterLoader.Load(_currentWorkspace.FolderPath);
+        RemoveLegacySharedAgentImageMapping(members);
         SquadDashTrace.Write("AgentCards", $"RefreshAgentCards: workspace={_currentWorkspace.FolderPath} members={members.Count}");
 
         foreach (var member in members)
@@ -43159,8 +43167,37 @@ public partial class MainWindow : Window
             }
         }
 
+        return ResolveDefaultAgentImagePath(card);
+    }
+
+    private string? ResolveDefaultAgentImagePath(AgentStatusCard card)
+    {
         var bundledPath = AgentImagePathResolver.ResolveBundledPath(card, _workspacePaths.AgentImageAssetsDirectory);
         return bundledPath ?? AgentImagePathResolver.ResolveRoleIconPath(card, _workspacePaths.RoleIconAssetsDirectory);
+    }
+
+    private void RemoveLegacySharedAgentImageMapping(IReadOnlyCollection<SquadTeamMember> members)
+    {
+        if (_currentWorkspace is null ||
+            !_settingsSnapshot.AgentImagePathsByWorkspace.TryGetValue(
+                _currentWorkspace.FolderPath,
+                out var workspaceImages))
+            return;
+
+        var obsoleteKey = AgentImageCustomizationMigration.FindObsoleteWorkspaceKey(
+            _currentWorkspace.FolderPath,
+            members,
+            workspaceImages);
+        if (obsoleteKey is null)
+            return;
+
+        _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
+            _currentWorkspace.FolderPath,
+            obsoleteKey,
+            imagePath: null));
+        SquadDashTrace.Write(
+            "AgentCards",
+            $"Removed obsolete shared agent-image mapping workspace={_currentWorkspace.FolderPath} key={obsoleteKey}");
     }
 
     private static ImageSource? LoadAgentImageFromPath(string? imagePath)

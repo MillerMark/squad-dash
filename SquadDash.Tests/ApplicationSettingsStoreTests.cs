@@ -416,6 +416,50 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
+    public void SaveAgentImagePath_Null_RemovesOnlyRequestedAgentMapping() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        store.SaveAgentImagePath(repo, "arjun-sen", @"C:\images\arjun.png");
+        store.SaveAgentImagePath(repo, "lyra-morn", @"C:\images\lyra.png");
+        store.SaveAgentImagePath(repo, "arjun-sen", null);
+
+        var images = store.Load().AgentImagePathsByWorkspace[repo];
+        Assert.Multiple(() => {
+            Assert.That(images.ContainsKey("arjun-sen"), Is.False);
+            Assert.That(images["lyra-morn"], Is.EqualTo(@"C:\images\lyra.png"));
+        });
+    }
+
+    [Test]
+    public void LegacyImageMigration_RemovesWorkspaceKeyOnlyWhenNoAgentOwnsIt() {
+        var members = new[] {
+            new SquadTeamMember("Arjun Sen", "Backend", "Ready", null, null, null, false, "arjun-sen"),
+            new SquadTeamMember("Lyra Morn", "Frontend", "Ready", null, null, null, false, "lyra-morn")
+        };
+        var images = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+            ["NewEmptyProject"] = @"C:\images\arjun.png"
+        };
+
+        var obsoleteKey = AgentImageCustomizationMigration.FindObsoleteWorkspaceKey(
+            @"D:\Drive\Source\NewEmptyProject",
+            members,
+            images);
+        var ownedKey = AgentImageCustomizationMigration.FindObsoleteWorkspaceKey(
+            @"D:\Drive\Source\NewEmptyProject",
+            members.Append(new SquadTeamMember(
+                "NewEmptyProject", "Specialist", "Ready", null, null, null, false, "NewEmptyProject")).ToArray(),
+            images);
+
+        Assert.Multiple(() => {
+            Assert.That(obsoleteKey, Is.EqualTo("NewEmptyProject"));
+            Assert.That(ownedKey, Is.Null);
+        });
+    }
+
+    [Test]
     public void SaveBridgeDiagnosticsEnabled_PersistsGlobally() {
         using var workspace = new TestWorkspace();
         var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));

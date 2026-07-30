@@ -105,6 +105,66 @@ internal sealed class SquadTeamRosterLoaderTests {
     }
 
     [Test]
+    public void Load_UsesAgentFolders_WhenCharterColumnContainsDescriptions() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", """
+            # Squad Team
+
+            ## Members
+
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | Orion Vale | Lead / Architect | Service boundaries, API contracts, technical planning | Active |
+            | Arjun Sen | Backend Dev | Domain modeling, internal APIs, backend implementation | Active |
+            """);
+        workspace.CreateFile(".squad/agents/orion-vale/charter.md", "# Orion Vale — Lead / Architect");
+        workspace.CreateFile(".squad/agents/arjun-sen/charter.md", "# Arjun Sen — Backend Dev");
+        workspace.CreateFile(".squad/casting/registry.json", """
+            {
+              "agents": {
+                "orion-vale": { "persistent_name": "Orion Vale", "status": "active" },
+                "arjun-sen": { "persistent_name": "Arjun Sen", "status": "active" }
+              }
+            }
+            """);
+
+        var members = new SquadTeamRosterLoader().Load(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(members.Select(member => member.AccentKey),
+                Is.EqualTo(new[] { "orion-vale", "arjun-sen" }));
+            Assert.That(members.Select(member => member.FolderPath),
+                Has.All.Not.EqualTo(workspace.RootPath));
+            Assert.That(members[0].CharterPath, Does.EndWith(".squad\\agents\\orion-vale\\charter.md"));
+            Assert.That(members[1].CharterPath, Does.EndWith(".squad\\agents\\arjun-sen\\charter.md"));
+        });
+    }
+
+    [Test]
+    public void Load_DoesNotTreatCharterDescriptionAsWorkspaceRelativePath_WhenAgentFolderIsAbsent() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", """
+            # Squad Team
+
+            ## Members
+
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | Alpha One | Architect | Service boundaries and review | Active |
+            | Beta Two | QA | Verification and edge cases | Active |
+            """);
+
+        var members = new SquadTeamRosterLoader().Load(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(members.Select(member => member.AccentKey),
+                Is.EqualTo(new[] { "Alpha One", "Beta Two" }));
+            Assert.That(members.Select(member => member.FolderPath), Has.All.Null);
+            Assert.That(members.Select(member => member.CharterPath), Has.All.Null);
+        });
+    }
+
+    [Test]
     public void HasNonUtilityMembers_ReturnsFalse_ForUtilityOnlyRoster() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/agents/ralph/charter.md", "# Ralph");

@@ -177,6 +177,25 @@ internal sealed class SquadTeamRosterLoader {
                 metadata.Name,
                 normalizedFolderPath is null ? null : TitleCase(Path.GetFileName(normalizedFolderPath)))
             ?? "Agent";
+
+        // Some Squad team.md formats use the Charter column for a prose responsibility summary
+        // rather than a charter file path. In that case, recover the stable roster identity from
+        // the casting registry or matching .squad/agents folder instead of treating the prose as
+        // a path below the workspace. Treating it as a path makes every row's parent directory the
+        // workspace root and therefore gives every agent the same AccentKey.
+        if (normalizedFolderPath is null) {
+            normalizedFolderPath = ResolveAgentFolder(workspaceFolder, displayName);
+            if (normalizedFolderPath is not null) {
+                var inferredCharterPath = Path.Combine(normalizedFolderPath, "charter.md");
+                if (File.Exists(inferredCharterPath)) {
+                    charterPath = inferredCharterPath;
+                    metadata = ReadCharterMetadata(charterPath);
+                    displayName = FirstNonEmpty(name, metadata.Name, TitleCase(Path.GetFileName(normalizedFolderPath)))
+                        ?? displayName;
+                }
+            }
+        }
+
         var displayRole = FirstNonEmpty(role, metadata.Role) ?? string.Empty;
         var isUtility = IsUtilityIdentity(displayName, normalizedFolderPath);
 
@@ -291,8 +310,12 @@ internal sealed class SquadTeamRosterLoader {
         if (cleaned is "—" or "-" or "–" or "N/A" or "n/a")
             return null;
 
-        if (Path.IsPathRooted(cleaned))
-            return NormalizePath(cleaned);
+        if (Path.IsPathRooted(cleaned)) {
+            var rootedPath = NormalizePath(cleaned);
+            return File.Exists(rootedPath) || LooksLikeCharterPath(cleaned)
+                ? rootedPath
+                : null;
+        }
 
         // Try workspace-relative first, then .squad-relative as fallback
         var workspaceRelative = NormalizePath(Path.Combine(workspaceFolder, cleaned));
@@ -304,7 +327,90 @@ internal sealed class SquadTeamRosterLoader {
         if (File.Exists(squadRelative))
             return squadRelative;
 
-        return workspaceRelative;
+        // Preserve an explicitly path-shaped missing charter so its intended agent folder can
+        // still provide stable identity. Plain prose is not a path and must not be returned here.
+        return LooksLikeCharterPath(cleaned) ? workspaceRelative : null;
+    }
+
+    private static bool LooksLikeCharterPath(string value) {
+        if (value.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var normalized = value.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        return normalized.Contains($"{Path.DirectorySeparatorChar}.squad{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains($"{Path.DirectorySeparatorChar}agents{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith($".squad{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith($"agents{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ResolveAgentFolder(string workspaceFolder, string displayName) {
+        var squadFolder = ResolveSquadFolder(workspaceFolder);
+        var agentsFolder = Path.Combine(squadFolder, "agents");
+        if (!Directory.Exists(agentsFolder))
+            return null;
+
+        var normalizedDisplayName = NormalizeIdentityKey(displayName);
+        var registryPath = Path.Combine(squadFolder, "casting", "registry.json");
+        if (File.Exists(registryPath)) {
+            try {
+                using var stream = File.OpenRead(registryPath);
+                using var document = JsonDocument.Parse(stream);
+                if (document.RootElement.TryGetProperty("agents", out var agents)) {
+                    foreach (var entry in agents.EnumerateObject()) {
+                        var persistentName = entry.Value.TryGetProperty("persistent_name", out var nameProperty)
+                            ? nameProperty.GetString()
+                            : null;
+                        if (!string.Equals(persistentName?.Trim(), displayName.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(NormalizeIdentityKey(entry.Name), normalizedDisplayName, StringComparison.Ordinal))
+                            continue;
+
+                        var registeredFolder = Path.Combine(agentsFolder, entry.Name);
+                        if (Directory.Exists(registeredFolder))
+                            return NormalizePath(registeredFolder);
+                    }
+                }
+            }
+            catch {
+                // A malformed optional registry must not prevent folder/name fallback below.
+            }
+        }
+
+        foreach (var directory in Directory.GetDirectories(agentsFolder)) {
+            if (string.Equals(
+                    NormalizeIdentityKey(Path.GetFileName(directory)),
+                    normalizedDisplayName,
+                    StringComparison.Ordinal))
+                return NormalizePath(directory);
+        }
+
+        foreach (var directory in Directory.GetDirectories(agentsFolder)) {
+            var metadata = ReadCharterMetadata(Path.Combine(directory, "charter.md"));
+            if (string.Equals(metadata.Name?.Trim(), displayName.Trim(), StringComparison.OrdinalIgnoreCase))
+                return NormalizePath(directory);
+        }
+
+        return null;
+    }
+
+    private static string NormalizeIdentityKey(string? value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        var separatorPending = false;
+        foreach (var character in value.Trim()) {
+            if (char.IsLetterOrDigit(character)) {
+                if (separatorPending && builder.Length > 0)
+                    builder.Append('-');
+                builder.Append(char.ToLowerInvariant(character));
+                separatorPending = false;
+            }
+            else {
+                separatorPending = builder.Length > 0;
+            }
+        }
+
+        return builder.ToString();
     }
 
     private static string ResolveSquadFolder(string workspaceFolder) {
