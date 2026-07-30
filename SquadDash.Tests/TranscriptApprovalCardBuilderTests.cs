@@ -142,4 +142,115 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(tag1.Version, Is.EqualTo(3));
         });
     }
+
+    [Test]
+    public void BuildApproveLabel_ZeroGates_ReturnsCheckpointLabel()
+    {
+        var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(0);
+        Assert.That(label, Does.Contain("Approve Checkpoint"));
+        Assert.That(label, Does.Not.Contain("0"));
+    }
+
+    [Test]
+    public void Snapshot_WithNoCompletedTasks_HasEmptyList()
+    {
+        var snapshot = new ApprovalReviewSnapshot(
+            PlanId: "PLAN-EMPTY",
+            PlanTitle: "Empty Plan",
+            CompletedTaskCount: 0,
+            TotalTaskCount: 3,
+            CurrentStage: "stage-1",
+            GateId: "gate-1",
+            GateReason: "Early checkpoint",
+            AfterTaskIds: [],
+            BeforeTaskIds: ["task-1"],
+            CompletedTasks: [],
+            DownstreamTasks: [],
+            AllChangedFiles: [],
+            IndependentWork: [],
+            BuiltAt: DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.CompletedTasks, Is.Empty);
+            Assert.That(snapshot.AllChangedFiles, Is.Empty);
+            Assert.That(snapshot.DownstreamTasks, Is.Empty);
+            Assert.That(snapshot.CurrentStage, Is.EqualTo("stage-1"));
+        });
+    }
+
+    [Test]
+    public void Snapshot_WithCurrentStage_IncludesStageInProperties()
+    {
+        var snapshot = BuildTestSnapshot();
+
+        Assert.That(snapshot.CurrentStage, Is.Null);
+
+        var snapshotWithStage = new ApprovalReviewSnapshot(
+            PlanId: snapshot.PlanId,
+            PlanTitle: snapshot.PlanTitle,
+            CompletedTaskCount: snapshot.CompletedTaskCount,
+            TotalTaskCount: snapshot.TotalTaskCount,
+            CurrentStage: "deployment",
+            GateId: snapshot.GateId,
+            GateReason: snapshot.GateReason,
+            AfterTaskIds: snapshot.AfterTaskIds,
+            BeforeTaskIds: snapshot.BeforeTaskIds,
+            CompletedTasks: snapshot.CompletedTasks,
+            DownstreamTasks: snapshot.DownstreamTasks,
+            AllChangedFiles: snapshot.AllChangedFiles,
+            IndependentWork: snapshot.IndependentWork,
+            BuiltAt: snapshot.BuiltAt);
+
+        Assert.That(snapshotWithStage.CurrentStage, Is.EqualTo("deployment"));
+    }
+
+    [Test]
+    public void Snapshot_ManyDownstreamTasks_AllPreserved()
+    {
+        var snapshot = BuildTestSnapshot(downstreamTaskCount: 8);
+
+        Assert.That(snapshot.DownstreamTasks, Has.Count.EqualTo(8));
+        Assert.That(snapshot.DownstreamTasks[7].Title, Is.EqualTo("Downstream task 7"));
+    }
+
+    [Test]
+    public void Snapshot_ManyChangedFiles_AllPreserved()
+    {
+        var snapshot = BuildTestSnapshot(changedFileCount: 60);
+
+        Assert.That(snapshot.AllChangedFiles, Has.Count.EqualTo(60));
+        Assert.That(snapshot.AllChangedFiles[0].Status, Is.EqualTo(FileChangeStatus.Added));
+        Assert.That(snapshot.AllChangedFiles[1].Status, Is.EqualTo(FileChangeStatus.Modified));
+    }
+
+    [Test]
+    public void TranscriptApprovalCardTag_DifferentVersion_NotEqual()
+    {
+        var tag1 = new TranscriptApprovalCardTag("plan-1", "gate-1", 3);
+        var tag2 = new TranscriptApprovalCardTag("plan-1", "gate-1", 4);
+
+        Assert.That(tag1, Is.Not.EqualTo(tag2));
+    }
+
+    [Test]
+    public void CommitLink_InternalUri_Format()
+    {
+        var link = new CommitLink("abc1234", "abc1234567890abcdef", "Fix bug");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(link.InternalUri, Is.EqualTo("app://commit-diff:abc1234567890abcdef"));
+            Assert.That(link.ShortSha, Is.EqualTo("abc1234"));
+        });
+    }
+
+    [Test]
+    public void Snapshot_UnverifiedCommit_HasNullVerification()
+    {
+        var snapshot = BuildTestSnapshot();
+        var secondCommit = snapshot.CompletedTasks[1].Commits[0];
+
+        Assert.That(secondCommit.VerificationPassed, Is.Null);
+    }
 }

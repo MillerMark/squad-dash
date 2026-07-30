@@ -117,7 +117,7 @@ internal static class TranscriptApprovalCardBuilder
                     var subjectBlock = CreateStyledTextBlock(
                         $"  {commit.Link.Subject}", fontSize - 2, "BodyText");
                     subjectBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-                    subjectBlock.MaxWidth = 500;
+                    subjectBlock.MaxWidth = fontSize * 36;
                     commitLine.Children.Add(subjectBlock);
 
                     if (commit.VerificationPassed is bool verified)
@@ -197,9 +197,7 @@ internal static class TranscriptApprovalCardBuilder
             Margin = new Thickness(0, 0, 0, 2),
         };
 
-        var approveLabel = activeGateCount > 1
-            ? $"✅ Approve {activeGateCount} Ready Checkpoints & Continue"
-            : "✅ Approve Checkpoint & Continue";
+        var approveLabel = ApprovalCardNotificationCoordinator.BuildApproveLabel(activeGateCount);
 
         var approveButton = new Button
         {
@@ -242,7 +240,7 @@ internal static class TranscriptApprovalCardBuilder
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(14, 10, 14, 10),
-            MaxWidth = 760,
+            MaxWidth = fontSize * 54,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 4, 0, 4),
             Effect = new DropShadowEffect
@@ -337,13 +335,13 @@ internal static class TranscriptApprovalCardBuilder
 
             var statusBlock = CreateStyledTextBlock(statusChar, fontSize - 2, statusColor);
             statusBlock.FontFamily = new FontFamily("Consolas");
-            statusBlock.Width = 16;
+            statusBlock.Width = fontSize;
             line.Children.Add(statusBlock);
 
             var pathBlock = CreateStyledTextBlock(file.FilePath, fontSize - 2, "BodyText");
             pathBlock.FontFamily = new FontFamily("Consolas");
             pathBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-            pathBlock.MaxWidth = 500;
+            pathBlock.MaxWidth = fontSize * 36;
             line.Children.Add(pathBlock);
 
             if (file.Insertions > 0 || file.Deletions > 0)
@@ -432,7 +430,7 @@ internal static class TranscriptApprovalCardBuilder
             Child = spinnerPanel,
             Visibility = Visibility.Collapsed,
             CornerRadius = new CornerRadius(8),
-            MinHeight = 80,
+            MinHeight = fontSize * 5,
         };
         overlay.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         return overlay;
