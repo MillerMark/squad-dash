@@ -3766,9 +3766,10 @@ public partial class MainWindow : Window
                 if (tab.ToolTip is ToolTip openTip)
                 {
                     openTip.IsOpen = false;
+                    openTip.Content = null;
                     System.Windows.Data.BindingOperations.ClearAllBindings(openTip);
                 }
-                tab.ToolTip = null;
+                tab.ClearValue(FrameworkElement.ToolTipProperty);
                 tab.ToolTip = isActive ? BuildQueueTabActiveTooltip(plainTooltip) : (object)plainTooltip;
             }
         }
