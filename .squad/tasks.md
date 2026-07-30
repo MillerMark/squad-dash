@@ -1,4 +1,45 @@
-﻿<!-- decompose-group: PLANUX-20260728 | branch: feature/plans-usability | revision: 684dee730639f49b -->
+﻿<!-- decompose-group: ROUTEPROBE-20260729 | branch: codex/live-plan-agent-routing-probe | revision: 1be54f689db9ae40 -->
+**[ROUTEPROBE-20260729] Verified Agent Transport and Handoff Probe**
+> Verify the repaired roster-identity path with a production-built prompt transported through line-ending normalization, then document the proven operating and recovery procedure.
+
+- [x] **[ROUTEPROBE-20260729-001]** Verify transported roster identity end to end
+  (SquadDash status: Completed by SquadDash — commit 774a047: Verified the transported roster identity contract end to end; host adoption independently confirmed HEAD, parentage, changed paths, plan revision, and all 3,505 tests.)
+  Group: ROUTEPROBE-20260729 | Branch: codex/live-plan-agent-routing-probe | Priority: high
+  description: Extend SquadDash.Tests/PlanAgentExecutionContractIntegrationTests.cs with a production-path regression that writes an authorized roster charter with CRLF line endings and a trailing newline, builds the assigned-worker routing context through DecomposePlanningInstructions.BuildPlanStepRoutingContext, simulates prompt transport normalization to LF and terminal-newline loss, and resolves the launch through BackgroundAgentLaunchInfoResolver. Record required context reads and successful completion, then assert PlanAgentAssignmentValidator and coordinator wrap-up validation accept the same host attempt. Also prove a content-modified charter remains unverified. Run the focused routing tests and commit exactly one verified commit. Do not edit production code unless this end-to-end test exposes a genuine defect. Do not modify or commit .squad/tasks.md.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"routing contract integration tester","allowGenericChildren":false}]
+  agentRoutingMode: assigned
+
+- [x] **[ROUTEPROBE-20260729-002]** Document verified routing and recovery
+  (SquadDash status: Completed by SquadDash — commit 8935e51: Mira Quill authored the routing contract; direct follow-up moved it to docs/developing/verified-plan-agent-routing.md and completed explicit generic routing, live identity evidence, fail-closed behavior, interruption recovery, and deterministic verification guidance.)
+  Group: ROUTEPROBE-20260729 | Branch: codex/live-plan-agent-routing-probe | Priority: medium
+  description: Create docs/developing/verified-plan-agent-routing.md. Document assigned roster routing versus explicit generic routing, the host-owned execution attempt, complete-charter and context-read requirements, prompt transport normalization, coordinator wrap-up evidence, deterministic test commands, expected Vesper Knox and Mira Quill UI identity, the verified=true trace evidence, fail-closed symptoms, interrupted-plan preservation, and the clean fresh-attempt procedure. Reference the actual implementation and test files, verify every repository path and command, run an appropriate documentation/path check, and commit exactly one verified commit. Do not modify or commit .squad/tasks.md.
+  dependsOn: ROUTEPROBE-20260729-001
+  agentAssignments: [{"agentHandle":"mira-quill","role":"developer documentation author and verifier","allowGenericChildren":false}]
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: ROUTEPROBE-20260728 | branch: codex/live-plan-agent-routing-probe | revision: 600e50cd82fe3eb9 -->
+**[ROUTEPROBE-20260728] Live Verified Agent Routing Probe**
+> Run a small real plan through named-agent routing, host-owned execution evidence, restart-safe persistence, structured wrap-up, and sequential commits without changing production behavior.
+
+- [!] **[ROUTEPROBE-20260728-001]** Add the live generic-routing contract probe
+  (Failed — see inbox for details.)
+  Group: ROUTEPROBE-20260728 | Branch: codex/live-plan-agent-routing-probe | Priority: high
+  description: Create SquadDash.Tests/PlanAgentRoutingLiveProbeTests.cs. Add a focused NUnit integration fixture for the explicit generic-primary execution path using production PlanExecutionAttemptState.CreateGeneric, PlanExecutionEvidenceRecorder, WorkspaceConversationStore persistence and reload, DecomposeStepResultParser, and PlanAgentAssignmentValidator.ValidateGeneric. Cover one accepted lifecycle and at least two fail-closed cases: a second primary and a child launch. Do not edit production code unless a test exposes a genuine defect. Run the focused fixture and commit exactly one verified commit for this task.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"test author and verifier","allowGenericChildren":false}]
+  agentRoutingMode: assigned
+
+- [ ] **[ROUTEPROBE-20260728-002]** Document the verified-routing test procedure
+  Group: ROUTEPROBE-20260728 | Branch: codex/live-plan-agent-routing-probe | Priority: medium
+  description: Create docs/developing/verified-plan-agent-routing.md. Document assigned roster routing versus explicit generic routing, the host-owned execution attempt, charter and context-read requirements, coordinator wrap-up evidence, deterministic test commands, live transcript and agent-card observations, expected fail-closed symptoms, and branch cleanup after a disposable probe. Reference SquadDash.Tests/PlanAgentExecutionContractIntegrationTests.cs and the new live-probe fixture. Verify every repository path mentioned and commit exactly one documentation commit for this task.
+  dependsOn: ROUTEPROBE-20260728-001
+  agentAssignments: [{"agentHandle":"mira-quill","role":"developer documentation author","allowGenericChildren":false}]
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: PLANUX-20260728 | branch: feature/plans-usability | revision: 684dee730639f49b -->
 **[PLANUX-20260728] Polish Plan and Loop Execution Usability**
 > Correct completion bookkeeping and make long-running plans understandable and responsive: route work through qualified roster agents, keep workers visibly live, shorten loop cadence, consolidate loop status and durable logs, and replace protocol/recovery confusion with concise recommended actions.
 
