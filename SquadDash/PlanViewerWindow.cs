@@ -1393,13 +1393,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)
     {
         var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
-        var verticalOffset = _graphScroll?.VerticalOffset ?? 0;
-        BuildContent(plan, durablePlan);
+        var verticalOffset   = _graphScroll?.VerticalOffset  ?? 0;
+        // Defer the content rebuild to the next dispatcher cycle so any in-flight mouse/keyboard
+        // event (e.g. ButtonBase.OnMouseLeftButtonDown calling Focus()) fully completes before
+        // _contentHolder.Child is replaced. Replacing the child mid-event detaches elements from
+        // the visual tree while WPF's input system still holds references to them, which causes
+        // a NullReferenceException inside HwndKeyboardInputProvider.AcquireFocus.
         Dispatcher.BeginInvoke(() =>
         {
-            _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
-            _graphScroll?.ScrollToVerticalOffset(verticalOffset);
-        }, System.Windows.Threading.DispatcherPriority.Loaded);
+            BuildContent(plan, durablePlan);
+            Dispatcher.BeginInvoke(() =>
+            {
+                _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
+                _graphScroll?.ScrollToVerticalOffset(verticalOffset);
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }, System.Windows.Threading.DispatcherPriority.Normal);
     }
 
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
