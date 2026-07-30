@@ -230,6 +230,65 @@ internal static class PlanStoreUpdater
         };
     }
 
+    /// <summary>
+    /// Marks a gate as ready for approval without transitioning the plan to awaiting-approval.
+    /// Sets the gate status to <see cref="PlanGateStatus.AwaitingApproval"/> and records
+    /// <see cref="PlanApprovalGate.RequestedAt"/>, but keeps the plan in
+    /// <see cref="PlanLifecycleStatus.Executing"/> so ungated tasks continue running.
+    /// </summary>
+    internal static Plan ApplyGateReady(Plan existing, string gateId)
+    {
+        var gate = existing.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status != PlanGateStatus.Pending) return existing;
+
+        var now = DateTimeOffset.UtcNow;
+        var updatedGate = gate with
+        {
+            Status = PlanGateStatus.AwaitingApproval,
+            RequestedAt = now,
+            NotifiedAt = gate.NotifiedAt ?? now,
+        };
+        var updatedGates = existing.ApprovalGates
+            .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
+            .ToList<PlanApprovalGate>();
+
+        // Keep lifecycle as Executing — the loop continues with ungated work
+        return existing with { ApprovalGates = updatedGates };
+    }
+
+    /// <summary>
+    /// Resolves all provided ready gate IDs at once and transitions to
+    /// <see cref="PlanLifecycleStatus.AwaitingApproval"/> only when used as a full-stop boundary.
+    /// Each gate in <paramref name="readyGateIds"/> that is in
+    /// <see cref="PlanGateStatus.Pending"/> is moved to <see cref="PlanGateStatus.AwaitingApproval"/>.
+    /// The plan lifecycle transitions to AwaitingApproval and clears ExecutingTaskId.
+    /// </summary>
+    internal static Plan ApplyFullStopAtGates(Plan existing, IReadOnlyList<string> readyGateIds)
+    {
+        if (readyGateIds.Count == 0) return existing;
+
+        var readySet = readyGateIds.ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        var updatedGates = existing.ApprovalGates.Select(g =>
+        {
+            if (!readySet.Contains(g.GateId) || g.Status != PlanGateStatus.Pending) return g;
+            return g with
+            {
+                Status = PlanGateStatus.AwaitingApproval,
+                RequestedAt = now,
+                NotifiedAt = g.NotifiedAt ?? now,
+            };
+        }).ToList<PlanApprovalGate>();
+
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            ApprovalGates = updatedGates,
+            Progress = existing.Progress with { ExecutingTaskId = null },
+        };
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>Counts completed and total items to build a <see cref="PlanProgress"/>.</summary>
