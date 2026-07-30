@@ -58,7 +58,7 @@
     <SolidColorBrush x:Key="ActivePanelBorder" Color="#2B4065"/>
     <SolidColorBrush x:Key="RosterPanelBorder" Color="#3E3630"/>
     <SolidColorBrush x:Key="WorkspaceBorder" Color="#38322A"/>
-    <SolidColorBrush x:Key="LineColor" Color="#4E4134"/>
+    <SolidColorBrush x:Key="LineColor" Color="#58483A"/>
     <SolidColorBrush x:Key="TranscriptBorder" Color="#38322A"/>
     <SolidColorBrush x:Key="InputBorder" Color="#3A342C"/>
     <SolidColorBrush x:Key="SubtleBorder" Color="#3E3630"/>
