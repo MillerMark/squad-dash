@@ -397,32 +397,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var x = 42 + column.Key * ColumnSpacing;
 
             var mainTitle    = $"Stage {column.Key + 1}";
-            var subtitle     = tasks.Length == 1 ? null : $"{tasks.Length} independent tasks";
 
             var titleBlock = new TextBlock
             {
                 Text       = mainTitle,
                 FontWeight = FontWeights.SemiBold,
             };
-            titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "TitleText");
             titleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
 
-            UIElement headerElement;
-            if (subtitle is not null)
-            {
-                var subtitleBlock = new TextBlock { Text = subtitle };
-                subtitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                subtitleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSubtitle");
-
-                var stack = new StackPanel { Orientation = Orientation.Vertical };
-                stack.Children.Add(titleBlock);
-                stack.Children.Add(subtitleBlock);
-                headerElement = stack;
-            }
-            else
-            {
-                headerElement = titleBlock;
-            }
+            UIElement headerElement = titleBlock;
 
             Canvas.SetLeft(headerElement, x);
             Canvas.SetTop(headerElement, 10);

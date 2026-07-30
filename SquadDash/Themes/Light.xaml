@@ -88,6 +88,7 @@
     <SolidColorBrush x:Key="ToolTipForeground" Color="#1A1A1A"/><!-- near-black for high contrast on light tooltip background -->
     <SolidColorBrush x:Key="CodeText" Color="#2A1E12"/>
     <SolidColorBrush x:Key="SubtleText" Color="#7D6853"/>
+    <SolidColorBrush x:Key="TitleText" Color="#BEB4A9"/>
     <SolidColorBrush x:Key="AgentRoleText" Color="#6E5035"/>
     <SolidColorBrush x:Key="AgentStatusText" Color="#6B4A28"/>
     <SolidColorBrush x:Key="AgentDetailText" Color="#876C53"/>
