@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -69,6 +70,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
 
@@ -1312,6 +1314,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         canvas.Width= Math.Max(1080, positions.Values.Max(point => point.X) + NodeWidth + 70);
         canvas.Height = Math.Max(560, positions.Values.Max(point => point.Y) + NodeHeight + 70);
+
+        if (durablePlan is not null)
+        {
+            var approvalSummary = BuildApprovalSummaryPanel(durablePlan, levels);
+            Grid.SetRow(approvalSummary, 2);
+            root.Children.Add(approvalSummary);
+        }
     }
 
     /// <summary>
@@ -1330,6 +1339,140 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
             _graphScroll?.ScrollToVerticalOffset(verticalOffset);
         }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private static FrameworkElement BuildApprovalSummaryPanel(
+        Plan plan, IReadOnlyDictionary<string, int> levels)
+    {
+        var title = new TextBlock
+        {
+            Text = "Human approval requirements",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(10, 7, 10, 3),
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        var document = new FlowDocument
+        {
+            PagePadding = new Thickness(10, 2, 10, 8),
+            ColumnWidth = double.PositiveInfinity,
+        };
+        document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
+        document.SetResourceReference(FlowDocument.BackgroundProperty, "CardSurface");
+        document.SetResourceReference(FlowDocument.FontSizeProperty, "FontSizeBody");
+
+        string TaskName(string id) => plan.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, id, StringComparison.Ordinal)) is { } task
+                ? task.Title ?? task.Description
+                : id;
+
+        static Paragraph Sentence(string prefix, string boldText, string suffix)
+        {
+            var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
+            paragraph.Inlines.Add(new Run(prefix));
+            paragraph.Inlines.Add(new Bold(new Run(boldText)));
+            paragraph.Inlines.Add(new Run(suffix));
+            return paragraph;
+        }
+
+        System.Windows.Documents.List TaskList(IEnumerable<string> taskIds)
+        {
+            var list = new System.Windows.Documents.List
+            {
+                MarkerStyle = TextMarkerStyle.Disc,
+                Margin = new Thickness(20, 1, 0, 2),
+            };
+            foreach (var taskId in taskIds)
+            {
+                var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
+                paragraph.Inlines.Add(new Bold(new Run(TaskName(taskId))));
+                list.ListItems.Add(new ListItem(paragraph));
+            }
+            return list;
+        }
+
+        var summary = PlanApprovalSummaryBuilder.Build(plan, levels);
+        if (plan.ApprovalGates.Count == 0)
+        {
+            document.Blocks.Add(new Paragraph(new Run("No human approval requirements."))
+                { Margin = new Thickness(0) });
+        }
+        else if (summary.BetweenEveryStage)
+        {
+            document.Blocks.Add(new Paragraph(new Run(
+                "Human approval will be required between every stage.")) { Margin = new Thickness(0) });
+        }
+        else
+        {
+            var list = new System.Windows.Documents.List
+            {
+                MarkerStyle = TextMarkerStyle.Disc,
+                Margin = new Thickness(18, 0, 0, 0),
+            };
+            foreach (var item in summary.Items)
+            {
+                var listItem = new ListItem();
+                switch (item.Kind)
+                {
+                    case ApprovalSummaryKind.TaskBefore:
+                        listItem.Blocks.Add(Sentence("Before ", TaskName(item.TaskId!), " starts."));
+                        break;
+                    case ApprovalSummaryKind.TaskAfter:
+                        listItem.Blocks.Add(Sentence("After ", TaskName(item.TaskId!), " completes."));
+                        break;
+                    case ApprovalSummaryKind.Stage:
+                        listItem.Blocks.Add(new Paragraph(new Run(
+                            $"After Stage {item.LeftStage} completes and before Stage {item.LeftStage + 1} begins."))
+                            { Margin = new Thickness(0, 1, 0, 1) });
+                        break;
+                    case ApprovalSummaryKind.All:
+                        listItem.Blocks.Add(new Paragraph(new Run("After all the following tasks complete:"))
+                            { Margin = new Thickness(0, 1, 0, 1) });
+                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
+                        break;
+                    default:
+                        listItem.Blocks.Add(new Paragraph(new Run("Approval after:"))
+                            { Margin = new Thickness(0, 1, 0, 1) });
+                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
+                        listItem.Blocks.Add(new Paragraph(new Run("Before:"))
+                            { Margin = new Thickness(0, 2, 0, 1) });
+                        listItem.Blocks.Add(TaskList(item.BeforeTaskIds));
+                        break;
+                }
+                list.ListItems.Add(listItem);
+            }
+            document.Blocks.Add(list);
+        }
+
+        var viewer = new FlowDocumentScrollViewer
+        {
+            Document = document,
+            IsToolBarVisible = false,
+            MaxHeight = 170,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(0),
+            Padding = new Thickness(0),
+        };
+        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "LabelText");
+        viewer.SetResourceReference(FlowDocumentScrollViewer.FontSizeProperty, "FontSizeBody");
+
+        var stack = new DockPanel();
+        DockPanel.SetDock(title, Dock.Top);
+        stack.Children.Add(title);
+        stack.Children.Add(viewer);
+
+        var border = new Border
+        {
+            Child = stack,
+            BorderThickness = new Thickness(1, 1, 0, 0),
+            Margin = new Thickness(0),
+        };
+        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+        border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        return border;
     }
 
     private static FrameworkElement CreateApprovalStop(
