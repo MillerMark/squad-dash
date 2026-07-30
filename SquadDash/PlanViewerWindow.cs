@@ -1312,11 +1312,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             var approvalSummary = BuildApprovalSummaryPanel(durablePlan, levels);
             Grid.SetRow(approvalSummary, 2);
+            approvalSummary.Visibility = Visibility.Collapsed;
             root.Children.Add(approvalSummary);
 
-            // Auto-expand the window downward to fit the approval summary without scrollbars,
-            // if the window is fully contained on one monitor and has room below.
-            approvalSummary.Loaded += (_, _) => TryExpandForApprovalSummary(approvalSummary);
+            // Defer expansion to after layout completes so we can measure without stealing graph space.
+            Dispatcher.BeginInvoke(() => RevealApprovalSummary(approvalSummary),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
     }
 
@@ -1485,13 +1486,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return border;
     }
 
-    private void TryExpandForApprovalSummary(FrameworkElement approvalSummary)
+    private void RevealApprovalSummary(FrameworkElement approvalSummary)
     {
+        // Measure how much space the summary needs while still collapsed.
+        approvalSummary.Visibility = Visibility.Visible;
+        approvalSummary.MaxHeight = 0;
+        UpdateLayout();
+
         approvalSummary.Measure(new Size(ActualWidth, double.PositiveInfinity));
         var desiredHeight = approvalSummary.DesiredSize.Height;
-        var currentHeight = approvalSummary.ActualHeight;
-        var delta = desiredHeight - currentHeight;
-        if (delta <= 0) return;
+        if (desiredHeight <= 0)
+        {
+            approvalSummary.MaxHeight = double.PositiveInfinity;
+            return;
+        }
 
         // Get the monitor work area in physical pixels via the window's HWND.
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
@@ -1519,17 +1527,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var availableBelowPhysical = workArea.Bottom - windowBottomPhysical;
         var availableBelow = availableBelowPhysical / dpiY;
 
-        if (availableBelow >= delta)
+        if (availableBelow >= desiredHeight)
         {
-            Height = ActualHeight + delta;
+            // Plenty of room — grow window, then reveal at full size.
+            Height = ActualHeight + desiredHeight;
+            approvalSummary.MaxHeight = double.PositiveInfinity;
         }
         else if (availableBelow > 0)
         {
+            // Partial room — grow what we can, constrain the summary.
             Height = ActualHeight + availableBelow;
-            approvalSummary.MaxHeight = currentHeight + availableBelow;
+            approvalSummary.MaxHeight = availableBelow;
         }
         else
         {
+            // No room — use scrollbar fallback.
             approvalSummary.MaxHeight = 170;
         }
     }
