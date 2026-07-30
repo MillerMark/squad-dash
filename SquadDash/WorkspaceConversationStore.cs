@@ -865,7 +865,8 @@ internal sealed record ActiveLoopExecutionState(
     string? DecomposeGroupId = null,
     string? DecomposeRevision = null,
     PlanExecutionAttemptState? PlanExecutionAttempt = null,
-    IReadOnlyList<PlanExecutionAttemptState>? PreviousPlanExecutionAttempts = null)
+    IReadOnlyList<PlanExecutionAttemptState>? PreviousPlanExecutionAttempts = null,
+    int LastCompletedIteration = 0)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -902,7 +903,13 @@ internal sealed record ActiveLoopExecutionState(
             .ToArray();
 
         return new ActiveLoopExecutionState(
-            loopPath, filter, groupId, revision, attempt, previousAttempts);
+            loopPath,
+            filter,
+            groupId,
+            revision,
+            attempt,
+            previousAttempts,
+            Math.Max(0, state.LastCompletedIteration));
     }
 }
 

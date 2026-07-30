@@ -688,7 +688,8 @@ internal sealed class WorkspaceConversationStoreTests {
                     "  D:/repo/.squad/loop-executing-plan.md  ",
                     "  GODCLASS-20260725  ",
                     "  GODCLASS-20260725  ",
-                    "  revision-123  "),
+                    "  revision-123  ",
+                    LastCompletedIteration: 4),
             });
 
         var loaded = _store.Load(_workspacePath);
@@ -701,6 +702,42 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(loaded.ActiveLoopExecution?.FilterText, Is.EqualTo("GODCLASS-20260725"));
             Assert.That(loaded.ActiveLoopExecution?.DecomposeGroupId, Is.EqualTo("GODCLASS-20260725"));
             Assert.That(loaded.ActiveLoopExecution?.DecomposeRevision, Is.EqualTo("revision-123"));
+            Assert.That(loaded.ActiveLoopExecution?.LastCompletedIteration, Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public void StartupResume_IsOwnedByTheWorkspaceThatPersistedTheEnvelope()
+    {
+        var otherWorkspace = _workspace.GetPath("other-workspace");
+        Directory.CreateDirectory(otherWorkspace);
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveLoopExecution = new ActiveLoopExecutionState(
+                    "D:/repo-a/.squad/loop-executing-plan.md",
+                    "PLAN-A",
+                    "PLAN-A",
+                    "revision-a",
+                    LastCompletedIteration: 1)
+            });
+        _store.Save(otherWorkspace, WorkspaceConversationState.Empty);
+
+        var ownerState = _store.Load(_workspacePath);
+        var unrelatedState = _store.Load(otherWorkspace);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                LoopStartupResumePolicy.Resolve(ownerState.ActiveLoopExecution, false, false, false, false),
+                Is.EqualTo(LoopStartupResumeAction.StartImmediately));
+            Assert.That(
+                LoopStartupResumePolicy.Resolve(unrelatedState.ActiveLoopExecution, false, false, false, false),
+                Is.EqualTo(LoopStartupResumeAction.None));
+            Assert.That(
+                _store.Load(_workspacePath).ActiveLoopExecution?.DecomposeGroupId,
+                Is.EqualTo("PLAN-A"),
+                "Opening an unrelated workspace must not consume the owner's restart envelope.");
         });
     }
 

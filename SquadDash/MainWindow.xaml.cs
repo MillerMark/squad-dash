@@ -563,6 +563,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
     private DateTimeOffset? _loopRoundStartedAt;
+    private LoopRoundExecutionIdentity? _loopRoundExecutionIdentity;
     private DateTimeOffset? _loopPlanStartedAt;
     private TimeSpan        _loopTotalActiveTime;
     private bool _loopPanelVisible = true;
@@ -3347,11 +3348,20 @@ public partial class MainWindow : Window
             SquadDashTrace.Write("Loop", $"MaybeFireQueuedLoopAsync: starting queued loop resumeFromIteration={resumeFromIteration} wasQueueResume={wasQueueResume} wasQrResume={wasQrResume} queueCount={_promptQueue.Count}");
             AppendLoopOutputLine(resumeMsg, LoopLifecycleBrush);
             AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
-            await ResumeLoopImmediateAsync(resumeFromIteration);
+            var claimed = await ResumeLoopImmediateAsync(resumeFromIteration);
+            if (!claimed)
+                throw new InvalidOperationException("The saved loop execution could not be reclaimed safely.");
         }
         catch (Exception ex)
         {
-            HandleUiCallbackException(nameof(MaybeFireQueuedLoopAsync), ex);
+            var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+            AppendLoopOutputLine($"⏸ Queued loop was not resumed: {ex.Message}", LoopLifecycleBrush);
+            SquadDashTrace.Write("Loop", $"Queued loop resume refused: {ex}");
+            if (!string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
+                InterruptPlanAfterFailedResume(execution, ex.Message);
+            else
+                ShowSystemTranscriptEntry(
+                    $"Loop recovery paused: {ex.Message} The saved loop details were preserved.");
         }
     }
 
@@ -5903,8 +5913,14 @@ public partial class MainWindow : Window
         var loopMdPath = isExecutingPlan
             ? Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop-executing-plan.md")
             : GetEffectiveLoopMdPath();
-        var loopLabel = isExecutingPlan ? "Executing Plan" : Path.GetFileName(loopMdPath);
-        var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View {loopLabel}](app://open-loop-md:{loopMdPath})";
+        var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View {Path.GetFileName(loopMdPath)}](app://open-loop-md:{loopMdPath})";
+        if (isExecutingPlan && _planStore?.Load(_activeDecomposeGroupId!) is { } executingPlan)
+        {
+            displayPrompt = PlanLoopTranscriptPresentation.BuildExecutingPrompt(
+                executingPlan,
+                _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+                loopMdPath);
+        }
         await _pec.ExecutePromptAsync(
             prompt,
             addToHistory: false,
@@ -5958,6 +5974,11 @@ public partial class MainWindow : Window
         _loopCurrentIteration = iteration;
         if (_activeDecomposeGroupId is not null)
             TrackFirstEligiblePlanStep(_activeDecomposeGroupId);
+        _loopRoundExecutionIdentity = new LoopRoundExecutionIdentity(
+            _activeDecomposeGroupId,
+            _CodeHealthGroupRunner?.CurrentRevision,
+            _CodeHealthGroupRunner?.CurrentStepId,
+            _CodeHealthGroupRunner?.GetCurrentStepTitle());
         _loopIsWaiting = false;
         _loopRoundStartedAt = DateTimeOffset.Now;
         _loopPlanStartedAt ??= _loopRoundStartedAt;
@@ -5968,11 +5989,11 @@ public partial class MainWindow : Window
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "round_started",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
-            PlanId: _activeDecomposeGroupId,
-            Revision: null,
+            PlanId: _loopRoundExecutionIdentity.PlanId,
+            Revision: _loopRoundExecutionIdentity.Revision,
             Round: iteration,
-            TaskId: _CodeHealthGroupRunner?.CurrentStepId,
-            TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+            TaskId: _loopRoundExecutionIdentity.TaskId,
+            TaskTitle: _loopRoundExecutionIdentity.TaskTitle,
             Message: null,
             Outcome: null));
         SyncLoopPanel();
@@ -5981,6 +6002,8 @@ public partial class MainWindow : Window
     private void OnNativeLoopStopped()
     {
         int stoppedIteration = _loopCurrentIteration;
+        var stoppedExecution = _loopRoundExecutionIdentity;
+        var stoppedPlanId = _activeDecomposeGroupId ?? stoppedExecution?.PlanId;
         bool hasInterrupt = _loopInterruptedByQueue;
         var resumeDecision = LoopStopResumePolicy.Resolve(
             resumeSuppressed: _loopResumeSuppressed,
@@ -6009,13 +6032,14 @@ public partial class MainWindow : Window
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "plan_stopped",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
-            PlanId: _activeDecomposeGroupId,
-            Revision: null,
+            PlanId: stoppedPlanId,
+            Revision: stoppedExecution?.Revision,
             Round: stoppedIteration > 0 ? stoppedIteration : null,
             TaskId: null,
             TaskTitle: null,
             Message: null,
             Outcome: "stopped"));
+        _loopRoundExecutionIdentity = null;
 
         if (_restartPending &&
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
@@ -6083,28 +6107,33 @@ public partial class MainWindow : Window
 
     private void OnNativeLoopIterationCompleted(int iteration)
     {
+        var completedExecution = _loopRoundExecutionIdentity;
         if (_loopRoundStartedAt.HasValue)
             _loopTotalActiveTime += DateTimeOffset.Now - _loopRoundStartedAt.Value;
         _settingsManager.Replace(_settingsStore.SaveLoopIteration(iteration));
+        if (_conversationManager.ConversationState.ActiveLoopExecution is { } activeExecution)
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with { LastCompletedIteration = iteration });
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
         AppendLine($"  ✓ Round {iteration} complete");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "round_completed",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
-            PlanId: _activeDecomposeGroupId,
-            Revision: null,
+            PlanId: completedExecution?.PlanId,
+            Revision: completedExecution?.Revision,
             Round: iteration,
-            TaskId: _CodeHealthGroupRunner?.CurrentStepId,
-            TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
+            TaskId: completedExecution?.TaskId,
+            TaskTitle: completedExecution?.TaskTitle,
             Message: null,
             Outcome: "completed"));
         if (_planExecutionLog is not null)
         {
-            var taskDisplay = _CodeHealthGroupRunner?.GetCurrentStepTitle()
-                           ?? _CodeHealthGroupRunner?.CurrentStepId
+            var taskDisplay = completedExecution?.TaskTitle
+                           ?? completedExecution?.TaskId
                            ?? "(unknown task)";
             AppendLine($"  📋 Logged: Round {iteration} · {taskDisplay}", (Brush)FindResource("SubtleText"));
         }
+        _loopRoundExecutionIdentity = null;
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
     }
@@ -7462,7 +7491,10 @@ public partial class MainWindow : Window
             ? resumeExecution.LoopPath
             : GetEffectiveLoopMdPath();
         var filterText = resumeExecution?.FilterText ?? TasksFilterBox?.Text?.Trim() ?? "";
-        var activeExecution = new ActiveLoopExecutionState(loopMdPath, filterText);
+        var activeExecution = new ActiveLoopExecutionState(
+            loopMdPath,
+            filterText,
+            LastCompletedIteration: Math.Max(0, resumeFromIteration));
         _conversationManager.UpdateActiveLoopExecutionState(activeExecution);
 
         if (_activeLoopMode == LoopMode.NativeAgents)
@@ -7550,7 +7582,7 @@ public partial class MainWindow : Window
     private void SuppressLoopResumeAfterExplicitStop(string reason) =>
         SuppressLoopResume(reason);
 
-    private async Task ResumeLoopImmediateAsync(int resumeFromIteration)
+    private async Task<bool> ResumeLoopImmediateAsync(int resumeFromIteration)
     {
         var resume = LoopResumeExecutionPolicy.Resolve(
             _conversationManager.ConversationState.ActiveLoopExecution,
@@ -7558,11 +7590,14 @@ public partial class MainWindow : Window
             _conversationManager.ConversationState.ActiveExecutingPlanGroupId);
         if (resume.Kind == LoopResumeExecutionKind.ExecutingPlan)
         {
-            await StartDecomposeLoopAsync(
+            var started = await StartDecomposeLoopAsync(
                 resume.GroupId!,
                 resumeFromIteration: resumeFromIteration,
                 expectedRevision: resume.Revision);
-            return;
+            if (!started)
+                throw new InvalidOperationException(
+                    $"Plan {resume.GroupId} could not reclaim its persisted execution state.");
+            return true;
         }
 
         if (resume.Kind == LoopResumeExecutionKind.Refuse)
@@ -7574,10 +7609,11 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Loop",
                 $"Refused unsafe loop resume without persisted execution state resumeFromIteration={resumeFromIteration}.");
-            return;
+            return false;
         }
 
         await StartLoopImmediateAsync(resumeFromIteration, resume.Execution);
+        return true;
     }
 
     private async Task ResumeLoopAfterRestartSafelyAsync(int resumeFromIteration)
@@ -7588,25 +7624,34 @@ public partial class MainWindow : Window
         try
         {
             AppendLoopOutputLine("🔄 Resuming loop after restart…", LoopLifecycleBrush);
-            await ResumeLoopImmediateAsync(resumeFromIteration);
+            var claimed = await ResumeLoopImmediateAsync(resumeFromIteration);
+            if (!claimed)
+                throw new InvalidOperationException("The persisted loop execution could not be reclaimed safely.");
+
+            // This global flag is retained only for backward compatibility. The workspace
+            // envelope remains authoritative while the claimed loop is active, but the
+            // legacy marker must not be consumed until its owning workspace has started.
+            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
         }
         catch (Exception ex)
         {
             // A restart can expose unfinished source changes from an interrupted plan
             // iteration. Refusing to run is correct, but it is a controlled pause—not an
             // unobserved TaskScheduler failure and not permission to select other work.
-            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-            ClearExecutingPlanState();
             AppendLoopOutputLine($"⏸ Loop was not resumed: {ex.Message}", LoopLifecycleBrush);
             SquadDashTrace.Write("Loop", $"Startup loop resume refused: {ex}");
             SyncLoopPanel();
 
             if (!string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
             {
-                ScheduleDecomposeSystemEntry(
-                    $"Plan {execution.DecomposeGroupId} was not resumed after restart. {ex.Message}",
-                    execution.DecomposeGroupId,
-                    execution.DecomposeRevision);
+                InterruptPlanAfterFailedResume(execution, ex.Message);
+            }
+            else
+            {
+                // General loops have no plan recovery card. Keep the workspace envelope
+                // so a user action or later restart can still reclaim the exact path/filter.
+                ShowSystemTranscriptEntry(
+                    $"Loop recovery paused after restart: {ex.Message} The saved loop details were preserved.");
             }
         }
     }
@@ -7741,7 +7786,8 @@ public partial class MainWindow : Window
                 groupId,
                 groupId,
                 revision,
-                PreviousPlanExecutionAttempts: previousAttempts));
+                PreviousPlanExecutionAttempts: previousAttempts,
+                LastCompletedIteration: Math.Max(0, resumeFromIteration)));
 
         if (!TryPublishPlanStarted(groupId, executionGroup, revision, out var planStartError))
         {
@@ -24066,7 +24112,6 @@ public partial class MainWindow : Window
         _notesPanel?.Refresh(_noteItems);
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
-        RepairStalePlanExecutingState();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
         RestoreAwaitingApprovalGateUI();
@@ -24182,6 +24227,10 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        // Plan repair must run only after the workspace-scoped execution envelope has
+        // loaded. Running it earlier turns a legitimately resumable plan into an
+        // interruption before SquadDash has read the state that owns the restart.
+        RepairStalePlanExecutingState();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -24439,14 +24488,15 @@ public partial class MainWindow : Window
         if (savedState.LoopContinuousContext is { } savedContinuous)
             _settingsManager.Replace(_settingsStore.SaveLoopContinuousContext(savedContinuous));
 
-        // Auto-resume the loop if it was active when the app last exited.
-        // Clear the flag first so a crash-loop can't occur if the loop fails to start.
-        // Suppressed when Shift is held on startup.
-        if (_settingsSnapshot.LoopActiveOnExit)
+        // Auto-resume only from this workspace's persisted execution envelope. The old
+        // process-wide setting is intentionally not an authorization source: another
+        // workspace may open first after a restart and must not consume this plan's claim.
+        var workspaceExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (workspaceExecution is not null)
         {
-            var loopResumeIteration = _settingsSnapshot.LoopLastIteration;
+            var loopResumeIteration = workspaceExecution.LastCompletedIteration;
             var startupLoopResumeAction = LoopStartupResumePolicy.Resolve(
-                loopActiveOnExit: true,
+                workspaceExecution,
                 loopAlreadyQueued: _loopQueued,
                 queueHasReadyItems: _promptQueue.HasReadyItems,
                 startupShiftHeld: _startupShiftHeld,
@@ -24482,13 +24532,18 @@ public partial class MainWindow : Window
             }
             else if (startupLoopResumeAction == LoopStartupResumeAction.StartImmediately)
             {
-                // Clear only for an immediate start. Queued/paused resumes keep LoopActiveOnExit
-                // intact so another restart still knows the loop was active.
-                _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
                 _ = Dispatcher.InvokeAsync(
                     () => _ = ResumeLoopAfterRestartSafelyAsync(loopResumeIteration),
                     System.Windows.Threading.DispatcherPriority.Background);
             }
+        }
+        else if (_settingsSnapshot.LoopActiveOnExit)
+        {
+            // A legacy global marker without a workspace envelope might belong to a
+            // different workspace. Do not clear or act on it here.
+            SquadDashTrace.Write(
+                "Loop",
+                "Ignored process-wide loop resume marker because this workspace has no persisted execution envelope.");
         }
 
         // Auto-resume Remote Access if it was active when the app last exited.
@@ -27859,6 +27914,17 @@ public partial class MainWindow : Window
     /// </summary>
     private void HandleTranscriptLinkClick(string target)
     {
+        if (target.StartsWith("app://open-plan:", StringComparison.OrdinalIgnoreCase))
+        {
+            var encodedPlanId = target["app://open-plan:".Length..];
+            var planId = Uri.UnescapeDataString(encodedPlanId);
+            var plan = _planStore?.Load(planId);
+            if (plan is not null)
+                OpenPlanFromStore(plan);
+            else
+                ShowSystemTranscriptEntry($"Plan {planId} is no longer available in this workspace.");
+            return;
+        }
         if (target.StartsWith("app://open-loop-md:", StringComparison.OrdinalIgnoreCase))
         {
             var filePath = target["app://open-loop-md:".Length..];
@@ -33189,6 +33255,12 @@ public partial class MainWindow : Window
             // A crash or kill signal never reaches this handler, so the flag also stays true there.
             if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
                 _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+            if (!_restartPending && _conversationManager.ConversationState.ActiveLoopExecution is not null)
+            {
+                // A normal user close is an explicit decision not to auto-resume. A
+                // build-triggered restart preserves the workspace envelope instead.
+                _conversationManager.UpdateActiveLoopExecutionState(null);
+            }
             // RC is intentionally NOT cleared on clean shutdown — we always want RC to auto-resume
             // on the next launch with the same token so the phone's saved link keeps working.
             // Users who want to stop RC should use "Stop Remote Access" explicitly (which clears
@@ -40121,16 +40193,39 @@ public partial class MainWindow : Window
         if (_planStore is null || _activeDecomposeGroupId is not null) return;
         try
         {
+            var resumableExecution = _conversationManager.ConversationState.ActiveLoopExecution;
             var allPlans = _planStore.LoadAll();
             foreach (var plan in allPlans)
             {
                 if (plan.LifecycleStatus != PlanLifecycleStatus.Executing) continue;
+
+                // The workspace envelope is the durable owner of this execution. Leave
+                // the matching plan executing until startup either claims it or records
+                // a visible, recoverable interruption.
+                if (string.Equals(
+                        resumableExecution?.DecomposeGroupId,
+                        plan.PlanId,
+                        StringComparison.Ordinal) &&
+                    string.Equals(
+                        resumableExecution?.DecomposeRevision,
+                        plan.Revision,
+                        StringComparison.Ordinal))
+                    continue;
+
+                var interruptedTaskId = plan.Progress.ExecutingTaskId
+                    ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
                 var repaired = PlanStoreUpdater.ApplyInterrupted(
                     plan,
-                    reason:        "Loop stopped without completing a step",
-                    loopIteration: 0);
+                    reason:        "No matching workspace execution envelope was available after restart.",
+                    loopIteration: 0,
+                    interruptedTaskId: interruptedTaskId);
                 _planStore.Save(repaired);
                 _broker.Publish(new PlanProgressEvent(repaired.PlanId, repaired));
+                ScheduleDecomposeSystemEntry(
+                    $"Plan {repaired.PlanId} could not resume automatically because its saved execution ownership was unavailable. The plan was preserved for recovery.",
+                    repaired.PlanId,
+                    repaired.Revision,
+                    interruptedTaskId);
             }
 
             foreach (var plan in _planStore.LoadAll())
@@ -40234,6 +40329,60 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General, $"TryPublishPlanStarted: {ex.Message}");
             error = ex.Message;
             return false;
+        }
+    }
+
+    private void InterruptPlanAfterFailedResume(
+        ActiveLoopExecutionState execution,
+        string reason)
+    {
+        if (_planStore is null || string.IsNullOrWhiteSpace(execution.DecomposeGroupId))
+            return;
+
+        // Some lower-level validation paths clear runtime state while refusing a
+        // start. Restore the captured durable envelope until recovery is recorded.
+        _conversationManager.UpdateActiveLoopExecutionState(execution);
+        var plan = _planStore.Load(execution.DecomposeGroupId);
+        if (plan is null)
+        {
+            ScheduleDecomposeSystemEntry(
+                $"Plan {execution.DecomposeGroupId} was not resumed after restart: {reason} " +
+                "Its saved execution details were preserved because the durable plan could not be loaded.");
+            return;
+        }
+
+        var interruptedTaskId = plan.Progress.ExecutingTaskId
+            ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+        try
+        {
+            var interrupted = PlanStoreUpdater.ApplyInterrupted(
+                plan,
+                $"Automatic restart recovery failed: {reason}",
+                execution.LastCompletedIteration,
+                interruptedTaskId);
+            _planStore.Save(interrupted);
+            _broker.Publish(new PlanProgressEvent(interrupted.PlanId, interrupted));
+
+            // Only clear ownership after the plan has durably transitioned to a state
+            // with an explicit recovery path.
+            _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+            ClearExecutingPlanState();
+            ScheduleDecomposeSystemEntry(
+                $"Plan {interrupted.PlanId} was not resumed after restart: {reason} The plan and its recovery choices were preserved.",
+                interrupted.PlanId,
+                interrupted.Revision,
+                interruptedTaskId);
+        }
+        catch (Exception persistenceError)
+        {
+            // Retain the envelope if interruption state itself cannot be persisted. It is
+            // safer to retry ownership recovery than to orphan an executing plan silently.
+            SquadDashTrace.Write(
+                "Loop",
+                $"Failed to persist restart interruption for plan {plan.PlanId}: {persistenceError}");
+            ScheduleDecomposeSystemEntry(
+                $"Plan {plan.PlanId} could not resume, and SquadDash could not save its recovery state. " +
+                "The saved execution details remain intact. " + persistenceError.Message);
         }
     }
 

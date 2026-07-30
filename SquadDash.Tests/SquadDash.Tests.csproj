@@ -120,6 +120,8 @@
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopCliProjection.cs" Link="Source\LoopCliProjection.cs" />
     <Compile Include="..\SquadDash\LoopStartupResumePolicy.cs" Link="Source\LoopStartupResumePolicy.cs" />
+    <Compile Include="..\SquadDash\LoopRoundExecutionIdentity.cs" Link="Source\LoopRoundExecutionIdentity.cs" />
+    <Compile Include="..\SquadDash\PlanLoopTranscriptPresentation.cs" Link="Source\PlanLoopTranscriptPresentation.cs" />
     <Compile Include="..\SquadDash\LoopStopResumePolicy.cs" Link="Source\LoopStopResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopResumeExecutionPolicy.cs" Link="Source\LoopResumeExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />

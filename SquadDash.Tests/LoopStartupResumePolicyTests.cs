@@ -7,7 +7,7 @@ internal sealed class LoopStartupResumePolicyTests
     public void Resolve_QueuesLoopBehindRestoredQueue_WhenLoopWasActiveAndQueueHasItems()
     {
         var action = LoopStartupResumePolicy.Resolve(
-            loopActiveOnExit: true,
+            workspaceExecution: Execution(),
             loopAlreadyQueued: false,
             queueHasReadyItems: true,
             startupShiftHeld: false,
@@ -20,7 +20,7 @@ internal sealed class LoopStartupResumePolicyTests
     public void Resolve_KeepsQueuedLoop_WhenLoopWasAlreadyQueuedToDequeue()
     {
         var action = LoopStartupResumePolicy.Resolve(
-            loopActiveOnExit: true,
+            workspaceExecution: Execution(),
             loopAlreadyQueued: true,
             queueHasReadyItems: true,
             startupShiftHeld: false,
@@ -33,7 +33,7 @@ internal sealed class LoopStartupResumePolicyTests
     public void Resolve_PausesForShiftBeforeRestoredQueue()
     {
         var action = LoopStartupResumePolicy.Resolve(
-            loopActiveOnExit: true,
+            workspaceExecution: Execution(),
             loopAlreadyQueued: false,
             queueHasReadyItems: true,
             startupShiftHeld: true,
@@ -46,7 +46,7 @@ internal sealed class LoopStartupResumePolicyTests
     public void Resolve_PausesForQuickRepliesBeforeRestoredQueue()
     {
         var action = LoopStartupResumePolicy.Resolve(
-            loopActiveOnExit: true,
+            workspaceExecution: Execution(),
             loopAlreadyQueued: false,
             queueHasReadyItems: true,
             startupShiftHeld: false,
@@ -59,7 +59,7 @@ internal sealed class LoopStartupResumePolicyTests
     public void Resolve_StartsImmediately_WhenLoopWasActiveAndNothingBlocksResume()
     {
         var action = LoopStartupResumePolicy.Resolve(
-            loopActiveOnExit: true,
+            workspaceExecution: Execution(),
             loopAlreadyQueued: false,
             queueHasReadyItems: false,
             startupShiftHeld: false,
@@ -67,4 +67,20 @@ internal sealed class LoopStartupResumePolicyTests
 
         Assert.That(action, Is.EqualTo(LoopStartupResumeAction.StartImmediately));
     }
+
+    [Test]
+    public void Resolve_DoesNotResumeWorkspaceWithoutItsOwnExecutionEnvelope()
+    {
+        var action = LoopStartupResumePolicy.Resolve(
+            workspaceExecution: null,
+            loopAlreadyQueued: false,
+            queueHasReadyItems: false,
+            startupShiftHeld: false,
+            hasPendingQuickReplies: false);
+
+        Assert.That(action, Is.EqualTo(LoopStartupResumeAction.None));
+    }
+
+    private static ActiveLoopExecutionState Execution() =>
+        new("D:/repo/.squad/loop-executing-plan.md", "PLAN-1", "PLAN-1", "revision-1");
 }
