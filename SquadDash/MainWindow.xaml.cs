@@ -8690,6 +8690,10 @@ public partial class MainWindow : Window
         Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? p => _ = StartDecomposeLoopAsync(p.PlanId)
             : null;
+        Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
+            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+                ? AdoptVerifiedCommitRangeAsync
+                : null;
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
@@ -8703,7 +8707,7 @@ public partial class MainWindow : Window
             : null;
         win = new PlanViewerWindow(
             displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan,
-            onGatesChanged, onResumePlan, onEndPlan, onApproveGate,
+            onGatesChanged, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync)
         {
@@ -9948,6 +9952,278 @@ public partial class MainWindow : Window
                 await AdoptOrphanCommitAsync(option, plan, taskId);
                 break;
         }
+    }
+
+    // ── Recovery action: Adopt verified commit range ─────────────────────────
+
+    private async Task<bool> AdoptVerifiedCommitRangeAsync(Plan displayedPlan)
+    {
+        if (_currentWorkspace is null || _planStore is null) return false;
+        var workspace = _currentWorkspace.FolderPath;
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var storedPlan = _planStore.Load(displayedPlan.PlanId);
+        if (storedPlan is null ||
+            storedPlan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
+            !string.Equals(storedPlan.Revision, displayedPlan.Revision, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                "The interrupted plan changed after this viewer opened. Reopen the plan before adopting preserved work.",
+                "Plan Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        var taskId = storedPlan.InterruptionData?.InterruptedTaskId;
+        var pendingTask = storedPlan.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+            task.Status != PlanTaskStatus.Complete);
+        if (pendingTask is null || string.IsNullOrWhiteSpace(taskId))
+        {
+            MessageBox.Show(this,
+                "SquadDash cannot identify a pending interrupted task for this plan.",
+                "No Interrupted Task", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                $"Plan '{storedPlan.PlanId}' requires branch '{storedPlan.Branch}', but '{activeBranch}' is active.",
+                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+
+        var parsed = File.Exists(tasksPath)
+            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+            : null;
+        if (parsed is null ||
+            !parsed.DecomposeGroups.TryGetValue(storedPlan.PlanId, out var currentGroup))
+        {
+            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
+                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
+        if (!string.Equals(currentRevision, storedPlan.Revision, StringComparison.Ordinal))
+        {
+            MessageBox.Show(this,
+                "The durable plan and tasks.md have different revisions. Reconcile them before adopting work.",
+                "Revision Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                storedPlan,
+                parsed,
+                storedPlan.PlanId,
+                requireAllComplete: false,
+                out _,
+                out var projectionError))
+        {
+            MessageBox.Show(this,
+                "The durable plan and tasks.md are not synchronized. " +
+                (projectionError ?? "Unknown projection error."),
+                "Plan State Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+
+        await EnsurePlanWorktreeReadyAsync(workspace);
+
+        var history = (await RunGitAsync(workspace, "rev-list HEAD"))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var baselineCommit = storedPlan.InterruptionData?.LastCommit;
+        if (string.IsNullOrWhiteSpace(baselineCommit))
+        {
+            baselineCommit = RecoveryCommitValidator.FindNewestRecordedCommit(
+                history,
+                storedPlan.Tasks
+                    .Where(task => task.Status == PlanTaskStatus.Complete)
+                    .Select(task => task.Commit));
+        }
+        else
+        {
+            baselineCommit = history.FirstOrDefault(commit =>
+                commit.StartsWith(baselineCommit, StringComparison.OrdinalIgnoreCase));
+        }
+        if (string.IsNullOrWhiteSpace(baselineCommit))
+        {
+            MessageBox.Show(this,
+                "SquadDash could not find a reachable commit for the last accepted task. The range cannot be proven.",
+                "Baseline Unknown", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+
+        IReadOnlyList<RecoveryCommitRangeEntry> candidates;
+        try
+        {
+            var log = await RunGitAsync(
+                workspace,
+                $"log --reverse --format=%H%x09%s \"{baselineCommit}..HEAD\"");
+            candidates = RecoveryCommitValidator.ParseCommitRange(log);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"SquadDash could not enumerate the candidate range: {ex.Message}",
+                "Commit Range Unavailable", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (candidates.Count == 0)
+        {
+            MessageBox.Show(this,
+                "There are no commits after the last accepted plan task.",
+                "Nothing to Adopt", MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
+
+        var selected = VerifiedCommitRangeDialog.Show(this, taskId, baselineCommit, candidates);
+        if (selected is null) return false;
+        var selectedIndex = candidates.ToList().FindIndex(entry =>
+            string.Equals(entry.Commit, selected.Commit, StringComparison.OrdinalIgnoreCase));
+        if (selectedIndex < 0) return false;
+        var selectedRange = candidates.Take(selectedIndex + 1).ToArray();
+        if (selectedRange.Length > 50)
+        {
+            MessageBox.Show(this,
+                $"The selected range contains {selectedRange.Length} commits. Split or replan the task before adoption.",
+                "Range Too Large", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        await RunGitAsync(workspace,
+            $"merge-base --is-ancestor \"{baselineCommit}\" \"{selected.Commit}\"");
+        await RunGitAsync(workspace,
+            $"merge-base --is-ancestor \"{selected.Commit}\" HEAD");
+        var commitCountText = (await RunGitAsync(
+            workspace,
+            $"rev-list --count \"{baselineCommit}..{selected.Commit}\"")).Trim();
+        if (!int.TryParse(commitCountText, out var commitCount) || commitCount != selectedRange.Length)
+            throw new InvalidOperationException(
+                "The selected commit range changed while it was being reviewed. Reopen the adoption action.");
+
+        var changedPaths = (await RunGitAsync(
+                workspace,
+                $"diff --name-only \"{baselineCommit}..{selected.Commit}\"") )
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+        var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" };
+        if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
+        if (!RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths))
+        {
+            MessageBox.Show(this,
+                "The selected range has no task changes or contains SquadDash-owned state. It cannot be adopted.",
+                "Suspicious Commit Range", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(storedPlan.Tasks, taskId);
+        var commitLines = string.Join("\n", selectedRange.Select(entry =>
+            $"  • {entry.Commit[..7]} {entry.Subject}"));
+        var changedFileLines = string.Join("\n", changedPaths.Select(path => $"  • {path}"));
+        var warning = downstream.Count == 0
+            ? string.Empty
+            : "\n\nAlready-completed dependent tasks: " + string.Join(", ", downstream);
+        var confirmation = MessageBox.Show(
+            this,
+            $"Adopt {selectedRange.Length} verified commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
+            $"as the completed result for {taskId}?\n\n" +
+            $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
+            $"Changed files:\n{changedFileLines}{warning}\n\n" +
+            "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
+            "Confirm that this preserved work satisfies the task.",
+            "Adopt Verified Commit Range",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (confirmation != MessageBoxResult.Yes) return false;
+
+        var terminalCommit = selected.Commit[..7];
+        var firstCommit = selectedRange[0].Commit[..7];
+        var rangeLabel = selectedRange.Length == 1
+            ? terminalCommit
+            : $"{firstCommit}..{terminalCommit}";
+        var summary = $"Host adopted verified commit range {rangeLabel} ({selectedRange.Length} commit" +
+                      (selectedRange.Length == 1 ? ")." : "s).");
+        var syntheticResult = new DecomposeStepResult(
+            GroupId: storedPlan.PlanId,
+            TaskId: taskId,
+            Revision: storedPlan.Revision,
+            Status: "complete",
+            Commit: terminalCommit,
+            Summary: summary,
+            RemainingWork: [],
+            Verification: new DecomposeStepVerification(
+                "passed",
+                "host-controlled commit-range validation",
+                $"Validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
+
+        var originalTasks = File.ReadAllText(tasksPath);
+        var writer = new DecomposedTasksWriter();
+        if (!writer.MarkTaskComplete(tasksPath, taskId, terminalCommit, summary))
+            throw new InvalidOperationException($"Task {taskId} could not be marked complete in tasks.md.");
+
+        try
+        {
+            var freshParsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                    storedPlan,
+                    freshParsed,
+                    storedPlan.PlanId,
+                    requireAllComplete: false,
+                    out var items,
+                    out projectionError))
+                throw new InvalidOperationException(
+                    "The adopted task could not be projected into the durable plan. " +
+                    (projectionError ?? "Unknown projection error."));
+
+            var updated = PlanStoreUpdater.ApplyStepAccepted(
+                storedPlan,
+                items,
+                nextExecutingTaskId: null,
+                acceptedResult: syntheticResult);
+            var nextTaskId = updated.Tasks.FirstOrDefault(task =>
+                task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
+            var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
+                "Preserved work was adopted by the host.",
+                PlanRecoveryState.PendingRecovery,
+                0)) with
+            {
+                Reason = $"Preserved work for {taskId} was adopted as {rangeLabel}.",
+                InterruptedTaskId = nextTaskId,
+                LastCompletedTaskId = taskId,
+                LastCommit = terminalCommit,
+                AffectedPaths = changedPaths,
+                PartialWorkEvidence = $"Verified commit range {rangeLabel}"
+            };
+            updated = updated with
+            {
+                LifecycleStatus = PlanLifecycleStatus.Interrupted,
+                InterruptionData = interruptionData,
+                Progress = updated.Progress with { ExecutingTaskId = null }
+            };
+            if (!TryPublishPlanProgress(updated, out var saveError))
+                throw new IOException(saveError ?? "The durable plan could not be saved.");
+        }
+        catch
+        {
+            RestoreFileAtomically(tasksPath, originalTasks);
+            throw;
+        }
+
+        LoadTasksPanel();
+        ShowSystemTranscriptEntry(
+            $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task.");
+        await StartBackloggedDecomposeGroupAsync(
+            currentGroup with { HostRevision = currentRevision },
+            continuationTaskId: null,
+            continuationPaths: []);
+        return true;
+    }
+
+    private static void RestoreFileAtomically(string path, string content)
+    {
+        var temporaryPath = path + ".rollback.tmp";
+        File.WriteAllText(temporaryPath, content, Encoding.UTF8);
+        File.Move(temporaryPath, path, overwrite: true);
     }
 
     // ── Recovery action: Adopt orphan commit ─────────────────────────────────

@@ -31,6 +31,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<DecomposePlanActionDefinition, Task<bool>>? _applyAction;
     private readonly Action<Plan>? _onGatesChanged;
     private readonly Action<Plan>? _onResumePlan;
+    private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
@@ -47,6 +48,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Plan? durablePlan = null,
         Action<Plan>? onGatesChanged = null,
         Action<Plan>? onResumePlan   = null,
+        Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange = null,
         Action<Plan>? onEndPlan      = null,
         Action<Plan, string>? onApproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
@@ -67,6 +69,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _applyAction        = applyAction;
         _onGatesChanged     = onGatesChanged;
         _onResumePlan       = onResumePlan;
+        _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
         _viewPreflightChanges = viewPreflightChanges;
@@ -107,6 +110,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var applyAction        = _applyAction;
         var onGatesChanged     = _onGatesChanged;
         var onResumePlan       = _onResumePlan;
+        var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
         var onEndPlan          = _onEndPlan;
         var onApproveGate      = _onApproveGate;
         var group = plan.Group;
@@ -179,7 +183,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-            (onResumePlan is not null || onEndPlan is not null))
+            (onResumePlan is not null || onAdoptVerifiedCommitRange is not null || onEndPlan is not null))
         {
             var interruptedPanel = new WrapPanel
             {
@@ -201,6 +205,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Close();
                 };
                 interruptedPanel.Children.Add(resumeButton);
+            }
+            if (onAdoptVerifiedCommitRange is not null)
+            {
+                var capturedPlan = durablePlan;
+                var capturedAction = onAdoptVerifiedCommitRange;
+                var adoptButton = TranscriptQuickReplyFactory.CreateButton(
+                    "Adopt Verified Work…",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Select and validate a preserved commit range for the interrupted task, then continue with the next task."));
+                adoptButton.Focusable = false;
+                adoptButton.Click += async (_, _) =>
+                {
+                    interruptedPanel.IsEnabled = false;
+                    try
+                    {
+                        if (await capturedAction(capturedPlan))
+                            Close();
+                        else
+                            interruptedPanel.IsEnabled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        interruptedPanel.IsEnabled = true;
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"Verified commit-range adoption failed: {ex}");
+                        UIErrorHelper.ShowError("Adopt Verified Work", ex.Message, this);
+                    }
+                };
+                interruptedPanel.Children.Add(adoptButton);
             }
             if (onEndPlan is not null)
             {

@@ -4,12 +4,63 @@ using System.Linq;
 
 namespace SquadDash;
 
+internal sealed record RecoveryCommitRangeEntry(string Commit, string Subject);
+
 /// <summary>
 /// Pure-logic helpers for validating orphan-commit recovery actions.
 /// No WPF or I/O dependencies — all methods are statically testable.
 /// </summary>
 internal static class RecoveryCommitValidator
 {
+    /// <summary>
+    /// Parses oldest-to-newest output produced by
+    /// <c>git log --reverse --format=%H%x09%s baseline..HEAD</c>.
+    /// Malformed rows are rejected so the UI never offers an unidentified commit.
+    /// </summary>
+    internal static IReadOnlyList<RecoveryCommitRangeEntry> ParseCommitRange(string logOutput)
+    {
+        var entries = new List<RecoveryCommitRangeEntry>();
+        foreach (var line in logOutput.Split(
+                     '\n',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = line.IndexOf('\t');
+            if (separator <= 0 || separator == line.Length - 1)
+                throw new InvalidOperationException("Git returned a malformed commit-range row.");
+            var commit = line[..separator].Trim();
+            if (commit.Length < 7 || !commit.All(Uri.IsHexDigit))
+                throw new InvalidOperationException($"Git returned an invalid commit ID '{commit}'.");
+            entries.Add(new RecoveryCommitRangeEntry(commit, line[(separator + 1)..].Trim()));
+        }
+        return entries;
+    }
+
+    /// <summary>
+    /// Finds the newest recorded completed-task commit in a newest-to-oldest HEAD history.
+    /// Stored abbreviated SHAs are matched only when they identify exactly one history entry.
+    /// </summary>
+    internal static string? FindNewestRecordedCommit(
+        IEnumerable<string> newestFirstHistory,
+        IEnumerable<string?> recordedCommits)
+    {
+        var history = newestFirstHistory
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToArray();
+        var recorded = recordedCommits
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToArray();
+
+        foreach (var historyCommit in history)
+        {
+            if (recorded.Any(candidate =>
+                    historyCommit.StartsWith(candidate, StringComparison.OrdinalIgnoreCase)))
+                return historyCommit;
+        }
+        return null;
+    }
+
     /// <summary>
     /// Parses <c>git log --oneline {baseline}..HEAD</c> output into candidate commits.
     /// Returns the single candidate SHA if exactly one commit is found,

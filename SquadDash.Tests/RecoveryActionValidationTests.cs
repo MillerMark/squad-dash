@@ -7,6 +7,49 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class RecoveryActionValidationTests
 {
+    [Test]
+    public void ParseCommitRange_ParsesOldestToNewestRows()
+    {
+        var entries = RecoveryCommitValidator.ParseCommitRange(
+            "4bf1c1c000000000\tInitial matrix\n" +
+            "b6d69d9000000000\tComplete matrix\n");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(entries.Select(entry => entry.Commit),
+                Is.EqualTo(new[] { "4bf1c1c000000000", "b6d69d9000000000" }));
+            Assert.That(entries[1].Subject, Is.EqualTo("Complete matrix"));
+        });
+    }
+
+    [TestCase("not-a-row")]
+    [TestCase("nothex00\tSubject")]
+    public void ParseCommitRange_MalformedRow_Throws(string log)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            RecoveryCommitValidator.ParseCommitRange(log));
+    }
+
+    [Test]
+    public void FindNewestRecordedCommit_ReturnsNewestReachableCompletedTaskCommit()
+    {
+        var resolved = RecoveryCommitValidator.FindNewestRecordedCommit(
+            ["ccccccc000000000", "bbbbbbb000000000", "aaaaaaa000000000"],
+            ["aaaaaaa", "bbbbbbb"]);
+
+        Assert.That(resolved, Is.EqualTo("bbbbbbb000000000"));
+    }
+
+    [Test]
+    public void FindNewestRecordedCommit_IgnoresUnrecordedHistory()
+    {
+        var resolved = RecoveryCommitValidator.FindNewestRecordedCommit(
+            ["ccccccc000000000", "bbbbbbb000000000"],
+            ["aaaaaaa"]);
+
+        Assert.That(resolved, Is.Null);
+    }
+
     // ── ExtractSingleCandidateCommit ─────────────────────────────────────────
 
     [Test]
