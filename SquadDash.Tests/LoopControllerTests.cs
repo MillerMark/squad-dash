@@ -211,7 +211,6 @@ internal sealed class LoopControllerTests {
         // Arrange
         var promptStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var errorTcs         = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var stoppedTcs       = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var promptCts        = new CancellationTokenSource();
         bool abortCalled     = false;
         string? errorMsg     = null;
@@ -228,7 +227,7 @@ internal sealed class LoopControllerTests {
                 promptCts.Cancel(); // unblocks executePromptAsync
             },
             onIterationStarted:   _ => { },
-            onStopped:            () => { stoppedCalled = true; stoppedTcs.TrySetResult(); },
+            onStopped:            () => { stoppedCalled = true; },
             onError:              msg => { errorMsg = msg; errorTcs.TrySetResult(); },
             onIterationCompleted: _ => { },
             onWaiting:            _ => { });
@@ -244,15 +243,40 @@ internal sealed class LoopControllerTests {
         _ = controller.StartAsync(config, continuousContext: true);
         await promptStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        // Wait for both onError (timeout message) and onStopped (loop reset) to fire.
+        // Error is the one terminal callback; onStopped must not race it and clear
+        // the plan identity before the host records the failure.
         await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Assert
         Assert.That(abortCalled,   Is.True,                       "abortPrompt must be called on timeout");
         Assert.That(errorMsg,      Does.Contain("timed out"),     "onError must report timeout");
-        Assert.That(stoppedCalled, Is.True,                       "onStopped fires in finally to reset loop state");
+        Assert.That(stoppedCalled, Is.False,                      "onStopped must not also fire after an error");
         Assert.That(controller.IsRunning, Is.False);
+    }
+
+    [Test]
+    public async Task PromptException_ReportsOnlyErrorAndDoesNotCallStopped()
+    {
+        var errorTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedCalled = false;
+        var controller = new LoopController(
+            executePromptAsync: (_, __) => throw new InvalidOperationException("protocol failure"),
+            abortPrompt: () => { },
+            onIterationStarted: _ => { },
+            onStopped: () => stoppedCalled = true,
+            onError: message => errorTcs.TrySetResult(message),
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        var error = await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Does.Contain("protocol failure"));
+            Assert.That(stoppedCalled, Is.False);
+            Assert.That(controller.IsRunning, Is.False);
+        });
     }
 
     [Test]

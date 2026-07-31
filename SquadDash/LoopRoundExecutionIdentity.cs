@@ -9,4 +9,17 @@ internal sealed record LoopRoundExecutionIdentity(
     string? PlanId,
     string? Revision,
     string? TaskId,
-    string? TaskTitle);
+    string? TaskTitle)
+{
+    internal static LoopRoundExecutionIdentity ResolveFailure(
+        LoopRoundExecutionIdentity? captured,
+        string? activePlanId,
+        string? activeRevision,
+        string? activeTaskId,
+        string? activeTaskTitle = null) =>
+        new(
+            activePlanId ?? captured?.PlanId,
+            activeRevision ?? captured?.Revision,
+            activeTaskId ?? captured?.TaskId,
+            activeTaskTitle ?? captured?.TaskTitle);
+}

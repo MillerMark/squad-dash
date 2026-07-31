@@ -128,9 +128,9 @@ internal sealed class LoopController {
         IsRunning = true;
         StopState = LoopStopState.None;
         int iteration = resumeFromIteration;
+        bool terminalErrorReported = false;
 
         try {
-          try {
             while (!_stopRequested && !ct.IsCancellationRequested) {
                 // Drain any queued prompts before firing this iteration.
                 // A stray exception from the hook (e.g. an aborted queued item whose
@@ -166,8 +166,10 @@ internal sealed class LoopController {
                     // Timeout fired before the prompt finished — abort it, then report.
                     _abortPrompt();
                     try { await promptTask; } catch { /* swallow post-abort exception */ }
+                    IsRunning = false;
                     _onError(
                         $"Iteration {iteration} timed out after {config.TimeoutMinutes} min");
+                    terminalErrorReported = true;
                     break;
                 }
 
@@ -221,18 +223,21 @@ internal sealed class LoopController {
                     QueueDrainOccurred: false);
                 SquadDashTrace.Write("Loop", diag.BuildTraceMessage());
             }
-        }
-          finally {
-              IsRunning = false;
-              if (StopState == LoopStopState.Aborted)
-                  _onError("Loop aborted.");
-              else
-                  _onStopped();
-          }
         } catch (Exception ex) {
-            if (_cts?.IsCancellationRequested != true)
+            if (_cts?.IsCancellationRequested != true) {
+                IsRunning = false;
                 _onError($"Loop crashed unexpectedly: {ex.Message}");
+                terminalErrorReported = true;
+            }
             SquadDashTrace.Write("Loop", $"RunLoopAsync unhandled: {ex}");
+        } finally {
+            IsRunning = false;
+            if (StopState == LoopStopState.Aborted) {
+                if (!terminalErrorReported)
+                    _onError("Loop aborted.");
+            } else if (!terminalErrorReported) {
+                _onStopped();
+            }
         }
     }
 

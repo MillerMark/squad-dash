@@ -866,7 +866,12 @@ internal sealed record ActiveLoopExecutionState(
     string? DecomposeRevision = null,
     PlanExecutionAttemptState? PlanExecutionAttempt = null,
     IReadOnlyList<PlanExecutionAttemptState>? PreviousPlanExecutionAttempts = null,
-    int LastCompletedIteration = 0)
+    int LastCompletedIteration = 0,
+    string? RecoveryTaskId = null,
+    string? RecoveryAttemptId = null,
+    int RepairRequestCount = 0,
+    int FreshAttemptCount = 0,
+    string? TaskBaselineCommit = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -901,6 +906,15 @@ internal sealed record ActiveLoopExecutionState(
             .Select(group => group.Last())
             .TakeLast(20)
             .ToArray();
+        var recoveryTaskId = string.IsNullOrWhiteSpace(state.RecoveryTaskId)
+            ? null
+            : state.RecoveryTaskId.Trim();
+        var recoveryAttemptId = string.IsNullOrWhiteSpace(state.RecoveryAttemptId)
+            ? null
+            : state.RecoveryAttemptId.Trim();
+        var taskBaselineCommit = string.IsNullOrWhiteSpace(state.TaskBaselineCommit)
+            ? null
+            : state.TaskBaselineCommit.Trim();
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -909,7 +923,12 @@ internal sealed record ActiveLoopExecutionState(
             revision,
             attempt,
             previousAttempts,
-            Math.Max(0, state.LastCompletedIteration));
+            Math.Max(0, state.LastCompletedIteration),
+            recoveryTaskId,
+            recoveryAttemptId,
+            Math.Max(0, state.RepairRequestCount),
+            Math.Max(0, state.FreshAttemptCount),
+            taskBaselineCommit);
     }
 }
 

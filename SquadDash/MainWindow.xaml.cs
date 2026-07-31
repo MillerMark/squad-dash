@@ -352,7 +352,6 @@ public partial class MainWindow : Window
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
     private bool                    _decomposeRepairPending;
-    private bool                    _repairAttemptActive;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -6020,6 +6019,17 @@ public partial class MainWindow : Window
         _loopIsWaiting = false;
         _loopRoundStartedAt = null;
 
+        var interruptedTaskId = stoppedExecution?.TaskId ?? _CodeHealthGroupRunner?.CurrentStepId;
+        Plan? newlyInterruptedPlan = null;
+        if (!resumeDecision.PreserveExecution && stoppedPlanId is not null)
+        {
+            newlyInterruptedPlan = TryInterruptExecutingPlan(
+                stoppedPlanId,
+                interruptedTaskId,
+                "Plan execution stopped before the current task was accepted.",
+                stoppedIteration);
+        }
+
         if (!resumeDecision.PreserveExecution)
         {
             _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
@@ -6035,11 +6045,26 @@ public partial class MainWindow : Window
             PlanId: stoppedPlanId,
             Revision: stoppedExecution?.Revision,
             Round: stoppedIteration > 0 ? stoppedIteration : null,
-            TaskId: null,
-            TaskTitle: null,
+            TaskId: interruptedTaskId,
+            TaskTitle: stoppedExecution?.TaskTitle,
             Message: null,
             Outcome: "stopped"));
         _loopRoundExecutionIdentity = null;
+
+        if (newlyInterruptedPlan is not null)
+        {
+            ScheduleDecomposeSystemEntry(
+                $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
+                newlyInterruptedPlan.PlanId,
+                newlyInterruptedPlan.Revision,
+                interruptedTaskId);
+            if (interruptedTaskId is not null)
+                SaveDecomposeRecoveryInboxReminder(
+                    newlyInterruptedPlan.PlanId,
+                    newlyInterruptedPlan.Revision,
+                    interruptedTaskId,
+                    "Plan execution stopped before the current task was accepted.");
+        }
 
         if (_restartPending &&
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
@@ -6069,11 +6094,21 @@ public partial class MainWindow : Window
 
     private void OnNativeLoopError(string msg)
     {
-        var blockedGroupId = _activeDecomposeGroupId;
-        var blockedTaskId = _CodeHealthGroupRunner?.CurrentStepId;
-        var blockedRevision = _CodeHealthGroupRunner?.CurrentRevision;
+        var failedRound = _loopRoundExecutionIdentity;
+        var failureIdentity = LoopRoundExecutionIdentity.ResolveFailure(
+            failedRound,
+            _activeDecomposeGroupId,
+            _CodeHealthGroupRunner?.CurrentRevision,
+            _CodeHealthGroupRunner?.CurrentStepId,
+            _CodeHealthGroupRunner?.GetCurrentStepTitle());
+        var blockedGroupId = failureIdentity.PlanId;
+        var blockedTaskId = failureIdentity.TaskId;
+        var blockedRevision = failureIdentity.Revision;
+        var failedIteration = _loopCurrentIteration;
         if (blockedTaskId is not null)
             _CodeHealthGroupRunner?.MarkCurrentStepFailed();
+        if (blockedGroupId is not null)
+            TryInterruptExecutingPlan(blockedGroupId, blockedTaskId, msg, failedIteration);
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-error");
         _loopCurrentIteration = 0;
@@ -6088,9 +6123,9 @@ public partial class MainWindow : Window
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: blockedGroupId,
             Revision: blockedRevision,
-            Round: null,
+            Round: failedIteration > 0 ? failedIteration : null,
             TaskId: blockedTaskId,
-            TaskTitle: null,
+            TaskTitle: failureIdentity.TaskTitle,
             Message: msg,
             Outcome: "error"));
         SyncLoopPanel();
@@ -6103,6 +6138,7 @@ public partial class MainWindow : Window
                 blockedTaskId);
             SaveDecomposeRecoveryInboxReminder(blockedGroupId, blockedRevision, blockedTaskId, msg);
         }
+        _loopRoundExecutionIdentity = null;
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -6133,7 +6169,6 @@ public partial class MainWindow : Window
                            ?? "(unknown task)";
             AppendLine($"  📋 Logged: Round {iteration} · {taskDisplay}", (Brush)FindResource("SubtleText"));
         }
-        _loopRoundExecutionIdentity = null;
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
     }
@@ -7770,24 +7805,14 @@ public partial class MainWindow : Window
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
         var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
-        var previousAttempts = (priorExecution?.PreviousPlanExecutionAttempts ?? []).ToList();
-        if (priorExecution?.PlanExecutionAttempt is { } priorAttempt &&
-            string.Equals(priorAttempt.PlanId, groupId, StringComparison.Ordinal))
-        {
-            previousAttempts.Add(priorAttempt with {
-                Status = string.Equals(priorAttempt.Status, "active", StringComparison.Ordinal)
-                    ? "interrupted"
-                    : priorAttempt.Status
-            });
-        }
         _conversationManager.UpdateActiveLoopExecutionState(
-            new ActiveLoopExecutionState(
+            PlanExecutionResumeEnvelope.Create(
                 loopPath,
                 groupId,
-                groupId,
                 revision,
-                PreviousPlanExecutionAttempts: previousAttempts,
-                LastCompletedIteration: Math.Max(0, resumeFromIteration)));
+                resumeFromIteration,
+                priorExecution,
+                reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision)));
 
         if (!TryPublishPlanStarted(groupId, executionGroup, revision, out var planStartError))
         {
@@ -8687,7 +8712,6 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
-        _repairAttemptActive = false;
         if (_CodeHealthGroupRunner.CurrentStepId is null || _CodeHealthGroupRunner.CurrentRevision is null)
             throw new InvalidOperationException(
                 $"Plan {_activeDecomposeGroupId} has no dependency-eligible step to execute.");
@@ -8739,14 +8763,22 @@ public partial class MainWindow : Window
         {
             await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
         }
-        _decomposeIterationBaselineCommit =
-            (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
-
         var currentTaskId = _CodeHealthGroupRunner.CurrentStepId;
         var currentTask = group.Tasks.FirstOrDefault(task =>
             string.Equals(task.Id, currentTaskId, StringComparison.Ordinal));
         if (currentTask is null)
             throw new InvalidDataException($"Plan {_activeDecomposeGroupId} is missing task {currentTaskId}.");
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution
+            ?? throw new InvalidOperationException("The active plan execution was not persisted.");
+        var observedHead = (await RunGitAsync(
+            _currentWorkspace.FolderPath,
+            "rev-parse HEAD")).Trim();
+        _decomposeIterationBaselineCommit =
+            string.Equals(execution.RecoveryTaskId, currentTaskId, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(execution.TaskBaselineCommit)
+                ? execution.TaskBaselineCommit
+                : observedHead;
 
         var policy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
         var assignments = policy == PlanAgentRoutingPolicy.Off ? null : currentTask.AgentAssignments;
@@ -8759,8 +8791,6 @@ public partial class MainWindow : Window
                 $"Task {currentTaskId} permits generic child workers. " +
                 "Child workers are disabled until SquadDash can enforce read-only isolation.");
 
-        var execution = _conversationManager.ConversationState.ActiveLoopExecution
-            ?? throw new InvalidOperationException("The active plan execution was not persisted.");
         PlanExecutionAttemptState? attempt = null;
         if (assignments is { Count: 1 })
         {
@@ -8811,10 +8841,25 @@ public partial class MainWindow : Window
                     : replacedAttempt.Status
             });
         }
+        var sameRecoveryTask = string.Equals(
+            execution.RecoveryTaskId,
+            currentTaskId,
+            StringComparison.Ordinal);
+        var sameRecoveryAttempt = sameRecoveryTask && string.Equals(
+            execution.RecoveryAttemptId,
+            attempt?.AttemptId,
+            StringComparison.Ordinal);
         _conversationManager.UpdateActiveLoopExecutionState(
             execution with {
                 PlanExecutionAttempt = attempt,
-                PreviousPlanExecutionAttempts = attemptHistory
+                PreviousPlanExecutionAttempts = attemptHistory,
+                RecoveryTaskId = currentTaskId,
+                RecoveryAttemptId = attempt?.AttemptId,
+                RepairRequestCount = sameRecoveryAttempt ? execution.RepairRequestCount : 0,
+                FreshAttemptCount = sameRecoveryTask ? execution.FreshAttemptCount : 0,
+                TaskBaselineCommit = sameRecoveryTask
+                    ? execution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit
+                    : _decomposeIterationBaselineCommit
             });
         var routingContext = policy == PlanAgentRoutingPolicy.Off
             ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
@@ -8835,6 +8880,41 @@ public partial class MainWindow : Window
         return string.Join("\n\n", contexts);
     }
 
+    private PlanExecutionAttemptState? CreatePlanExecutionAttempt(
+        string groupId,
+        string taskId,
+        string revision,
+        DecomposedSubTask task,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments,
+        string routingPolicy)
+    {
+        if (_currentWorkspace is null || routingPolicy == PlanAgentRoutingPolicy.Off)
+            return null;
+
+        if (assignments is { Count: 1 })
+        {
+            var teamPath = Path.Combine(_currentWorkspace.SquadFolderPath, "team.md");
+            var roster = PlanStepAgentResolver.ParseTeamMd(
+                File.Exists(teamPath) ? File.ReadAllText(teamPath) : string.Empty);
+            return PlanExecutionAttemptState.Create(
+                groupId,
+                taskId,
+                revision,
+                _currentWorkspace.FolderPath,
+                _currentWorkspace.SquadFolderPath,
+                assignments,
+                roster);
+        }
+
+        return string.Equals(task.AgentRoutingMode, "generic", StringComparison.Ordinal)
+            ? PlanExecutionAttemptState.CreateGeneric(
+                groupId,
+                taskId,
+                revision,
+                _currentWorkspace.FolderPath)
+            : null;
+    }
+
     private async Task FinalizeExecutingPlanIterationAsync()
     {
         if (_currentWorkspace is null || _activeDecomposeGroupId is null || _CodeHealthGroupRunner is null)
@@ -8846,10 +8926,21 @@ public partial class MainWindow : Window
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
-        var executionAttempt = activeExecution?.PlanExecutionAttempt;
+        if (activeExecution is null)
+        {
+            // A graceful stop can clear the durable execution envelope while the
+            // coordinator's current response is winding down. Never turn that race
+            // into a second protocol failure or dereference a missing attempt.
+            SquadDashTrace.Write(
+                "Loop",
+                $"Skipping plan finalization after execution ownership was released plan={groupId} task={taskId}.");
+            return;
+        }
+        var executionAttempt = activeExecution.PlanExecutionAttempt;
         IReadOnlyList<DecomposedAgentAssignment>? expectedAssignments = null;
         DecomposedSubTask? persistedTask = null;
         string? assignmentError = null;
+        string? assignmentEvidenceError = null;
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         if (File.Exists(tasksPath))
@@ -8869,21 +8960,23 @@ public partial class MainWindow : Window
         if (routingPolicy != PlanAgentRoutingPolicy.Off &&
             string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal))
         {
-            assignmentError = PlanAgentAssignmentValidator.ValidateGeneric(
+            assignmentEvidenceError = PlanAgentAssignmentValidator.ValidateGeneric(
                 taskId,
                 revision,
                 executionAttempt,
                 result?.ExecutionAttemptId,
                 result?.AgentExecutions);
+            assignmentError = assignmentEvidenceError;
         }
         else
         {
-            assignmentError = PlanAgentAssignmentValidator.Validate(
+            assignmentEvidenceError = PlanAgentAssignmentValidator.Validate(
                 taskId,
                 revision,
                 routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
                 executionAttempt);
-            if (assignmentError is null && routingPolicy != PlanAgentRoutingPolicy.Off)
+            assignmentError = assignmentEvidenceError;
+            if (assignmentEvidenceError is null && routingPolicy != PlanAgentRoutingPolicy.Off)
                 assignmentError = PlanAgentAssignmentValidator.ValidateWrapUp(
                     taskId,
                     expectedAssignments,
@@ -8902,13 +8995,68 @@ public partial class MainWindow : Window
 
         if (error is not null || result is null)
         {
-            if (!_repairAttemptActive)
+            var recoveryAction = PlanExecutionRecoveryPolicy.Resolve(
+                executionAttempt,
+                routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
+                activeExecution.RepairRequestCount,
+                activeExecution.FreshAttemptCount);
+            var repairError = error ?? "no result envelope was returned";
+            if (recoveryAction == PlanExecutionRecoveryAction.StartFreshAttempt &&
+                persistedTask is not null && executionAttempt is not null)
             {
-                // First failure: attempt one bounded repair.
-                _repairAttemptActive = true;
-                var repairError = error ?? "no result envelope was returned";
+                var freshAttempt = CreatePlanExecutionAttempt(
+                    groupId,
+                    taskId,
+                    revision,
+                    persistedTask,
+                    expectedAssignments,
+                    routingPolicy);
+                if (freshAttempt is not null)
+                {
+                    var history = PlanExecutionRecoveryPolicy.ArchiveRejectedAttempt(
+                        activeExecution.PreviousPlanExecutionAttempts,
+                        executionAttempt,
+                        freshAttempt);
+                    _conversationManager.UpdateActiveLoopExecutionState(
+                        activeExecution with {
+                            PlanExecutionAttempt = freshAttempt,
+                            PreviousPlanExecutionAttempts = history,
+                            RecoveryTaskId = taskId,
+                            RecoveryAttemptId = freshAttempt.AttemptId,
+                            RepairRequestCount = 0,
+                            FreshAttemptCount = activeExecution.FreshAttemptCount + 1
+                        });
+                    var routingContext = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+                        _currentWorkspace.SquadFolderPath,
+                        taskId,
+                        _CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId,
+                        _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty,
+                        expectedAssignments,
+                        revision,
+                        freshAttempt,
+                        string.Equals(persistedTask.AgentRoutingMode, "generic", StringComparison.Ordinal)
+                            ? persistedTask.GenericAgentReason
+                            : null);
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ SquadDash closed contaminated execution attempt {executionAttempt.AttemptId} and created fresh attempt {freshAttempt.AttemptId}. Existing commits and work were preserved.");
+                    EnqueuePrompt(
+                        PlanFreshAttemptPrompt.Build(groupId, taskId, revision, repairError, routingContext),
+                        isSystemInjected: true);
+                    return;
+                }
+                recoveryAction = PlanExecutionRecoveryAction.Block;
+            }
+
+            if (recoveryAction == PlanExecutionRecoveryAction.RequestRepair)
+            {
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with {
+                        RecoveryTaskId = taskId,
+                        RecoveryAttemptId = executionAttempt?.AttemptId,
+                        RepairRequestCount = activeExecution.RepairRequestCount + 1
+                    });
                 var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
-                if (assignmentError is not null && expectedAssignments is { Count: > 0 })
+                if (assignmentEvidenceError is not null && expectedAssignments is { Count: > 0 })
                 {
                     var stepTitle = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId;
                     var stepDescription = _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty;
@@ -8926,13 +9074,46 @@ public partial class MainWindow : Window
                         $"⚙ SquadDash is requesting the missing verified agent assignment (reason: {repairError})");
                 }
                 else if (assignmentError is not null &&
+                         expectedAssignments is { Count: > 0 } &&
+                         executionAttempt is not null)
+                {
+                    repairPrompt = PlanAssignmentWrapUpRepairPrompt.Build(
+                        groupId,
+                        taskId,
+                        revision,
+                        executionAttempt.AttemptId,
+                        expectedAssignments,
+                        repairError);
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ SquadDash is requesting the missing coordinator wrap-up without relaunching completed workers (reason: {repairError})");
+                }
+                else if (assignmentError is not null &&
                          string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal) &&
                          executionAttempt is not null)
                 {
-                    repairPrompt += "\n\nDo not launch another primary worker if one already ran. " +
-                                    $"Return `executionAttemptId`: `{executionAttempt.AttemptId}` and omit `agentExecutions`.";
-                    ScheduleDecomposeSystemEntry(
-                        $"⚙ SquadDash is repairing generic plan-execution evidence (reason: {repairError})");
+                    if (string.IsNullOrWhiteSpace(executionAttempt.GenericPrimaryToolCallId))
+                    {
+                        var routingContext = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+                            _currentWorkspace.SquadFolderPath,
+                            taskId,
+                            _CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId,
+                            _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty,
+                            null,
+                            revision,
+                            executionAttempt,
+                            persistedTask!.GenericAgentReason);
+                        repairPrompt = PlanGenericAssignmentRepairPrompt.Build(
+                            groupId, taskId, revision, repairError, routingContext);
+                        ScheduleDecomposeSystemEntry(
+                            $"⚙ SquadDash is requesting the missing generic primary worker (reason: {repairError})");
+                    }
+                    else
+                    {
+                        repairPrompt += "\n\nDo not launch another primary worker; the host already observed it. " +
+                                        $"Return `executionAttemptId`: `{executionAttempt.AttemptId}` and omit `agentExecutions`.";
+                        ScheduleDecomposeSystemEntry(
+                            $"⚙ SquadDash is repairing generic plan-execution wrap-up (reason: {repairError})");
+                    }
                 }
                 else
                 {
@@ -8942,8 +9123,9 @@ public partial class MainWindow : Window
                 EnqueuePrompt(repairPrompt, isSystemInjected: true);
                 return;
             }
-            // Second failure: escalate to blocked.
-            _repairAttemptActive = false;
+
+            // A repeated repair failure or repeated evidence contamination is terminal
+            // for this automatic run. Preserve the attempt history and offer recovery.
             _CodeHealthGroupRunner.MarkCurrentStepFailed();
             StopAndOfferDecomposeRecovery(
                 groupId,
@@ -8952,9 +9134,6 @@ public partial class MainWindow : Window
                 $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}");
             return;
         }
-
-        // Successful result: clear repair flag.
-        _repairAttemptActive = false;
 
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out error))
         {
@@ -40910,6 +41089,42 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(DispatchInboxAction), ex);
+        }
+    }
+
+    /// <summary>
+    /// Atomically turns an actively executing durable plan into a recoverable interruption.
+    /// Terminal, blocked, approval-paused, or already-interrupted plans are left untouched so
+    /// late loop callbacks cannot overwrite a more specific outcome.
+    /// </summary>
+    private Plan? TryInterruptExecutingPlan(
+        string groupId,
+        string? taskId,
+        string reason,
+        int loopIteration)
+    {
+        if (_planStore is null)
+            return null;
+        try
+        {
+            var existing = _planStore.Load(groupId);
+            if (existing is null || existing.LifecycleStatus != PlanLifecycleStatus.Executing)
+                return null;
+            var interrupted = PlanStoreUpdater.ApplyInterrupted(
+                existing,
+                reason,
+                Math.Max(0, loopIteration),
+                taskId,
+                lastCommit: _decomposeIterationBaselineCommit);
+            PublishPlanProgress(interrupted);
+            return interrupted;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Could not persist interrupted plan {groupId}: {ex.Message}");
+            return null;
         }
     }
 

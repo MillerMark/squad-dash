@@ -19,4 +19,31 @@ internal sealed class LoopRoundExecutionIdentityTests
             Assert.That(captured.TaskId, Is.Not.EqualTo(mutableCurrentTaskAfterFinalize));
         });
     }
+
+    [Test]
+    public void ResolveFailure_UsesCapturedIdentityAfterRuntimeStateWasCleared()
+    {
+        var captured = new LoopRoundExecutionIdentity(
+            "PLAN-1", "revision-1", "PLAN-1-007", "Failure matrix");
+
+        var resolved = LoopRoundExecutionIdentity.ResolveFailure(
+            captured, null, null, null);
+
+        Assert.That(resolved, Is.EqualTo(captured));
+    }
+
+    [Test]
+    public void ResolveFailure_PrefersStillAvailableRuntimeIdentity()
+    {
+        var captured = new LoopRoundExecutionIdentity(
+            "PLAN-OLD", "revision-old", "PLAN-OLD-001", "Old task");
+
+        var resolved = LoopRoundExecutionIdentity.ResolveFailure(
+            captured, "PLAN-1", "revision-1", "PLAN-1-007", "Failure matrix");
+
+        Assert.That(
+            resolved,
+            Is.EqualTo(new LoopRoundExecutionIdentity(
+                "PLAN-1", "revision-1", "PLAN-1-007", "Failure matrix")));
+    }
 }

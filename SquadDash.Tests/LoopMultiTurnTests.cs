@@ -339,13 +339,12 @@ internal sealed class LoopMultiTurnTests {
     /// <summary>
     /// When the delegate stalls (simulating a hung multi-turn exchange) and the
     /// per-iteration timeout fires, abortPrompt is called, onError reports the
-    /// timeout, and onStopped fires in the finally to reset loop state.
+    /// timeout, and onStopped does not also fire and race the error recovery path.
     /// </summary>
     [Test]
     public async Task Timeout_DuringMultiTurnWait_ReportsTimeoutErrorAndStops() {
         var promptStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var errorTcs         = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var stoppedTcs       = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var promptCts        = new CancellationTokenSource();
         bool abortCalled     = false;
         string? errorMsg     = null;
@@ -362,7 +361,7 @@ internal sealed class LoopMultiTurnTests {
                 promptCts.Cancel();     // unblocks the stalled delegate
             },
             onIterationStarted:   _ => { },
-            onStopped:            () => { stoppedCalled = true; stoppedTcs.TrySetResult(); },
+            onStopped:            () => { stoppedCalled = true; },
             onError:              msg => { errorMsg = msg; errorTcs.TrySetResult(); },
             onIterationCompleted: _ => { },
             onWaiting:            _ => { });
@@ -378,11 +377,10 @@ internal sealed class LoopMultiTurnTests {
         await promptStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.That(abortCalled,   Is.True,                   "abortPrompt must be called when timeout fires");
         Assert.That(errorMsg,      Does.Contain("timed out"), "onError must report the timeout message");
-        Assert.That(stoppedCalled, Is.True,                   "onStopped fires in finally after timeout break");
+        Assert.That(stoppedCalled, Is.False,                  "onStopped must not also fire after timeout");
         Assert.That(controller.IsRunning, Is.False);
     }
 

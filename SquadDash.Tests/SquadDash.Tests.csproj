@@ -88,6 +88,11 @@
     <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />
     <Compile Include="..\SquadDash\BackgroundAgentLaunchInfoResolver.cs" Link="Source\BackgroundAgentLaunchInfoResolver.cs" />
     <Compile Include="..\SquadDash\PlanExecutionAttempt.cs" Link="Source\PlanExecutionAttempt.cs" />
+    <Compile Include="..\SquadDash\PlanExecutionRecoveryPolicy.cs" Link="Source\PlanExecutionRecoveryPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanFreshAttemptPrompt.cs" Link="Source\PlanFreshAttemptPrompt.cs" />
+    <Compile Include="..\SquadDash\PlanAssignmentWrapUpRepairPrompt.cs" Link="Source\PlanAssignmentWrapUpRepairPrompt.cs" />
+    <Compile Include="..\SquadDash\PlanGenericAssignmentRepairPrompt.cs" Link="Source\PlanGenericAssignmentRepairPrompt.cs" />
+    <Compile Include="..\SquadDash\PlanExecutionResumeEnvelope.cs" Link="Source\PlanExecutionResumeEnvelope.cs" />
     <Compile Include="..\SquadDash\BackgroundAgentReportAnnouncementBuilder.cs" Link="Source\BackgroundAgentReportAnnouncementBuilder.cs" />
     <Compile Include="..\SquadDash\BackgroundCancelCompletionPolicy.cs" Link="Source\BackgroundCancelCompletionPolicy.cs" />
     <Compile Include="..\SquadDash\BackgroundTaskStateResolver.cs" Link="Source\BackgroundTaskStateResolver.cs" />

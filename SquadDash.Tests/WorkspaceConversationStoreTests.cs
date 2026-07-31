@@ -833,6 +833,43 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsBoundedPlanRecoveryCounters()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            "GODCLASS-20260725",
+            "GODCLASS-20260725-007",
+            "revision-123",
+            _workspacePath);
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with {
+                ActiveLoopExecution = new ActiveLoopExecutionState(
+                    "D:/repo/.squad/loop-executing-plan.md",
+                    "GODCLASS-20260725",
+                    "GODCLASS-20260725",
+                    "revision-123",
+                    attempt,
+                    LastCompletedIteration: 6,
+                    RecoveryTaskId: " GODCLASS-20260725-007 ",
+                    RecoveryAttemptId: $" {attempt.AttemptId} ",
+                    RepairRequestCount: 1,
+                    FreshAttemptCount: 1,
+                    TaskBaselineCommit: " abc1234 ")
+            });
+
+        var restored = _store.Load(_workspacePath).ActiveLoopExecution;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored?.RecoveryTaskId, Is.EqualTo("GODCLASS-20260725-007"));
+            Assert.That(restored?.RecoveryAttemptId, Is.EqualTo(attempt.AttemptId));
+            Assert.That(restored?.RepairRequestCount, Is.EqualTo(1));
+            Assert.That(restored?.FreshAttemptCount, Is.EqualTo(1));
+            Assert.That(restored?.TaskBaselineCommit, Is.EqualTo("abc1234"));
+        });
+    }
+
+    [Test]
     public void Clear_ThenDraftSave_DoesNotRecoverOldTranscriptBackup() {
         _store.Save(
             _workspacePath,
