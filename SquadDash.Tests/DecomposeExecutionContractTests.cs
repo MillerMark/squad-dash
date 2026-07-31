@@ -77,6 +77,31 @@ internal sealed class DecomposeRecoveryDecisionParserTests
 internal sealed class DecomposeWorktreePolicyTests
 {
     [Test]
+    public void RepositoryRelativePath_TrimsGitCommandLineEnding()
+    {
+        var repositoryRoot = Path.Combine(Path.GetTempPath(), "SquadDash", "repo");
+        var tasksPath = Path.Combine(repositoryRoot, ".squad", "tasks.md");
+
+        var relative = DecomposeWorktreePolicy.GetRepositoryRelativePath(
+            repositoryRoot + "\r\n",
+            tasksPath);
+
+        Assert.That(relative, Is.EqualTo(".squad/tasks.md"));
+    }
+
+    [Test]
+    public void RepositoryRelativePath_RejectsPathOutsideRepository()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), "SquadDash");
+        var repositoryRoot = Path.Combine(parent, "repo");
+        var outsidePath = Path.Combine(parent, "other", "tasks.md");
+
+        Assert.That(
+            DecomposeWorktreePolicy.GetRepositoryRelativePath(repositoryRoot, outsidePath),
+            Is.Null);
+    }
+
+    [Test]
     public void TasksFileOnly_IsAllowed()
     {
         Assert.That(DecomposeWorktreePolicy.HasOnlyAllowedChanges(

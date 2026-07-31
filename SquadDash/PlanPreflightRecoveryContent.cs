@@ -7,6 +7,7 @@ internal sealed record PlanPreflightRecoveryContent(
     string Title,
     string Summary,
     string ChangedFilesSummary,
+    string RecoveryGuidance,
     string TechnicalDetails)
 {
     internal static PlanPreflightRecoveryContent From(PlanPreflightBlockedException exception)
@@ -29,6 +30,8 @@ internal sealed record PlanPreflightRecoveryContent(
             $"{(count == 1 ? "file prevents" : "files prevent")} a safe branch switch. " +
             "No plan work was started.",
             files,
+            "Review these changes, then commit or stash them and select Retry. " +
+            "SquadDash will not discard or carry uncommitted work automatically.",
             details);
     }
 }

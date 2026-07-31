@@ -1,7 +1,25 @@
+using System.IO;
+
 namespace SquadDash;
 
 internal static class DecomposeWorktreePolicy
 {
+    internal static string? GetRepositoryRelativePath(
+        string? repositoryRootOutput,
+        string absolutePath)
+    {
+        var repositoryRoot = repositoryRootOutput?.Trim();
+        if (string.IsNullOrWhiteSpace(repositoryRoot) || string.IsNullOrWhiteSpace(absolutePath))
+            return null;
+
+        var relative = Path.GetRelativePath(repositoryRoot, absolutePath).Replace('\\', '/');
+        return relative.Equals("..", StringComparison.Ordinal) ||
+               relative.StartsWith("../", StringComparison.Ordinal) ||
+               Path.IsPathRooted(relative)
+            ? null
+            : relative;
+    }
+
     internal static bool HasOnlyAllowedChanges(
         string? porcelainStatus,
         IReadOnlyCollection<string> allowedRepositoryRelativePaths,

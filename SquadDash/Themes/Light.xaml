@@ -32,6 +32,7 @@
     <SolidColorBrush x:Key="PriorityCritical" Color="#D82323"/>
 
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
+    <SolidColorBrush x:Key="PlanPreflightWarningSurface" Color="#FFFFC94A"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>
     <SolidColorBrush x:Key="PopupSurface" Color="#FFFFFF"/>
@@ -65,6 +66,7 @@
     <SolidColorBrush x:Key="SubtleBorder" Color="#E2D5C3"/>
     <SolidColorBrush x:Key="CheckBoxBorder" Color="#B0A090"/><!-- slightly darker than InputBorder for checkbox contrast -->
     <SolidColorBrush x:Key="AlertBorder" Color="#E4C48A"/>
+    <SolidColorBrush x:Key="PlanPreflightWarningBorder" Color="#B87900"/>
     <SolidColorBrush x:Key="BadgeBorder" Color="#E4D4BF"/>
     <SolidColorBrush x:Key="HireAgentImageBorder" Color="#E4DDD3"/>
     <SolidColorBrush x:Key="ThreadBadgeBorder" Color="#E2D4BE"/>
@@ -97,6 +99,7 @@
     <SolidColorBrush x:Key="PanelTitle" Color="#5A4129"/>
     <SolidColorBrush x:Key="ActionLinkText" Color="#365C9B"/>
     <SolidColorBrush x:Key="AlertBodyText" Color="#6A4A2C"/>
+    <SolidColorBrush x:Key="PlanPreflightWarningText" Color="#2A1B00"/>
     <SolidColorBrush x:Key="ThreadBadgeText" Color="#6E5035"/>
     <SolidColorBrush x:Key="ToastText" Color="#8F5F00"/>
     <SolidColorBrush x:Key="ChipText" Color="#3C2B1E"/>

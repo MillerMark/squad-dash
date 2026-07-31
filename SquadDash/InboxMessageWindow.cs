@@ -326,7 +326,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             Text = content.Title,
             FontWeight = FontWeights.SemiBold,
         };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         stack.Children.Add(title);
 
@@ -336,7 +336,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 6),
         };
-        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(summary);
 
@@ -346,7 +346,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        files.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(files);
 
@@ -361,25 +361,25 @@ internal sealed class InboxMessageWindow : ChromedWindow
             },
             Margin = new Thickness(0, 0, 0, 6),
         };
-        details.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+        details.SetResourceReference(Expander.ForegroundProperty, "PlanPreflightWarningText");
         if (TryFindResource("ThemedExpanderStyle") is Style expanderStyle)
             details.Style = expanderStyle;
         stack.Children.Add(details);
 
         var readiness = new TextBlock
         {
-            Text = "Commit or stash the changes, then retry.",
+            Text = content.RecoveryGuidance,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        readiness.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelSubtitle");
+        readiness.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         readiness.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         stack.Children.Add(readiness);
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = BuildRecoveryButton("View Changes");
         var retryButton = BuildRecoveryButton("Retry");
-        var dismissButton = BuildRecoveryButton("Dismiss");
+        var dismissButton = BuildRecoveryButton("Keep Plan Pending");
         buttons.Children.Add(viewButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
@@ -401,8 +401,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
             BorderThickness = new Thickness(1),
             Padding = new Thickness(12, 10, 12, 10),
         };
-        card.SetResourceReference(Border.BackgroundProperty, "ActivePanelSurface");
-        card.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        card.SetResourceReference(Border.BackgroundProperty, "PlanPreflightWarningSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "PlanPreflightWarningBorder");
         _preflightRecoveryHost.Content = card;
         _preflightRecoveryHost.Visibility = Visibility.Visible;
 

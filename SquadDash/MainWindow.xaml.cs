@@ -8322,7 +8322,7 @@ public partial class MainWindow : Window
             Text = content.Title,
             FontWeight = FontWeights.SemiBold,
         };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         stack.Children.Add(title);
 
@@ -8332,7 +8332,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 6),
         };
-        summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(summary);
 
@@ -8342,7 +8342,7 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        files.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(files);
 
@@ -8352,32 +8352,32 @@ public partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(8, 4, 0, 6),
         };
-        detailsText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        detailsText.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         var details = new Expander
         {
             Header = "Technical details",
             Content = detailsText,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        details.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+        details.SetResourceReference(Expander.ForegroundProperty, "PlanPreflightWarningText");
         if (TryFindResource("TranscriptExpanderStyle") is Style transcriptExpanderStyle)
             details.Style = transcriptExpanderStyle;
         stack.Children.Add(details);
 
         var readiness = new TextBlock
         {
-            Text = "Commit or stash the changes, then retry.",
+            Text = content.RecoveryGuidance,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        readiness.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelSubtitle");
+        readiness.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         readiness.FontSize = _transcriptFontSize;
         stack.Children.Add(readiness);
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _transcriptFontSize);
         var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _transcriptFontSize);
-        var dismissButton = TranscriptQuickReplyFactory.CreateButton("Dismiss", _transcriptFontSize);
+        var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _transcriptFontSize);
         buttons.Children.Add(viewButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
@@ -8392,8 +8392,8 @@ public partial class MainWindow : Window
             MaxWidth = 760,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        card.SetResourceReference(Border.BackgroundProperty, "ActivePanelSurface");
-        card.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+        card.SetResourceReference(Border.BackgroundProperty, "PlanPreflightWarningSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "PlanPreflightWarningBorder");
         var container = TranscriptQuickReplyFactory.CreateContainer(
             card,
             new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision));
@@ -41837,7 +41837,11 @@ public partial class MainWindow : Window
             var status = await RunGitAsync(
                 _currentWorkspace.FolderPath,
                 "status --porcelain --untracked-files=all");
-            return string.IsNullOrWhiteSpace(status);
+            var allowedPlanPaths = await GetAllowedPlanPathsAsync(_currentWorkspace.FolderPath);
+            return DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+                status,
+                allowedPlanPaths,
+                out _);
         }
         catch { return false; }
     }
@@ -43562,23 +43566,15 @@ public partial class MainWindow : Window
     private async Task<string?> GetTasksRepositoryRelativePathAsync(string workspace)
     {
         if (_currentWorkspace is null) return null;
-        var repositoryRoot = (await RunGitAsync(workspace, "rev-parse --show-toplevel")).Trim();
+        var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var relative = Path.GetRelativePath(repositoryRoot, tasksPath).Replace('\\', '/');
-        return relative.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relative)
-            ? null
-            : relative;
+        return DecomposeWorktreePolicy.GetRepositoryRelativePath(repositoryRoot, tasksPath);
     }
 
     private async Task<bool> IsOnlyTasksFileDirtyAsync(string workspace, string allStatus)
     {
-        if (_currentWorkspace is null) return false;
-        var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var relativeTasksPath = Path.GetRelativePath(repositoryRoot, tasksPath).Replace('\\', '/');
-        if (relativeTasksPath.StartsWith("../", StringComparison.Ordinal) ||
-            Path.IsPathRooted(relativeTasksPath))
-            return false;
+        var relativeTasksPath = await GetTasksRepositoryRelativePathAsync(workspace);
+        if (relativeTasksPath is null) return false;
 
         var escapedPath = relativeTasksPath.Replace("\"", "\\\"");
         var tasksStatus = await RunGitAsync(
