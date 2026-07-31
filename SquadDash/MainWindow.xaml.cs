@@ -347,6 +347,9 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private string? _pendingApprovalCalloutMessageId;
     private FrmUltimateCallout? _approvalAttentionCallout;
+    private DeveloperApprovalSimulator? _developerApprovalSimulator;
+    private bool? _developerApprovalSimulationOriginalInboxVisible;
+    private bool? _developerApprovalSimulationInboxVisibleScenario;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -9354,6 +9357,11 @@ public partial class MainWindow : Window
 
     private async Task InitializeApprovalRuntimeAsync()
     {
+        // Developer simulations are deliberately session-scoped. Remove their disposable
+        // Inbox artifact before restoring real workspace approval state after startup or a
+        // workspace switch.
+        ClearDeveloperApprovalSimulation(restoreInboxVisibility: false, refreshInbox: false);
+        _inboxStore?.Delete(DeveloperApprovalSimulator.MessageId);
         _approvalTranscriptCards.Clear();
         _approvalPlansUpdating.Clear();
         _planApprovalRuntime = null;
@@ -9736,6 +9744,8 @@ public partial class MainWindow : Window
         string? note = null,
         IReadOnlyList<string>? gateIdsToResolve = null)
     {
+        if (await TryHandleDeveloperApprovalSimulationClickAsync(clickToken, note))
+            return;
         if (_planStore is null || _planApprovalRuntime is null) return;
         if (_approvalPlansUpdating.Contains(clickToken.PlanId))
         {
@@ -9826,6 +9836,59 @@ public partial class MainWindow : Window
 
         if (_inboxStore?.GetById(messageId) is { } currentMessage)
             RefreshOpenApprovalInboxWindows(messageId, currentMessage);
+    }
+
+    private async Task<bool> TryHandleDeveloperApprovalSimulationClickAsync(
+        ApprovalClickToken clickToken,
+        string? note)
+    {
+        if (!string.Equals(
+                clickToken.PlanId,
+                DeveloperApprovalSimulator.PlanId,
+                StringComparison.Ordinal))
+            return false;
+
+        var simulator = _developerApprovalSimulator;
+        if (simulator is null || !simulator.IsActive)
+        {
+            AppendLine("⚠ This developer approval simulation is no longer active. Clear it and start a fresh simulation.");
+            return true;
+        }
+
+        if (_approvalTranscriptCards.TryGetValue(clickToken.PlanId, out var cards))
+            foreach (var card in cards) TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+        foreach (var window in _openInboxWindows.Where(window =>
+                     window.MessageId == DeveloperApprovalSimulator.MessageId).ToArray())
+            window.BeginApprovalUpdate();
+
+        var resolution = await simulator.ApproveAsync(clickToken, note);
+        if (resolution.Result == ApprovalClickResult.Approved)
+        {
+            if (string.Equals(
+                    _pendingApprovalCalloutMessageId,
+                    DeveloperApprovalSimulator.MessageId,
+                    StringComparison.Ordinal))
+                _pendingApprovalCalloutMessageId = null;
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
+            if (cards is not null)
+                foreach (var card in cards) TranscriptApprovalCardBuilder.ShowResolvedState(card);
+            _approvalTranscriptCards.Remove(clickToken.PlanId);
+
+            RefreshDeveloperApprovalSimulationInbox();
+            SquadDashTrace.Write(
+                "Approval",
+                "Developer approval simulation resolved; execution-loop resume intentionally suppressed.");
+            return true;
+        }
+
+        if (cards is not null)
+            foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
+        AppendLine(resolution.Result == ApprovalClickResult.AlreadyResolved
+            ? "This simulated approval was already handled."
+            : "⚠ The simulated approval action became stale. Clear it and start a fresh simulation.");
+        RefreshDeveloperApprovalSimulationInbox();
+        return true;
     }
 
     private void ApproveCurrentPlan(Plan plan, string? gateId = null)
@@ -20767,6 +20830,129 @@ public partial class MainWindow : Window
         catch (Exception ex) { HandleUiCallbackException(nameof(SimulateBridgeDisposed_Click), ex); }
     }
 
+    private async void SimulatePlanApprovalInboxVisible_Click(object sender, RoutedEventArgs e)
+    {
+        try { await StartDeveloperApprovalSimulationAsync(inboxVisible: true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePlanApprovalInboxVisible_Click), ex); }
+    }
+
+    private async void SimulatePlanApprovalInboxHidden_Click(object sender, RoutedEventArgs e)
+    {
+        try { await StartDeveloperApprovalSimulationAsync(inboxVisible: false); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePlanApprovalInboxHidden_Click), ex); }
+    }
+
+    private void ClearPlanApprovalSimulation_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ClearDeveloperApprovalSimulation(restoreInboxVisibility: true, refreshInbox: true);
+            SyncSimulationMenuCheckmarks();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ClearPlanApprovalSimulation_Click), ex); }
+    }
+
+    private async Task StartDeveloperApprovalSimulationAsync(bool inboxVisible)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("Open a workspace before starting an approval simulation.");
+        if (_isPromptRunning || IsNativeLoopRunning)
+            throw new InvalidOperationException("Stop active prompt and plan execution before starting an approval simulation.");
+        if (_planStore?.LoadAll().Any(plan => plan.ApprovalGates.Any(gate =>
+                gate.Status == PlanGateStatus.AwaitingApproval)) == true)
+            throw new InvalidOperationException("Resolve the real plan approval before starting a developer simulation.");
+
+        EnsureInboxPanelCreated();
+        if (_inboxStore is null || _inboxPanel is null)
+            throw new InvalidOperationException("The Inbox is unavailable for approval simulation.");
+
+        ClearDeveloperApprovalSimulation(restoreInboxVisibility: true, refreshInbox: true);
+        _developerApprovalSimulationOriginalInboxVisible = _inboxPanel.PanelVisible;
+        _developerApprovalSimulationInboxVisibleScenario = inboxVisible;
+        if (inboxVisible)
+            _inboxPanel.Show(flash: false);
+        else
+            _inboxPanel.Hide();
+
+        var simulator = new DeveloperApprovalSimulator(_inboxStore);
+        _developerApprovalSimulator = simulator;
+        try
+        {
+            var started = await simulator.StartAsync();
+            RefreshDeveloperApprovalSimulationInbox();
+            await TryShowApprovalCalloutAsync(started.Plan, started.Gate);
+            AppendGateApprovalActions(
+                started.Plan,
+                started.Gate,
+                started.Snapshot,
+                started.ClickToken);
+            SyncSimulationMenuCheckmarks();
+        }
+        catch
+        {
+            ClearDeveloperApprovalSimulation(restoreInboxVisibility: true, refreshInbox: true);
+            throw;
+        }
+    }
+
+    private void ClearDeveloperApprovalSimulation(
+        bool restoreInboxVisibility,
+        bool refreshInbox)
+    {
+        var hadActiveSimulation = _developerApprovalSimulator is not null;
+        _developerApprovalSimulator?.Clear();
+        _developerApprovalSimulator = null;
+        _inboxStore?.Delete(DeveloperApprovalSimulator.MessageId);
+
+        if (hadActiveSimulation || string.Equals(
+                _pendingApprovalCalloutMessageId,
+                DeveloperApprovalSimulator.MessageId,
+                StringComparison.Ordinal))
+        {
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
+            if (string.Equals(
+                    _pendingApprovalCalloutMessageId,
+                    DeveloperApprovalSimulator.MessageId,
+                    StringComparison.Ordinal))
+                _pendingApprovalCalloutMessageId = null;
+        }
+
+        _approvalTranscriptCards.Remove(DeveloperApprovalSimulator.PlanId);
+        var simulatedCards = CoordinatorThread.Document.Blocks
+            .OfType<BlockUIContainer>()
+            .Where(block => block.Tag is TranscriptApprovalCardTag tag &&
+                            string.Equals(
+                                tag.PlanId,
+                                DeveloperApprovalSimulator.PlanId,
+                                StringComparison.Ordinal))
+            .ToArray();
+        foreach (var card in simulatedCards)
+            CoordinatorThread.Document.Blocks.Remove(card);
+
+        var originalVisibility = _developerApprovalSimulationOriginalInboxVisible;
+        _developerApprovalSimulationOriginalInboxVisible = null;
+        _developerApprovalSimulationInboxVisibleScenario = null;
+        if (restoreInboxVisibility && originalVisibility.HasValue && _inboxPanel is not null)
+        {
+            if (originalVisibility.Value)
+                _inboxPanel.Show(flash: false);
+            else
+                _inboxPanel.Hide();
+        }
+
+        if (refreshInbox)
+            RefreshDeveloperApprovalSimulationInbox();
+    }
+
+    private void RefreshDeveloperApprovalSimulationInbox()
+    {
+        if (_inboxStore is null) return;
+        var messages = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(messages);
+        ReconcileOpenInboxWindows(messages);
+    }
+
     private void SimulationMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
     {
         try { SyncSimulationMenuCheckmarks(); }
@@ -20828,6 +21014,14 @@ public partial class MainWindow : Window
         SyncRuntime(SimRuntimeBundledSdk,     DeveloperRuntimeIssueSimulation.BundledSdkRepair);
         SyncRuntime(SimRuntimeBuildTempFiles, DeveloperRuntimeIssueSimulation.BuildTempFiles);
         SyncRuntime(SimRuntimeGenericFailure, DeveloperRuntimeIssueSimulation.GenericRuntimeFailure);
+
+        var approvalSimulationActive = _developerApprovalSimulator?.IsActive == true;
+        SimPlanApprovalInboxVisible.IsChecked = approvalSimulationActive &&
+                                                _developerApprovalSimulationInboxVisibleScenario == true;
+        SimPlanApprovalInboxHidden.IsChecked = approvalSimulationActive &&
+                                               _developerApprovalSimulationInboxVisibleScenario == false;
+        ClearPlanApprovalSimulation.IsEnabled = approvalSimulationActive ||
+                                                _inboxStore?.GetById(DeveloperApprovalSimulator.MessageId) is not null;
     }
 
 

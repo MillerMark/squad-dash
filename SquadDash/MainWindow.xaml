@@ -887,6 +887,21 @@
                               SubmenuOpened="SimulationMenuItem_SubmenuOpened">
                         <MenuItem Header="_Bridge Disposed"
                                   Click="SimulateBridgeDisposed_Click" />
+                        <MenuItem Header="Plan _Approval Request"
+                                  ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                            <MenuItem x:Name="SimPlanApprovalInboxVisible"
+                                      Header="Start with Inbox _visible"
+                                      IsCheckable="True"
+                                      Click="SimulatePlanApprovalInboxVisible_Click" />
+                            <MenuItem x:Name="SimPlanApprovalInboxHidden"
+                                      Header="Start with Inbox _hidden"
+                                      IsCheckable="True"
+                                      Click="SimulatePlanApprovalInboxHidden_Click" />
+                            <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                            <MenuItem x:Name="ClearPlanApprovalSimulation"
+                                      Header="_Clear simulation"
+                                      Click="ClearPlanApprovalSimulation_Click" />
+                        </MenuItem>
                         <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                         <MenuItem Header="Startup _Issue Preview"
                                   ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
