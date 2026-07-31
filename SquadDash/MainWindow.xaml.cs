@@ -345,6 +345,8 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, List<TranscriptApprovalCardBuilder.CardResult>>
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
+    private string? _pendingApprovalCalloutMessageId;
+    private FrmUltimateCallout? _approvalAttentionCallout;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -9471,7 +9473,7 @@ public partial class MainWindow : Window
                         AppendInboxReceivedEntry(updatedMessage.Subject, updatedMessage.Id);
                 }
             }
-            TryShowApprovalCallout(advance.UpdatedPlan, primaryGate);
+            await TryShowApprovalCalloutAsync(advance.UpdatedPlan, primaryGate);
         }
 
         if (!advance.MustStop)
@@ -9617,18 +9619,96 @@ public partial class MainWindow : Window
     /// <summary>
     /// Shows a one-time Ultimate Callout beside the main window for approval attention.
     /// </summary>
-    private void TryShowApprovalCallout(Plan plan, PlanApprovalGate gate)
+    private async Task TryShowApprovalCalloutAsync(Plan plan, PlanApprovalGate gate)
     {
         try
         {
-            var calloutText = $"🔒 **Approval Required**\n\n" +
-                $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks\n\n" +
-                $"{gate.Message}";
-            FrmUltimateCallout.ShowCalloutBesideTarget(calloutText, this, width: 380, fontSize: 12);
+            var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+            _pendingApprovalCalloutMessageId = messageId;
+
+            if (_inboxPanel?.PanelVisible == true)
+            {
+                await ShowPendingApprovalInboxRowCalloutAsync();
+                return;
+            }
+
+            // Reuse the guided-tour command because it already knows how to open a WPF MenuItem
+            // popup reliably across its separate HWND. This is a transient attention cue rather
+            // than a tour step, so immediately detach the tour's keep-open recovery handlers;
+            // clicking anywhere else must be allowed to close both the menu and the callout.
+            await _guidedTourCoordinator.CommandRegistry.ExecuteAsync("OpenMenu: PanelsMenuItem");
+            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+            var menuTarget = ResolveTourHighlightElement(nameof(ViewInboxMenuItem))
+                             ?? (FrameworkElement)PanelsMenuItem;
+            ShowApprovalAttentionCallout(
+                "**You have an approval request in your Inbox.**\n\nOpen **Inbox** to review the completed work and approve continuation.",
+                menuTarget,
+                placement: CalloutPlacement.East);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("Approval", $"Callout display failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Shows the second approval-attention cue once the Inbox panel is visible. It points to the
+    /// exact durable per-plan message. If a user filter hides that row, the panel is used as a
+    /// truthful fallback without mutating the user's filter settings.
+    /// </summary>
+    private async Task ShowPendingApprovalInboxRowCalloutAsync()
+    {
+        var messageId = _pendingApprovalCalloutMessageId;
+        if (messageId is null || _inboxPanel?.PanelVisible != true)
+            return;
+
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+        var row = _inboxPanel.FindVisibleMessageRow(messageId);
+        FrameworkElement target;
+        string text;
+        if (row is not null)
+        {
+            row.BringIntoView();
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+            target = row;
+            text = "**Approval request ready.**\n\nOpen this message to review the completed work and approve continuation.";
+        }
+        else
+        {
+            target = InboxPanelBorder;
+            text = "**Approval request ready.**\n\nThe request is in your Inbox but may be hidden by the current Inbox filter.";
+        }
+
+        ShowApprovalAttentionCallout(text, target, placement: CalloutPlacement.West);
+        _pendingApprovalCalloutMessageId = null;
+    }
+
+    private void ShowApprovalAttentionCallout(
+        string markdown,
+        FrameworkElement target,
+        CalloutPlacement placement)
+    {
+        _approvalAttentionCallout?.Close();
+        var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+        var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
+        var fontSize = Resources.Contains("FontSizeBody")
+            ? Convert.ToDouble(Resources["FontSizeBody"])
+            : 13.0;
+        _approvalAttentionCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+            markdown,
+            target,
+            width: 330,
+            theme: theme,
+            fontSize: fontSize,
+            placement: placement);
+        if (_approvalAttentionCallout is not null)
+        {
+            _approvalAttentionCallout.ForceTopmost = true;
+            _approvalAttentionCallout.Topmost = true;
         }
     }
 
@@ -9695,6 +9775,10 @@ public partial class MainWindow : Window
 
         if (resolution.Result == ApprovalClickResult.Approved && resolution.UpdatedPlan is not null)
         {
+            if (string.Equals(_pendingApprovalCalloutMessageId, messageId, StringComparison.Ordinal))
+                _pendingApprovalCalloutMessageId = null;
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
             _activePlanAwaitingGateApproval = resolution.UpdatedPlan.ApprovalGates
                 .FirstOrDefault(gate => gate.Status == PlanGateStatus.AwaitingApproval)
                 ?.GateId;
@@ -22256,6 +22340,8 @@ public partial class MainWindow : Window
         {
             EnsureInboxPanelCreated();
             _inboxPanel!.Toggle();
+            if (_inboxPanel.PanelVisible && _pendingApprovalCalloutMessageId is not null)
+                _ = ShowPendingApprovalInboxRowCalloutAsync();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewInboxMenuItem_Click), ex); }
     }
@@ -41538,6 +41624,8 @@ public partial class MainWindow : Window
     {
         EnsureInboxPanelCreated();
         _inboxPanel!.Show(flash: true);
+        if (_pendingApprovalCalloutMessageId is not null)
+            _ = ShowPendingApprovalInboxRowCalloutAsync();
     }
 
     /// <summary>Returns the workspace tint accent color used for active-panel chrome

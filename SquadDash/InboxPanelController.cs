@@ -193,6 +193,19 @@ internal sealed class InboxPanelController
     /// <summary>Whether the inbox panel border is currently visible.</summary>
     public bool PanelVisible => _panelVisible;
 
+    /// <summary>
+    /// Returns the rendered row for <paramref name="messageId"/> when that message is currently
+    /// visible through the Inbox filters. Approval-attention callouts use the row itself as their
+    /// target so the pointer identifies the exact request instead of the entire panel.
+    /// </summary>
+    internal FrameworkElement? FindVisibleMessageRow(string messageId) =>
+        _listPanel.Children
+            .OfType<FrameworkElement>()
+            .FirstOrDefault(element =>
+                element.Visibility == Visibility.Visible &&
+                element.Tag is InboxMessage message &&
+                string.Equals(message.Id, messageId, StringComparison.Ordinal));
+
     /// <summary>Shows the panel. Calls the border-sync, menu, persistence, and flash delegates.</summary>
     public void Show(bool flash = true)
     {

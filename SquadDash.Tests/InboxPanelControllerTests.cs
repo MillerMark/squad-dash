@@ -302,4 +302,36 @@ internal sealed class InboxPanelControllerTests
             var ctrl = BuildMinimal();
             Assert.DoesNotThrow(() => ctrl.HandleUnreadOnlyChanged(true));
         });
+
+    // ── Approval-attention row targeting ─────────────────────────────────────
+
+    [Test]
+    public void FindVisibleMessageRow_ReturnsExactMessageRow() =>
+        WpfTestContext.Run(() =>
+        {
+            var ctrl = BuildMinimal(initialPanelVisible: true);
+            ctrl.Refresh([
+                new InboxMessage { Id = "other", Subject = "Other", Timestamp = DateTimeOffset.Now },
+                new InboxMessage { Id = "approval", Subject = "Approval needed", Timestamp = DateTimeOffset.Now },
+            ]);
+
+            var row = ctrl.FindVisibleMessageRow("approval");
+
+            Assert.That(row, Is.Not.Null);
+            Assert.That(row!.Tag, Is.TypeOf<InboxMessage>());
+            Assert.That(((InboxMessage)row.Tag).Id, Is.EqualTo("approval"));
+        });
+
+    [Test]
+    public void FindVisibleMessageRow_FilteredMessage_ReturnsNull() =>
+        WpfTestContext.Run(() =>
+        {
+            var ctrl = BuildMinimal(initialPanelVisible: true);
+            ctrl.Refresh([
+                new InboxMessage { Id = "approval", Subject = "Approval needed", Timestamp = DateTimeOffset.Now },
+            ]);
+            ctrl.SetFilter("does-not-match");
+
+            Assert.That(ctrl.FindVisibleMessageRow("approval"), Is.Null);
+        });
 }

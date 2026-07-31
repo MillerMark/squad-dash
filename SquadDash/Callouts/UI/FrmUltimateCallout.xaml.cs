@@ -70,6 +70,13 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     /// </summary>
     public bool IsSticky { get; set; }
 
+    /// <summary>
+    /// Keeps an attention callout above the application's other windows even when its target
+    /// window is not currently foreground. This does not make the callout sticky: ordinary
+    /// click-outside dismissal and target-window lifetime behavior still apply.
+    /// </summary>
+    public bool ForceTopmost { get; set; }
+
     // ── Global registry (for auto-close sweep) ──────────────────────────────────
     private static readonly List<WeakReference<FrmUltimateCallout>> _openCallouts = new();
     private static readonly List<WeakReference<ContextMenu>> _openContextMenus = new();
@@ -2295,7 +2302,7 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
     void CheckTopMostWindow() {
         if (targetParentWindow != null)
         {
-            Topmost = WindowHelper.IsForegroundWindow(targetParentWindow);
+            Topmost = ForceTopmost || WindowHelper.IsForegroundWindow(targetParentWindow);
             if (_tourOverlay != null)
                 _tourOverlay.Topmost = Topmost;
         }
