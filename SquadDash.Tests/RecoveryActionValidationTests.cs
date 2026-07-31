@@ -50,6 +50,16 @@ internal sealed class RecoveryActionValidationTests
         Assert.That(resolved, Is.Null);
     }
 
+    [Test]
+    public void FindNewestRecordedCommit_DoesNotResolveAmbiguousAbbreviation()
+    {
+        var resolved = RecoveryCommitValidator.FindNewestRecordedCommit(
+            ["abcdefa000000000", "abcdefb000000000"],
+            ["abcdef"]);
+
+        Assert.That(resolved, Is.Null);
+    }
+
     // ── ExtractSingleCandidateCommit ─────────────────────────────────────────
 
     [Test]

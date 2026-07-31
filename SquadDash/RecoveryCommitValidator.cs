@@ -52,13 +52,13 @@ internal static class RecoveryCommitValidator
             .Select(value => value!.Trim())
             .ToArray();
 
-        foreach (var historyCommit in history)
-        {
-            if (recorded.Any(candidate =>
-                    historyCommit.StartsWith(candidate, StringComparison.OrdinalIgnoreCase)))
-                return historyCommit;
-        }
-        return null;
+        var uniquelyResolved = recorded
+            .Select(candidate => history.Where(historyCommit =>
+                historyCommit.StartsWith(candidate, StringComparison.OrdinalIgnoreCase)).ToArray())
+            .Where(matches => matches.Length == 1)
+            .Select(matches => matches[0])
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return history.FirstOrDefault(uniquelyResolved.Contains);
     }
 
     /// <summary>

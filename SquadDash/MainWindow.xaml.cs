@@ -10041,8 +10041,9 @@ public partial class MainWindow : Window
         }
         else
         {
-            baselineCommit = history.FirstOrDefault(commit =>
-                commit.StartsWith(baselineCommit, StringComparison.OrdinalIgnoreCase));
+            baselineCommit = RecoveryCommitValidator.FindNewestRecordedCommit(
+                history,
+                [baselineCommit]);
         }
         if (string.IsNullOrWhiteSpace(baselineCommit))
         {
