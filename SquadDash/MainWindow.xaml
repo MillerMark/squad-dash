@@ -2679,6 +2679,33 @@
                                Visibility="Collapsed"
                                Foreground="{DynamicResource BodyText}" />
                 </DockPanel>
+                <StackPanel x:Name="TranscriptWorktreeIndicatorPanel"
+                            Orientation="Horizontal"
+                            Margin="0,4,0,0"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                    <Viewbox Width="14" Height="14" Margin="0,0,6,0" Stretch="Uniform">
+                        <Grid Width="16" Height="17">
+                            <Path Data="M 8,1 C 5.8,1 4.2,2.5 4.1,4.6 C 2.2,4.8 1,6.1 1,7.9 C 1,10 2.7,11.2 5,11.2 L 11,11.2 C 13.5,11.2 15,9.8 15,7.8 C 15,5.9 13.7,4.7 11.9,4.5 C 11.6,2.5 10.1,1 8,1 Z"
+                                  Fill="Transparent"
+                                  Stroke="{DynamicResource SubtleText}"
+                                  StrokeThickness="1.4"
+                                  StrokeLineJoin="Round" />
+                            <Path Data="M 8,8.5 L 8,14.2 M 8,12.1 L 4.8,16 M 8,12.1 L 11.2,16"
+                                  Fill="Transparent"
+                                  Stroke="{DynamicResource SubtleText}"
+                                  StrokeThickness="1.4"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round" />
+                        </Grid>
+                    </Viewbox>
+                    <TextBlock x:Name="TranscriptWorktreeNameTextBlock"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               FontSize="{DynamicResource FontSizeSmall}"
+                               Foreground="{DynamicResource SubtleText}" />
+                </StackPanel>
                 </StackPanel>
 
                 <!-- Grid wrapper lets the scroll-to-bottom button float over the transcript -->

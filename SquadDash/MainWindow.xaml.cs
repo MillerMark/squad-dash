@@ -663,6 +663,8 @@ public partial class MainWindow : Window
         public TranscriptScrollController ScrollController { get; init; } = null!;
         public DockPanel HeaderDock { get; init; } = null!;
         public StackPanel RightStack { get; init; } = null!;
+        public StackPanel WorktreeIndicatorPanel { get; init; } = null!;
+        public TextBlock WorktreeNameBlock { get; init; } = null!;
         public DispatcherTimer? CountdownTimer { get; set; }
         public int CountdownSecondsRemaining { get; set; }
         public TextBlock? CountdownOverlay { get; set; }
@@ -26390,9 +26392,105 @@ public partial class MainWindow : Window
         QueueCheckpoint(DispatcherPriority.ApplicationIdle, "ApplicationIdle");
     }
 
+    private (StackPanel Panel, TextBlock NameBlock) CreateWorktreeIndicator()
+    {
+        var crown = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 8,1 C 5.8,1 4.2,2.5 4.1,4.6 C 2.2,4.8 1,6.1 1,7.9 C 1,10 2.7,11.2 5,11.2 L 11,11.2 C 13.5,11.2 15,9.8 15,7.8 C 15,5.9 13.7,4.7 11.9,4.5 C 11.6,2.5 10.1,1 8,1 Z"),
+            Fill = Brushes.Transparent,
+            StrokeThickness = 1.4,
+            StrokeLineJoin = PenLineJoin.Round
+        };
+        crown.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "SubtleText");
+
+        var roots = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 8,8.5 L 8,14.2 M 8,12.1 L 4.8,16 M 8,12.1 L 11.2,16"),
+            Fill = Brushes.Transparent,
+            StrokeThickness = 1.4,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round
+        };
+        roots.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "SubtleText");
+
+        var iconGrid = new Grid { Width = 16, Height = 17 };
+        iconGrid.Children.Add(crown);
+        iconGrid.Children.Add(roots);
+        var icon = new Viewbox
+        {
+            Width = 14,
+            Height = 14,
+            Margin = new Thickness(0, 0, 6, 0),
+            Stretch = Stretch.Uniform,
+            Child = iconGrid
+        };
+
+        var nameBlock = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        nameBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        nameBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+
+        var panel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 4, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        panel.Children.Add(icon);
+        panel.Children.Add(nameBlock);
+        return (panel, nameBlock);
+    }
+
+    private void UpdateMainTranscriptWorktreeIndicator(TranscriptThreadState thread)
+    {
+        if (thread.Kind == TranscriptThreadKind.Coordinator)
+        {
+            TranscriptWorktreeIndicatorPanel.Visibility = Visibility.Collapsed;
+            TranscriptWorktreeIndicatorPanel.ToolTip = null;
+            TranscriptWorktreeNameTextBlock.Text = string.Empty;
+            return;
+        }
+
+        ApplyWorktreeIndicator(
+            TranscriptWorktreeIndicatorPanel,
+            TranscriptWorktreeNameTextBlock,
+            thread);
+    }
+
+    private void UpdateSecondaryTranscriptWorktreeIndicator(SecondaryTranscriptEntry entry) =>
+        ApplyWorktreeIndicator(entry.WorktreeIndicatorPanel, entry.WorktreeNameBlock, entry.Thread);
+
+    private void ApplyWorktreeIndicator(
+        StackPanel panel,
+        TextBlock nameBlock,
+        TranscriptThreadState thread)
+    {
+        var presentation = AgentWorktreePresentationResolver.Resolve(
+            thread.WorkingDirectory,
+            _currentWorkspace?.FolderPath,
+            thread.IsCurrentBackgroundRun);
+        if (presentation is null)
+        {
+            panel.Visibility = Visibility.Collapsed;
+            panel.ToolTip = null;
+            nameBlock.Text = string.Empty;
+            return;
+        }
+
+        nameBlock.Text = presentation.Name;
+        panel.ToolTip = MakeThemedToolTip($"Worktree: {presentation.Name}\n{presentation.RootPath}");
+        panel.Visibility = Visibility.Visible;
+    }
+
     private void UpdateTranscriptThreadBadge(TranscriptThreadState? threadOverride = null)
     {
         var thread = threadOverride ?? _selectedTranscriptThread ?? CoordinatorThread;
+        UpdateMainTranscriptWorktreeIndicator(thread);
         if (thread.Kind == TranscriptThreadKind.Coordinator)
         {
             ScanAndUpdateCoordinatorIntent();
@@ -27086,6 +27184,7 @@ public partial class MainWindow : Window
             }
 
             entry.Thread.IsSecondaryPanelOpen = true;
+            UpdateSecondaryTranscriptWorktreeIndicator(entry);
         }
     }
 
@@ -27300,7 +27399,15 @@ public partial class MainWindow : Window
         rightStack.Children.Add(closeBtn);
         DockPanel.SetDock(rightStack, Dock.Right);
         headerDock.Children.Add(rightStack);
-        headerDock.Children.Add(titleBlock);
+        var (worktreeIndicatorPanel, worktreeNameBlock) = CreateWorktreeIndicator();
+        var headerTextStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        headerTextStack.Children.Add(titleBlock);
+        headerTextStack.Children.Add(worktreeIndicatorPanel);
+        headerDock.Children.Add(headerTextStack);
 
         var contentGrid = new Grid();
         contentGrid.Children.Add(rtb);
@@ -27335,8 +27442,11 @@ public partial class MainWindow : Window
             ContentGrid = contentGrid,
             ScrollController = scrollController,
             HeaderDock = headerDock,
-            RightStack = rightStack
+            RightStack = rightStack,
+            WorktreeIndicatorPanel = worktreeIndicatorPanel,
+            WorktreeNameBlock = worktreeNameBlock
         };
+        UpdateSecondaryTranscriptWorktreeIndicator(entry);
 
         // Postpone auto-close on mouse move/scroll; permanently cancel on click
         outerBorder.MouseMove += (_, _) => { try { if (entry.CountdownStarted && !entry.CountdownCancelled) PostponeAutoCloseCountdown(entry); } catch { } };

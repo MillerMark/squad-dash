@@ -101,6 +101,7 @@ export type BackgroundAgentInfo = {
     totalToolCalls?: number;
     totalInputTokens?: number;
     totalOutputTokens?: number;
+    workingDirectory?: string;
 };
 
 export type BackgroundShellInfo = {
@@ -131,6 +132,7 @@ export type SubagentLifecycleInfo = {
     totalToolCalls?: number;
     totalTokens?: number;
     durationMs?: number;
+    workingDirectory?: string;
 };
 
 export type SubagentTranscriptInfo = {
@@ -245,6 +247,7 @@ type SessionState = {
     lastAssistantMessageContent: string;
     createdAt: number;
     completedPromptCount: number;
+    workingDirectory: string;
 };
 
 const GenericIdentityKeys = new Set([
@@ -1060,7 +1063,8 @@ function normalizeSubagentLifecycle(event: unknown): SubagentLifecycleInfo | nul
         model: getEventStringValue(event, "model"),
         totalToolCalls: getEventNumberValue(event, "totalToolCalls"),
         totalTokens: getEventNumberValue(event, "totalTokens"),
-        durationMs: getEventNumberValue(event, "durationMs")
+        durationMs: getEventNumberValue(event, "durationMs"),
+        workingDirectory: getEventStringValue(event, "workingDirectory") ?? getEventStringValue(event, "cwd")
     };
 }
 
@@ -1091,7 +1095,8 @@ function normalizeBackgroundAgent(value: unknown): BackgroundAgentInfo | null {
         model: getStringValue(value, "model"),
         totalToolCalls: getNumberValue(value, "totalToolCalls"),
         totalInputTokens: getNumberValue(value, "totalInputTokens"),
-        totalOutputTokens: getNumberValue(value, "totalOutputTokens")
+        totalOutputTokens: getNumberValue(value, "totalOutputTokens"),
+        workingDirectory: getStringValue(value, "workingDirectory") ?? getStringValue(value, "cwd")
     };
 }
 
@@ -1205,6 +1210,7 @@ function agentInfoEqual(left: BackgroundAgentInfo, right: BackgroundAgentInfo): 
         left.totalToolCalls === right.totalToolCalls &&
         left.totalInputTokens === right.totalInputTokens &&
         left.totalOutputTokens === right.totalOutputTokens &&
+        left.workingDirectory === right.workingDirectory &&
         stringArrayEqual(left.recentActivity, right.recentActivity);
 }
 
@@ -1919,7 +1925,8 @@ export class SquadBridgeService {
             model: subagent.model ?? existing?.model,
             totalToolCalls: subagent.totalToolCalls ?? existing?.totalToolCalls,
             totalTokens: subagent.totalTokens ?? existing?.totalTokens,
-            durationMs: subagent.durationMs ?? existing?.durationMs
+            durationMs: subagent.durationMs ?? existing?.durationMs,
+            workingDirectory: subagent.workingDirectory ?? existing?.workingDirectory ?? state.workingDirectory
         };
 
         state.subagentsByToolCallId.set(toolCallId, merged);
@@ -2043,7 +2050,11 @@ export class SquadBridgeService {
                     model: getStringValue(getObjectValue(task, "progress"), "resolvedModel"),
                     totalToolCalls: getNumberValue(getObjectValue(task, "progress"), "toolCallsCompleted"),
                     totalInputTokens: getNumberValue(getObjectValue(task, "progress"), "totalInputTokens"),
-                    totalOutputTokens: getNumberValue(getObjectValue(task, "progress"), "totalOutputTokens")
+                    totalOutputTokens: getNumberValue(getObjectValue(task, "progress"), "totalOutputTokens"),
+                    workingDirectory: getStringValue(task, "workingDirectory") ??
+                        getStringValue(task, "cwd") ??
+                        known?.workingDirectory ??
+                        state.workingDirectory
                 };
 
                 if (toolCallId && agent.agentId) {
@@ -2053,7 +2064,8 @@ export class SquadBridgeService {
                         agentName: preferSpecificIdentity(known?.agentName, undefined) ?? agent.agentId ?? agent.agentType ?? "agent",
                         agentDisplayName: preferSpecificIdentity(known?.agentDisplayName, undefined),
                         agentDescription: known?.agentDescription ?? agent.description,
-                        prompt: agent.prompt
+                        prompt: agent.prompt,
+                        workingDirectory: agent.workingDirectory
                     });
                 }
 
@@ -2246,7 +2258,8 @@ export class SquadBridgeService {
             subagentReasoningByToolCallId: new Map<string, string>(),
             lastAssistantMessageContent: "",
             createdAt: Date.now(),
-            completedPromptCount: 0
+            completedPromptCount: 0,
+            workingDirectory: options.cwd
         };
 
         stateRef = state;

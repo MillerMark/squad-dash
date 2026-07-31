@@ -1281,7 +1281,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 .Append(" agentName=")
                 .Append(evt.AgentName ?? "(none)")
                 .Append(" agentDisplayName=")
-                .Append(evt.AgentDisplayName ?? "(none)");
+                .Append(evt.AgentDisplayName ?? "(none)")
+                .Append(" workingDirectory=")
+                .Append(evt.WorkingDirectory ?? "(none)");
         }
 
         if (evt.BackgroundAgentCount is not null || evt.BackgroundShellCount is not null) {

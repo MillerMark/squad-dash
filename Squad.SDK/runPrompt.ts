@@ -181,6 +181,7 @@ function emitSubagentLifecycle(
         totalToolCalls: subagent.totalToolCalls,
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
+        workingDirectory: subagent.workingDirectory,
         ...extras
     });
 }
@@ -1073,7 +1074,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         agentName: handle,
         agentDisplayName: displayName,
         agentDescription: `Named agent: ${displayName}`,
-        prompt: request.selectedOption
+        prompt: request.selectedOption,
+        workingDirectory: request.cwd
     });
 
     try {
@@ -1114,7 +1116,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
             agentId: handle,
             agentName: handle,
             agentDisplayName: displayName,
-            message: err instanceof Error ? err.message : String(err)
+            message: err instanceof Error ? err.message : String(err),
+            workingDirectory: request.cwd
         });
         return;
     }
@@ -1126,7 +1129,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         agentId: handle,
         agentName: handle,
         agentDisplayName: displayName,
-        prompt: request.selectedOption
+        prompt: request.selectedOption,
+        workingDirectory: request.cwd
     });
 
     // Signal the C# bridge that this request is fully complete.

@@ -226,6 +226,41 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void UpdateAgentThreadLifecycle_CapturesAuthoritativeWorkingDirectory() {
+        var registry = MakeRegistry();
+        var thread = registry.GetOrCreateAgentThread("tool-worktree", "lyra-morn", null, null, null, null, null, null);
+
+        registry.UpdateAgentThreadLifecycle(
+            thread,
+            new SquadSdkEvent {
+                AgentId = "lyra-morn",
+                Status = "running",
+                WorkingDirectory = @"D:\Source\feature-worktree"
+            },
+            statusText: "Running",
+            detailText: "Working");
+
+        Assert.That(thread.WorkingDirectory, Is.EqualTo(@"D:\Source\feature-worktree"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SyncBackgroundAgentThreads_RefreshesWorkingDirectoryFromSnapshot() {
+        var registry = MakeRegistry();
+
+        registry.SyncBackgroundAgentThreads([
+            new SquadBackgroundAgentInfo {
+                AgentId = "lyra-morn",
+                ToolCallId = "tool-worktree",
+                Status = "running",
+                WorkingDirectory = @"D:\Source\refreshed-worktree"
+            }
+        ]);
+
+        var thread = registry.ThreadsByToolCallId["tool-worktree"];
+        Assert.That(thread.WorkingDirectory, Is.EqualTo(@"D:\Source\refreshed-worktree"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void UpdateAgentThreadLifecycle_ClearsCurrentBackgroundRun_ForCompletedStatus() {
         var registry = MakeRegistry();
         var thread = registry.GetOrCreateAgentThread("tool-done", "lyra-morn", null, null, null, null, null, null);

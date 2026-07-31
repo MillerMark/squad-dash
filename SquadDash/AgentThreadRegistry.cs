@@ -500,6 +500,8 @@ internal sealed class AgentThreadRegistry {
             thread.AgentDisplayName = evt.AgentDisplayName;
         if (!string.IsNullOrWhiteSpace(evt.AgentDescription))
             thread.AgentDescription = evt.AgentDescription;
+        if (!string.IsNullOrWhiteSpace(evt.WorkingDirectory))
+            thread.WorkingDirectory = evt.WorkingDirectory.Trim();
         TryApplyOriginMetadataFromParentToolCall(thread, evt.ParentToolCallId);
 
         if (!string.IsNullOrWhiteSpace(thread.ToolCallId) &&
@@ -619,6 +621,8 @@ internal sealed class AgentThreadRegistry {
             thread.LatestIntent = agent.LatestIntent ?? thread.LatestIntent;
             thread.RecentActivity = agent.RecentActivity ?? thread.RecentActivity;
             thread.ErrorText = agent.Error ?? thread.ErrorText;
+            if (!string.IsNullOrWhiteSpace(agent.WorkingDirectory))
+                thread.WorkingDirectory = agent.WorkingDirectory.Trim();
             thread.StatusText = HumanizeThreadStatus(agent.Status);
             thread.DetailText = BuildBackgroundAgentDetail(agent, thread);
             thread.IsCurrentBackgroundRun = !IsTerminalBackgroundStatus(thread.StatusText);

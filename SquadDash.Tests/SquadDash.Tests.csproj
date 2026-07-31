@@ -113,6 +113,7 @@
     <Compile Include="..\SquadDash\WorkspaceIssuePanelState.cs" Link="Source\WorkspaceIssuePanelState.cs" />
     <Compile Include="..\SquadDash\LocalCommandTurnExecutionPolicy.cs" Link="Source\LocalCommandTurnExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\AgentThreadIdentityPolicy.cs" Link="Source\AgentThreadIdentityPolicy.cs" />
+    <Compile Include="..\SquadDash\AgentWorktreePresentation.cs" Link="Source\AgentWorktreePresentation.cs" />
     <Compile Include="..\SquadDash\QuickReplyOptionParser.cs" Link="Source\QuickReplyOptionParser.cs" />
     <Compile Include="..\SquadDash\ApplicationSettingsStore.cs" Link="Source\ApplicationSettingsStore.cs" />
     <Compile Include="..\SquadDash\SettingsSnapshotManager.cs" Link="Source\SettingsSnapshotManager.cs" />

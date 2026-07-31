@@ -77,6 +77,7 @@ public sealed class SquadSdkEvent {
     public int? TotalToolCalls { get; set; }
     public int? TotalInputTokens { get; set; }
     public int? TotalOutputTokens { get; set; }
+    public string? WorkingDirectory { get; set; }
     public int? TotalTokens { get; set; }
     public int? DurationMs { get; set; }
     public SquadBackgroundAgentInfo[]? BackgroundAgents { get; set; }
@@ -140,6 +141,7 @@ public sealed class SquadBackgroundAgentInfo {
     public int? TotalToolCalls { get; set; }
     public int? TotalInputTokens { get; set; }
     public int? TotalOutputTokens { get; set; }
+    public string? WorkingDirectory { get; set; }
 }
 
 public sealed class SquadBackgroundShellInfo {
