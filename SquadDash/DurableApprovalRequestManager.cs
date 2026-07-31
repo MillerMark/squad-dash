@@ -46,6 +46,7 @@ internal sealed record DurableApprovalState(
 internal sealed class DurableApprovalRequestManager
 {
     internal const string AttachmentType = "approval-gate";
+    internal const string ApprovalRouteMode = "approval-gate";
     private const string MessageFrom = "SquadDash";
 
     private static readonly JsonSerializerOptions StateSerializerOptions = new()
@@ -96,6 +97,7 @@ internal sealed class DurableApprovalRequestManager
                     with
                     {
                         ActiveGateIds = updatedGateIds,
+                        LastNotifiedAt = null,
                         Archived = false,
                         Version = (state?.Version ?? 0) + 1,
                     };
@@ -104,7 +106,7 @@ internal sealed class DurableApprovalRequestManager
                 {
                     Read = false,
                     Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints),
-                    Actions = BuildActions(plan, updatedGateIds),
+                    Actions = BuildActions(plan, newState),
                     Attachments = BuildAttachments(newState, snapshot),
                     Priority = "high",
                 };
@@ -130,7 +132,7 @@ internal sealed class DurableApprovalRequestManager
                     Priority = "high",
                     Body = BuildBody(plan, [gate.GateId], []),
                     Attachments = BuildAttachments(state, snapshot),
-                    Actions = BuildActions(plan, [gate.GateId]),
+                    Actions = BuildActions(plan, state),
                 };
                 _inbox.Save(message);
             }
@@ -166,7 +168,7 @@ internal sealed class DurableApprovalRequestManager
             var updated = existing with
             {
                 Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints),
-                Actions = BuildActions(plan, state.ActiveGateIds),
+                Actions = BuildActions(plan, state),
                 Attachments = BuildAttachments(state, snapshot),
             };
             _inbox.Save(updated);
@@ -224,7 +226,7 @@ internal sealed class DurableApprovalRequestManager
                     Read = true,
                     Actions = [],
                     Body = BuildBody(plan, [], newState.ResolvedCheckpoints),
-                    Attachments = BuildAttachments(newState, snapshot: null),
+                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments),
                 };
                 _inbox.Save(archived);
             }
@@ -233,8 +235,8 @@ internal sealed class DurableApprovalRequestManager
                 var updated = existing with
                 {
                     Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints),
-                    Actions = BuildActions(plan, remainingGates),
-                    Attachments = BuildAttachments(newState, snapshot: null),
+                    Actions = BuildActions(plan, newState),
+                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments),
                 };
                 _inbox.Save(updated);
             }
@@ -434,21 +436,70 @@ internal sealed class DurableApprovalRequestManager
         if (activeGateIds.Count == 0)
             return [];
 
-        var actions = new List<InboxAction>();
-        foreach (var gateId in activeGateIds)
-        {
-            actions.Add(new InboxAction
+        return BuildActions(plan, new DurableApprovalState(
+            plan.PlanId, activeGateIds, [], Version: 1));
+    }
+
+    internal static IReadOnlyList<InboxAction> BuildActions(
+        Plan plan,
+        DurableApprovalState state)
+    {
+        if (state.ActiveGateIds.Count == 0)
+            return [];
+
+        var payload = new ApprovalInboxActionPayload(
+            plan.PlanId,
+            plan.Revision,
+            state.Version,
+            state.ActiveGateIds);
+        return
+        [
+            new InboxAction
             {
-                Label = $"Approve: {gateId}",
-                RouteMode = "done",
-                Hint = $"Approve checkpoint {gateId} and unblock downstream tasks.",
-            });
-        }
-        return actions;
+                Label = ApprovalCardNotificationCoordinator.BuildApproveLabel(state.ActiveGateIds.Count),
+                RouteMode = ApprovalRouteMode,
+                Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
+                Hint = state.ActiveGateIds.Count == 1
+                    ? "Approve this checkpoint and continue available plan work."
+                    : $"Approve all {state.ActiveGateIds.Count} ready checkpoints and continue plan execution.",
+            },
+        ];
     }
 
     // ── Test seam ────────────────────────────────────────────────────────────
 
     /// <summary>Clears per-plan locks. For testing only.</summary>
     internal void ClearLocks() => _planLocks.Clear();
+}
+
+internal sealed record ApprovalInboxActionPayload(
+    [property: JsonPropertyName("planId")] string PlanId,
+    [property: JsonPropertyName("planRevision")] string PlanRevision,
+    [property: JsonPropertyName("requestVersion")] int RequestVersion,
+    [property: JsonPropertyName("gateIds")] IReadOnlyList<string> GateIds)
+{
+    internal ApprovalClickToken ToClickToken() =>
+        new(PlanId, PlanRevision, RequestVersion, GateIds);
+
+    internal static bool TryParse(string? json, out ApprovalInboxActionPayload? payload)
+    {
+        payload = null;
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            payload = JsonSerializer.Deserialize<ApprovalInboxActionPayload>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            });
+            return payload is not null &&
+                   !string.IsNullOrWhiteSpace(payload.PlanId) &&
+                   !string.IsNullOrWhiteSpace(payload.PlanRevision) &&
+                   payload.RequestVersion > 0 &&
+                   payload.GateIds.Count > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 }

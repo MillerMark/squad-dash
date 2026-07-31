@@ -732,13 +732,14 @@ internal sealed class ApprovalWorkflowProbeTests
     }
 
     [Test]
-    public void BuildActions_ActiveGates_ReturnsActionPerGate()
+    public void BuildActions_ActiveGates_ReturnsOneAggregateAction()
     {
         var plan = MakeProbePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-1", "GATE-2"]);
-        Assert.That(actions, Has.Count.EqualTo(2));
-        Assert.That(actions[0].Label, Does.Contain("GATE-1"));
-        Assert.That(actions[1].Label, Does.Contain("GATE-2"));
+        Assert.That(actions, Has.Count.EqualTo(1));
+        Assert.That(actions[0].Label, Does.Contain("2 Ready Checkpoints"));
+        Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
+        Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-1", "GATE-2" }));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

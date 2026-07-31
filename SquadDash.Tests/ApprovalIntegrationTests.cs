@@ -1286,15 +1286,16 @@ internal sealed class ApprovalIntegrationTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public void BuildActions_ActiveGates_GeneratesApproveActions()
+    public void BuildActions_ActiveGates_GeneratesAggregateApproveAction()
     {
         var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B"]);
 
-        Assert.That(actions, Has.Count.EqualTo(2));
-        Assert.That(actions[0].Label, Does.Contain("GATE-A"));
-        Assert.That(actions[1].Label, Does.Contain("GATE-B"));
-        Assert.That(actions.All(a => a.RouteMode == "done"), Is.True);
+        Assert.That(actions, Has.Count.EqualTo(1));
+        Assert.That(actions[0].Label, Does.Contain("2 Ready Checkpoints"));
+        Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
+        Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
+        Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-A", "GATE-B" }));
     }
 
     [Test]

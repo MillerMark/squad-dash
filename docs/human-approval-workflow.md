@@ -68,6 +68,8 @@ When no ungated eligible task remains — determined by `ApprovalGateReadinessEv
 3. **Gate approved →** Gate moved from `ActiveGateIds` to `ResolvedCheckpoints` with timestamp and optional note.
 4. **All gates resolved →** Message marked `Read = true`, actions removed, body updated with resolution history, `Archived = true`.
 
+The message exposes one aggregate **Approve Checkpoint(s) & Continue** action for the exact active-gate set. It does not require a separate click for every gate that became ready during the same review window.
+
 ---
 
 ## 4. Atomic Live Updates & Spinner Behavior
@@ -76,7 +78,7 @@ When an approval action is in progress:
 
 1. `TranscriptApprovalCardBuilder.ShowUpdatingState` displays a semi-transparent overlay with a `⟳ Updating approval request…` spinner over the card.
 2. The approve button and note text box are disabled.
-3. After the async operation completes, `HideUpdatingState` removes the overlay and re-enables controls.
+3. After the async operation completes, a successful card becomes a disabled **Approved** record. A rejected/stale action is refreshed and re-enabled.
 4. Inbox message body and attachments are atomically replaced via `InboxStore` (which uses atomic file replacement underneath).
 
 ---
@@ -106,13 +108,13 @@ GateIds         — exact list of active gates when the button was rendered
 | `Approved` | Token matched; gates resolved; `RequestVersion` incremented; `ApprovalResolved` event raised. |
 | `StaleRejected` | Plan revision, version, or gate list has changed since the button was rendered. The surface should refresh. |
 | `AlreadyResolved` | All requested gates were already resolved (e.g., by another surface). |
+| `PersistenceFailed` | The authoritative plan transition could not be saved; no approval was recorded. |
 
 **Critical safety property:** Approval applies only to the gate IDs present in the clicked request version. A later checkpoint that arrives between render and click is **never silently included** — the token mismatch causes `StaleRejected`, forcing a fresh render.
 
 ### Cross-Surface Invalidation
 
-- `ApprovalResolved` event: fired after successful resolution. All subscribed surfaces disable their approve buttons and refresh.
-- `ApprovalRefreshNeeded` event: fired when a new gate is appended to an already-tracked plan. Surfaces re-render with updated gate list.
+Inbox, transcript, Plans panel, plan viewer, and structured coordinator approvals all route through the same `PlanApprovalRuntime` callback. A successful durable plan save disables the transcript action, atomically refreshes the Inbox action, publishes `PlanProgressEvent` to the Plans panel and any open plan viewer, and resumes the loop only if it had been fully paused.
 
 ---
 
@@ -143,7 +145,7 @@ Notifications are deduplicated per inbox message version by `ApprovalCardNotific
 | **Inbox update** | Every state change | Always applied (idempotent message save). |
 | **Transcript card** | Fully blocked state | Rendered by `TranscriptApprovalCardBuilder`; identified by `TranscriptApprovalCardTag(PlanId, GateId, Version)`. |
 
-After a checkpoint is resolved, `LastNotifiedAt` resets (new `DurableApprovalState` version), so the next checkpoint triggers a fresh notification.
+When a later checkpoint is appended, the durable request version advances and `LastNotifiedAt` resets, so that newly available review opportunity triggers exactly one fresh notification.
 
 ---
 
@@ -202,12 +204,12 @@ The transcript approval card includes an optional **note text box** where the re
 
 `DurableApprovalRequestManager` is designed for crash-safe recovery:
 
-1. **On startup**, `RestoreActivePlanIds()` scans all persisted Inbox messages.
-2. Messages with `Archived = false` and non-empty `ActiveGateIds` are identified as active.
-3. The `ApprovalActionCoordinator` re-registers these plans, rebuilding in-memory click tokens from persisted state.
+1. **On workspace startup**, `PlanApprovalRuntime.RestoreAsync()` compares authoritative PlanStore gates with the persisted Inbox attachment.
+2. Missing approval messages are recreated; stale Inbox gate IDs are resolved from authoritative plan state.
+3. The `ApprovalActionCoordinator` restores the exact persisted request version and active-gate list, rather than inventing a new version during restart.
 4. All per-plan mutations are serialized under async `SemaphoreSlim` locks, so concurrent restart and normal flow cannot corrupt state.
 
-Because state is embedded in the Inbox message attachment (not in volatile memory), **no approval progress is lost across restarts**.
+Because state is embedded in the Inbox message attachment and reconciled against PlanStore (not trusted as a second authority), **no approval progress is lost or resurrected across restarts**.
 
 ---
 

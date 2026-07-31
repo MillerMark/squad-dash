@@ -200,6 +200,33 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public async Task AppendLaterCheckpoint_AdvancesVersionAndAllowsOneNewNotification()
+    {
+        var firstGate = new PlanApprovalGate(
+            "GATE-001", "First review", ["T1"], ["T2"], PlanGateStatus.AwaitingApproval);
+        var secondGate = new PlanApprovalGate(
+            "GATE-002", "Second review", ["T2"], ["T3"], PlanGateStatus.AwaitingApproval);
+        var plan = MakePlan(gates: [firstGate, secondGate]);
+        await _manager.AppendCheckpointAsync(plan, firstGate, MakeSnapshot());
+        Assert.That(await _manager.TryMarkNotifiedAsync(plan.PlanId), Is.True);
+        var version1 = _manager.GetState(plan.PlanId)!.Version;
+
+        await _manager.AppendCheckpointAsync(
+            plan,
+            secondGate,
+            MakeSnapshot() with { GateId = secondGate.GateId, GateReason = secondGate.Message });
+
+        var state = _manager.GetState(plan.PlanId)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.Version, Is.GreaterThan(version1));
+            Assert.That(state.ActiveGateIds, Is.EqualTo(new[] { "GATE-001", "GATE-002" }));
+        });
+        Assert.That(await _manager.TryMarkNotifiedAsync(plan.PlanId), Is.True);
+        Assert.That(await _manager.TryMarkNotifiedAsync(plan.PlanId), Is.False);
+    }
+
+    [Test]
     public async Task RestoreActivePlanIds_FindsActiveMessages()
     {
         var plan1 = MakePlan("PLAN-A", "Plan A");
@@ -306,12 +333,13 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
-    public void BuildActions_ReturnsOneActionPerGate()
+    public void BuildActions_ReturnsOneVersionedAggregateAction()
     {
         var plan = MakePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-001", "GATE-002"]);
-        Assert.That(actions, Has.Count.EqualTo(2));
-        Assert.That(actions[0].Label, Does.Contain("GATE-001"));
-        Assert.That(actions[1].Label, Does.Contain("GATE-002"));
+        Assert.That(actions, Has.Count.EqualTo(1));
+        Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
+        Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
+        Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-001", "GATE-002" }));
     }
 }

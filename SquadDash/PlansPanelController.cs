@@ -211,7 +211,7 @@ internal sealed class PlansPanelController
 
             var countBlock = new TextBlock
             {
-                Text   = $"{plan.Progress.CompletedCount}/{plan.Progress.TotalCount}",
+                Text   = BuildProgressLabel(plan),
                 Margin = new Thickness(6, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -231,7 +231,7 @@ internal sealed class PlansPanelController
             tipLines.Add($"Branch: {plan.Branch}");
         if (!string.IsNullOrWhiteSpace(plan.Summary))
             tipLines.Add(plan.Summary.Length > 120 ? plan.Summary[..120] + "…" : plan.Summary);
-        if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+        if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
         {
             var awaitingGate = plan.ApprovalGates
                 .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
@@ -269,7 +269,8 @@ internal sealed class PlansPanelController
             }
         }
 
-        if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval && _approveGate is not null)
+        if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval) &&
+            _approveGate is not null)
         {
             var approveItem = new MenuItem { Header = "Approve & Continue" };
             approveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -280,6 +281,21 @@ internal sealed class PlansPanelController
         row.ContextMenu = menu;
 
         return row;
+    }
+
+    private static string BuildProgressLabel(Plan plan)
+    {
+        var completed = $"{plan.Progress.CompletedCount}/{plan.Progress.TotalCount} complete";
+        if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            completed += " · approval ready";
+        if (plan.Progress.ExecutingTaskId is not { Length: > 0 } executingTaskId)
+            return completed;
+
+        var taskIndex = plan.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.TaskId, executingTaskId, StringComparison.Ordinal));
+        return taskIndex >= 0
+            ? $"{completed} · step {taskIndex + 1} running"
+            : $"{completed} · executing";
     }
 
     private static void ShowEmpty(StackPanel panel, string message)

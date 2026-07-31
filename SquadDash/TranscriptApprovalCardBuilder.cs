@@ -51,7 +51,8 @@ internal static class TranscriptApprovalCardBuilder
         Plan plan,
         PlanApprovalGate gate,
         double fontSize,
-        Action<string?> onApprove)
+        Action<string?> onApprove,
+        int requestVersion = 1)
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
@@ -304,7 +305,7 @@ internal static class TranscriptApprovalCardBuilder
             $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} tasks complete. Gate: {snapshot.GateReason}");
 
         var tag = new TranscriptApprovalCardTag(
-            snapshot.PlanId, gate.GateId, plan.Progress.CompletedCount);
+            snapshot.PlanId, gate.GateId, requestVersion);
         var container = new BlockUIContainer(border)
         {
             Margin = new Thickness(0, 4, 0, 8),
@@ -336,6 +337,15 @@ internal static class TranscriptApprovalCardBuilder
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ApproveButton.IsEnabled = true;
         card.NoteTextBox.IsEnabled = true;
+    }
+
+    /// <summary>Leaves a historical card visible while making its resolved state unambiguous.</summary>
+    internal static void ShowResolvedState(CardResult card)
+    {
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.ApproveButton.IsEnabled = false;
+        card.ApproveButton.Content = "✓ Approved";
+        card.NoteTextBox.IsEnabled = false;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────

@@ -359,6 +359,7 @@
     <Compile Include="..\SquadDash\TranscriptApprovalCardBuilder.cs" Link="Source\TranscriptApprovalCardBuilder.cs" />
     <Compile Include="..\SquadDash\ApprovalCardNotificationCoordinator.cs" Link="Source\ApprovalCardNotificationCoordinator.cs" />
     <Compile Include="..\SquadDash\ApprovalActionCoordinator.cs" Link="Source\ApprovalActionCoordinator.cs" />
+    <Compile Include="..\SquadDash\PlanApprovalRuntime.cs" Link="Source\PlanApprovalRuntime.cs" />
     <Compile Include="..\SquadDash\PlansPanelViewModel.cs" Link="Source\PlansPanelViewModel.cs" />
     <Compile Include="..\SquadDash\PlanProgressEvent.cs" Link="Source\PlanProgressEvent.cs" />
     <Compile Include="..\SquadDash\PlanStoreUpdater.cs" Link="Source\PlanStoreUpdater.cs" />

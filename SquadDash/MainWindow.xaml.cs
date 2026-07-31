@@ -340,6 +340,11 @@ public partial class MainWindow : Window
     private InboxStore?                 _inboxStore;
     private InboxPanelController?       _inboxPanel;
     private readonly HashSet<string>    _inboxLaunchedAgentHandles = new(StringComparer.OrdinalIgnoreCase);
+    private PlanApprovalRuntime?        _planApprovalRuntime;
+    private ApprovalCardNotificationCoordinator? _approvalNotificationCoordinator;
+    private readonly Dictionary<string, List<TranscriptApprovalCardBuilder.CardResult>>
+        _approvalTranscriptCards = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -1310,7 +1315,17 @@ public partial class MainWindow : Window
         _onPowerModeChanged = msg => OnPowerModeChanged(msg.Sender, msg.Args);
         _broker.Subscribe(_onPowerModeChanged);
         _onPlanProgressEvent = evt =>
-            Dispatcher.BeginInvoke(() => _plansPanelController?.OnPlanChanged(evt.UpdatedPlan));
+            Dispatcher.BeginInvoke(() =>
+            {
+                _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
+                foreach (var (_, window) in _openPlanViewerWindows.Where(entry =>
+                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal)).ToArray())
+                {
+                    window.RefreshPlan(
+                        PendingDecomposePlanAdapter.FromPlan(evt.UpdatedPlan),
+                        evt.UpdatedPlan);
+                }
+            });
         _broker.Subscribe(_onPlanProgressEvent);
         {
             var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
@@ -8699,12 +8714,13 @@ public partial class MainWindow : Window
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
-        Action<Plan, string>? onApproveGate = durablePlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval
+        Action<Plan, string>? onApproveGate = durablePlan?.ApprovalGates.Any(gate =>
+            gate.Status == PlanGateStatus.AwaitingApproval) == true
             ? (p, gateId) =>
               {
                   var gate = p.ApprovalGates.FirstOrDefault(g =>
                       string.Equals(g.GateId, gateId, StringComparison.Ordinal));
-                  if (gate is not null) ApproveGateAndResume(p, gate);
+                  if (gate is not null) ApproveCurrentPlan(p, gate.GateId);
               }
             : null;
         win = new PlanViewerWindow(
@@ -9240,17 +9256,7 @@ public partial class MainWindow : Window
         {
             var plan = _planStore.Load(groupId);
             if (plan is not null)
-            {
-                var activatedGate = FindActivatedGate(plan, _CodeHealthGroupRunner?.CurrentStepId);
-                if (activatedGate is not null)
-                    PauseAtApprovalGate(groupId, revision, result.TaskId, activatedGate, plan);
-                else if (state == DecomposeGroupExecutionState.AwaitingApproval)
-                    StopAndOfferDecomposeRecovery(
-                        groupId,
-                        result.TaskId,
-                        revision,
-                        "The plan reached an approval-blocked task, but no ready approval gate could be resolved.");
-            }
+                await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, plan);
         }
     }
 
@@ -9258,10 +9264,10 @@ public partial class MainWindow : Window
     {
         if (_CodeHealthGroupRunner is null)
             return DecomposeGroupExecutionState.Missing;
-        var blockedTaskIds = _planStore?.Load(groupId)?.ApprovalGates
-            .Where(gate => gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval)
-            .SelectMany(gate => gate.BeforeTaskIds)
-            .ToHashSet(StringComparer.Ordinal);
+        var plan = _planStore?.Load(groupId);
+        var blockedTaskIds = plan is null
+            ? null
+            : ApprovalGateReadinessEvaluator.ComputeAllBlockedTaskIds(plan);
         return _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId, blockedTaskIds);
     }
 
@@ -9337,60 +9343,163 @@ public partial class MainWindow : Window
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
     }
 
-    /// <summary>
-    /// Returns the first <see cref="PlanApprovalGate"/> that blocks the next eligible task,
-    /// or <c>null</c> when no gate is triggered.
-    /// A gate is triggered when its status is Pending, every task in AfterTaskIds is now
-    /// complete, and the next eligible task (when one exists) is in
-    /// <see cref="PlanApprovalGate.BeforeTaskIds"/>. A null next task means every otherwise-ready
-    /// task is approval-blocked.
-    /// </summary>
-    private static PlanApprovalGate? FindActivatedGate(Plan plan, string? nextTaskId)
+    private async Task InitializeApprovalRuntimeAsync()
     {
-        var completedIds = plan.Tasks
-            .Where(t => t.Status == PlanTaskStatus.Complete)
-            .Select(t => t.TaskId)
-            .ToHashSet(StringComparer.Ordinal);
+        _approvalTranscriptCards.Clear();
+        _approvalPlansUpdating.Clear();
+        _planApprovalRuntime = null;
+        _approvalNotificationCoordinator = null;
+        if (_currentWorkspace is null || _planStore is null || _inboxStore is null)
+            return;
 
-        return plan.ApprovalGates.FirstOrDefault(gate =>
-            gate.Status == PlanGateStatus.Pending &&
-            gate.AfterTaskIds.All(id => completedIds.Contains(id)) &&
-            (nextTaskId is null ||
-             gate.BeforeTaskIds.Any(id => string.Equals(id, nextTaskId, StringComparison.Ordinal))));
+        var workspace = _currentWorkspace.FolderPath;
+        var snapshotBuilder = new ApprovalReviewSnapshotBuilder(async (arguments, cancellationToken) =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await RunGitAsync(workspace, arguments);
+        });
+        var requests = new DurableApprovalRequestManager(_inboxStore);
+        var actions = new ApprovalActionCoordinator();
+        _planApprovalRuntime = new PlanApprovalRuntime(
+            requests,
+            actions,
+            async (plan, gate, cancellationToken) =>
+            {
+                try
+                {
+                    return await snapshotBuilder.BuildAsync(
+                        plan, gate, cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    // Approval itself must remain available if optional Git evidence cannot be read.
+                    SquadDashTrace.Write("Approval", $"Review evidence fallback for {gate.GateId}: {ex.Message}");
+                    return BuildLightweightApprovalSnapshot(plan, gate);
+                }
+            });
+        _approvalNotificationCoordinator = new ApprovalCardNotificationCoordinator(
+            requests,
+            SoundNotifications,
+            _pushNotificationService);
+
+        await _planApprovalRuntime.RestoreAsync(_planStore.LoadAll());
+        var messages = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(messages);
+        ReconcileOpenInboxWindows(messages);
     }
 
-    /// <summary>
-    /// Marks the gate and plan as AwaitingApproval, stops the loop, logs a status line,
-    /// and schedules an "Approve &amp; Continue Plan" quick-reply button on the UI thread.
-    /// </summary>
-    private void PauseAtApprovalGate(
+    private async Task ProcessPlanApprovalsAfterStepAsync(
         string groupId,
         string revision,
         string completedTaskId,
-        PlanApprovalGate gate,
+        DecomposeGroupExecutionState groupState,
         Plan plan)
     {
-        var updated = PlanStoreUpdater.ApplyGateActivated(plan, gate.GateId);
-        PublishPlanProgress(updated);
-
-        if (PlanGateManager.ShouldNotifyGateActivation(gate))
+        if (_planApprovalRuntime is null)
         {
-            var notifTitle   = "Plan Approval Required";
-            var notifMessage = $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks complete. Gate: {gate.Message}";
-            SoundNotifications.Play(SoundEvent.ApprovalNeeded);
-            _ = _pushNotificationService.NotifyEventAsync("plan_gate_approval_required", notifTitle, notifMessage);
+            if (groupState == DecomposeGroupExecutionState.AwaitingApproval)
+                StopAndOfferDecomposeRecovery(
+                    groupId, completedTaskId, revision,
+                    "The approval runtime is unavailable for a ready plan checkpoint.");
+            return;
         }
 
-        _activePlanAwaitingGateApproval = gate.GateId;
+        var approvalMessageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+        var approvalMessageExisted = _inboxStore?.GetById(approvalMessageId) is not null;
+        var pendingReadyGate = ApprovalGateReadinessEvaluator.EvaluateGates(plan)
+            .Any(state => state.IsReady && plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, state.GateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Pending));
+        if (pendingReadyGate)
+        {
+            foreach (var window in _openInboxWindows.Where(window =>
+                         window.MessageId == approvalMessageId).ToArray())
+                window.BeginApprovalUpdate();
+        }
 
+        ApprovalRuntimeAdvanceResult advance;
+        _approvalPlansUpdating.Add(plan.PlanId);
+        try
+        {
+            advance = await _planApprovalRuntime.AdvanceAsync(plan);
+        }
+        catch (Exception ex)
+        {
+            if (_inboxStore?.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId)) is { } currentMessage)
+                RefreshOpenApprovalInboxWindows(currentMessage.Id, currentMessage);
+            StopAndOfferDecomposeRecovery(
+                groupId, completedTaskId, revision,
+                $"SquadDash could not durably open the approval checkpoint: {ex.Message}");
+            return;
+        }
+        finally
+        {
+            _approvalPlansUpdating.Remove(plan.PlanId);
+        }
+
+        if (!ReferenceEquals(advance.UpdatedPlan, plan) &&
+            !TryPublishPlanProgress(advance.UpdatedPlan, out var publishError))
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId, completedTaskId, revision,
+                "The approval checkpoint was created but plan state could not be persisted: " +
+                (publishError ?? "unknown persistence failure"));
+            return;
+        }
+
+        if (advance.NewlyReadyGates.Count > 0)
+        {
+            var primaryGate = advance.NewlyReadyGates[0];
+            if (_approvalNotificationCoordinator is not null)
+                await _approvalNotificationCoordinator.NotifyEarlyWindowAsync(advance.UpdatedPlan, primaryGate);
+
+            if (advance.MessageId is not null && _inboxStore is not null)
+            {
+                var updatedMessage = _inboxStore.GetById(advance.MessageId);
+                if (updatedMessage is not null)
+                {
+                    _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                    RefreshOpenApprovalInboxWindows(advance.MessageId, updatedMessage);
+                    if (!approvalMessageExisted)
+                        AppendInboxReceivedEntry(updatedMessage.Subject, updatedMessage.Id);
+                }
+            }
+            TryShowApprovalCallout(advance.UpdatedPlan, primaryGate);
+        }
+
+        if (!advance.MustStop)
+        {
+            if (advance.NewlyReadyGates.Count > 0)
+            {
+                AppendLoopOutputLine(
+                    $"⏳ Approval is available for {advance.NewlyReadyGates.Count} checkpoint(s); independent plan work will continue.",
+                    LoopLifecycleBrush);
+            }
+            return;
+        }
+
+        var activeGates = advance.UpdatedPlan.ApprovalGates
+            .Where(gate => gate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        if (activeGates.Length == 0 || advance.ClickToken is null || advance.ReviewSnapshot is null)
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId, completedTaskId, revision,
+                "The plan reached an approval boundary without a durable approval action.");
+            return;
+        }
+
+        _activePlanAwaitingGateApproval = activeGates[0].GateId;
         SuppressLoopResume("gate-approval-required");
         _loopController.RequestStop();
-
-        AppendLoopOutputLine($"⏸ Plan paused at approval gate: {gate.Message}", LoopLifecycleBrush);
-
-        Dispatcher.BeginInvoke(
-            () => AppendGateApprovalActions(updated, gate),
-            System.Windows.Threading.DispatcherPriority.Background);
+        AppendLoopOutputLine(
+            $"⏸ Plan paused for {activeGates.Length} approval checkpoint(s).",
+            LoopLifecycleBrush);
+        AppendGateApprovalActions(
+            advance.UpdatedPlan,
+            activeGates[0],
+            advance.ReviewSnapshot,
+            advance.ClickToken);
     }
 
     /// <summary>
@@ -9400,15 +9509,18 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestoreAwaitingApprovalGateUI()
     {
-        if (_planStore is null) return;
+        if (_planStore is null || _planApprovalRuntime is null) return;
         foreach (var plan in _planStore.LoadAll())
         {
             if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
             var awaitingGate = plan.ApprovalGates
                 .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
             if (awaitingGate is null) continue;
+            var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+            if (token is null) continue;
+            var snapshot = BuildLightweightApprovalSnapshot(plan, awaitingGate);
             Dispatcher.BeginInvoke(
-                () => AppendGateApprovalActions(plan, awaitingGate),
+                () => AppendGateApprovalActions(plan, awaitingGate, snapshot, token),
                 System.Windows.Threading.DispatcherPriority.Background);
         }
     }
@@ -9418,24 +9530,30 @@ public partial class MainWindow : Window
     /// "Approve Checkpoint &amp; Continue" button.
     /// Must be called on the UI thread.
     /// </summary>
-    private void AppendGateApprovalActions(Plan plan, PlanApprovalGate gate)
+    private void AppendGateApprovalActions(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalReviewSnapshot snapshot,
+        ApprovalClickToken clickToken)
     {
-        // Build a lightweight snapshot from plan data available synchronously.
-        var snapshot = BuildLightweightApprovalSnapshot(plan, gate);
-
         var cardResult = TranscriptApprovalCardBuilder.Build(
             snapshot,
             plan,
             gate,
             _transcriptFontSize,
-            onApprove: note => ApproveGateAndResume(plan, gate, note));
+            onApprove: note => _ = HandleApprovalClickAsync(clickToken, note),
+            requestVersion: clickToken.RequestVersion);
+
+        if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
+        {
+            cards = [];
+            _approvalTranscriptCards[plan.PlanId] = cards;
+        }
+        cards.Add(cardResult);
 
         var blocks = CoordinatorThread.Document.Blocks;
         blocks.Add(cardResult.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
-
-        // Also trigger the one-time Ultimate Callout for approval when MainWindow itself is the target
-        TryShowApprovalCallout(plan, gate);
     }
 
     /// <summary>
@@ -9526,13 +9644,106 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Marks the gate approved and resumes the executing plan loop.</summary>
-    private void ApproveGateAndResume(Plan plan, PlanApprovalGate gate, string? note = null)
+    private async Task HandleApprovalClickAsync(
+        ApprovalClickToken clickToken,
+        string? note = null,
+        IReadOnlyList<string>? gateIdsToResolve = null)
     {
-        _activePlanAwaitingGateApproval = null;
-        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, note);
-        PublishPlanProgress(approved);
-        _ = StartDecomposeLoopAsync(plan.PlanId);
+        if (_planStore is null || _planApprovalRuntime is null) return;
+        if (_approvalPlansUpdating.Contains(clickToken.PlanId))
+        {
+            AppendLine("Approval details are being updated. Please use the refreshed approval button in a moment.");
+            if (_inboxStore is not null)
+            {
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                var updatingMessageId = DurableApprovalRequestManager.BuildMessageId(clickToken.PlanId);
+                if (_inboxStore.GetById(updatingMessageId) is { } updatingMessage)
+                    RefreshOpenApprovalInboxWindows(updatingMessageId, updatingMessage);
+            }
+            return;
+        }
+
+        if (_approvalTranscriptCards.TryGetValue(clickToken.PlanId, out var cards))
+            foreach (var card in cards) TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+        var messageId = DurableApprovalRequestManager.BuildMessageId(clickToken.PlanId);
+        foreach (var window in _openInboxWindows.Where(window => window.MessageId == messageId).ToArray())
+            window.BeginApprovalUpdate();
+
+        var plan = _planStore.Load(clickToken.PlanId);
+        if (plan is null)
+        {
+            AppendLine($"⚠ Approval could not be applied because plan {clickToken.PlanId} no longer exists.");
+            if (_inboxStore?.GetById(messageId) is { } missingPlanMessage)
+                RefreshOpenApprovalInboxWindows(messageId, missingPlanMessage);
+            return;
+        }
+
+        var resolution = await _planApprovalRuntime.ApproveAsync(
+            clickToken,
+            plan,
+            note,
+            persistPlan: updated => TryPublishPlanProgress(updated, out _),
+            gateIdsToResolve: gateIdsToResolve);
+
+        if (resolution.Result == ApprovalClickResult.Approved && resolution.UpdatedPlan is not null)
+        {
+            _activePlanAwaitingGateApproval = resolution.UpdatedPlan.ApprovalGates
+                .FirstOrDefault(gate => gate.Status == PlanGateStatus.AwaitingApproval)
+                ?.GateId;
+            if (cards is not null)
+                foreach (var card in cards) TranscriptApprovalCardBuilder.ShowResolvedState(card);
+            _approvalTranscriptCards.Remove(clickToken.PlanId);
+
+            if (_inboxStore is not null)
+            {
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                var updatedMessage = _inboxStore.GetById(messageId);
+                if (updatedMessage is not null)
+                    RefreshOpenApprovalInboxWindows(messageId, updatedMessage);
+            }
+
+            AppendLoopOutputLine(
+                $"▶ Approved {gateIdsToResolve?.Count ?? clickToken.GateIds.Count} checkpoint(s) for plan {clickToken.PlanId}.",
+                LoopLifecycleBrush);
+            if (resolution.NextClickToken is not null &&
+                resolution.UpdatedPlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+            {
+                var remainingGate = resolution.UpdatedPlan.ApprovalGates.First(gate =>
+                    gate.Status == PlanGateStatus.AwaitingApproval);
+                AppendGateApprovalActions(
+                    resolution.UpdatedPlan,
+                    remainingGate,
+                    BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
+                    resolution.NextClickToken);
+            }
+            if (resolution.ShouldResume)
+                await StartDecomposeLoopAsync(clickToken.PlanId);
+            return;
+        }
+
+        if (cards is not null)
+            foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
+        var reason = resolution.Result switch
+        {
+            ApprovalClickResult.AlreadyResolved => "This approval was already handled from another surface.",
+            ApprovalClickResult.PersistenceFailed => "SquadDash could not save the plan transition; no approval was recorded.",
+            _ => "This approval action is stale because the plan or approval request changed.",
+        };
+        AppendLine($"⚠ {reason}");
+
+        if (_inboxStore?.GetById(messageId) is { } currentMessage)
+            RefreshOpenApprovalInboxWindows(messageId, currentMessage);
+    }
+
+    private void ApproveCurrentPlan(Plan plan, string? gateId = null)
+    {
+        var token = _planApprovalRuntime?.Actions.GetCurrentToken(plan.PlanId);
+        if (token is not null)
+            _ = HandleApprovalClickAsync(
+                token,
+                gateIdsToResolve: gateId is null ? null : [gateId]);
     }
 
     /// <summary>
@@ -9579,10 +9790,15 @@ public partial class MainWindow : Window
             return true;
         }
 
-        _activePlanAwaitingGateApproval = null;
-        var approved = PlanStoreUpdater.ApplyGateApproved(plan, gate.GateId, approval.Note);
-        PublishPlanProgress(approved);
-        _ = StartDecomposeLoopAsync(plan.PlanId);
+        var token = _planApprovalRuntime?.Actions.GetCurrentToken(plan.PlanId);
+        if (token is null || !token.GateIds.Contains(gate.GateId, StringComparer.Ordinal))
+        {
+            AppendLoopOutputLine(
+                $"⚠ Gate approval for plan {approval.PlanId} was rejected: durable approval request not found.",
+                LoopLifecycleBrush);
+            return true;
+        }
+        _ = HandleApprovalClickAsync(token, approval.Note, [approval.GateId]);
         return true;
     }
 
@@ -24703,11 +24919,11 @@ public partial class MainWindow : Window
         _notesPanel?.Refresh(_noteItems);
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
+        _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
+        await InitializeApprovalRuntimeAsync();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
         RestoreAwaitingApprovalGateUI();
-
-        _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
 
         // Load persisted panel layout for this workspace and apply any non-default placements.
         HintEngine.Instance.Initialize(_currentWorkspace.FolderPath);
@@ -40837,7 +41053,7 @@ public partial class MainWindow : Window
                 {
                     var awaitingGate = plan.ApprovalGates.FirstOrDefault(g =>
                         g.Status == PlanGateStatus.AwaitingApproval);
-                    if (awaitingGate is not null) ApproveGateAndResume(plan, awaitingGate);
+                    if (awaitingGate is not null) ApproveCurrentPlan(plan);
                 });
 
             if (PlansPanelBorder is { } ppb)
@@ -41429,6 +41645,17 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
+                    throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
+                await HandleApprovalClickAsync(payload.ToClickToken());
+                return;
+            }
+
             if (string.Equals(action.RouteMode, DecomposePlanInbox.RecoveryRouteMode, StringComparison.OrdinalIgnoreCase))
             {
                 var actionKey = message.Id + "\u001f" + action.Label;

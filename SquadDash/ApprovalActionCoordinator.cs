@@ -46,6 +46,8 @@ internal enum ApprovalClickResult
     StaleRejected,
     /// <summary>The approval was already resolved (e.g. by another surface).</summary>
     AlreadyResolved,
+    /// <summary>The durable plan transition could not be persisted, so no approval was recorded.</summary>
+    PersistenceFailed,
 }
 
 /// <summary>
@@ -159,6 +161,34 @@ internal sealed class ApprovalActionCoordinator
     }
 
     /// <summary>
+    /// Restores the exact durable request version used by rendered Inbox/transcript actions.
+    /// Unlike <see cref="RegisterAsync"/>, this does not invent a new version during restart.
+    /// </summary>
+    internal async Task<ApprovalClickToken> RestoreAsync(
+        string planId,
+        string planRevision,
+        int requestVersion,
+        IReadOnlyList<string> activeGateIds,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(planId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var state = new ApprovalPlanState(planRevision, activeGateIds)
+            {
+                RequestVersion = requestVersion,
+            };
+            _states[planId] = state;
+            return state.BuildToken(planId);
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    /// <summary>
     /// Returns the current click token for a plan, or null if not registered.
     /// Thread-safe snapshot read.
     /// </summary>
@@ -178,6 +208,7 @@ internal sealed class ApprovalActionCoordinator
         ApprovalClickToken clickToken,
         IReadOnlyList<string> gateIdsToResolve,
         string? resolutionNote = null,
+        Func<bool>? persistResolution = null,
         CancellationToken cancellationToken = default)
     {
         var sem = GetLock(clickToken.PlanId);
@@ -206,6 +237,11 @@ internal sealed class ApprovalActionCoordinator
 
             if (toResolve.Count == 0)
                 return ApprovalClickResult.AlreadyResolved;
+
+            // The plan file is authoritative. Do not mutate the coordinator's live state or
+            // invalidate other surfaces unless the host first persisted the plan transition.
+            if (persistResolution is not null && !persistResolution())
+                return ApprovalClickResult.PersistenceFailed;
 
             // Apply resolution
             foreach (var gateId in toResolve)
