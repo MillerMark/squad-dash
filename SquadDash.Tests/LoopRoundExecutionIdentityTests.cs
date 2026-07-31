@@ -33,13 +33,22 @@ internal sealed class LoopRoundExecutionIdentityTests
     }
 
     [Test]
-    public void ResolveFailure_PrefersStillAvailableRuntimeIdentity()
+    public void ResolveFailure_PrefersCapturedRoundOverAdvancedRuntimeIdentity()
     {
         var captured = new LoopRoundExecutionIdentity(
             "PLAN-OLD", "revision-old", "PLAN-OLD-001", "Old task");
 
         var resolved = LoopRoundExecutionIdentity.ResolveFailure(
             captured, "PLAN-1", "revision-1", "PLAN-1-007", "Failure matrix");
+
+        Assert.That(resolved, Is.EqualTo(captured));
+    }
+
+    [Test]
+    public void ResolveFailure_FallsBackToRuntimeIdentityWhenNoRoundWasCaptured()
+    {
+        var resolved = LoopRoundExecutionIdentity.ResolveFailure(
+            null, "PLAN-1", "revision-1", "PLAN-1-007", "Failure matrix");
 
         Assert.That(
             resolved,

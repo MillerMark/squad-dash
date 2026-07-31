@@ -6019,21 +6019,27 @@ public partial class MainWindow : Window
         _loopIsWaiting = false;
         _loopRoundStartedAt = null;
 
-        var interruptedTaskId = stoppedExecution?.TaskId ?? _CodeHealthGroupRunner?.CurrentStepId;
-        Plan? newlyInterruptedPlan = null;
+        var interruptedTaskId = _CodeHealthGroupRunner?.CurrentStepId ?? stoppedExecution?.TaskId;
+        var interruptionResult = PlanInterruptionPersistenceResult.NotNeeded;
         if (!resumeDecision.PreserveExecution && stoppedPlanId is not null)
         {
-            newlyInterruptedPlan = TryInterruptExecutingPlan(
+            interruptionResult = TryInterruptExecutingPlan(
                 stoppedPlanId,
                 interruptedTaskId,
                 "Plan execution stopped before the current task was accepted.",
-                stoppedIteration);
+                stoppedIteration,
+                preferDurableTaskId: true);
+            interruptedTaskId = interruptionResult.Plan?.InterruptionData?.InterruptedTaskId
+                ?? interruptedTaskId;
         }
 
         if (!resumeDecision.PreserveExecution)
         {
             _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-            ClearExecutingPlanState();
+            if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
+                ClearExecutingPlanRuntimeState();
+            else
+                ClearExecutingPlanState();
             _loopPlanStartedAt = null;
             _loopTotalActiveTime = TimeSpan.Zero;
         }
@@ -6051,7 +6057,7 @@ public partial class MainWindow : Window
             Outcome: "stopped"));
         _loopRoundExecutionIdentity = null;
 
-        if (newlyInterruptedPlan is not null)
+        if (interruptionResult.Plan is { } newlyInterruptedPlan)
         {
             ScheduleDecomposeSystemEntry(
                 $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
@@ -6064,6 +6070,15 @@ public partial class MainWindow : Window
                     newlyInterruptedPlan.Revision,
                     interruptedTaskId,
                     "Plan execution stopped before the current task was accepted.");
+        }
+        else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
+        {
+            var persistenceMessage =
+                $"Plan {stoppedPlanId} stopped, but SquadDash could not save its interrupted state. " +
+                "The execution ownership was retained for recovery. " +
+                (interruptionResult.Error ?? "Unknown persistence failure.");
+            AppendLoopOutputLine($"⚠ {persistenceMessage}", LoopLifecycleBrush);
+            ScheduleDecomposeSystemEntry(persistenceMessage);
         }
 
         if (_restartPending &&
@@ -6089,7 +6104,8 @@ public partial class MainWindow : Window
         _loopResumeSuppressed = false;
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
-        TryFireDeferredCodeHealth();
+        if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
+            TryFireDeferredCodeHealth();
     }
 
     private void OnNativeLoopError(string msg)
@@ -6105,18 +6121,34 @@ public partial class MainWindow : Window
         var blockedTaskId = failureIdentity.TaskId;
         var blockedRevision = failureIdentity.Revision;
         var failedIteration = _loopCurrentIteration;
-        if (blockedTaskId is not null)
+        if (blockedTaskId is not null && string.Equals(
+                _CodeHealthGroupRunner?.CurrentStepId,
+                blockedTaskId,
+                StringComparison.Ordinal))
             _CodeHealthGroupRunner?.MarkCurrentStepFailed();
-        if (blockedGroupId is not null)
-            TryInterruptExecutingPlan(blockedGroupId, blockedTaskId, msg, failedIteration);
+        var interruptionResult = blockedGroupId is null
+            ? PlanInterruptionPersistenceResult.NotNeeded
+            : TryInterruptExecutingPlan(
+                blockedGroupId,
+                blockedTaskId,
+                msg,
+                failedIteration,
+                preferDurableTaskId: false);
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-error");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
+        _loopRoundStartedAt = null;
+        _loopPlanStartedAt = null;
+        _loopTotalActiveTime = TimeSpan.Zero;
         _loopInterruptedByQueue = false; // abort — don't auto-resume
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-        ClearExecutingPlanState();
+        if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
+            ClearExecutingPlanRuntimeState();
+        else
+            ClearExecutingPlanState();
         _loopResumeSuppressed = false;
+        AppendLoopOutputLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "plan_error",
@@ -6129,7 +6161,8 @@ public partial class MainWindow : Window
             Message: msg,
             Outcome: "error"));
         SyncLoopPanel();
-        if (blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
+        if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Persisted &&
+            blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
         {
             ScheduleDecomposeSystemEntry(
                 $"Plan {blockedGroupId} stopped at {blockedTaskId}: {msg}",
@@ -6138,7 +6171,17 @@ public partial class MainWindow : Window
                 blockedTaskId);
             SaveDecomposeRecoveryInboxReminder(blockedGroupId, blockedRevision, blockedTaskId, msg);
         }
+        if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
+        {
+            ScheduleDecomposeSystemEntry(
+                $"SquadDash could not save the interrupted state for plan {blockedGroupId}. " +
+                "The execution ownership was retained for recovery. " +
+                (interruptionResult.Error ?? "Unknown persistence failure."));
+        }
         _loopRoundExecutionIdentity = null;
+        SoundNotifications.Play(SoundEvent.LoopStopped);
+        if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
+            TryFireDeferredCodeHealth();
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -7602,7 +7645,11 @@ public partial class MainWindow : Window
         _loopInterruptedByQueue = false;
         _loopPausedForQuickReply = false;
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-        _conversationManager.UpdateActiveLoopExecutionState(null);
+        // A running plan keeps its durable execution envelope until the terminal
+        // callback has successfully persisted the plan outcome. Finalization observes
+        // StopState and exits without attempting another protocol repair.
+        if (_activeDecomposeGroupId is null || !_loopController.IsRunning)
+            _conversationManager.UpdateActiveLoopExecutionState(null);
         _conversationManager.UpdateQueuedPromptsState(
             _promptQueue.Items, _followUpAttachments,
             queueRightmostHeld: IsRightmostQueueTabActive(),
@@ -8919,6 +8966,14 @@ public partial class MainWindow : Window
     {
         if (_currentWorkspace is null || _activeDecomposeGroupId is null || _CodeHealthGroupRunner is null)
             return;
+
+        if (_loopController.StopState != LoopStopState.None)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Skipping plan finalization after stop was requested plan={_activeDecomposeGroupId} task={_CodeHealthGroupRunner.CurrentStepId ?? "(none)"}.");
+            return;
+        }
 
         var groupId = _activeDecomposeGroupId;
         var taskId = _CodeHealthGroupRunner.CurrentStepId ?? "unknown task";
@@ -41097,36 +41152,41 @@ public partial class MainWindow : Window
     /// Terminal, blocked, approval-paused, or already-interrupted plans are left untouched so
     /// late loop callbacks cannot overwrite a more specific outcome.
     /// </summary>
-    private Plan? TryInterruptExecutingPlan(
+    private PlanInterruptionPersistenceResult TryInterruptExecutingPlan(
         string groupId,
         string? taskId,
         string reason,
-        int loopIteration)
+        int loopIteration,
+        bool preferDurableTaskId)
     {
         if (_planStore is null)
-            return null;
+            return PlanInterruptionPersistenceResult.Failed("The plan store is unavailable.");
         try
         {
             var existing = _planStore.Load(groupId);
-            if (existing is null || existing.LifecycleStatus != PlanLifecycleStatus.Executing)
-                return null;
-            var interrupted = PlanStoreUpdater.ApplyInterrupted(
+            return PlanInterruptionPersistence.Apply(
                 existing,
-                reason,
-                Math.Max(0, loopIteration),
+                groupId,
                 taskId,
-                lastCommit: _decomposeIterationBaselineCommit);
-            PublishPlanProgress(interrupted);
-            return interrupted;
+                reason,
+                loopIteration,
+                _decomposeIterationBaselineCommit,
+                preferDurableTaskId,
+                interrupted =>
+                {
+                    var succeeded = TryPublishPlanProgress(interrupted, out var error);
+                    return (succeeded, error);
+                });
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write(
                 "Loop",
                 $"Could not persist interrupted plan {groupId}: {ex.Message}");
-            return null;
+            return PlanInterruptionPersistenceResult.Failed(ex.Message);
         }
     }
+
 
     private void ShowInboxPlanPreflightRecovery(
         InboxMessage message,

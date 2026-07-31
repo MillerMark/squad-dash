@@ -18,8 +18,8 @@ internal sealed record LoopRoundExecutionIdentity(
         string? activeTaskId,
         string? activeTaskTitle = null) =>
         new(
-            activePlanId ?? captured?.PlanId,
-            activeRevision ?? captured?.Revision,
-            activeTaskId ?? captured?.TaskId,
-            activeTaskTitle ?? captured?.TaskTitle);
+            captured?.PlanId ?? activePlanId,
+            captured?.Revision ?? activeRevision,
+            captured?.TaskId ?? activeTaskId,
+            captured?.TaskTitle ?? activeTaskTitle);
 }
