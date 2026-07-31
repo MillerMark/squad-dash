@@ -32,6 +32,12 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Optional note text box where the user can add a comment before approving.</summary>
         internal TextBox NoteTextBox { get; init; } = null!;
 
+        /// <summary>Editable note section; hidden after the approval has been recorded.</summary>
+        internal FrameworkElement NoteSection { get; init; } = null!;
+
+        /// <summary>Read-only persisted note shown after approval, when one was supplied.</summary>
+        internal TextBlock ResolutionNote { get; init; } = null!;
+
         /// <summary>Semi-transparent overlay shown during async approval processing.</summary>
         internal Border SpinnerOverlay { get; init; } = null!;
 
@@ -182,9 +188,10 @@ internal static class TranscriptApprovalCardBuilder
         }
 
         // ── Approval note input ──────────────────────────────────────────
+        var noteSection = new StackPanel();
         var noteLabel = CreateStyledTextBlock("Approval note (optional):", fontSize - 1, "SubtleText");
         noteLabel.Margin = new Thickness(0, 4, 0, 2);
-        stack.Children.Add(noteLabel);
+        noteSection.Children.Add(noteLabel);
 
         var noteBox = new TextBox
         {
@@ -217,7 +224,13 @@ internal static class TranscriptApprovalCardBuilder
         var noteContainer = new Grid();
         noteContainer.Children.Add(noteBox);
         noteContainer.Children.Add(watermark);
-        stack.Children.Add(noteContainer);
+        noteSection.Children.Add(noteContainer);
+        stack.Children.Add(noteSection);
+
+        var resolutionNote = CreateStyledTextBlock(string.Empty, fontSize - 1, "BodyText");
+        resolutionNote.Margin = new Thickness(0, 4, 0, 8);
+        resolutionNote.Visibility = Visibility.Collapsed;
+        stack.Children.Add(resolutionNote);
 
         // ── Approve button ───────────────────────────────────────────────
         var actionsPanel = new WrapPanel
@@ -231,7 +244,6 @@ internal static class TranscriptApprovalCardBuilder
         var approveButton = new Button
         {
             Content = approveLabel,
-            FontSize = fontSize,
             FontWeight = FontWeights.SemiBold,
             Padding = new Thickness(14, 6, 14, 6),
             Margin = new Thickness(0, 0, 8, 4),
@@ -242,6 +254,7 @@ internal static class TranscriptApprovalCardBuilder
                 ? $"Approve all {activeGateCount} pending checkpoints and resume plan execution"
                 : "Approve this checkpoint and resume plan execution",
         };
+        approveButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         AutomationProperties.SetName(approveButton, approveLabel);
         if (Application.Current?.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
             approveButton.Style = qrStyle;
@@ -317,6 +330,8 @@ internal static class TranscriptApprovalCardBuilder
             Container = container,
             ApproveButton = approveButton,
             NoteTextBox = noteBox,
+            NoteSection = noteSection,
+            ResolutionNote = resolutionNote,
             SpinnerOverlay = spinnerOverlay,
             ActionsPanel = actionsPanel,
             ContentStack = stack,
@@ -343,9 +358,30 @@ internal static class TranscriptApprovalCardBuilder
     internal static void ShowResolvedState(CardResult card)
     {
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
-        card.ApproveButton.IsEnabled = false;
+        var note = card.NoteTextBox.Text.Trim();
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        if (note.Length > 0)
+        {
+            card.ResolutionNote.Text = $"Approval note: {note}";
+            card.ResolutionNote.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            card.ResolutionNote.Visibility = Visibility.Collapsed;
+        }
+
+        // Keep the resolved indicator at full contrast. WPF's disabled-state template faded
+        // the blue check enough to look unavailable rather than successfully approved.
+        card.ApproveButton.IsEnabled = true;
+        card.ApproveButton.IsHitTestVisible = false;
+        card.ApproveButton.Focusable = false;
         card.ApproveButton.Content = "✓ Approved";
-        card.NoteTextBox.IsEnabled = false;
+        card.ApproveButton.FontWeight = FontWeights.Bold;
+        card.ApproveButton.MinHeight = 38;
+        card.ApproveButton.Padding = new Thickness(16, 8, 16, 8);
+        card.ApproveButton.Opacity = 1.0;
+        card.ApproveButton.SetResourceReference(Control.ForegroundProperty, "PriorityMid");
+        card.ApproveButton.SetResourceReference(Control.BorderBrushProperty, "PriorityMid");
     }
 
     // ── Private helpers ──────────────────────────────────────────────────

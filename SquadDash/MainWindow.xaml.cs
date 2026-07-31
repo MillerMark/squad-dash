@@ -3614,7 +3614,9 @@ public partial class MainWindow : Window
     {
         var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
         var theme  = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
-        var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+        var fontSize = Application.Current?.Resources["FontSizeCallout"] is double calloutSize
+            ? calloutSize
+            : 18.0;
         _queuePauseCallout?.Close();
         _ = Dispatcher.InvokeAsync(() => {
             _queuePauseCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
@@ -9646,10 +9648,22 @@ public partial class MainWindow : Window
             // clicking anywhere else must be allowed to close both the menu and the callout.
             await _guidedTourCoordinator.CommandRegistry.ExecuteAsync("OpenMenu: PanelsMenuItem");
             _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-            var menuTarget = ResolveTourHighlightElement(nameof(ViewInboxMenuItem))
-                             ?? (FrameworkElement)PanelsMenuItem;
+            FrameworkElement? menuTarget = null;
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                await Dispatcher.InvokeAsync(() => ViewInboxMenuItem.UpdateLayout(), DispatcherPriority.Render);
+                if (PresentationSource.FromVisual(ViewInboxMenuItem) is not null &&
+                    ViewInboxMenuItem.ActualWidth > 0 && ViewInboxMenuItem.ActualHeight > 0)
+                {
+                    menuTarget = ViewInboxMenuItem;
+                    break;
+                }
+            }
+            if (menuTarget is null)
+            {
+                SquadDashTrace.Write("Approval", "Inbox menu item was not rendered after opening the Panels menu; approval callout deferred.");
+                return;
+            }
             ShowApprovalAttentionCallout(
                 "**You have an approval request in your Inbox.**\n\nOpen **Inbox** to review the completed work and approve continuation.",
                 menuTarget,
@@ -9703,9 +9717,9 @@ public partial class MainWindow : Window
         _approvalAttentionCallout?.Close();
         var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
         var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
-        var fontSize = Resources.Contains("FontSizeBody")
-            ? Convert.ToDouble(Resources["FontSizeBody"])
-            : 13.0;
+        var fontSize = Application.Current?.Resources["FontSizeCallout"] is double calloutSize
+            ? calloutSize
+            : 18.0;
         _approvalAttentionCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
             markdown,
             target,
@@ -11089,8 +11103,12 @@ public partial class MainWindow : Window
             return;
 
         PendingDecomposePlan? plan = null;
+        Plan? durablePlan = null;
         if (!string.IsNullOrWhiteSpace(attachment.PlanGroupId))
         {
+            durablePlan = string.Equals(attachment.PlanGroupId, DeveloperApprovalSimulator.PlanId, StringComparison.Ordinal)
+                ? _developerApprovalSimulator?.CurrentPlan
+                : _planStore?.Load(attachment.PlanGroupId);
             var live = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
                 .Load(attachment.PlanGroupId);
             // Prefer the live plan when it exists — gate edits may have advanced the
@@ -11098,6 +11116,8 @@ public partial class MainWindow : Window
             if (live is not null)
                 plan = live;
         }
+        if (plan is null && durablePlan is not null)
+            plan = PendingDecomposePlanAdapter.FromPlan(durablePlan);
         if (plan is null)
             DecomposePlanInbox.TryReadSnapshot(attachment, out plan);
         if (plan is null)
@@ -11106,7 +11126,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        OpenDecomposePlanViewer(plan);
+        OpenDecomposePlanViewer(plan, durablePlan);
     }
 
     // ── Loop config flyout helpers ───────────────────────────────────────────

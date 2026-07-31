@@ -667,9 +667,12 @@ internal sealed class InboxPanelController
 
         // Attachments
         _viewerAttachmentsPanel.Children.Clear();
-        foreach (var att in msg.Attachments)
+        var visibleAttachments = msg.Attachments
+            .Where(DurableApprovalRequestManager.IsPresentationAttachment)
+            .ToArray();
+        foreach (var att in visibleAttachments)
             _viewerAttachmentsPanel.Children.Add(BuildAttachmentChip(att, Application.Current?.MainWindow, _lookupTask, _openDecomposePlan));
-        _viewerAttachmentsPanel.Visibility = msg.Attachments.Count > 0
+        _viewerAttachmentsPanel.Visibility = visibleAttachments.Length > 0
             ? Visibility.Visible : Visibility.Collapsed;
 
         // Actions (deferred quick-reply buttons)
@@ -704,6 +707,7 @@ internal sealed class InboxPanelController
         btn.SetResourceReference(Button.BackgroundProperty,   "QuickReplySurface");
         btn.SetResourceReference(Button.ForegroundProperty,   "QuickReplyText");
         btn.SetResourceReference(Button.BorderBrushProperty,  "QuickReplyBorder");
+        btn.SetResourceReference(Button.FontSizeProperty,     "FontSizeBody");
 
         bool alreadyUsed = msg.UsedActions.Contains(action.Label);
         if (alreadyUsed)

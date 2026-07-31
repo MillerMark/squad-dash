@@ -79,6 +79,29 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public async Task AppendCheckpoint_ExposesPlanLinkButKeepsPersistenceAttachmentsInternal()
+    {
+        var plan = MakePlan();
+        var messageId = await _manager.AppendCheckpointAsync(
+            plan, plan.ApprovalGates[0], MakeSnapshot());
+
+        var msg = _inbox.GetById(messageId)!;
+        var visible = msg.Attachments
+            .Where(DurableApprovalRequestManager.IsPresentationAttachment)
+            .ToArray();
+
+        Assert.That(visible, Has.Length.EqualTo(1));
+        Assert.That(visible[0].Type, Is.EqualTo(DecomposePlanInbox.AttachmentType));
+        Assert.That(visible[0].Label, Is.EqualTo("View plan and dependencies"));
+        Assert.That(visible[0].PlanGroupId, Is.EqualTo(plan.PlanId));
+        Assert.That(DecomposePlanInbox.TryReadSnapshot(visible[0], out var pending), Is.True);
+        Assert.That(pending!.Group.GroupId, Is.EqualTo(plan.PlanId));
+
+        Assert.That(msg.Attachments.Any(a => a.Type == DurableApprovalRequestManager.AttachmentType), Is.True);
+        Assert.That(msg.Attachments.Any(a => a.Type == "approval-snapshot"), Is.True);
+    }
+
+    [Test]
     public async Task AppendCheckpoint_IsIdempotent()
     {
         var plan = MakePlan();

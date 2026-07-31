@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -152,16 +153,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
         headerPanel.Children.Add(sep);
 
         // ── Attachments ───────────────────────────────────────────────────────
+        var visibleAttachments = message.Attachments
+            .Where(DurableApprovalRequestManager.IsPresentationAttachment)
+            .ToArray();
         var attachmentsPanel = new WrapPanel
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
-            Visibility  = message.Attachments.Count > 0 ? Visibility.Visible : Visibility.Collapsed,
+            Visibility  = visibleAttachments.Length > 0 ? Visibility.Visible : Visibility.Collapsed,
         };
         Grid.SetRow(attachmentsPanel, 1);
         root.Children.Add(attachmentsPanel);
 
-        foreach (var att in message.Attachments)
+        foreach (var att in visibleAttachments)
             attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _lookupTask, openDecomposePlan));
 
         // ── Actions ───────────────────────────────────────────────────────────
@@ -559,6 +563,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         btn.SetResourceReference(Button.BackgroundProperty,   "QuickReplySurface");
         btn.SetResourceReference(Button.ForegroundProperty,   "QuickReplyText");
         btn.SetResourceReference(Button.BorderBrushProperty,  "QuickReplyBorder");
+        btn.SetResourceReference(Button.FontSizeProperty,     "FontSizeBody");
 
         // Show hint as a tooltip. For routeMode "done" with no hint, use a sensible default.
         var hint = action.Hint;

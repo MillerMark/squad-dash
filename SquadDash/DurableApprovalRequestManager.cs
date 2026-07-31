@@ -107,7 +107,7 @@ internal sealed class DurableApprovalRequestManager
                     Read = false,
                     Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints),
                     Actions = BuildActions(plan, newState),
-                    Attachments = BuildAttachments(newState, snapshot),
+                    Attachments = BuildAttachments(newState, snapshot, plan: plan),
                     Priority = "high",
                 };
                 _inbox.Save(updated);
@@ -131,7 +131,7 @@ internal sealed class DurableApprovalRequestManager
                     Read = false,
                     Priority = "high",
                     Body = BuildBody(plan, [gate.GateId], []),
-                    Attachments = BuildAttachments(state, snapshot),
+                    Attachments = BuildAttachments(state, snapshot, plan: plan),
                     Actions = BuildActions(plan, state),
                 };
                 _inbox.Save(message);
@@ -169,7 +169,7 @@ internal sealed class DurableApprovalRequestManager
             {
                 Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints),
                 Actions = BuildActions(plan, state),
-                Attachments = BuildAttachments(state, snapshot),
+                Attachments = BuildAttachments(state, snapshot, plan: plan),
             };
             _inbox.Save(updated);
         }
@@ -226,7 +226,7 @@ internal sealed class DurableApprovalRequestManager
                     Read = true,
                     Actions = [],
                     Body = BuildBody(plan, [], newState.ResolvedCheckpoints),
-                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments),
+                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
                 };
                 _inbox.Save(archived);
             }
@@ -236,7 +236,7 @@ internal sealed class DurableApprovalRequestManager
                 {
                     Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints),
                     Actions = BuildActions(plan, newState),
-                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments),
+                    Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
                 };
                 _inbox.Save(updated);
             }
@@ -353,7 +353,8 @@ internal sealed class DurableApprovalRequestManager
     private static IReadOnlyList<InboxAttachment> BuildAttachments(
         DurableApprovalState state,
         ApprovalReviewSnapshot? snapshot,
-        IReadOnlyList<InboxAttachment>? existingAttachments = null)
+        IReadOnlyList<InboxAttachment>? existingAttachments = null,
+        Plan? plan = null)
     {
         var attachments = new List<InboxAttachment>();
 
@@ -383,8 +384,34 @@ internal sealed class DurableApprovalRequestManager
                 attachments.Add(existingSnapshot);
         }
 
+        // Present one real, actionable attachment. The state and snapshot entries above are
+        // persistence envelopes and are deliberately hidden from the Inbox attachment strip.
+        if (plan is not null)
+        {
+            attachments.Add(new InboxAttachment
+            {
+                Type = DecomposePlanInbox.AttachmentType,
+                Label = "View plan and dependencies",
+                PlanGroupId = plan.PlanId,
+                PlanRevision = plan.Revision,
+                Content = JsonSerializer.Serialize(PendingDecomposePlanAdapter.FromPlan(plan), StateSerializerOptions),
+            });
+        }
+        else if (existingAttachments is not null)
+        {
+            var existingPlan = existingAttachments.FirstOrDefault(
+                a => string.Equals(a.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase));
+            if (existingPlan is not null)
+                attachments.Add(existingPlan);
+        }
+
         return attachments;
     }
+
+    /// <summary>True for attachments intended for people rather than approval persistence.</summary>
+    internal static bool IsPresentationAttachment(InboxAttachment attachment) =>
+        !string.Equals(attachment.Type, AttachmentType, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(attachment.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase);
 
     internal static string BuildBody(
         Plan plan,

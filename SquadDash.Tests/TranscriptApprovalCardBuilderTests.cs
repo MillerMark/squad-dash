@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Windows;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -8,6 +10,23 @@ namespace SquadDash.Tests;
 [TestFixture]
 public class TranscriptApprovalCardBuilderTests
 {
+    private static Plan BuildTestPlan()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("task-1", "Task 1", "Done", [], "high", PlanTaskStatus.Complete),
+            new PlanTask("task-2", "Task 2", "Done", [], "high", PlanTaskStatus.Complete),
+            new PlanTask("task-3", "Task 3", "Next", ["task-1"], "high", PlanTaskStatus.Pending),
+        };
+        var gate = new PlanApprovalGate(
+            "gate-1", "Review completed tasks before continuing", ["task-1", "task-2"], ["task-3"],
+            PlanGateStatus.AwaitingApproval);
+        return new Plan(
+            "PLAN-001", "rev-1", PlanSource.DecomposeDecision, PlanLifecycleStatus.AwaitingApproval,
+            "Test Plan", "main", "Summary", tasks, [gate], new PlanProgress(2, 3),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+    }
+
     private static ApprovalReviewSnapshot BuildTestSnapshot(
         int completedTaskCount = 3,
         int totalTaskCount = 5,
@@ -69,6 +88,28 @@ public class TranscriptApprovalCardBuilderTests
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
         Assert.That(label, Does.Contain("Approve Checkpoint"));
         Assert.That(label, Does.Not.Contain("2"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ShowResolvedState_HidesEditorAndKeepsApprovedIndicatorAtFullContrast()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        card.NoteTextBox.Text = "Reviewed locally";
+
+        TranscriptApprovalCardBuilder.ShowResolvedState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ResolutionNote.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ResolutionNote.Text, Is.EqualTo("Approval note: Reviewed locally"));
+            Assert.That(card.ApproveButton.IsEnabled, Is.True);
+            Assert.That(card.ApproveButton.IsHitTestVisible, Is.False);
+            Assert.That(card.ApproveButton.Opacity, Is.EqualTo(1.0));
+            Assert.That(card.ApproveButton.MinHeight, Is.EqualTo(38));
+        });
     }
 
     [Test]
