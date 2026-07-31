@@ -280,6 +280,75 @@ internal sealed class LoopControllerTests {
     }
 
     [Test]
+    public async Task PromptException_WhenErrorCallbackThrows_DoesNotReportStopped()
+    {
+        var errorTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errorCount = 0;
+        var controller = new LoopController(
+            executePromptAsync: (_, __) => throw new InvalidOperationException("protocol failure"),
+            abortPrompt: () => { },
+            onIterationStarted: _ => { },
+            onStopped: () => stoppedTcs.TrySetResult(),
+            onError: _ =>
+            {
+                Interlocked.Increment(ref errorCount);
+                errorTcs.TrySetResult();
+                throw new InvalidOperationException("error UI failed");
+            },
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(errorCount, Is.EqualTo(1));
+            Assert.That(stoppedTcs.Task.Wait(TimeSpan.FromMilliseconds(100)), Is.False);
+            Assert.That(controller.IsRunning, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Timeout_WhenErrorCallbackThrows_DoesNotReportStopped()
+    {
+        var promptCts = new CancellationTokenSource();
+        var errorTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var errorCount = 0;
+        var controller = new LoopController(
+            executePromptAsync: async (_, __) =>
+                await Task.Delay(Timeout.InfiniteTimeSpan, promptCts.Token),
+            abortPrompt: () => promptCts.Cancel(),
+            onIterationStarted: _ => { },
+            onStopped: () => stoppedTcs.TrySetResult(),
+            onError: _ =>
+            {
+                Interlocked.Increment(ref errorCount);
+                errorTcs.TrySetResult();
+                throw new InvalidOperationException("error UI failed");
+            },
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+        var config = new LoopMdConfig(
+            IntervalMinutes: 0.0001,
+            TimeoutMinutes: 1.0 / 1000,
+            Description: "",
+            Instructions: "test prompt");
+
+        _ = controller.StartAsync(config, continuousContext: true);
+        await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(errorCount, Is.EqualTo(1));
+            Assert.That(stoppedTcs.Task.Wait(TimeSpan.FromMilliseconds(100)), Is.False);
+            Assert.That(controller.IsRunning, Is.False);
+        });
+    }
+
+    [Test]
     public async Task Timeout_PromptCompletesBeforeDeadline_LoopContinues() {
         // Arrange — prompt completes instantly; timeout is generous; loop should run 2+ iterations
         var stoppedTcs  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

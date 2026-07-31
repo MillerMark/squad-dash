@@ -167,9 +167,9 @@ internal sealed class LoopController {
                     _abortPrompt();
                     try { await promptTask; } catch { /* swallow post-abort exception */ }
                     IsRunning = false;
-                    _onError(
-                        $"Iteration {iteration} timed out after {config.TimeoutMinutes} min");
-                    terminalErrorReported = true;
+                    ReportTerminalError(
+                        $"Iteration {iteration} timed out after {config.TimeoutMinutes} min",
+                        ref terminalErrorReported);
                     break;
                 }
 
@@ -226,18 +226,33 @@ internal sealed class LoopController {
         } catch (Exception ex) {
             if (_cts?.IsCancellationRequested != true) {
                 IsRunning = false;
-                _onError($"Loop crashed unexpectedly: {ex.Message}");
-                terminalErrorReported = true;
+                ReportTerminalError(
+                    $"Loop crashed unexpectedly: {ex.Message}",
+                    ref terminalErrorReported);
             }
             SquadDashTrace.Write("Loop", $"RunLoopAsync unhandled: {ex}");
         } finally {
             IsRunning = false;
             if (StopState == LoopStopState.Aborted) {
                 if (!terminalErrorReported)
-                    _onError("Loop aborted.");
+                    ReportTerminalError("Loop aborted.", ref terminalErrorReported);
             } else if (!terminalErrorReported) {
                 _onStopped();
             }
+        }
+    }
+
+    private void ReportTerminalError(string message, ref bool terminalErrorReported) {
+        // Claim the terminal outcome before invoking host code. If that callback throws,
+        // finally must not reinterpret the same run as a normal stop and emit a second,
+        // contradictory terminal event.
+        terminalErrorReported = true;
+        try {
+            _onError(message);
+        } catch (Exception ex) {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Terminal error callback failed after '{message}': {ex}");
         }
     }
 
