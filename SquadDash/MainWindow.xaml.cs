@@ -41236,6 +41236,13 @@ public partial class MainWindow : Window
             var updated  = PlanStoreUpdater.ApplyExecutionStarted(
                 existing, resolvedGroup, revision, items,
                 _CodeHealthGroupRunner?.CurrentStepId);
+            if (!PendingDecomposePlanAdapter.RevisionIsValid(updated))
+            {
+                error =
+                    $"Plan {groupId} did not start because its durable task and approval-gate " +
+                    "projection does not match the user-approved revision.";
+                return false;
+            }
             if (!PlanTaskProjectionValidator.TryGetValidatedItems(
                     updated,
                     parsed,

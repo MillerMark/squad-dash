@@ -43,17 +43,7 @@ internal static class PendingDecomposePlanAdapter
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
 
-        var approvalGates = group.ApprovalGates is { Count: > 0 }
-            ? (IReadOnlyList<PlanApprovalGate>)group.ApprovalGates
-                .Select(g => new PlanApprovalGate(
-                    GateId:       g.GateId,
-                    Message:      g.Message,
-                    AfterTaskIds:  g.AfterTaskIds  ?? [],
-                    BeforeTaskIds: g.BeforeTaskIds ?? [],
-                    Status:       PlanGateStatus.Pending,
-                    PlanRevision: pending.Revision))
-                .ToArray()
-            : [];
+        var approvalGates = MapApprovalGates(group, pending.Revision);
 
         return new Plan(
             PlanId:          group.GroupId,
@@ -69,6 +59,23 @@ internal static class PendingDecomposePlanAdapter
             Timestamps:      new PlanTimestamps(CreatedAt: timestamp),
             HostRevision:    group.HostRevision);
     }
+
+    /// <summary>
+    /// Projects the approval contract sealed into a decomposed-plan revision into the durable
+    /// gate model used by scheduling and visualization.
+    /// </summary>
+    internal static IReadOnlyList<PlanApprovalGate> MapApprovalGates(
+        DecomposedTaskGroup group,
+        string revision) =>
+        group.ApprovalGates is { Count: > 0 }
+            ? group.ApprovalGates.Select(g => new PlanApprovalGate(
+                GateId:       g.GateId,
+                Message:      g.Message,
+                AfterTaskIds:  g.AfterTaskIds  ?? [],
+                BeforeTaskIds: g.BeforeTaskIds ?? [],
+                Status:       PlanGateStatus.Pending,
+                PlanRevision: revision)).ToArray()
+            : [];
 
     /// <summary>
     /// Reconstructs a <see cref="PendingDecomposePlan"/> from a durable <see cref="Plan"/>.

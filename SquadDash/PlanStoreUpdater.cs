@@ -30,9 +30,14 @@ internal static class PlanStoreUpdater
             ? MapTasks(group.Tasks, items)
             : MapTasks(existing.Tasks, group.Tasks, items);
         var progress = BuildProgress(items, executingTaskId);
+        var projectedGates = PendingDecomposePlanAdapter.MapApprovalGates(group, revision);
 
         if (existing is not null)
         {
+            var approvalGates = string.Equals(existing.Revision, revision, StringComparison.Ordinal) &&
+                                existing.ApprovalGates.Count > 0
+                ? existing.ApprovalGates
+                : projectedGates;
             return existing with
             {
                 Revision         = revision,
@@ -41,6 +46,7 @@ internal static class PlanStoreUpdater
                 Summary          = group.Summary,
                 LifecycleStatus  = PlanLifecycleStatus.Executing,
                 Tasks            = tasks,
+                ApprovalGates    = approvalGates,
                 Progress         = progress,
                 InterruptionData = null,
                 HostRevision     = group.HostRevision ?? revision,
@@ -60,7 +66,7 @@ internal static class PlanStoreUpdater
             Branch:          group.Branch,
             Summary:         group.Summary,
             Tasks:           tasks,
-            ApprovalGates:   [],
+            ApprovalGates:   projectedGates,
             Progress:        progress,
             Timestamps:      new PlanTimestamps(
                 CreatedAt: now,

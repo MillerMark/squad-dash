@@ -29,6 +29,33 @@ internal sealed class PlanStoreUpdaterTests
             Tasks:      tasks);
     }
 
+    private static DecomposedTaskGroup MakeApprovalWindowGroup() => new(
+        GroupId: "GROUP-001",
+        GroupTitle: "Approval window plan",
+        Branch: "feature/approval-window",
+        Summary: "Continue independent work, then stop at the approval frontier.",
+        Tasks:
+        [
+            new DecomposedSubTask(
+                "GROUP-001-001", "Create baseline", [], "high", "Create baseline"),
+            new DecomposedSubTask(
+                "GROUP-001-002", "Run independent work", [], "high", "Run independent work"),
+            new DecomposedSubTask(
+                "GROUP-001-003", "Cross approved boundary", ["GROUP-001-001"], "high",
+                "Cross approved boundary"),
+            new DecomposedSubTask(
+                "GROUP-001-004", "Summarize", ["GROUP-001-002", "GROUP-001-003"], "mid",
+                "Summarize"),
+        ],
+        ApprovalGates:
+        [
+            new DecomposedGate(
+                "GROUP-001-G01",
+                "Review the baseline before crossing the boundary.",
+                ["GROUP-001-001"],
+                ["GROUP-001-003"]),
+        ]);
+
     private static TaskItem MakeItem(string taskId, bool isChecked = false, bool isFailed = false,
         bool isPartial = false, bool isSuperseded = false)
     {
@@ -86,6 +113,135 @@ internal sealed class PlanStoreUpdaterTests
         Assert.That(plan.Title,           Is.EqualTo("Test Plan"));
         Assert.That(plan.Branch,          Is.EqualTo("feature/test"));
         Assert.That(plan.Source,          Is.EqualTo(PlanSource.DecomposeDecision));
+    }
+
+    [Test]
+    public void ApplyExecutionStarted_FreshApprovalPlan_PreservesGateAndApprovedRevision()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            existing: null,
+            group,
+            revision,
+            items,
+            "GROUP-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(plan.ApprovalGates[0].GateId, Is.EqualTo("GROUP-001-G01"));
+            Assert.That(plan.ApprovalGates[0].AfterTaskIds, Is.EqualTo(new[] { "GROUP-001-001" }));
+            Assert.That(plan.ApprovalGates[0].BeforeTaskIds, Is.EqualTo(new[] { "GROUP-001-003" }));
+            Assert.That(plan.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(plan.ApprovalGates[0].PlanRevision, Is.EqualTo(revision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyExecutionStarted_ApprovalWindow_AllowsIndependentTaskThenBlocksFrontier()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToList();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, revision, items, "GROUP-001-001");
+
+        items[0] = MakeItem("GROUP-001-001", isChecked: true);
+        plan = PlanStoreUpdater.ApplyStepAccepted(plan, items, "GROUP-001-002");
+        var afterBaseline = ApprovalGateReadinessEvaluator.EvaluateGates(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(afterBaseline.Single().IsReady, Is.True);
+            Assert.That(
+                ApprovalGateReadinessEvaluator.SelectNextUngatedTask(plan, afterBaseline),
+                Is.EqualTo("GROUP-001-002"),
+                "Independent work should continue while approval is available.");
+            Assert.That(ApprovalGateReadinessEvaluator.ShouldStopForApproval(plan, afterBaseline), Is.False);
+        });
+
+        items[1] = MakeItem("GROUP-001-002", isChecked: true);
+        plan = PlanStoreUpdater.ApplyStepAccepted(plan, items, nextExecutingTaskId: null);
+        var afterIndependent = ApprovalGateReadinessEvaluator.EvaluateGates(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(plan, afterIndependent), Is.Null);
+            Assert.That(ApprovalGateReadinessEvaluator.ShouldStopForApproval(plan, afterIndependent), Is.True);
+            Assert.That(
+                PlanGateVisualizationPolicy.DownstreamTaskIds(plan.Tasks, plan.ApprovalGates),
+                Does.Contain("GROUP-001-003"),
+                "The durable gate must remain available to the plan viewer.");
+        });
+    }
+
+    [Test]
+    public void ApplyExecutionStarted_SameRevisionResume_PreservesGateRuntimeState()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var existing = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, revision, items, "GROUP-001-001");
+        existing = existing with
+        {
+            ApprovalGates =
+            [
+                existing.ApprovalGates[0] with
+                {
+                    Status = PlanGateStatus.AwaitingApproval,
+                    RequestedAt = new DateTimeOffset(2026, 7, 31, 18, 0, 0, TimeSpan.Zero),
+                },
+            ],
+        };
+
+        var resumed = PlanStoreUpdater.ApplyExecutionStarted(
+            existing, group, revision, items, "GROUP-001-002");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(resumed.ApprovalGates[0].RequestedAt, Is.EqualTo(
+                new DateTimeOffset(2026, 7, 31, 18, 0, 0, TimeSpan.Zero)));
+        });
+    }
+
+    [Test]
+    public void ApplyExecutionStarted_NewRevision_ReplacesStaleStagedGateDefinition()
+    {
+        var originalGroup = MakeApprovalWindowGroup();
+        var originalRevision = PendingDecomposePlanStore.ComputeRevision(originalGroup);
+        var items = originalGroup.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var existing = PlanStoreUpdater.ApplyExecutionStarted(
+            null, originalGroup, originalRevision, items, "GROUP-001-001");
+        var revisedGroup = originalGroup with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "GROUP-001-G02",
+                    "Review later.",
+                    ["GROUP-001-002"],
+                    ["GROUP-001-004"]),
+            ],
+        };
+        var revisedRevision = PendingDecomposePlanStore.ComputeRevision(revisedGroup);
+
+        var updated = PlanStoreUpdater.ApplyExecutionStarted(
+            existing, revisedGroup, revisedRevision, items, "GROUP-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(updated.ApprovalGates[0].GateId, Is.EqualTo("GROUP-001-G02"));
+            Assert.That(updated.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(updated.ApprovalGates[0].PlanRevision, Is.EqualTo(revisedRevision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(updated), Is.True);
+        });
     }
 
     [Test]

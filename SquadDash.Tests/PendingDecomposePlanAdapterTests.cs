@@ -207,6 +207,37 @@ internal sealed class PendingDecomposePlanAdapterTests
     }
 
     [Test]
+    public void RevisionIsValid_WhenSealedApprovalGateIsDropped_ReturnsFalse()
+    {
+        var basePending = MakePending("PLANS-20260727");
+        var group = basePending.Group with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "PLANS-20260727-G01",
+                    "Review before continuing.",
+                    ["PLANS-20260727-001"],
+                    ["PLANS-20260727-002"]),
+            ],
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group),
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+            Assert.That(
+                PendingDecomposePlanAdapter.RevisionIsValid(plan with { ApprovalGates = [] }),
+                Is.False,
+                "Execution must reject a durable projection that drops an approved gate.");
+        });
+    }
+
+    [Test]
     public void ToPlan_ThenFromPlan_RevisionMatchesPendingDecomposePlanStore()
     {
         // Full compatibility test: PendingDecomposePlanStore.ComputeRevision should agree
