@@ -8376,9 +8376,11 @@ public partial class MainWindow : Window
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _transcriptFontSize);
+        var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _transcriptFontSize);
         var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _transcriptFontSize);
         var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _transcriptFontSize);
         buttons.Children.Add(viewButton);
+        buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
         stack.Children.Add(buttons);
@@ -8401,6 +8403,11 @@ public partial class MainWindow : Window
         sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 
         viewButton.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
+        copyButton.Click += (_, _) =>
+        {
+            SetClipboardTextWithRetry(content.ClipboardText);
+            readiness.Text = "Details copied to the clipboard.";
+        };
         dismissButton.Click += (_, _) =>
         {
             if (blocks.Contains(container)) blocks.Remove(container);
@@ -8502,7 +8509,7 @@ public partial class MainWindow : Window
         else if (action == "execute-new-branch")
         {
             var target = string.IsNullOrWhiteSpace(branchOverride) ? group.Branch : branchOverride.Trim();
-            await PrepareDecomposeBranchAsync(workspace, target, allowOnlyTasksFileDirty: isRevision);
+            await PrepareDecomposeBranchAsync(workspace, target);
             effective = effective with { Branch = target };
         }
 
@@ -43483,7 +43490,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            await PrepareDecomposeBranchAsync(workspace, targetBranch, allowOnlyTasksFileDirty: true);
+            await PrepareDecomposeBranchAsync(workspace, targetBranch);
         }
 
         if (!await StartDecomposeLoopAsync(
@@ -43496,8 +43503,7 @@ public partial class MainWindow : Window
 
     private async Task PrepareDecomposeBranchAsync(
         string workspace,
-        string targetBranch,
-        bool allowOnlyTasksFileDirty)
+        string targetBranch)
     {
         var activeBranch = ReadGitBranch(workspace);
         if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
@@ -43505,7 +43511,7 @@ public partial class MainWindow : Window
 
         var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
         if (!string.IsNullOrWhiteSpace(dirty) &&
-            (!allowOnlyTasksFileDirty || !await IsOnlyTasksFileDirtyAsync(workspace, dirty)))
+            !await IsOnlyTasksFileDirtyAsync(workspace, dirty))
         {
             var dirtyPaths = ParseGitPorcelainPaths(dirty);
             throw new PlanPreflightBlockedException("Uncommitted changes", dirtyPaths, targetBranch);

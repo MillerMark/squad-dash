@@ -1491,9 +1491,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _quickReplyFontSize);
+        var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _quickReplyFontSize);
         var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _quickReplyFontSize);
         var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _quickReplyFontSize);
         buttons.Children.Add(viewButton);
+        buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
         stack.Children.Add(buttons);
@@ -1517,6 +1519,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             if (_viewPreflightChanges is not null)
                 _ = _viewPreflightChanges(exception);
+        };
+        copyButton.Click += (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(content.ClipboardText);
+                readiness.Text = "Details copied to the clipboard.";
+            }
+            catch
+            {
+                readiness.Text = "The clipboard is busy. Try Copy Details again.";
+            }
         };
         dismissButton.Click += (_, _) =>
         {

@@ -32,7 +32,7 @@
     <SolidColorBrush x:Key="PriorityCritical" Color="#D82323"/>
 
     <SolidColorBrush x:Key="AlertSurface" Color="#FFF3E2"/>
-    <SolidColorBrush x:Key="PlanPreflightWarningSurface" Color="#FFFFC94A"/>
+    <SolidColorBrush x:Key="PlanPreflightWarningSurface" Color="#FFFFE4A5"/>
     <SolidColorBrush x:Key="RoleBadgeSurface" Color="#F9F1E2"/>
     <SolidColorBrush x:Key="ThreadBadgeSurface" Color="#F4ECDE"/>
     <SolidColorBrush x:Key="PopupSurface" Color="#FFFFFF"/>

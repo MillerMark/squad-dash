@@ -10,6 +10,9 @@ internal sealed record PlanPreflightRecoveryContent(
     string RecoveryGuidance,
     string TechnicalDetails)
 {
+    internal string ClipboardText =>
+        $"{Title}\n\n{Summary}\n\n{RecoveryGuidance}\n\n{TechnicalDetails}";
+
     internal static PlanPreflightRecoveryContent From(PlanPreflightBlockedException exception)
     {
         var target = string.IsNullOrWhiteSpace(exception.TargetBranch)

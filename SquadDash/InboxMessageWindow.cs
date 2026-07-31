@@ -378,14 +378,28 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = BuildRecoveryButton("View Changes");
+        var copyButton = BuildRecoveryButton("Copy Details");
         var retryButton = BuildRecoveryButton("Retry");
         var dismissButton = BuildRecoveryButton("Keep Plan Pending");
         buttons.Children.Add(viewButton);
+        buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
         stack.Children.Add(buttons);
 
         viewButton.Click += (_, _) => viewChanges();
+        copyButton.Click += (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(content.ClipboardText);
+                readiness.Text = "Details copied to the clipboard.";
+            }
+            catch
+            {
+                readiness.Text = "The clipboard is busy. Try Copy Details again.";
+            }
+        };
         retryButton.Click += (_, _) =>
         {
             buttons.IsEnabled = false;

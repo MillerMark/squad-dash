@@ -27,6 +27,9 @@ internal sealed class PlanPreflightTests
             Assert.That(content.RecoveryGuidance, Does.Contain("commit or stash"));
             Assert.That(content.RecoveryGuidance, Does.Contain("will not discard"));
             Assert.That(content.TechnicalDetails, Does.Contain("Changed files: 2"));
+            Assert.That(content.ClipboardText, Does.Contain("Plan not started"));
+            Assert.That(content.ClipboardText, Does.Contain("feature/recovery"));
+            Assert.That(content.ClipboardText, Does.Contain("src/App.cs"));
         });
     }
 
