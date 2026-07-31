@@ -25,6 +25,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly WrapPanel _actionsPanel;
+    private readonly Grid _rootGrid;
     private readonly ContentControl _preflightRecoveryHost;
     private DispatcherTimer? _preflightPollTimer;
     private readonly Action? _onMarkedRead;
@@ -72,6 +73,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         // Root grid: header / attachments / actions / body
         var root = new Grid();
+        _rootGrid = root;
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 0 header
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1 attachments
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2 actions
@@ -976,12 +978,23 @@ internal sealed class InboxMessageWindow : ChromedWindow
         }
 
         _approvalUpdatingOverlay.Visibility = Visibility.Visible;
-        if (!((Grid)Content).Children.Contains(_approvalUpdatingOverlay))
-        {
-            // Insert the overlay before the body row
-            Grid.SetRow(_approvalUpdatingOverlay, 2);
-            ((Grid)((Border)Content).Child).Children.Add(_approvalUpdatingOverlay);
-        }
+        AttachApprovalUpdatingOverlay(_rootGrid, _approvalUpdatingOverlay);
+    }
+
+    /// <summary>
+    /// Places the approval-update overlay in the message layout's action row. The Window content
+    /// is a chrome overlay Grid, so callers must use the retained message-layout root rather than
+    /// infer its type by walking or casting <see cref="ContentControl.Content"/>.
+    /// </summary>
+    internal static void AttachApprovalUpdatingOverlay(Grid messageLayoutRoot, Border overlay)
+    {
+        ArgumentNullException.ThrowIfNull(messageLayoutRoot);
+        ArgumentNullException.ThrowIfNull(overlay);
+        if (messageLayoutRoot.Children.Contains(overlay))
+            return;
+
+        Grid.SetRow(overlay, 2);
+        messageLayoutRoot.Children.Add(overlay);
     }
 
     /// <summary>
