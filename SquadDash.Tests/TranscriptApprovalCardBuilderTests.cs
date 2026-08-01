@@ -107,7 +107,7 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.ResolutionNote.Text, Is.EqualTo("Approval note: Reviewed locally"));
             Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(card.ResolvedIndicator.Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(card.ResolvedIndicator.Text, Is.EqualTo("✓"));
+            Assert.That(card.ResolvedIndicator.Text, Is.EqualTo("✓ Approved."));
         });
     }
 

@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Shell;
@@ -933,6 +934,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
     // ── Approval update flow ─────────────────────────────────────────────────
 
     private Border? _approvalUpdatingOverlay;
+    private TextBlock? _approvalUpdatingSpinner;
+
+    internal bool IsApprovalUpdateInProgress =>
+        _approvalUpdatingOverlay?.Visibility == Visibility.Visible;
 
     /// <summary>
     /// Shows a compact spinner overlay and disables all action buttons.
@@ -961,7 +966,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 FontSize = _bodyFontSize + 2,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(),
             };
+            _approvalUpdatingSpinner = spinner;
             spinner.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             panel.Children.Add(spinner);
             var label = new TextBlock
@@ -984,6 +992,15 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         _approvalUpdatingOverlay.Visibility = Visibility.Visible;
         AttachApprovalUpdatingOverlay(_rootGrid, _approvalUpdatingOverlay);
+        if (_approvalUpdatingSpinner?.RenderTransform is RotateTransform rotation)
+        {
+            rotation.BeginAnimation(
+                RotateTransform.AngleProperty,
+                new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(850))
+                {
+                    RepeatBehavior = RepeatBehavior.Forever,
+                });
+        }
     }
 
     /// <summary>
@@ -1025,6 +1042,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // Hide overlay
         if (_approvalUpdatingOverlay is not null)
             _approvalUpdatingOverlay.Visibility = Visibility.Collapsed;
+        if (_approvalUpdatingSpinner?.RenderTransform is RotateTransform rotation)
+            rotation.BeginAnimation(RotateTransform.AngleProperty, null);
 
         Title = updatedMessage.Subject;
     }

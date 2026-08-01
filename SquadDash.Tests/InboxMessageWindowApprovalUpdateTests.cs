@@ -33,4 +33,30 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
                     "The update overlay belongs to the inner message grid, not the chrome grid.");
             });
         });
+
+    [Test]
+    public void CompleteApprovalUpdate_ClearsVisibleProgressState() =>
+        WpfTestContext.Run(() =>
+        {
+            var before = new InboxMessage
+            {
+                Id = "approval-1",
+                Subject = "Approval needed",
+                Body = "Review this work.",
+                Actions = [],
+            };
+            var after = before with
+            {
+                Subject = "Approved",
+                Body = "Approval complete.",
+                Actions = [],
+            };
+            var window = new InboxMessageWindow(before, (_, _) => { });
+
+            window.BeginApprovalUpdate();
+            Assert.That(window.IsApprovalUpdateInProgress, Is.True);
+
+            window.CompleteApprovalUpdate(after, (_, _) => { });
+            Assert.That(window.IsApprovalUpdateInProgress, Is.False);
+        });
 }

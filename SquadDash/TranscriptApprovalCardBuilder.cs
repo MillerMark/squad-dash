@@ -289,7 +289,7 @@ internal static class TranscriptApprovalCardBuilder
         actionsPanel.Children.Add(approveButton);
         stack.Children.Add(actionsPanel);
 
-        var resolvedIndicator = CreateStyledTextBlock("✓", fontSize, "PriorityMid");
+        var resolvedIndicator = CreateStyledTextBlock("✓ Approved.", fontSize, "PriorityMid");
         resolvedIndicator.FontWeight = FontWeights.Bold;
         resolvedIndicator.Margin = new Thickness(0, 2, 0, 2);
         resolvedIndicator.Visibility = Visibility.Collapsed;

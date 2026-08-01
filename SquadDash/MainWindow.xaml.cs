@@ -20987,6 +20987,12 @@ public partial class MainWindow : Window
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
         ReconcileOpenInboxWindows(messages);
+        var approvalMessage = messages.FirstOrDefault(message => string.Equals(
+            message.Id,
+            DeveloperApprovalSimulator.MessageId,
+            StringComparison.Ordinal));
+        if (approvalMessage is not null)
+            RefreshOpenApprovalInboxWindows(approvalMessage.Id, approvalMessage);
     }
 
     private void SimulationMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
