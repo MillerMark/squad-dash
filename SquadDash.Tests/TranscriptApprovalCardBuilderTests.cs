@@ -88,6 +88,7 @@ public class TranscriptApprovalCardBuilderTests
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
         Assert.That(label, Does.Contain("Approve Checkpoint"));
         Assert.That(label, Does.Not.Contain("2"));
+        Assert.That(label, Does.Not.Contain("✅"));
     }
 
     [Test, Apartment(ApartmentState.STA)]

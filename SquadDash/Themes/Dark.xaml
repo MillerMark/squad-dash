@@ -27,6 +27,7 @@
     <!-- Unified priority colors -->
     <SolidColorBrush x:Key="PriorityLow"      Color="#37973B"/>
     <SolidColorBrush x:Key="PriorityMid"      Color="#0D87E9"/>
+    <SolidColorBrush x:Key="PlanApprovalResolved" Color="#569DF6"/>
     <SolidColorBrush x:Key="PriorityHigh"     Color="#A68300"/>
     <SolidColorBrush x:Key="PriorityCritical" Color="#F64F4F"/>
 

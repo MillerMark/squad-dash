@@ -690,7 +690,7 @@ internal sealed class ApprovalWorkflowProbeTests
     public void ApproveLabel_SingleGate_CorrectText()
     {
         Assert.That(ApprovalCardNotificationCoordinator.BuildApproveLabel(1),
-            Is.EqualTo("✅ Approve Checkpoint & Continue"));
+            Is.EqualTo("Approve Checkpoint & Continue"));
     }
 
     [Test]

@@ -652,7 +652,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 },
                 isLocked && !milestoneIsPrimary ? 0.5 : 1.0);
             Canvas.SetLeft(milestoneStop, boundaryX - 8 * _scaleFactor);
-            Canvas.SetTop(milestoneStop, globalBandTop - octagonSize);
+            Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 6 * _scaleFactor);
             Panel.SetZIndex(milestoneStop, 25);
             canvas.Children.Add(milestoneStop);
             approvalControlsByAnchor[milestoneAnchor] = milestoneStop;

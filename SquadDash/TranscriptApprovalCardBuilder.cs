@@ -244,26 +244,13 @@ internal static class TranscriptApprovalCardBuilder
 
         var approveLabel = ApprovalCardNotificationCoordinator.BuildApproveLabel(activeGateCount);
 
-        var approveButton = new Button
-        {
-            Content = approveLabel,
-            FontSize = fontSize,
-            FontWeight = FontWeights.SemiBold,
-            Padding = new Thickness(14, 6, 14, 6),
-            Margin = new Thickness(0, 0, 8, 4),
-            MinHeight = 32,
-            Cursor = Cursors.Hand,
-            BorderThickness = new Thickness(1),
-            ToolTip = activeGateCount > 1
+        var approveButton = TranscriptQuickReplyFactory.CreateButton(
+            approveLabel,
+            fontSize,
+            toolTip: activeGateCount > 1
                 ? $"Approve all {activeGateCount} pending checkpoints and resume plan execution"
-                : "Approve this checkpoint and resume plan execution",
-        };
+                : "Approve this checkpoint and resume plan execution");
         AutomationProperties.SetName(approveButton, approveLabel);
-        if (Application.Current?.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
-            approveButton.Style = qrStyle;
-        approveButton.SetResourceReference(Control.BackgroundProperty, "ActivePanelSurface");
-        approveButton.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
-        approveButton.SetResourceReference(Control.BorderBrushProperty, "ActivePanelBorder");
 
         // Shared approve action used by button click and keyboard shortcut
         void DoApprove()
@@ -289,7 +276,7 @@ internal static class TranscriptApprovalCardBuilder
         actionsPanel.Children.Add(approveButton);
         stack.Children.Add(actionsPanel);
 
-        var resolvedIndicator = CreateStyledTextBlock("✓ Approved.", fontSize, "PriorityMid");
+        var resolvedIndicator = CreateStyledTextBlock("✓ Approved.", fontSize, "PlanApprovalResolved");
         resolvedIndicator.FontWeight = FontWeights.Bold;
         resolvedIndicator.Margin = new Thickness(0, 2, 0, 2);
         resolvedIndicator.Visibility = Visibility.Collapsed;

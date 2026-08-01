@@ -54,6 +54,6 @@ internal sealed class ApprovalCardNotificationCoordinator
     /// </summary>
     internal static string BuildApproveLabel(int activeGateCount) =>
         activeGateCount > 1
-            ? $"✅ Approve {activeGateCount} Ready Checkpoints & Continue"
-            : "✅ Approve Checkpoint & Continue";
+            ? $"Approve {activeGateCount} Ready Checkpoints & Continue"
+            : "Approve Checkpoint & Continue";
 }
