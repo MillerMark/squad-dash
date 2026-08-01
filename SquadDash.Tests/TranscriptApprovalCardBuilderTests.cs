@@ -105,12 +105,9 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(card.ResolutionNote.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(card.ResolutionNote.Text, Is.EqualTo("Approval note: Reviewed locally"));
-            Assert.That(card.ApproveButton.IsEnabled, Is.True);
-            Assert.That(card.ApproveButton.IsHitTestVisible, Is.False);
-            Assert.That(card.ApproveButton.Opacity, Is.EqualTo(1.0));
-            Assert.That(card.ApproveButton.Content, Is.EqualTo("✓"));
-            Assert.That(card.ApproveButton.BorderThickness, Is.EqualTo(new Thickness(0)));
-            Assert.That(card.ApproveButton.Padding, Is.EqualTo(new Thickness(0)));
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ResolvedIndicator.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ResolvedIndicator.Text, Is.EqualTo("✓"));
         });
     }
 

@@ -44,6 +44,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Panel containing the approve button and any future action buttons.</summary>
         internal WrapPanel ActionsPanel { get; init; } = null!;
 
+        /// <summary>Chrome-free check shown after the approval action has resolved.</summary>
+        internal TextBlock ResolvedIndicator { get; init; } = null!;
+
         /// <summary>Root content stack containing all card sections.</summary>
         internal StackPanel ContentStack { get; init; } = null!;
     }
@@ -286,6 +289,14 @@ internal static class TranscriptApprovalCardBuilder
         actionsPanel.Children.Add(approveButton);
         stack.Children.Add(actionsPanel);
 
+        var resolvedIndicator = CreateStyledTextBlock("✓", fontSize, "PriorityMid");
+        resolvedIndicator.FontWeight = FontWeights.Bold;
+        resolvedIndicator.Margin = new Thickness(0, 2, 0, 2);
+        resolvedIndicator.Visibility = Visibility.Collapsed;
+        resolvedIndicator.ToolTip = ToolTipHelper.MakeThemedToolTip("Approved");
+        AutomationProperties.SetName(resolvedIndicator, "Approved");
+        stack.Children.Add(resolvedIndicator);
+
         // ── Spinner overlay (hidden until update) ────────────────────────
         var spinnerOverlay = BuildSpinnerOverlay(fontSize);
 
@@ -334,6 +345,7 @@ internal static class TranscriptApprovalCardBuilder
             ResolutionNote = resolutionNote,
             SpinnerOverlay = spinnerOverlay,
             ActionsPanel = actionsPanel,
+            ResolvedIndicator = resolvedIndicator,
             ContentStack = stack,
         };
     }
@@ -370,22 +382,11 @@ internal static class TranscriptApprovalCardBuilder
             card.ResolutionNote.Visibility = Visibility.Collapsed;
         }
 
-        // Keep the resolved indicator at full contrast. WPF's disabled-state template faded
-        // the blue check enough to look unavailable rather than successfully approved.
-        card.ApproveButton.IsEnabled = true;
-        card.ApproveButton.IsHitTestVisible = false;
-        card.ApproveButton.Focusable = false;
-        card.ApproveButton.Content = "✓";
-        card.ApproveButton.FontWeight = FontWeights.Bold;
-        card.ApproveButton.MinHeight = 0;
-        card.ApproveButton.Padding = new Thickness(0);
-        card.ApproveButton.Margin = new Thickness(0, 2, 0, 2);
-        card.ApproveButton.BorderThickness = new Thickness(0);
-        card.ApproveButton.Background = Brushes.Transparent;
-        card.ApproveButton.Opacity = 1.0;
-        card.ApproveButton.SetResourceReference(Control.ForegroundProperty, "PriorityMid");
-        AutomationProperties.SetName(card.ApproveButton, "Approved");
-        card.ApproveButton.ToolTip = ToolTipHelper.MakeThemedToolTip("Approved");
+        // Do not restyle a Button into an indicator: QuickReplyButtonStyle owns a control
+        // template whose chrome can remain visible despite local border/background values.
+        // Remove the action UI and replace it with an actual text glyph.
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.ResolvedIndicator.Visibility = Visibility.Visible;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
