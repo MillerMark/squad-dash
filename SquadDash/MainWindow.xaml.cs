@@ -9642,12 +9642,16 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Close any earlier cue before opening the menu. Its Closed handler may own an older
+            // menu-tracking lease and must not be allowed to clear the lease established below.
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
+
             // Reuse the guided-tour command because it already knows how to open a WPF MenuItem
-            // popup reliably across its separate HWND. This is a transient attention cue rather
-            // than a tour step, so immediately detach the tour's keep-open recovery handlers;
-            // clicking anywhere else must be allowed to close both the menu and the callout.
+            // popup reliably across its separate HWND. Keep its recovery handler until the
+            // attention callout closes; otherwise WPF can dismiss the menu between opening it
+            // and targeting its separate-HWND Inbox item.
             await _guidedTourCoordinator.CommandRegistry.ExecuteAsync("OpenMenu: PanelsMenuItem");
-            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
             FrameworkElement? menuTarget = null;
             for (var attempt = 0; attempt < 4; attempt++)
             {
@@ -9661,6 +9665,7 @@ public partial class MainWindow : Window
             }
             if (menuTarget is null)
             {
+                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
                 SquadDashTrace.Write("Approval", "Inbox menu item was not rendered after opening the Panels menu; approval callout deferred.");
                 return;
             }
@@ -9668,6 +9673,19 @@ public partial class MainWindow : Window
                 "**You have an approval request in your Inbox.**\n\nOpen **Inbox** to review the completed work and approve continuation.",
                 menuTarget,
                 placement: CalloutPlacement.East);
+            var menuCallout = _approvalAttentionCallout;
+            if (menuCallout is null)
+            {
+                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+            }
+            else
+            {
+                menuCallout.Closed += (_, _) =>
+                {
+                    if (ReferenceEquals(_approvalAttentionCallout, menuCallout))
+                        _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
+                };
+            }
         }
         catch (Exception ex)
         {

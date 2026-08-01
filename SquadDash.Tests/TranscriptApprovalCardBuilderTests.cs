@@ -108,7 +108,9 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.ApproveButton.IsEnabled, Is.True);
             Assert.That(card.ApproveButton.IsHitTestVisible, Is.False);
             Assert.That(card.ApproveButton.Opacity, Is.EqualTo(1.0));
-            Assert.That(card.ApproveButton.MinHeight, Is.EqualTo(38));
+            Assert.That(card.ApproveButton.Content, Is.EqualTo("✓"));
+            Assert.That(card.ApproveButton.BorderThickness, Is.EqualTo(new Thickness(0)));
+            Assert.That(card.ApproveButton.Padding, Is.EqualTo(new Thickness(0)));
         });
     }
 

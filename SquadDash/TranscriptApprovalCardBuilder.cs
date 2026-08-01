@@ -244,6 +244,7 @@ internal static class TranscriptApprovalCardBuilder
         var approveButton = new Button
         {
             Content = approveLabel,
+            FontSize = fontSize,
             FontWeight = FontWeights.SemiBold,
             Padding = new Thickness(14, 6, 14, 6),
             Margin = new Thickness(0, 0, 8, 4),
@@ -254,7 +255,6 @@ internal static class TranscriptApprovalCardBuilder
                 ? $"Approve all {activeGateCount} pending checkpoints and resume plan execution"
                 : "Approve this checkpoint and resume plan execution",
         };
-        approveButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         AutomationProperties.SetName(approveButton, approveLabel);
         if (Application.Current?.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
             approveButton.Style = qrStyle;
@@ -375,13 +375,17 @@ internal static class TranscriptApprovalCardBuilder
         card.ApproveButton.IsEnabled = true;
         card.ApproveButton.IsHitTestVisible = false;
         card.ApproveButton.Focusable = false;
-        card.ApproveButton.Content = "✓ Approved";
+        card.ApproveButton.Content = "✓";
         card.ApproveButton.FontWeight = FontWeights.Bold;
-        card.ApproveButton.MinHeight = 38;
-        card.ApproveButton.Padding = new Thickness(16, 8, 16, 8);
+        card.ApproveButton.MinHeight = 0;
+        card.ApproveButton.Padding = new Thickness(0);
+        card.ApproveButton.Margin = new Thickness(0, 2, 0, 2);
+        card.ApproveButton.BorderThickness = new Thickness(0);
+        card.ApproveButton.Background = Brushes.Transparent;
         card.ApproveButton.Opacity = 1.0;
         card.ApproveButton.SetResourceReference(Control.ForegroundProperty, "PriorityMid");
-        card.ApproveButton.SetResourceReference(Control.BorderBrushProperty, "PriorityMid");
+        AutomationProperties.SetName(card.ApproveButton, "Approved");
+        card.ApproveButton.ToolTip = ToolTipHelper.MakeThemedToolTip("Approved");
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
