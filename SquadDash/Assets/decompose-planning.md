@@ -201,6 +201,7 @@ NOT resume or emit TASKS_JSON. If the user approves the gate in free text, emit:
   "planId": "GROUP-YYYYMMDD",
   "gateId": "GROUP-YYYYMMDD-GATE-001",
   "revision": "revision supplied by SquadDash for the active gate",
+  "requestVersion": 1,
   "note": "optional approval note from the user"
 }
 ```
@@ -209,3 +210,28 @@ Only emit this when SquadDash has explicitly paused an executing plan at the
 named gate and provided the exact planId, gateId, and revision. Never infer
 gate approval from conversation context alone. Omit `note` unless the user
 provided specific approval commentary.
+
+## PLAN_GATE_RESPONSE_JSON schema
+
+When an approval request is active and the user responds in free form, distinguish revisions to
+the reviewed work from unrelated work. Never modify reviewed plan work during the classification
+turn. For an explicit rework request, emit:
+
+`PLAN_GATE_RESPONSE_JSON:`
+
+```json
+{
+  "planId": "GROUP-YYYYMMDD",
+  "gateId": "GROUP-YYYYMMDD-GATE-001",
+  "revision": "revision supplied by SquadDash",
+  "requestVersion": 1,
+  "disposition": "request-rework",
+  "taskIds": ["GROUP-YYYYMMDD-001"],
+  "instructions": "The user's concrete requested changes"
+}
+```
+
+Use `unrelated` when the request is separate work and `clarification` when the intended approval
+task or requested change is ambiguous; those dispositions omit `taskIds` and `instructions` and
+leave the approval unchanged. Always use the exact current request version. A rework response may
+name only completed tasks listed in the gate's reviewed boundary.

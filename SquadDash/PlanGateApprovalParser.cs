@@ -8,6 +8,9 @@ internal sealed record PlanGateApproval(
     [property: JsonPropertyName("planId")]   string PlanId,
     [property: JsonPropertyName("gateId")]   string GateId,
     [property: JsonPropertyName("revision")] string Revision,
+    [property: JsonPropertyName("requestVersion")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                             int? RequestVersion = null,
     [property: JsonPropertyName("note")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                              string? Note = null);

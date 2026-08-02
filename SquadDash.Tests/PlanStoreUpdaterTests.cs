@@ -716,4 +716,74 @@ internal sealed class PlanStoreUpdaterTests
         Assert.That(resumed.LifecycleStatus,        Is.EqualTo(PlanLifecycleStatus.Executing));
         Assert.That(resumed.Progress.CompletedCount, Is.EqualTo(2));
     }
+
+    [Test]
+    public void ApplyGateReworkRequested_ReopensOnlyReviewedTaskAndArchivesAcceptedAttempt()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, revision, items, "GROUP-001-001");
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Commit = "abc1234",
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    CompletionSummary = "Original result",
+                }
+                : task).ToArray(),
+            ApprovalGates =
+            [
+                plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval },
+            ],
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Progress = new PlanProgress(1, 4),
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateReworkRequested(
+            plan, "GROUP-001-G01", ["GROUP-001-001"], "Add the missing restart test.");
+        var task = updated.Tasks.Single(candidate => candidate.TaskId == "GROUP-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(task.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(task.Commit, Is.Null);
+            Assert.That(task.AttemptHistory, Has.Count.EqualTo(1));
+            Assert.That(task.AttemptHistory![0].Commit, Is.EqualTo("abc1234"));
+            Assert.That(task.AttemptHistory[0].Disposition, Is.EqualTo("changes-requested"));
+            Assert.That(updated.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(updated.ApprovalGates[0].ReworkCount, Is.EqualTo(1));
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(updated.Progress.CompletedCount, Is.Zero);
+        });
+    }
+
+    [Test]
+    public void ApplyGateReworkRequested_DoesNotReopenApprovedBoundary()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, revision, items, "GROUP-001-001");
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with { Status = PlanTaskStatus.Complete, Commit = "abc1234" }
+                : task).ToArray(),
+            ApprovalGates =
+            [
+                plan.ApprovalGates[0] with { Status = PlanGateStatus.Approved },
+            ],
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateReworkRequested(
+            plan, "GROUP-001-G01", ["GROUP-001-001"], "Try again.");
+
+        Assert.That(updated, Is.SameAs(plan));
+        Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-001").Status,
+            Is.EqualTo(PlanTaskStatus.Complete));
+    }
 }

@@ -267,6 +267,40 @@ internal sealed class ApprovalActionCoordinator
     }
 
     /// <summary>
+    /// Validates the same versioned token used by approval, then invalidates one represented
+    /// gate after the host has durably reopened its reviewed task. No approval event is raised.
+    /// </summary>
+    internal async Task<ApprovalClickResult> TryRequestReworkAsync(
+        ApprovalClickToken clickToken,
+        string gateId,
+        Func<bool> persistRework,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(clickToken.PlanId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!_states.TryGetValue(clickToken.PlanId, out var state))
+                return ApprovalClickResult.StaleRejected;
+            if (!clickToken.Matches(state.BuildToken(clickToken.PlanId)) ||
+                !clickToken.GateIds.Contains(gateId, StringComparer.Ordinal) ||
+                !state.ActiveGateIds.Contains(gateId))
+                return ApprovalClickResult.StaleRejected;
+            if (!persistRework())
+                return ApprovalClickResult.PersistenceFailed;
+
+            state.ActiveGateIds.Remove(gateId);
+            state.RequestVersion++;
+            ApprovalRefreshNeeded?.Invoke(this, clickToken.PlanId);
+            return ApprovalClickResult.Approved;
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    /// <summary>
     /// Appends a new gate to an existing plan's tracked state. If the plan was fully
     /// resolved, this restores it as active. Raises <see cref="ApprovalRefreshNeeded"/>.
     /// </summary>

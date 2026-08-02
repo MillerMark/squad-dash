@@ -237,6 +237,80 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Sends one or more completed tasks at an awaiting approval boundary back for another
+    /// host-owned attempt. Previous accepted-result provenance is appended to the immutable
+    /// attempt history; the current result fields are cleared so normal scheduling can select
+    /// the task again. Approved boundaries are deliberately ineligible for this transition.
+    /// </summary>
+    internal static Plan ApplyGateReworkRequested(
+        Plan existing,
+        string gateId,
+        IReadOnlyCollection<string> taskIds,
+        string instructions)
+    {
+        if (taskIds.Count == 0 || string.IsNullOrWhiteSpace(instructions)) return existing;
+        var gate = existing.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status != PlanGateStatus.AwaitingApproval) return existing;
+
+        var targetIds = taskIds.ToHashSet(StringComparer.Ordinal);
+        if (targetIds.Any(id => !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal)))
+            return existing;
+        if (targetIds.Any(id => !existing.Tasks.Any(task =>
+                string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)))
+            return existing;
+
+        var updatedTasks = existing.Tasks.Select(task =>
+        {
+            if (!targetIds.Contains(task.TaskId)) return task;
+            var priorAttempt = new PlanTaskAttempt(
+                task.Status,
+                task.Commit,
+                task.CompletedAt,
+                task.CompletionSummary,
+                "changes-requested",
+                instructions.Trim());
+            return task with
+            {
+                Status = PlanTaskStatus.Pending,
+                Commit = null,
+                CompletedAt = null,
+                CompletionSummary = null,
+                AttemptHistory = (task.AttemptHistory ?? []).Append(priorAttempt).ToArray(),
+            };
+        }).ToArray();
+
+        var now = DateTimeOffset.UtcNow;
+        var updatedGate = gate with
+        {
+            Status = PlanGateStatus.Pending,
+            RequestedAt = null,
+            NotifiedAt = null,
+            ResolvedAt = null,
+            ResolutionNote = null,
+            ReworkCount = gate.ReworkCount + 1,
+            LastReworkRequestedAt = now,
+            LastReworkInstructions = instructions.Trim(),
+        };
+        var updatedGates = existing.ApprovalGates
+            .Select(candidate => string.Equals(candidate.GateId, gateId, StringComparison.Ordinal)
+                ? updatedGate
+                : candidate)
+            .ToArray();
+        var completedCount = updatedTasks.Count(task =>
+            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = updatedTasks,
+            ApprovalGates = updatedGates,
+            Progress = new PlanProgress(completedCount, updatedTasks.Length),
+        };
+    }
+
+    /// <summary>
     /// Marks a gate as ready for approval without transitioning the plan to awaiting-approval.
     /// Sets the gate status to <see cref="PlanGateStatus.AwaitingApproval"/> and records
     /// <see cref="PlanApprovalGate.RequestedAt"/>, but keeps the plan in

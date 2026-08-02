@@ -71,6 +71,23 @@ internal sealed record PlanAgentAssignment(
 
 // ─── Value objects ─────────────────────────────────────────────────────────────
 
+/// <summary>Immutable audit entry retained when an accepted task attempt is sent back for rework.</summary>
+internal sealed record PlanTaskAttempt(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("commit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Commit,
+    [property: JsonPropertyName("completedAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DateTimeOffset? CompletedAt,
+    [property: JsonPropertyName("summary")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Summary,
+    [property: JsonPropertyName("disposition")] string Disposition,
+    [property: JsonPropertyName("note")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Note = null);
+
 /// <summary>Immutable task entry inside a Plan.</summary>
 internal sealed record PlanTask(
     [property: JsonPropertyName("taskId")]      string TaskId,
@@ -104,7 +121,10 @@ internal sealed record PlanTask(
                                                 string? AgentRoutingMode = null,
     [property: JsonPropertyName("genericAgentReason")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? GenericAgentReason = null);
+                                                string? GenericAgentReason = null,
+    [property: JsonPropertyName("attemptHistory")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskAttempt>? AttemptHistory = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -133,7 +153,16 @@ internal sealed record PlanApprovalGate(
                                                   DateTimeOffset? NotifiedAt   = null,
     [property: JsonPropertyName("presentationAnchor")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  string? PresentationAnchor  = null);
+                                                  string? PresentationAnchor  = null,
+    [property: JsonPropertyName("reworkCount")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+                                                  int ReworkCount = 0,
+    [property: JsonPropertyName("lastReworkRequestedAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  DateTimeOffset? LastReworkRequestedAt = null,
+    [property: JsonPropertyName("lastReworkInstructions")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? LastReworkInstructions = null);
 
 /// <summary>Lightweight progress snapshot — does not store per-task detail.</summary>
 internal sealed record PlanProgress(

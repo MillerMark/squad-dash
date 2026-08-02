@@ -1854,16 +1854,24 @@
                                             ToolTip="Clear filter"
                                             Style="{StaticResource PanelFilterClearButtonStyle}"
                                             Click="TasksFilterClearButton_Click" />
-                                    <Button x:Name="TasksPanelDoTheseButton"
-                                            Content="▶ Do these"
-                                            Height="17"
-                                            FontSize="{DynamicResource FontSizeXSmall}"
-                                            Margin="4,0,0,0"
-                                            Padding="4,0"
-                                            VerticalAlignment="Center"
-                                            ToolTip="Start loop with filtered tasks (loop-filtered-tasks.md)"
-                                            Style="{StaticResource ThemedIconButtonStyle}"
-                                            Click="TasksPanelDoTheseButton_Click" />
+                                    <StackPanel x:Name="TasksPanelDoTheseContainer"
+                                                Margin="4,0,0,0"
+                                                Visibility="Collapsed">
+                                        <Button x:Name="TasksPanelDoTheseButton"
+                                                Content="▶ Do these"
+                                                Height="17"
+                                                FontSize="{DynamicResource FontSizeXSmall}"
+                                                Padding="4,0"
+                                                HorizontalAlignment="Right"
+                                                ToolTip="Run the tasks currently selected by this filter"
+                                                Style="{StaticResource ThemedIconButtonStyle}"
+                                                Click="TasksPanelDoTheseButton_Click" />
+                                        <TextBlock x:Name="TasksPanelDoTheseCountText"
+                                                   Margin="0,2,0,0"
+                                                   HorizontalAlignment="Right"
+                                                   FontSize="{DynamicResource FontSizeXSmall}"
+                                                   Foreground="{DynamicResource SubtleText}" />
+                                    </StackPanel>
                                 </StackPanel>
                             </DockPanel>
 

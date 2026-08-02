@@ -21,6 +21,11 @@ internal sealed record ApprovalRuntimeResolutionResult(
     bool ShouldResume,
     ApprovalClickToken? NextClickToken = null);
 
+internal sealed record ApprovalRuntimeReworkResult(
+    ApprovalClickResult Result,
+    Plan? UpdatedPlan,
+    ApprovalClickToken? NextClickToken = null);
+
 /// <summary>
 /// Host-owned integration point for approval scheduling, durable Inbox state, stale-action
 /// validation, and restart restoration. UI surfaces consume its versioned click token instead
@@ -276,6 +281,53 @@ internal sealed class PlanApprovalRuntime
             updated,
             wasPaused && updated.LifecycleStatus == PlanLifecycleStatus.Executing,
             nextToken);
+    }
+
+    /// <summary>Atomically sends selected reviewed tasks back for another attempt.</summary>
+    internal async Task<ApprovalRuntimeReworkResult> RequestReworkAsync(
+        ApprovalClickToken clickToken,
+        Plan currentPlan,
+        string gateId,
+        IReadOnlyCollection<string> taskIds,
+        string instructions,
+        Func<Plan, bool> persistPlan,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(clickToken.PlanId, currentPlan.PlanId, StringComparison.Ordinal) ||
+            !string.Equals(clickToken.PlanRevision, currentPlan.Revision, StringComparison.Ordinal) ||
+            !clickToken.GateIds.Contains(gateId, StringComparer.Ordinal))
+            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+
+        var updated = PlanStoreUpdater.ApplyGateReworkRequested(
+            currentPlan,
+            gateId,
+            taskIds,
+            instructions);
+        if (ReferenceEquals(updated, currentPlan))
+            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+
+        var result = await _actions.TryRequestReworkAsync(
+            clickToken,
+            gateId,
+            () => persistPlan(updated),
+            cancellationToken).ConfigureAwait(false);
+        if (result != ApprovalClickResult.Approved)
+            return new ApprovalRuntimeReworkResult(result, null);
+
+        await _requests.RecordReworkAsync(updated, gateId, instructions, cancellationToken)
+            .ConfigureAwait(false);
+        ApprovalClickToken? nextToken = null;
+        var remainingState = _requests.GetState(updated.PlanId);
+        if (remainingState is { ActiveGateIds.Count: > 0 })
+        {
+            nextToken = await _actions.RestoreAsync(
+                updated.PlanId,
+                updated.Revision,
+                remainingState.Version,
+                remainingState.ActiveGateIds,
+                cancellationToken).ConfigureAwait(false);
+        }
+        return new ApprovalRuntimeReworkResult(result, updated, nextToken);
     }
 
     private static ApprovalReviewSnapshot CombineSnapshots(IReadOnlyList<ApprovalReviewSnapshot> snapshots)

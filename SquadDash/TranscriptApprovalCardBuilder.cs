@@ -29,6 +29,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>The primary approve button — disable when processing.</summary>
         internal Button ApproveButton { get; init; } = null!;
 
+        /// <summary>Optional action that starts a free-form change-request conversation.</summary>
+        internal Button? RequestChangesButton { get; init; }
+
         /// <summary>Optional note text box where the user can add a comment before approving.</summary>
         internal TextBox NoteTextBox { get; init; } = null!;
 
@@ -47,6 +50,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Chrome-free check shown after the approval action has resolved.</summary>
         internal TextBlock ResolvedIndicator { get; init; } = null!;
 
+        /// <summary>Live status shown while a change request is being described or reworked.</summary>
+        internal TextBlock ReworkIndicator { get; init; } = null!;
+
         /// <summary>Root content stack containing all card sections.</summary>
         internal StackPanel ContentStack { get; init; } = null!;
     }
@@ -61,6 +67,7 @@ internal static class TranscriptApprovalCardBuilder
         PlanApprovalGate gate,
         double fontSize,
         Action<string?> onApprove,
+        Action? onRequestChanges = null,
         int requestVersion = 1)
     {
         var activeGateCount = plan.ApprovalGates
@@ -274,6 +281,17 @@ internal static class TranscriptApprovalCardBuilder
         };
 
         actionsPanel.Children.Add(approveButton);
+        Button? requestChangesButton = null;
+        if (onRequestChanges is not null)
+        {
+            requestChangesButton = TranscriptQuickReplyFactory.CreateButton(
+                "Request changes…",
+                fontSize,
+                toolTip: "Describe revisions in the normal prompt box; the plan remains paused until SquadDash receives a valid rework decision");
+            AutomationProperties.SetName(requestChangesButton, "Request changes");
+            requestChangesButton.Click += (_, _) => onRequestChanges();
+            actionsPanel.Children.Add(requestChangesButton);
+        }
         stack.Children.Add(actionsPanel);
 
         var resolvedIndicator = CreateStyledTextBlock("✓ Approved.", fontSize, "PlanApprovalResolved");
@@ -283,6 +301,12 @@ internal static class TranscriptApprovalCardBuilder
         resolvedIndicator.ToolTip = ToolTipHelper.MakeThemedToolTip("Approved");
         AutomationProperties.SetName(resolvedIndicator, "Approved");
         stack.Children.Add(resolvedIndicator);
+
+        var reworkIndicator = CreateStyledTextBlock(string.Empty, fontSize, "ImportantText");
+        reworkIndicator.FontWeight = FontWeights.SemiBold;
+        reworkIndicator.Margin = new Thickness(0, 2, 0, 2);
+        reworkIndicator.Visibility = Visibility.Collapsed;
+        stack.Children.Add(reworkIndicator);
 
         // ── Spinner overlay (hidden until update) ────────────────────────
         var spinnerOverlay = BuildSpinnerOverlay(fontSize);
@@ -327,12 +351,14 @@ internal static class TranscriptApprovalCardBuilder
         {
             Container = container,
             ApproveButton = approveButton,
+            RequestChangesButton = requestChangesButton,
             NoteTextBox = noteBox,
             NoteSection = noteSection,
             ResolutionNote = resolutionNote,
             SpinnerOverlay = spinnerOverlay,
             ActionsPanel = actionsPanel,
             ResolvedIndicator = resolvedIndicator,
+            ReworkIndicator = reworkIndicator,
             ContentStack = stack,
         };
     }
@@ -341,6 +367,8 @@ internal static class TranscriptApprovalCardBuilder
     internal static void ShowUpdatingState(CardResult card)
     {
         card.ApproveButton.IsEnabled = false;
+        if (card.RequestChangesButton is not null)
+            card.RequestChangesButton.IsEnabled = false;
         card.NoteTextBox.IsEnabled = false;
         card.SpinnerOverlay.Visibility = Visibility.Visible;
     }
@@ -350,6 +378,8 @@ internal static class TranscriptApprovalCardBuilder
     {
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ApproveButton.IsEnabled = true;
+        if (card.RequestChangesButton is not null)
+            card.RequestChangesButton.IsEnabled = true;
         card.NoteTextBox.IsEnabled = true;
     }
 
@@ -374,6 +404,34 @@ internal static class TranscriptApprovalCardBuilder
         // Remove the action UI and replace it with an actual text glyph.
         card.ActionsPanel.Visibility = Visibility.Collapsed;
         card.ResolvedIndicator.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Keeps approval available while the normal transcript asks what should change.</summary>
+    internal static void ShowChangeRequestDraftingState(CardResult card)
+    {
+        if (card.RequestChangesButton is not null)
+            card.RequestChangesButton.IsEnabled = false;
+        card.ReworkIndicator.Text = "Describe the requested changes in the prompt box.";
+        card.ReworkIndicator.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Restores the approval actions when the next prompt was unrelated to this review.</summary>
+    internal static void ClearChangeRequestDraftingState(CardResult card)
+    {
+        if (card.RequestChangesButton is not null)
+            card.RequestChangesButton.IsEnabled = true;
+        card.ReworkIndicator.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>Turns the card into durable history after the host accepts a rework request.</summary>
+    internal static void ShowReworkRequestedState(CardResult card)
+    {
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.ResolvedIndicator.Visibility = Visibility.Collapsed;
+        card.ReworkIndicator.Text = "↩ Changes requested. Reworking…";
+        card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────

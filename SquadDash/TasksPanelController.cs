@@ -154,7 +154,8 @@ internal sealed class TasksPanelController {
                 null,
                 false,
                 visible.Count,
-                null);
+                null,
+                visible);
 
         if (planItems.Count != visible.Count)
             return new TasksPanelExecutionSelection(
@@ -737,4 +738,5 @@ internal sealed record TasksPanelExecutionSelection(
     DecomposedTaskGroup? Group,
     bool ContainsBlockedTask,
     int VisibleTaskCount,
-    string? Error);
+    string? Error,
+    IReadOnlyList<TaskItem>? GenericTasks = null);

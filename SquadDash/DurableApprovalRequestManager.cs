@@ -19,7 +19,10 @@ internal sealed record ResolvedCheckpointEntry(
     [property: JsonPropertyName("resolvedAt")] DateTimeOffset ResolvedAt,
     [property: JsonPropertyName("resolutionNote")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? ResolutionNote = null);
+    string? ResolutionNote = null,
+    [property: JsonPropertyName("disposition")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Disposition = null);
 
 /// <summary>
 /// Durable per-plan approval state embedded in the inbox message attachment.
@@ -248,6 +251,59 @@ internal sealed class DurableApprovalRequestManager
     }
 
     /// <summary>
+    /// Closes the current approval request because reviewed work was sent back for another
+    /// attempt. The stable message is reused when the checkpoint becomes ready again.
+    /// </summary>
+    internal async Task RecordReworkAsync(
+        Plan plan,
+        string gateId,
+        string instructions,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(plan.PlanId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var existing = _inbox.GetById(BuildMessageId(plan.PlanId));
+            if (existing is null) return;
+            var state = DeserializeState(existing);
+            if (state is null || !state.ActiveGateIds.Contains(gateId, StringComparer.Ordinal)) return;
+
+            var remaining = state.ActiveGateIds
+                .Where(id => !string.Equals(id, gateId, StringComparison.Ordinal))
+                .ToArray();
+            var history = state.ResolvedCheckpoints.Append(new ResolvedCheckpointEntry(
+                gateId,
+                DateTimeOffset.UtcNow,
+                instructions,
+                "rework-requested")).ToArray();
+            var updatedState = state with
+            {
+                ActiveGateIds = remaining,
+                ResolvedCheckpoints = history,
+                Archived = remaining.Length == 0,
+                LastNotifiedAt = null,
+                Version = state.Version + 1,
+            };
+            _inbox.Save(existing with
+            {
+                Read = remaining.Length == 0,
+                Body = BuildBody(plan, remaining, history),
+                Actions = BuildActions(plan, updatedState),
+                Attachments = BuildAttachments(
+                    updatedState,
+                    snapshot: null,
+                    existingAttachments: existing.Attachments,
+                    plan: plan),
+            });
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    /// <summary>
     /// Records that a notification was sent, preventing duplicates.
     /// Returns true if notification should proceed (first time for this version).
     /// </summary>
@@ -443,6 +499,11 @@ internal sealed class DurableApprovalRequestManager
             foreach (var cp in resolvedCheckpoints)
             {
                 var note = cp.ResolutionNote is not null ? $" — {cp.ResolutionNote}" : "";
+                if (string.Equals(cp.Disposition, "rework-requested", StringComparison.Ordinal))
+                {
+                    parts.Add($"- ↩ `{cp.GateId}` changes requested {cp.ResolvedAt:yyyy-MM-dd HH:mm}{note}");
+                    continue;
+                }
                 parts.Add($"- ✅ `{cp.GateId}` resolved {cp.ResolvedAt:yyyy-MM-dd HH:mm}{note}");
             }
         }

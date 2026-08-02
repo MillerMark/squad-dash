@@ -350,6 +350,7 @@ public partial class MainWindow : Window
     private DeveloperApprovalSimulator? _developerApprovalSimulator;
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
+    private PendingGateResponseContext? _pendingGateResponseContext;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -2593,6 +2594,7 @@ public partial class MainWindow : Window
         }
         else {
             _promptQueue.EnqueueItem(item);
+            PlaceNewQueueItemBeforePlanContinuation(item);
         }
         SquadDashTrace.Write(
             "Queue",
@@ -2615,6 +2617,7 @@ public partial class MainWindow : Window
         _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isDictated);
         var item = _promptQueue.Items[^1];
         item.QueueNumber = NextQueueNumber();
+        PlaceNewQueueItemBeforePlanContinuation(item);
         SquadDashTrace.Write("Queue", $"Enqueued current prompt {DescribeQueueItemForTrace(item)}queueCount={_promptQueue.Count}");
         _loopFollowUpTcs?.TrySetResult(true);
 
@@ -2635,8 +2638,10 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isFromRemote: true);
-        _promptQueue.Items[^1].QueueNumber = NextQueueNumber();
-        SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(_promptQueue.Items[^1])} queueCount={_promptQueue.Count}");
+        var queued = _promptQueue.Items[^1];
+        queued.QueueNumber = NextQueueNumber();
+        PlaceNewQueueItemBeforePlanContinuation(queued);
+        SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(queued)} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
         if (_loopIsWaiting) _loopController.CancelLoopWait();
         _ = DrainQueueIfNeededAsync();
@@ -2648,6 +2653,7 @@ public partial class MainWindow : Window
         _promptQueue.Enqueue(text, _promptQueueCoordinator.NextSequenceNumber(), isFromRemote: true);
         var queued = _promptQueue.Items[^1];
         queued.QueueNumber = NextQueueNumber();
+        PlaceNewQueueItemBeforePlanContinuation(queued);
         if (attachments.Count > 0)
             _followUpAttachments[queued.Id] = attachments;
         SquadDashTrace.Write("Queue", $"Enqueued remote prompt {DescribeQueueItemForTrace(queued)} queueCount={_promptQueue.Count}");
@@ -3018,6 +3024,9 @@ public partial class MainWindow : Window
             : string.Equals(item.SourceTag, "decompose-replan", StringComparison.Ordinal)
                 ? SystemTranscriptStatusPrefix +
                   "SquadDash asked AI to replace the blocked plan step with smaller dependency-aware steps; waiting for the revised plan now…"
+                : string.Equals(item.SourceTag, "plan-gate-response-repair", StringComparison.Ordinal)
+                    ? SystemTranscriptStatusPrefix +
+                      "SquadDash is repairing a missing approval-response classification. No plan state has changed…"
                 : null;
     }
 
@@ -3066,6 +3075,14 @@ public partial class MainWindow : Window
         {
             var item = GetAutoDispatchCandidate();
             if (item is null) break;
+
+            if (string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal))
+            {
+                _promptQueue.Remove(item.Id);
+                SyncQueuePanel();
+                SquadDashTrace.Write("Queue", "Discarded stale plan-continuation queue item outside plan execution.");
+                break;
+            }
 
             // Silently discard items that have no text and no attachments.
             if (IsEmptyQueueItem(item))
@@ -3162,6 +3179,15 @@ public partial class MainWindow : Window
         {
             var item = GetAutoDispatchCandidate();
             if (item is null) break;
+
+            if (string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal))
+            {
+                _promptQueue.Remove(item.Id);
+                SyncQueuePanel();
+                SquadDashTrace.Write("Queue",
+                    $"Plan continuation released at iteration boundary plan={_activeDecomposeGroupId ?? "(none)"}.");
+                break;
+            }
 
             // Silently discard items that have no text and no attachments.
             if (IsEmptyQueueItem(item))
@@ -3405,9 +3431,15 @@ public partial class MainWindow : Window
             foreach (var item in items.Reverse())
             {
                 bool isNext = item.Id == nextReadyId;
-                var label = isNext ? $"Queue #{item.QueueNumber}" : $"#{item.QueueNumber}";
-                var tooltip = isNext ? "This prompt is next in the Squad queue."
-                                     : "This item is in the Squad queue.";
+                var isPlanContinuation = string.Equals(
+                    item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal);
+                var label = isPlanContinuation
+                    ? "Continue plan"
+                    : isNext ? $"Queue #{item.QueueNumber}" : $"#{item.QueueNumber}";
+                var tooltip = isPlanContinuation
+                    ? "The plan advances one step when this item reaches the front. Drag it to place queued prompts before or after the next plan step."
+                    : isNext ? "This prompt is next in the Squad queue."
+                             : "This item is in the Squad queue.";
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
                 if (item.Id == _priorityFeedbackId)
                     QueueTabStrip.Children.Add(CreatePriorityFeedbackLabel());
@@ -4026,10 +4058,14 @@ public partial class MainWindow : Window
         if (id is not null)
         {
             var capturedId = id;
+            var isPlanContinuation = _promptQueue.Items.Any(item =>
+                item.Id == capturedId &&
+                string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
             var cm = MakeMenu();
 
             // Activate the tab on right-click so user can see what they're deleting.
-            cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
+            if (!isPlanContinuation)
+                cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
 
             // Only show Prioritize when this item is not already next-to-dispatch (index 0).
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
@@ -4040,9 +4076,12 @@ public partial class MainWindow : Window
                 cm.Items.Add(prioritizeItem);
             }
 
-            var deleteItem = MakeItem("Delete queued item…");
-            deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
-            cm.Items.Add(deleteItem);
+            if (!isPlanContinuation)
+            {
+                var deleteItem = MakeItem("Delete queued item…");
+                deleteItem.Click += (_, _) => OnQueueTabDeleteConfirm(capturedId, tab);
+                cm.Items.Add(deleteItem);
+            }
             tab.ContextMenu = cm;
 
             // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
@@ -4086,6 +4125,10 @@ public partial class MainWindow : Window
 
     private void OnQueueTabClicked(string? id)
     {
+        if (id is not null && _promptQueue.Items.Any(item =>
+                item.Id == id &&
+                string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal)))
+            return;
         if (_activeTabId == id) return;
 
         var sw = Stopwatch.StartNew();
@@ -5175,6 +5218,7 @@ public partial class MainWindow : Window
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                            _ = TryHandleGateResponseFromResponseAsync(rawResponse);
                             TryHandleGateApprovalFromResponse(rawResponse);
                         }
 
@@ -6019,11 +6063,14 @@ public partial class MainWindow : Window
             TaskTitle: _loopRoundExecutionIdentity.TaskTitle,
             Message: null,
             Outcome: null));
+        EnsurePlanContinuationQueueItem();
         SyncLoopPanel();
     }
 
     private void OnNativeLoopStopped()
     {
+        _promptQueue.RemoveByTag(PlanContinuationQueueTag);
+        SyncQueuePanel();
         int stoppedIteration = _loopCurrentIteration;
         var stoppedExecution = _loopRoundExecutionIdentity;
         var stoppedPlanId = _activeDecomposeGroupId ?? stoppedExecution?.PlanId;
@@ -7517,6 +7564,7 @@ public partial class MainWindow : Window
         // DecomposeGroups here leaves visible plan rows without an executable group lookup.
         var combined = parseResult.WithCompletedItems(allCompleted);
         _tasksPanelController.Refresh(combined);
+        UpdateTasksDoThesePresentation(TasksFilterBox?.Text ?? string.Empty);
     }
 
     private Brush PriorityDotColor(string emoji) => emoji switch
@@ -7561,10 +7609,12 @@ public partial class MainWindow : Window
     /// Sets the active loop mode and starts the loop immediately, or queues it to start
     /// automatically once the currently-running prompt (and any queued prompts) finish.
     /// </summary>
-    private async Task QueueOrStartLoopAsync(LoopMode mode)
+    private async Task QueueOrStartLoopAsync(
+        LoopMode mode,
+        ActiveLoopExecutionState? requestedExecution = null)
     {
         _activeLoopMode = mode;
-        var queuedExecution = BuildGeneralLoopExecutionState();
+        var queuedExecution = requestedExecution ?? BuildGeneralLoopExecutionState();
         _conversationManager.UpdateActiveLoopExecutionState(queuedExecution);
         if (mode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
         {
@@ -7573,7 +7623,7 @@ public partial class MainWindow : Window
             SyncLoopPanel();
             return;
         }
-        await StartLoopImmediateAsync();
+        await StartLoopImmediateAsync(resumeExecution: queuedExecution);
     }
 
     private async Task StartLoopImmediateAsync(
@@ -8307,6 +8357,38 @@ public partial class MainWindow : Window
                 CoordinatorThread.Document.Blocks);
         }
         catch (Exception ex) { HandleUiCallbackException("Decompose plan", ex); }
+    }
+
+    private const string PlanContinuationQueueTag = "plan-continuation";
+
+    private void PlaceNewQueueItemBeforePlanContinuation(PromptQueueItem item)
+    {
+        if (string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal)) return;
+        var continuation = _promptQueue.Items
+            .Select((candidate, index) => (candidate, index))
+            .FirstOrDefault(pair => string.Equals(
+                pair.candidate.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
+        if (continuation.candidate is null) return;
+        var currentIndex = _promptQueue.Items
+            .Select((candidate, index) => (candidate, index))
+            .First(pair => ReferenceEquals(pair.candidate, item)).index;
+        if (currentIndex > continuation.index)
+            _promptQueue.Reorder(item.Id, continuation.index);
+    }
+
+    private void EnsurePlanContinuationQueueItem()
+    {
+        if (_activeDecomposeGroupId is null) return;
+        _promptQueue.RemoveByTag(PlanContinuationQueueTag);
+        _promptQueue.EnqueueItem(new PromptQueueItem
+        {
+            Text = $"Continue plan {_activeDecomposeGroupId}",
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            IsSystemInjected = true,
+            SourceTag = PlanContinuationQueueTag,
+        });
+        SyncQueuePanel();
     }
 
     private void ShowTranscriptPlanPreflightRecovery(
@@ -9561,6 +9643,7 @@ public partial class MainWindow : Window
             gate,
             _transcriptFontSize,
             onApprove: note => _ = HandleApprovalClickAsync(clickToken, note),
+            onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
             requestVersion: clickToken.RequestVersion);
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -9573,6 +9656,41 @@ public partial class MainWindow : Window
         var blocks = CoordinatorThread.Document.Blocks;
         blocks.Add(cardResult.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private void BeginGateChangeRequest(
+        string planId,
+        string gateId,
+        ApprovalClickToken clickToken)
+    {
+        if (_planStore?.Load(planId) is not { } plan ||
+            !string.Equals(plan.Revision, clickToken.PlanRevision, StringComparison.Ordinal))
+        {
+            AppendLine("⚠ This approval request changed. Reopen the current approval before requesting revisions.");
+            return;
+        }
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal) &&
+            candidate.Status == PlanGateStatus.AwaitingApproval);
+        var currentToken = _planApprovalRuntime?.Actions.GetCurrentToken(planId);
+        if (gate is null || currentToken is null || !clickToken.Matches(currentToken))
+        {
+            AppendLine("⚠ This approval request is stale. Reopen the current approval before requesting revisions.");
+            return;
+        }
+
+        _pendingGateResponseContext = new PendingGateResponseContext(clickToken, gateId);
+        _pendingSupplementalPromptInstruction = PlanGateResponseParser.BuildClassificationInstruction(
+            plan,
+            gate,
+            clickToken);
+        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
+            foreach (var card in cards)
+                TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
+
+        AppendLine($"What would you like changed in **{gate.Message}**? Describe it in the prompt box. " +
+                   "The plan will remain awaiting approval until SquadDash receives a valid rework decision.");
+        PromptTextBox.Focus();
     }
 
     /// <summary>
@@ -9975,7 +10093,9 @@ public partial class MainWindow : Window
         }
 
         var token = _planApprovalRuntime?.Actions.GetCurrentToken(plan.PlanId);
-        if (token is null || !token.GateIds.Contains(gate.GateId, StringComparer.Ordinal))
+        if (token is null ||
+            !token.GateIds.Contains(gate.GateId, StringComparer.Ordinal) ||
+            (approval.RequestVersion.HasValue && approval.RequestVersion.Value != token.RequestVersion))
         {
             AppendLoopOutputLine(
                 $"⚠ Gate approval for plan {approval.PlanId} was rejected: durable approval request not found.",
@@ -9983,6 +10103,192 @@ public partial class MainWindow : Window
             return true;
         }
         _ = HandleApprovalClickAsync(token, approval.Note, [approval.GateId]);
+        return true;
+    }
+
+    private async Task<bool> TryHandleGateResponseFromResponseAsync(string? rawResponse)
+    {
+        if (!PlanGateResponseParser.TryParse(rawResponse, out var response) || response is null)
+        {
+            if (PlanGateApprovalParser.TryParse(rawResponse, out var approval) && approval is not null)
+            {
+                ClearPendingGateResponse(approval.PlanId, keepForClarification: false);
+                return false;
+            }
+
+            if (_pendingGateResponseContext is not null)
+                QueueGateResponseRepairOrExplainFailure();
+            return false;
+        }
+        if (_planStore is null || _planApprovalRuntime is null) return false;
+
+        var plan = _planStore.Load(response.PlanId);
+        var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(response.PlanId);
+        var gate = plan?.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, response.GateId, StringComparison.Ordinal));
+        if (plan is null || currentToken is null || gate is null ||
+            gate.Status != PlanGateStatus.AwaitingApproval ||
+            !string.Equals(plan.Revision, response.Revision, StringComparison.Ordinal) ||
+            response.RequestVersion != currentToken.RequestVersion ||
+            !currentToken.GateIds.Contains(response.GateId, StringComparer.Ordinal))
+        {
+            AppendLine("⚠ The plan approval response was stale. No approval or rework state changed.");
+            return true;
+        }
+
+        if (response.Disposition == PlanGateResponseDisposition.Unrelated)
+        {
+            ClearPendingGateResponse(response.PlanId, keepForClarification: false);
+            AppendLine($"Plan **{plan.Title}** remains awaiting approval; the preceding request was handled as separate work.");
+            return true;
+        }
+        if (response.Disposition == PlanGateResponseDisposition.Clarification)
+        {
+            _pendingGateResponseContext = new PendingGateResponseContext(
+                currentToken,
+                response.GateId);
+            return true;
+        }
+
+        return await ApplyGateReworkResponseAsync(plan, gate, currentToken, response);
+    }
+
+    private void QueueGateResponseRepairOrExplainFailure()
+    {
+        var context = _pendingGateResponseContext;
+        if (context is null || _planStore?.Load(context.Token.PlanId) is not { } plan)
+        {
+            _pendingGateResponseContext = null;
+            return;
+        }
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, context.GateId, StringComparison.Ordinal) &&
+            candidate.Status == PlanGateStatus.AwaitingApproval);
+        if (gate is null)
+        {
+            _pendingGateResponseContext = null;
+            return;
+        }
+
+        if (context.RepairAttempts == 0)
+        {
+            _pendingGateResponseContext = context with { RepairAttempts = 1 };
+            _promptQueue.EnqueueAtFront(
+                PlanGateResponseParser.BuildClassificationInstruction(
+                    plan,
+                    gate,
+                    context.Token,
+                    repair: true),
+                _promptQueueCoordinator.NextSequenceNumber(),
+                sourceTag: "plan-gate-response-repair",
+                isSystemInjected: true);
+            SyncQueuePanel();
+            AppendLine("SquadDash did not receive the required approval-response classification. It asked AI once to repair the response; the plan remains unchanged.");
+            return;
+        }
+
+        ClearPendingGateResponse(plan.PlanId, keepForClarification: false);
+        AppendLine("⚠ SquadDash could not determine whether changes were requested after one automatic repair. The plan remains safely awaiting approval. Use **Request changes…** or reopen the approval to try again.");
+    }
+
+    private void ClearPendingGateResponse(string planId, bool keepForClarification)
+    {
+        if (!keepForClarification)
+            _pendingGateResponseContext = null;
+        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
+            foreach (var card in cards)
+                TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+    }
+
+    private async Task<bool> ApplyGateReworkResponseAsync(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalClickToken token,
+        PlanGateResponse response)
+    {
+        if (_currentWorkspace is null || response.TaskIds is not { Count: > 0 } ||
+            string.IsNullOrWhiteSpace(response.Instructions))
+            return false;
+
+        var taskIds = response.TaskIds.Distinct(StringComparer.Ordinal).ToArray();
+        var invalidTargets = taskIds.Where(id =>
+            !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
+            !plan.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)).ToArray();
+        if (invalidTargets.Length > 0)
+        {
+            AppendLine("⚠ The requested rework named tasks outside the current completed approval boundary: " +
+                       string.Join(", ", invalidTargets) + ". The plan remains unchanged.");
+            return true;
+        }
+
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        if (!File.Exists(tasksPath))
+        {
+            AppendLine("⚠ The requested rework could not start because tasks.md is missing.");
+            return true;
+        }
+        var originalTasks = File.ReadAllText(tasksPath);
+        var writer = new DecomposedTasksWriter();
+        foreach (var taskId in taskIds)
+        {
+            if (writer.ResetTaskPending(tasksPath, taskId)) continue;
+            RestoreFileAtomically(tasksPath, originalTasks);
+            AppendLine($"⚠ Task {taskId} could not be reopened. The approval remains unchanged.");
+            return true;
+        }
+
+        var result = await _planApprovalRuntime!.RequestReworkAsync(
+            token,
+            plan,
+            gate.GateId,
+            taskIds,
+            response.Instructions,
+            persistPlan: updated => TryPublishPlanProgress(updated, out _));
+        if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
+        {
+            RestoreFileAtomically(tasksPath, originalTasks);
+            AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
+                ? "⚠ SquadDash could not persist the rework transition. The approval remains unchanged."
+                : "⚠ The rework request became stale. Reopen the current approval and try again.");
+            return true;
+        }
+
+        _pendingGateResponseContext = null;
+        _activePlanAwaitingGateApproval = result.UpdatedPlan.ApprovalGates
+            .FirstOrDefault(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)?.GateId;
+        if (_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
+        {
+            foreach (var card in cards.Where(card =>
+                         card.Container.Tag is TranscriptApprovalCardTag tag &&
+                         string.Equals(tag.GateId, gate.GateId, StringComparison.Ordinal)))
+                TranscriptApprovalCardBuilder.ShowReworkRequestedState(card);
+        }
+
+        var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+        if (_inboxStore is not null)
+        {
+            _inboxPanel?.Refresh(_inboxStore.LoadAll());
+            if (_inboxStore.GetById(messageId) is { } updatedMessage)
+                RefreshOpenApprovalInboxWindows(messageId, updatedMessage);
+        }
+        LoadTasksPanel();
+        AppendLine($"↩ Changes requested for {string.Join(", ", taskIds)}. SquadDash preserved the prior attempt and queued a new verified attempt.");
+
+        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        if (!parsed.DecomposeGroups.TryGetValue(plan.PlanId, out var group))
+        {
+            AppendLine("⚠ The task was reopened, but SquadDash could not reconstruct the plan for execution. Open the plan and select Resume Plan.");
+            return true;
+        }
+        try
+        {
+            await StartBackloggedDecomposeGroupAsync(group with { HostRevision = plan.Revision });
+        }
+        catch (Exception ex)
+        {
+            AppendLine($"⚠ The task was reopened, but its execution could not start: {ex.Message} Use Resume Plan after resolving the workspace condition.");
+        }
         return true;
     }
 
@@ -43636,11 +43942,28 @@ public partial class MainWindow : Window
             // is committed and the exact filter takes over.
             string filterText = text;
             _tasksPanelController?.SetFilter(filterText);
+            UpdateTasksDoThesePresentation(text);
             ScheduleLoopPreviewRefreshFromFilter();
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { TasksPanelFilter = text.Length > 0 ? text : string.Empty };
             _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksFilterBox_TextChanged), ex); }
+    }
+
+    private void UpdateTasksDoThesePresentation(string filterText)
+    {
+        if (TasksPanelDoTheseContainer is null || TasksPanelDoTheseCountText is null) return;
+        if (string.IsNullOrWhiteSpace(filterText))
+        {
+            TasksPanelDoTheseContainer.Visibility = Visibility.Collapsed;
+            TasksPanelDoTheseCountText.Text = string.Empty;
+            return;
+        }
+
+        var selection = _tasksPanelController?.ResolveVisibleExecutionSelection();
+        var count = selection?.VisibleTaskCount ?? 0;
+        TasksPanelDoTheseContainer.Visibility = Visibility.Visible;
+        TasksPanelDoTheseCountText.Text = $"{count} filtered {(count == 1 ? "task" : "tasks")}";
     }
 
     private void TasksFilterBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -43753,6 +44076,9 @@ public partial class MainWindow : Window
 
             var loopFilePath = Path.Combine(workspaceFolder, ".squad", "loop-filtered-tasks.md");
             if (!File.Exists(loopFilePath)) return;
+            var taskScope = FilteredTaskScopeSnapshot.Capture(
+                TasksFilterBox?.Text,
+                selection.GenericTasks ?? []);
 
             // When the loop panel is visible and the current loop is not the filtered-tasks loop,
             // show a picker so the user can choose which loop to run.
@@ -43789,7 +44115,9 @@ public partial class MainWindow : Window
                 RefreshLoopOptionsPanel();
             }
 
-            await QueueOrStartLoopAsync(LoopMode.NativeAgents);
+            await QueueOrStartLoopAsync(
+                LoopMode.NativeAgents,
+                new ActiveLoopExecutionState(loopFilePath, taskScope.Encode()));
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(TasksPanelDoTheseButton_Click), ex); }
     }

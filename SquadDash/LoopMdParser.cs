@@ -669,6 +669,18 @@ internal static class LoopMdParser {
     {
         filterText = filterText?.Trim() ?? string.Empty;
 
+        if (FilteredTaskScopeSnapshot.TryDecode(filterText, out var scope) && scope is not null)
+        {
+            var selected = string.Join("\n", scope.Tasks.Select(task =>
+                $"- `{task.Identity}`: `{(task.TaskText ?? task.TaskLine).Replace("`", "'", StringComparison.Ordinal)}`"));
+            return "Process only the immutable task snapshot below. Do not re-evaluate the original " +
+                   "filter and do not add newly matching tasks. If a captured task is already complete, " +
+                   "skip it. Match ordinary tasks by the captured content even if their checkbox or owner " +
+                   "annotation changed; if one cannot be identified unambiguously, report the mismatch instead " +
+                   "of substituting another task.\n\n" +
+                   $"Original filter (display only): **{scope.OriginalFilter}**\n\n" + selected;
+        }
+
         if (string.IsNullOrWhiteSpace(filterText))
             return "No filter — process any unchecked task not owned by User.";
 

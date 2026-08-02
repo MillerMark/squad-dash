@@ -368,6 +368,8 @@
     <Compile Include="..\SquadDash\PlanTaskProjectionValidator.cs" Link="Source\PlanTaskProjectionValidator.cs" />
     <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
     <Compile Include="..\SquadDash\PlanGateApprovalParser.cs" Link="Source\PlanGateApprovalParser.cs" />
+    <Compile Include="..\SquadDash\PlanGateResponse.cs" Link="Source\PlanGateResponse.cs" />
+    <Compile Include="..\SquadDash\FilteredTaskScopeSnapshot.cs" Link="Source\FilteredTaskScopeSnapshot.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryOptionsResponse.cs" Link="Source\PlanRecoveryOptionsResponse.cs" />
     <Compile Include="..\SquadDash\RecoveryCommitValidator.cs" Link="Source\RecoveryCommitValidator.cs" />
 

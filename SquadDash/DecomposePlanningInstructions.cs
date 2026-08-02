@@ -61,7 +61,9 @@ internal static class DecomposePlanningInstructions
         "format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
         "file's DECOMPOSE_RECOVERY_JSON protocol. If SquadDash has paused an executing plan at a " +
         "human approval gate and the user approves in free text, follow the file's " +
-        "PLAN_GATE_APPROVAL_JSON protocol. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
+        "PLAN_GATE_APPROVAL_JSON protocol. If the user explicitly requests revisions to reviewed " +
+        "work, follow PLAN_GATE_RESPONSE_JSON; do not modify plan work until SquadDash accepts that " +
+        "structured rework decision. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
 
     internal static string BuildPendingPlanContext(string squadFolderPath)
     {
@@ -105,18 +107,31 @@ internal static class DecomposePlanningInstructions
 
         try
         {
+            var approvalRequests = new DurableApprovalRequestManager(new InboxStore(squadFolderPath));
             var awaitingGateLines = new PlanStore(squadFolderPath)
                 .LoadAll()
-                .Where(p => p.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
-                .SelectMany(p => p.ApprovalGates
-                    .Where(g => g.Status == PlanGateStatus.AwaitingApproval)
-                    .Select(g =>
-                        $"- planId={p.PlanId}; revision={p.Revision}; gateId={g.GateId}; message={g.Message}"))
+                .Where(p => p.ApprovalGates.Any(g => g.Status == PlanGateStatus.AwaitingApproval))
+                .SelectMany(p =>
+                {
+                    var state = approvalRequests.GetState(p.PlanId);
+                    return p.ApprovalGates
+                        .Where(g => g.Status == PlanGateStatus.AwaitingApproval)
+                        .Select(g =>
+                        {
+                            var tasks = p.Tasks
+                                .Where(task => g.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal))
+                                .Select(task => $"{task.TaskId} ({task.Title ?? task.TaskId}; commit {task.Commit ?? "none"})");
+                            return $"- planId={p.PlanId}; revision={p.Revision}; gateId={g.GateId}; " +
+                                   $"requestVersion={state?.Version ?? 1}; message={g.Message}; reviewedTasks=[{string.Join("; ", tasks)}]";
+                        });
+                })
                 .ToArray();
             if (awaitingGateLines.Length > 0)
                 sections.Add(
                     "\nApproval-gate plans paused at a human gate — emit PLAN_GATE_APPROVAL_JSON when " +
-                    "the user approves in free text (use the exact planId, gateId, and revision shown):\n" +
+                    "the user approves in free text. Emit PLAN_GATE_RESPONSE_JSON with disposition request-rework " +
+                    "only when the user explicitly asks to revise reviewed work. Unrelated requests do not change " +
+                    "the approval. Use the exact identifiers and request version shown:\n" +
                     string.Join("\n", awaitingGateLines));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
