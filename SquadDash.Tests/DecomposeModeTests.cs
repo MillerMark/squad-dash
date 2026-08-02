@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -393,6 +394,7 @@ internal sealed class TasksJsonParserTests
 internal sealed class DecomposeDecisionParserTests
 {
     [TestCase("add-to-backlog")]
+    [TestCase("collect")]
     [TestCase("execute-new-branch")]
     [TestCase("execute-active-branch")]
     public void TryParse_ValidDecision_ReturnsDecision(string action)
@@ -527,13 +529,13 @@ internal sealed class DecomposePlanInboxTests
             Assert.That(message.Attachments[0].Type, Is.EqualTo(DecomposePlanInbox.AttachmentType));
             Assert.That(message.Attachments[0].PlanGroupId, Is.EqualTo(group.GroupId));
             Assert.That(message.Actions.Select(a => a.Label), Is.EqualTo(new[]
-                { "Add to Backlog", "Execute in feature/plan Branch", "Execute in Active Branch" }));
+                { "Add to Backlog", "Add to Plans", "Execute in feature/plan Branch", "Execute in Active Branch" }));
             Assert.That(message.Actions.All(a => a.RouteMode == DecomposePlanInbox.ActionRouteMode), Is.True);
         });
 
         Assert.That(DecomposePlanInbox.TryReadSnapshot(message.Attachments[0], out var restored), Is.True);
         Assert.That(restored!.Group.GroupTitle, Is.EqualTo(group.GroupTitle));
-        Assert.That(DecomposeDecisionParser.TryParse(message.Actions[1].Prompt, out var decision), Is.True);
+        Assert.That(DecomposeDecisionParser.TryParse(message.Actions[2].Prompt, out var decision), Is.True);
         Assert.That(decision!.Action, Is.EqualTo("execute-new-branch"));
         Assert.That(decision.Branch, Is.EqualTo(group.Branch));
     }
@@ -552,7 +554,7 @@ internal sealed class DecomposePlanInboxTests
             activeBranch: "feature/plan");
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
-            { "Add to Backlog", "Execute in Active Branch" }));
+            { "Add to Backlog", "Add to Plans", "Execute in Active Branch" }));
     }
 
     [Test]
@@ -1258,6 +1260,128 @@ internal sealed class BuildFilterInstructionDecomposeTests
         // The pattern requires the full string to match (anchored ^...$).
         var result = LoopMdParser.BuildFilterInstruction("FEAT-20240101 extra");
         Assert.That(result, Does.Not.Contain("decompose group"));
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DecomposePlanInbox — "Add to Plans" (collect) action
+// ════════════════════════════════════════════════════════════════════════════
+
+[TestFixture]
+internal sealed class DecomposePlanCollectActionTests
+{
+    private static PendingDecomposePlan MakePending(string branch = "feature/plan") =>
+        new("rev1", new DecomposedTaskGroup("PLAN-20260802", "Test Plan", branch, "Summary",
+            [new DecomposedSubTask("PLAN-20260802-001", "First", [], "high")]));
+
+    [Test]
+    public void BuildActionDefinitions_IncludesAddToPlansWithCollectAction()
+    {
+        var pending = MakePending();
+        var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: null);
+
+        var collect = actions.FirstOrDefault(a => a.Action == "collect");
+        Assert.That(collect, Is.Not.Null, "Expected 'collect' action in action definitions");
+        Assert.That(collect!.Label, Is.EqualTo("Add to Plans"));
+        Assert.That(collect.Hint, Does.Contain("without starting work"));
+    }
+
+    [Test]
+    public void BuildActionDefinitions_AddToPlansAppearsAfterBacklogBeforeExecution()
+    {
+        var pending = MakePending();
+        var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: null);
+        var labels = actions.Select(a => a.Label).ToList();
+
+        var backlogIdx = labels.IndexOf("Add to Backlog");
+        var collectIdx = labels.IndexOf("Add to Plans");
+        var execIdx = labels.FindIndex(l => l.Contains("Execute"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(backlogIdx, Is.GreaterThanOrEqualTo(0), "Add to Backlog should be present");
+            Assert.That(collectIdx, Is.GreaterThan(backlogIdx), "Add to Plans should follow Add to Backlog");
+            Assert.That(execIdx, Is.GreaterThan(collectIdx), "Execution actions should follow Add to Plans");
+        });
+    }
+
+    [Test]
+    public void BuildActionDefinitions_AllActionsPresentWhenBranchDiffers()
+    {
+        var pending = MakePending("feature/new-branch");
+        var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: "main");
+
+        Assert.That(actions.Select(a => a.Action), Is.EqualTo(new[]
+            { "add-to-backlog", "collect", "execute-new-branch", "execute-active-branch" }));
+    }
+
+    [Test]
+    public void BuildActionDefinitions_WhenBranchMatchesActive_OmitsNewBranchButKeepsCollect()
+    {
+        var pending = MakePending("feature/plan");
+        var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: "feature/plan");
+
+        Assert.That(actions.Select(a => a.Action), Is.EqualTo(new[]
+            { "add-to-backlog", "collect", "execute-active-branch" }));
+    }
+
+    [Test]
+    public void DecomposeDecisionParser_AcceptsCollectAction()
+    {
+        var text = "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260802\",\"revision\":\"rev1\",\"action\":\"collect\"}";
+        Assert.That(DecomposeDecisionParser.TryParse(text, out var decision), Is.True);
+        Assert.That(decision!.Action, Is.EqualTo("collect"));
+    }
+
+    [Test]
+    public void BuildInboxMessage_CollectActionHasDecomposeRouteMode()
+    {
+        var pending = MakePending();
+        var message = DecomposePlanInbox.BuildMessage(
+            pending, DateTimeOffset.Parse("2026-08-02T12:00:00Z"), false);
+
+        var collectAction = message.Actions.FirstOrDefault(a => a.Label == "Add to Plans");
+        Assert.That(collectAction, Is.Not.Null);
+        Assert.That(collectAction!.RouteMode, Is.EqualTo(DecomposePlanInbox.ActionRouteMode));
+        Assert.That(collectAction.Hint, Does.Contain("without starting work"));
+    }
+
+    [Test]
+    public void CollectAction_RoutesToPlanCollectionService_Collected()
+    {
+        using var workspace = new TestWorkspace();
+        var squadFolder = workspace.GetPath(".squad");
+        Directory.CreateDirectory(squadFolder);
+        var planStore = new PlanStore(squadFolder);
+        var pendingStore = new PendingDecomposePlanStore(squadFolder);
+        var pending = pendingStore.Save(MakePending().Group);
+
+        var service = new PlanCollectionService(planStore, pendingStore);
+        var result = service.Collect(pending, DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.Collected));
+            Assert.That(result.Plan, Is.Not.Null);
+            Assert.That(result.Plan!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
+        });
+    }
+
+    [Test]
+    public void CollectAction_AlreadyCollected_IsIdempotent()
+    {
+        using var workspace = new TestWorkspace();
+        var squadFolder = workspace.GetPath(".squad");
+        Directory.CreateDirectory(squadFolder);
+        var planStore = new PlanStore(squadFolder);
+        var pendingStore = new PendingDecomposePlanStore(squadFolder);
+        var pending = pendingStore.Save(MakePending().Group);
+
+        var service = new PlanCollectionService(planStore, pendingStore);
+        service.Collect(pending, DateTimeOffset.UtcNow);
+        var second = service.Collect(pending, DateTimeOffset.UtcNow);
+
+        Assert.That(second.Outcome, Is.EqualTo(CollectionOutcome.AlreadyCollected));
     }
 }
 

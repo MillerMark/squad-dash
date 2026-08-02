@@ -8656,6 +8656,34 @@ public partial class MainWindow : Window
                          File.ReadAllText(tasksPath).Contains(
                              $"<!-- decompose-group: {group.GroupId} |",
                              StringComparison.Ordinal);
+        if (action == "collect")
+        {
+            var collectionService = new PlanCollectionService(_planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath));
+            var result = collectionService.Collect(plan, DateTimeOffset.UtcNow);
+            switch (result.Outcome)
+            {
+                case CollectionOutcome.Collected:
+                case CollectionOutcome.AlreadyCollected:
+                    var messageId = DecomposePlanInbox.BuildMessageId(plan);
+                    _inboxStore?.MarkActionUsed(messageId, "Add to Plans");
+                    _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
+                    AppendLine($"✅ Plan \"{group.GroupTitle}\" saved to Plans. Launch it when you're ready.");
+                    return true;
+                case CollectionOutcome.StaleRevisionRejected:
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"Collect action rejected: stale revision for '{group.GroupId}'.");
+                    throw new InvalidOperationException(
+                        "This plan has a newer revision. Use the controls on the latest plan response.");
+                case CollectionOutcome.ActivePlanBlocked:
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"Collect action blocked: active plan exists for '{group.GroupId}'.");
+                    throw new InvalidOperationException(
+                        "An active plan with the same ID is already running. Complete or stop it first.");
+                default:
+                    return false;
+            }
+        }
+
         if (action != "add-to-backlog" && _loopController.IsRunning)
             throw new InvalidOperationException("Another loop is already running.");
         if (action == "execute-active-branch")

@@ -42,6 +42,6 @@ internal static class DecomposeDecisionParser
         }
         return decision is not null && GroupIdPattern.IsMatch(decision.GroupId ?? "") &&
                !string.IsNullOrWhiteSpace(decision.Revision) &&
-               decision.Action is "add-to-backlog" or "execute-new-branch" or "execute-active-branch";
+               decision.Action is "add-to-backlog" or "collect" or "execute-new-branch" or "execute-active-branch";
     }
 }

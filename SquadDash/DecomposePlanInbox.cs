@@ -155,6 +155,11 @@ internal static class DecomposePlanInbox
                 "add-to-backlog",
                 null,
                 "Add all tasks and their dependencies to tasks.md."),
+            new(
+                "Add to Plans",
+                "collect",
+                null,
+                "Save this plan to the Plans panel without starting work. You can launch it later."),
         };
         if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
         {
