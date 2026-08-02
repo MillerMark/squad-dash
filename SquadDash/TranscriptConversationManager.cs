@@ -1369,6 +1369,8 @@ internal sealed class TranscriptConversationManager {
                 a.IsSimEntry       != b.IsSimEntry ||
                 a.SimResponse      != b.SimResponse ||
                 a.SimDelaySeconds  != b.SimDelaySeconds ||
+                a.QueueNumber      != b.QueueNumber ||
+                a.SourceTag        != b.SourceTag ||
                 !FollowUpAttachmentDtosEqual(a.Attachments, b.Attachments))
                 return false;
         }

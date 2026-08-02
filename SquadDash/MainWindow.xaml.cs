@@ -44066,19 +44066,21 @@ public partial class MainWindow : Window
                 return;
             }
 
+            var taskScope = FilteredTaskScopeSnapshot.Capture(
+                TasksFilterBox?.Text,
+                selection.GenericTasks ?? []);
+
             // Shift+click remains available for ordinary backlog tasks only. Structured plans
-            // always use the dedicated dependency-aware Executing Plan engine.
+            // always use the dedicated dependency-aware Executing Plan engine. The alternate
+            // loop selection receives the same immutable scope as the default loop.
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
             {
-                ShowDoTheseWithMenu(sender as FrameworkElement);
+                ShowDoTheseWithMenu(sender as FrameworkElement, taskScope);
                 return;
             }
 
             var loopFilePath = Path.Combine(workspaceFolder, ".squad", "loop-filtered-tasks.md");
             if (!File.Exists(loopFilePath)) return;
-            var taskScope = FilteredTaskScopeSnapshot.Capture(
-                TasksFilterBox?.Text,
-                selection.GenericTasks ?? []);
 
             // When the loop panel is visible and the current loop is not the filtered-tasks loop,
             // show a picker so the user can choose which loop to run.
@@ -44301,7 +44303,9 @@ public partial class MainWindow : Window
         return result;
     }
 
-    private void ShowDoTheseWithMenu(FrameworkElement? anchor)
+    private void ShowDoTheseWithMenu(
+        FrameworkElement? anchor,
+        FilteredTaskScopeSnapshot taskScope)
     {
         if (_currentWorkspace is null) return;
         var entries = LoopMdParser.ScanForLoopFiles(_currentWorkspace.SquadFolderPath)
@@ -44338,7 +44342,9 @@ public partial class MainWindow : Window
                     SyncLoopPanel();
                     PopulateLoopFilePicker();
                     RefreshLoopOptionsPanel();
-                    await StartLoopImmediateAsync();
+                    await QueueOrStartLoopAsync(
+                        LoopMode.NativeAgents,
+                        new ActiveLoopExecutionState(capturedPath, taskScope.Encode()));
                 }
                 catch (Exception ex) { HandleUiCallbackException("DoTheseWithMenu.Click", ex); }
             };
