@@ -364,6 +364,7 @@
     <Compile Include="..\SquadDash\PlansPanelViewModel.cs" Link="Source\PlansPanelViewModel.cs" />
     <Compile Include="..\SquadDash\PlanProgressEvent.cs" Link="Source\PlanProgressEvent.cs" />
     <Compile Include="..\SquadDash\PlanStoreUpdater.cs" Link="Source\PlanStoreUpdater.cs" />
+    <Compile Include="..\SquadDash\PlanCollectionService.cs" Link="Source\PlanCollectionService.cs" />
     <Compile Include="..\SquadDash\PlanProgressPublisher.cs" Link="Source\PlanProgressPublisher.cs" />
     <Compile Include="..\SquadDash\PlanTaskProjectionValidator.cs" Link="Source\PlanTaskProjectionValidator.cs" />
     <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
