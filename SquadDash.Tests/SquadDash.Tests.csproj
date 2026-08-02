@@ -370,6 +370,7 @@
     <Compile Include="..\SquadDash\PlanGateApprovalParser.cs" Link="Source\PlanGateApprovalParser.cs" />
     <Compile Include="..\SquadDash\PlanGateResponse.cs" Link="Source\PlanGateResponse.cs" />
     <Compile Include="..\SquadDash\FilteredTaskScopeSnapshot.cs" Link="Source\FilteredTaskScopeSnapshot.cs" />
+    <Compile Include="..\SquadDash\QueuedLoopJob.cs" Link="Source\QueuedLoopJob.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryOptionsResponse.cs" Link="Source\PlanRecoveryOptionsResponse.cs" />
     <Compile Include="..\SquadDash\RecoveryCommitValidator.cs" Link="Source\RecoveryCommitValidator.cs" />
 

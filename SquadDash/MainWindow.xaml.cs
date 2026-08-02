@@ -3081,6 +3081,22 @@ public partial class MainWindow : Window
                 _promptQueue.Remove(item.Id);
                 SyncQueuePanel();
                 SquadDashTrace.Write("Queue", "Discarded stale plan-continuation queue item outside plan execution.");
+                continue;
+            }
+
+            if (string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal))
+            {
+                _promptQueue.Remove(item.Id);
+                SyncQueuePanel();
+                if (!QueuedLoopJob.TryDecode(item.Text, out var job) || job is null)
+                {
+                    AppendLoopOutputLine("⚠ A queued filtered loop was invalid and was discarded.", LoopLifecycleBrush);
+                    continue;
+                }
+
+                SquadDashTrace.Write("Queue",
+                    $"Starting queued loop job label='{job.DisplayLabel}' tasks={job.TaskCount}.");
+                await QueueOrStartLoopAsync(LoopMode.NativeAgents, job.Execution);
                 break;
             }
 
@@ -3188,6 +3204,12 @@ public partial class MainWindow : Window
                     $"Plan continuation released at iteration boundary plan={_activeDecomposeGroupId ?? "(none)"}.");
                 break;
             }
+
+
+            // A loop job is serialized behind the currently-running loop. It is a host
+            // operation, never an AI prompt, so leave it in place until this loop stops.
+            if (string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal))
+                break;
 
             // Silently discard items that have no text and no attachments.
             if (IsEmptyQueueItem(item))
@@ -3433,11 +3455,19 @@ public partial class MainWindow : Window
                 bool isNext = item.Id == nextReadyId;
                 var isPlanContinuation = string.Equals(
                     item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal);
+                var isQueuedLoop = string.Equals(
+                    item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
+                var queuedLoop = isQueuedLoop && QueuedLoopJob.TryDecode(item.Text, out var decodedJob)
+                    ? decodedJob
+                    : null;
                 var label = isPlanContinuation
                     ? "Continue plan"
+                    : queuedLoop is not null ? queuedLoop.DisplayLabel
                     : isNext ? $"Queue #{item.QueueNumber}" : $"#{item.QueueNumber}";
                 var tooltip = isPlanContinuation
                     ? "The plan advances one step when this item reaches the front. Drag it to place queued prompts before or after the next plan step."
+                    : queuedLoop is not null
+                        ? $"This filtered loop is queued behind the active loop ({queuedLoop.TaskCount} tasks)."
                     : isNext ? "This prompt is next in the Squad queue."
                              : "This item is in the Squad queue.";
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
@@ -4061,15 +4091,20 @@ public partial class MainWindow : Window
             var isPlanContinuation = _promptQueue.Items.Any(item =>
                 item.Id == capturedId &&
                 string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
+            var isQueuedLoop = _promptQueue.Items.Any(item =>
+                item.Id == capturedId &&
+                string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal));
+            if (isQueuedLoop)
+                tab.Cursor = Cursors.Arrow;
             var cm = MakeMenu();
 
             // Activate the tab on right-click so user can see what they're deleting.
-            if (!isPlanContinuation)
+            if (!isPlanContinuation && !isQueuedLoop)
                 cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
 
             // Only show Prioritize when this item is not already next-to-dispatch (index 0).
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
-            if (!isAlreadyFirst)
+            if (!isAlreadyFirst && !isQueuedLoop)
             {
                 var prioritizeItem = MakeItem("Prioritize — send this next");
                 prioritizeItem.Click += (_, _) => OnQueueTabPrioritize(capturedId);
@@ -4084,13 +4119,16 @@ public partial class MainWindow : Window
             }
             tab.ContextMenu = cm;
 
-            // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
-            // then wire up the four mouse events needed for the drag lifecycle.
-            tab.Tag = capturedId;
-            tab.MouseLeftButtonDown += (_, e) => OnQueueTabMouseDown(capturedId, tab, e);
-            tab.MouseMove += (_, e) => OnQueueTabMouseMove(e);
-            tab.MouseLeftButtonUp += (_, e) => OnQueueTabMouseUp(capturedId, e);
-            tab.LostMouseCapture += (_, _) => CancelDrag();
+            if (!isQueuedLoop)
+            {
+                // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
+                // then wire up the four mouse events needed for the drag lifecycle.
+                tab.Tag = capturedId;
+                tab.MouseLeftButtonDown += (_, e) => OnQueueTabMouseDown(capturedId, tab, e);
+                tab.MouseMove += (_, e) => OnQueueTabMouseMove(e);
+                tab.MouseLeftButtonUp += (_, e) => OnQueueTabMouseUp(capturedId, e);
+                tab.LostMouseCapture += (_, _) => CancelDrag();
+            }
         }
         else
         {
@@ -4127,7 +4165,7 @@ public partial class MainWindow : Window
     {
         if (id is not null && _promptQueue.Items.Any(item =>
                 item.Id == id &&
-                string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal)))
+                IsHostQueueItem(item)))
             return;
         if (_activeTabId == id) return;
 
@@ -6079,7 +6117,7 @@ public partial class MainWindow : Window
             resumeSuppressed: _loopResumeSuppressed,
             restartPending: _restartPending,
             interruptedByQueue: hasInterrupt,
-            queueHasReadyItems: _promptQueue.HasReadyItems,
+            queueHasReadyItems: HasReadyPromptQueueItems(),
             loopAlreadyQueued: _loopQueued);
         bool shouldResumeAfterQueue = resumeDecision.ResumeAfterQueue;
         bool shouldPreserveForRestart = resumeDecision.PreserveForRestart;
@@ -6177,6 +6215,7 @@ public partial class MainWindow : Window
         SyncLoopPanel();
         if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
             TryFireDeferredCodeHealth();
+        _ = DrainQueueIfNeededAsync();
     }
 
     private void OnNativeLoopError(string msg)
@@ -7616,7 +7655,7 @@ public partial class MainWindow : Window
         _activeLoopMode = mode;
         var queuedExecution = requestedExecution ?? BuildGeneralLoopExecutionState();
         _conversationManager.UpdateActiveLoopExecutionState(queuedExecution);
-        if (mode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
+        if (mode == LoopMode.NativeAgents && (_isPromptRunning || HasReadyPromptQueueItems()))
         {
             QueueLoopResumeAfterQueueDrain(_loopCurrentIteration, "manual-start", updateUi: false);
             AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — will start after queue drains.", LoopLifecycleBrush);
@@ -7631,7 +7670,7 @@ public partial class MainWindow : Window
         ActiveLoopExecutionState? resumeExecution = null)
     {
         if (_currentWorkspace is null) return;
-        if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || _promptQueue.HasReadyItems))
+        if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || HasReadyPromptQueueItems()))
         {
             QueueLoopResumeAfterQueueDrain(resumeFromIteration, "start-loop-immediate-guard");
             return;
@@ -8360,14 +8399,21 @@ public partial class MainWindow : Window
     }
 
     private const string PlanContinuationQueueTag = "plan-continuation";
+    private const string QueuedLoopJobTag = "queued-loop-job";
+
+    private static bool IsHostQueueItem(PromptQueueItem item) =>
+        string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal) ||
+        string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
+
+    private bool HasReadyPromptQueueItems() => _promptQueue.Items.Any(item =>
+        !item.IsEditing && !IsHostQueueItem(item));
 
     private void PlaceNewQueueItemBeforePlanContinuation(PromptQueueItem item)
     {
         if (string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal)) return;
         var continuation = _promptQueue.Items
             .Select((candidate, index) => (candidate, index))
-            .FirstOrDefault(pair => string.Equals(
-                pair.candidate.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
+            .FirstOrDefault(pair => IsHostQueueItem(pair.candidate));
         if (continuation.candidate is null) return;
         var currentIndex = _promptQueue.Items
             .Select((candidate, index) => (candidate, index))
@@ -8388,7 +8434,31 @@ public partial class MainWindow : Window
             IsSystemInjected = true,
             SourceTag = PlanContinuationQueueTag,
         });
+        var continuation = _promptQueue.Items.Last(item =>
+            string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
+        var queuedLoopIndex = _promptQueue.Items
+            .Select((item, index) => (item, index))
+            .FirstOrDefault(pair => string.Equals(
+                pair.item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal));
+        if (queuedLoopIndex.item is not null)
+            _promptQueue.Reorder(continuation.Id, queuedLoopIndex.index);
         SyncQueuePanel();
+    }
+
+    private void EnqueueFilteredLoopJob(QueuedLoopJob job)
+    {
+        _promptQueue.EnqueueItem(new PromptQueueItem
+        {
+            Text = job.Encode(),
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            IsSystemInjected = true,
+            SourceTag = QueuedLoopJobTag,
+        });
+        SyncQueuePanel();
+        AppendLoopOutputLine(
+            $"⏳ {job.DisplayLabel} queued behind the running loop.",
+            LoopLifecycleBrush);
     }
 
     private void ShowTranscriptPlanPreflightRecovery(
@@ -25940,7 +26010,7 @@ public partial class MainWindow : Window
             var startupLoopResumeAction = LoopStartupResumePolicy.Resolve(
                 workspaceExecution,
                 loopAlreadyQueued: _loopQueued,
-                queueHasReadyItems: _promptQueue.HasReadyItems,
+                queueHasReadyItems: HasReadyPromptQueueItems(),
                 startupShiftHeld: _startupShiftHeld,
                 hasPendingQuickReplies: _lastQuickReplyEntry?.AllowQuickReplies == true);
             SquadDashTrace.Write(
@@ -44023,17 +44093,6 @@ public partial class MainWindow : Window
             var workspaceFolder = _currentWorkspace?.FolderPath;
             if (string.IsNullOrEmpty(workspaceFolder)) return;
 
-            // If the loop is already running, don't start another one
-            if (IsLoopRunning)
-            {
-                MessageBox.Show(
-                    "A loop is already running. Wait for the current loop to stop before starting a new one.",
-                    "Loop Already Running",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
-            }
-
             var selection = _tasksPanelController?.ResolveVisibleExecutionSelection();
             SquadDashTrace.Write(
                 "Loop",
@@ -44052,6 +44111,15 @@ public partial class MainWindow : Window
 
             if (selection.Kind == TasksPanelExecutionKind.DecomposeGroup && selection.Group is { } decomposeGroup)
             {
+                if (IsLoopRunning)
+                {
+                    MessageBox.Show(
+                        "A structured plan cannot be started while another loop is running. Queueing plan executions requires its own branch and recovery preflight.",
+                        "Plan Already Running",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
                 if (selection.ContainsBlockedTask)
                 {
                     MessageBox.Show(
@@ -44081,6 +44149,15 @@ public partial class MainWindow : Window
 
             var loopFilePath = Path.Combine(workspaceFolder, ".squad", "loop-filtered-tasks.md");
             if (!File.Exists(loopFilePath)) return;
+
+            if (IsLoopRunning)
+            {
+                EnqueueFilteredLoopJob(new QueuedLoopJob(
+                    new ActiveLoopExecutionState(loopFilePath, taskScope.Encode()),
+                    $"{taskScope.Tasks.Count} filtered {(taskScope.Tasks.Count == 1 ? "task" : "tasks")}",
+                    taskScope.Tasks.Count));
+                return;
+            }
 
             // When the loop panel is visible and the current loop is not the filtered-tasks loop,
             // show a picker so the user can choose which loop to run.
