@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 /// <summary>Manages content in the inline Plans panel.</summary>
 internal sealed class PlansPanelController
@@ -116,6 +117,65 @@ internal sealed class PlansPanelController
     internal double GetMaximumUsefulWidth()  => 300.0;
     internal double GetMaximumUsefulHeight() => 520.0;
 
+    /// <summary>
+    /// Reveals the Plans panel, ensures the plan row exists, scrolls it into view,
+    /// and applies a brief attention animation. Idempotent — repeated calls for the
+    /// same plan re-highlight the existing row without duplicating it.
+    /// Does not steal keyboard focus or reopen windows.
+    /// </summary>
+    internal void RevealCollectedPlan(Plan plan)
+    {
+        OnPlanChanged(plan);
+        Show();
+        HighlightRow(plan.PlanId);
+    }
+
+    // ── Row attention animation ───────────────────────────────────────────────
+
+    private void HighlightRow(string planId)
+    {
+        var row = FindRowByPlanId(_activePanel, planId)
+               ?? FindRowByPlanId(_completedPanel, planId);
+        if (row is null)
+            return;
+
+        row.BringIntoView();
+
+        // Respect reduced-motion preference.
+        if (!SystemParameters.ClientAreaAnimation)
+            return;
+
+        try
+        {
+            var highlightColor = Color.FromArgb(0x30, 0xFF, 0xCC, 0x00);
+            var animation = new ColorAnimation
+            {
+                From     = highlightColor,
+                To       = Colors.Transparent,
+                Duration = UiTimingConstants.PlanRowAttentionDuration,
+            };
+            row.Background = new SolidColorBrush(highlightColor);
+            row.Background.BeginAnimation(SolidColorBrush.ColorProperty, animation);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.UI,
+                $"PlansPanelController: attention animation failed for '{planId}': {ex.Message}");
+        }
+    }
+
+    private static Border? FindRowByPlanId(StackPanel panel, string planId)
+    {
+        foreach (UIElement child in panel.Children)
+        {
+            if (child is Border border &&
+                border.Tag is string tag &&
+                string.Equals(tag, planId, StringComparison.Ordinal))
+                return border;
+        }
+        return null;
+    }
+
     // ── Row building ──────────────────────────────────────────────────────────
 
     private void RebuildPanels()
@@ -155,6 +215,7 @@ internal sealed class PlansPanelController
             Background = Brushes.Transparent,
             Padding    = new Thickness(4, 5, 4, 5),
             Cursor     = Cursors.Hand,
+            Tag        = plan.PlanId,
         };
 
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");

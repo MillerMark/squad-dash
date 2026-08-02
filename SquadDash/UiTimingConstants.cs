@@ -137,6 +137,9 @@ internal static class UiTimingConstants
     /// <summary>Commit categorization debounce interval.</summary>
     public static readonly TimeSpan CategorizationDebounceInterval = TimeSpan.FromSeconds(2);
 
+    /// <summary>Plan row attention animation duration after collection.</summary>
+    public static readonly TimeSpan PlanRowAttentionDuration = TimeSpan.FromMilliseconds(1000);
+
     /// <summary>Code health banner auto-dismiss interval.</summary>
     public static readonly TimeSpan CodeHealthBannerInterval = TimeSpan.FromSeconds(12);
 

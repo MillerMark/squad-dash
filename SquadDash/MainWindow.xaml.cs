@@ -8667,6 +8667,8 @@ public partial class MainWindow : Window
                     var messageId = DecomposePlanInbox.BuildMessageId(plan);
                     _inboxStore?.MarkActionUsed(messageId, "Add to Plans");
                     _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
+                    if (result.Plan is { } collectedPlan)
+                        _plansPanelController?.RevealCollectedPlan(collectedPlan);
                     AppendLine($"✅ Plan \"{group.GroupTitle}\" saved to Plans. Launch it when you're ready.");
                     return true;
                 case CollectionOutcome.StaleRevisionRejected:

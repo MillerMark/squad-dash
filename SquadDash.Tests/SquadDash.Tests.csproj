@@ -362,6 +362,7 @@
     <Compile Include="..\SquadDash\PlanApprovalRuntime.cs" Link="Source\PlanApprovalRuntime.cs" />
     <Compile Include="..\SquadDash\DeveloperApprovalSimulator.cs" Link="Source\DeveloperApprovalSimulator.cs" />
     <Compile Include="..\SquadDash\PlansPanelViewModel.cs" Link="Source\PlansPanelViewModel.cs" />
+    <Compile Include="..\SquadDash\PlansPanelController.cs" Link="Source\PlansPanelController.cs" />
     <Compile Include="..\SquadDash\PlanProgressEvent.cs" Link="Source\PlanProgressEvent.cs" />
     <Compile Include="..\SquadDash\PlanStoreUpdater.cs" Link="Source\PlanStoreUpdater.cs" />
     <Compile Include="..\SquadDash\PlanCollectionService.cs" Link="Source\PlanCollectionService.cs" />
