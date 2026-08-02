@@ -14,6 +14,7 @@ internal sealed class PlanCollectionServiceTests
 {
     private TestWorkspace _workspace = null!;
     private PlanStore _planStore = null!;
+    private PendingDecomposePlanStore _pendingStore = null!;
     private PlanCollectionService _service = null!;
     private string _squadFolder = null!;
 
@@ -24,7 +25,8 @@ internal sealed class PlanCollectionServiceTests
         _squadFolder = _workspace.GetPath(".squad");
         Directory.CreateDirectory(_squadFolder);
         _planStore = new PlanStore(_squadFolder);
-        _service = new PlanCollectionService(_planStore);
+        _pendingStore = new PendingDecomposePlanStore(_squadFolder);
+        _service = new PlanCollectionService(_planStore, _pendingStore);
     }
 
     [TearDown]
@@ -152,13 +154,10 @@ internal sealed class PlanCollectionServiceTests
     }
 
     // ── 5. Collection does not modify branch state ───────────────────────────
-    // (no git operations are executed — assert no exceptions or side effects)
 
     [Test]
     public void Collect_DoesNotModifyBranchState()
     {
-        // The workspace has no .git folder. If the service attempted any git
-        // operations, they would throw. Successful collection proves no branch mutation.
         var pending = MakePending();
         Assert.DoesNotThrow(() => _service.Collect(pending, DateTimeOffset.UtcNow));
     }
@@ -247,6 +246,196 @@ internal sealed class PlanCollectionServiceTests
         var result = _service.Collect(pending, DateTimeOffset.UtcNow);
 
         Assert.That(result.Plan!.Branch, Is.EqualTo("feature/custom-branch"));
+    }
+
+    // ── 8. Pending cleanup — after collection the pending store is empty ──────
+
+    [Test]
+    public void Collect_RemovesPendingPlanFromTransientStore()
+    {
+        var group = MakeGroup();
+        var pending = _pendingStore.Save(group);
+
+        // Verify pending exists before collection.
+        Assert.That(_pendingStore.Load("COLLECT-001"), Is.Not.Null);
+
+        _service.Collect(pending, DateTimeOffset.UtcNow);
+
+        // After collection the pending plan is cleaned up.
+        Assert.That(_pendingStore.Load("COLLECT-001"), Is.Null);
+    }
+
+    [Test]
+    public void Collect_Idempotent_AlsoCleansPending()
+    {
+        var group = MakeGroup();
+        var pending = _pendingStore.Save(group);
+        _service.Collect(pending, DateTimeOffset.UtcNow);
+
+        // Re-save pending (simulating stale state after restart).
+        _pendingStore.Save(group);
+        Assert.That(_pendingStore.Load("COLLECT-001"), Is.Not.Null);
+
+        // Idempotent collect still cleans up.
+        _service.Collect(pending, DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.That(_pendingStore.Load("COLLECT-001"), Is.Null);
+    }
+
+    // ── 9. Active plan protection ─────────────────────────────────────────────
+
+    [Test]
+    [TestCase(PlanLifecycleStatus.Executing)]
+    [TestCase(PlanLifecycleStatus.AwaitingApproval)]
+    [TestCase(PlanLifecycleStatus.Interrupted)]
+    [TestCase(PlanLifecycleStatus.Blocked)]
+    public void Collect_ActivePlan_IsBlocked(string activeStatus)
+    {
+        var group = MakeGroup();
+        var pending = MakePending(group);
+
+        // Pre-populate PlanStore with an active plan (same ID and revision).
+        var plan = PendingDecomposePlanAdapter.ToPlan(pending, DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = activeStatus,
+        };
+        _planStore.Save(plan);
+
+        var result = _service.Collect(pending, DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.ActivePlanBlocked));
+            Assert.That(result.Plan, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Collect_ExecutingPlan_CannotBeOverwritten_EvenWithMatchingRevision()
+    {
+        var group = MakeGroup();
+        var pending = MakePending(group);
+
+        // Place an executing plan with the SAME revision.
+        var plan = PendingDecomposePlanAdapter.ToPlan(pending, DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+        };
+        _planStore.Save(plan);
+
+        var result = _service.Collect(pending, DateTimeOffset.UtcNow);
+
+        Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.ActivePlanBlocked));
+    }
+
+    // ── 10. Compatibility — unrelated pending plan does not affect existing approved ──
+
+    [Test]
+    public void Collect_UnrelatedPending_DoesNotAffectExistingApproved()
+    {
+        // Collect plan A.
+        var groupA = MakeGroup(groupId: "PLAN-A");
+        var pendingA = MakePending(groupA);
+        _service.Collect(pendingA, DateTimeOffset.UtcNow);
+
+        // Collect plan B (different ID).
+        var groupB = MakeGroup(groupId: "PLAN-B");
+        var pendingB = MakePending(groupB);
+        _service.Collect(pendingB, DateTimeOffset.UtcNow);
+
+        // Plan A is still intact.
+        var loadedA = _planStore.Load("PLAN-A");
+        Assert.Multiple(() =>
+        {
+            Assert.That(loadedA, Is.Not.Null);
+            Assert.That(loadedA!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
+            Assert.That(loadedA.Revision, Is.EqualTo(pendingA.Revision));
+        });
+    }
+
+    // ── 11. Persistence round-trip — restart with fresh store instances ────────
+
+    [Test]
+    public void Collect_PersistenceRoundTrip_AllDataSurvivesRestart()
+    {
+        var gates = new[]
+        {
+            new DecomposedGate(
+                GateId: "GATE-RT",
+                Message: "Round-trip gate",
+                AfterTaskIds: ["COLLECT-001-001"],
+                BeforeTaskIds: ["COLLECT-001-002"]),
+        };
+        var group = MakeGroup(gates: gates, branch: "feature/roundtrip");
+        var pending = MakePending(group);
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+
+        _service.Collect(pending, now);
+
+        // Simulate full restart — new PlanStore, new PendingDecomposePlanStore, new service.
+        var freshPlanStore = new PlanStore(_squadFolder);
+        var freshPendingStore = new PendingDecomposePlanStore(_squadFolder);
+        var freshService = new PlanCollectionService(freshPlanStore, freshPendingStore);
+
+        var loaded = freshPlanStore.Load("COLLECT-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded, Is.Not.Null);
+            Assert.That(loaded!.PlanId, Is.EqualTo("COLLECT-001"));
+            Assert.That(loaded.Revision, Is.EqualTo(pending.Revision));
+            Assert.That(loaded.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
+            Assert.That(loaded.Branch, Is.EqualTo("feature/roundtrip"));
+            Assert.That(loaded.Tasks, Has.Count.EqualTo(3));
+            Assert.That(loaded.Tasks[0].AgentAssignments, Is.Not.Null);
+            Assert.That(loaded.Tasks[0].AgentAssignments![0].AgentHandle, Is.EqualTo("orion-vale"));
+            Assert.That(loaded.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(loaded.ApprovalGates[0].GateId, Is.EqualTo("GATE-RT"));
+            Assert.That(loaded.Timestamps.AcceptedAt, Is.EqualTo(now));
+        });
+
+        // Idempotent collect on fresh service also works.
+        var idempotentResult = freshService.Collect(pending, now.AddHours(1));
+        Assert.That(idempotentResult.Outcome, Is.EqualTo(CollectionOutcome.AlreadyCollected));
+    }
+
+    // ── 12. Terminal plans allow re-collection ─────────────────────────────────
+
+    [Test]
+    [TestCase(PlanLifecycleStatus.Stopped)]
+    [TestCase(PlanLifecycleStatus.Completed)]
+    [TestCase(PlanLifecycleStatus.Archived)]
+    public void Collect_TerminalPlan_TreatedAsStaleOrIdempotent(string terminalStatus)
+    {
+        var group = MakeGroup();
+        var pending = MakePending(group);
+
+        // Place a terminal plan with same revision.
+        var plan = PendingDecomposePlanAdapter.ToPlan(pending, DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = terminalStatus,
+        };
+        _planStore.Save(plan);
+
+        // Same revision → idempotent (plan already exists with matching revision).
+        var result = _service.Collect(pending, DateTimeOffset.UtcNow);
+        Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.AlreadyCollected));
+    }
+
+    // ── 13. Collection with no pending store still works (backward compat) ────
+
+    [Test]
+    public void Collect_WithoutPendingStore_StillSucceeds()
+    {
+        var serviceNoPending = new PlanCollectionService(_planStore);
+        var pending = MakePending();
+
+        var result = serviceNoPending.Collect(pending, DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.Collected));
+            Assert.That(result.Plan, Is.Not.Null);
+        });
     }
 
     // ── Edge cases ───────────────────────────────────────────────────────────
