@@ -38,6 +38,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
+    private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
 
@@ -54,7 +55,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onEndPlan      = null,
         Action<Plan, string>? onApproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
-        Func<Task<bool>>? isPreflightWorkspaceClean = null)
+        Func<Task<bool>>? isPreflightWorkspaceClean = null,
+        WeakEventBroker? broker = null)
         : base(captionHeight: CloseButtonHeight)
     {
         const double baseFontSize = 12.0;
@@ -86,6 +88,32 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         BuildContent(plan, durablePlan);
         Closed += (_, _) => _preflightPollTimer?.Stop();
+
+        if (broker is not null && durablePlan is not null)
+        {
+            _liveSyncHandler = new PlanViewerLiveSyncHandler(
+                durablePlan.PlanId,
+                durablePlan,
+                broker,
+                updatedPlan =>
+                {
+                    if (!Dispatcher.CheckAccess())
+                    {
+                        Dispatcher.BeginInvoke(() => ApplyLiveUpdate(updatedPlan));
+                        return;
+                    }
+                    ApplyLiveUpdate(updatedPlan);
+                },
+                Dispatcher);
+            Closed += (_, _) => _liveSyncHandler?.Detach();
+        }
+    }
+
+    private void ApplyLiveUpdate(Plan updatedPlan)
+    {
+        if (_plan is null) return;
+        _durablePlan = updatedPlan;
+        RebuildPreservingScroll(_plan, updatedPlan);
     }
 
     internal void NotifyFontSizeChanged()

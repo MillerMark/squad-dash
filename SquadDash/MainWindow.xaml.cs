@@ -8926,7 +8926,8 @@ public partial class MainWindow : Window
             displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan,
             onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
-            isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync)
+            isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
+            broker: _broker)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
