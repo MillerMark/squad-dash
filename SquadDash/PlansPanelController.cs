@@ -16,6 +16,7 @@ internal sealed class PlansPanelController
     private readonly StackPanel  _completedPanel;
     private readonly UIElement   _completedSection;
     private readonly Action<Plan>  _openPlan;
+    private readonly Action<Plan>? _startPlan;
     private readonly Action<Plan>? _resumePlan;
     private readonly Action<Plan>? _endPlan;
     private readonly Action<Plan>? _approveGate;
@@ -43,6 +44,7 @@ internal sealed class PlansPanelController
         Action<bool>? syncBorderVisibility = null,
         Action<bool>? setMenuChecked       = null,
         Action?       persistVisibility    = null,
+        Action<Plan>? startPlan            = null,
         Action<Plan>? resumePlan           = null,
         Action<Plan>? endPlan              = null,
         Action<Plan>? approveGate          = null)
@@ -51,6 +53,7 @@ internal sealed class PlansPanelController
         _completedPanel       = completedPanel;
         _completedSection     = completedSection;
         _openPlan             = openPlan;
+        _startPlan            = startPlan;
         _resumePlan           = resumePlan;
         _endPlan              = endPlan;
         _approveGate          = approveGate;
@@ -311,6 +314,14 @@ internal sealed class PlansPanelController
         openItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         openItem.Click += (_, _) => _openPlan(plan);
         menu.Items.Add(openItem);
+
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Approved && _startPlan is not null)
+        {
+            var startItem = new MenuItem { Header = "Start Plan" };
+            startItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            startItem.Click += (_, _) => _startPlan(plan);
+            menu.Items.Add(startItem);
+        }
 
         if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {

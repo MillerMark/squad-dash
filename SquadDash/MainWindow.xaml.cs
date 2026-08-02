@@ -8900,6 +8900,9 @@ public partial class MainWindow : Window
                       win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
                   }
             : null;
+        Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
+            ? p => _ = StartDecomposeLoopAsync(p.PlanId)
+            : null;
         Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? p => _ = StartDecomposeLoopAsync(p.PlanId)
             : null;
@@ -8921,7 +8924,7 @@ public partial class MainWindow : Window
             : null;
         win = new PlanViewerWindow(
             displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan,
-            onGatesChanged, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
+            onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync)
         {
@@ -41782,6 +41785,7 @@ public partial class MainWindow : Window
                 },
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
+                startPlan:  plan => _ = StartDecomposeLoopAsync(plan.PlanId),
                 resumePlan: plan => _ = StartDecomposeLoopAsync(plan.PlanId),
                 endPlan:    EndInterruptedPlan,
                 approveGate: plan =>

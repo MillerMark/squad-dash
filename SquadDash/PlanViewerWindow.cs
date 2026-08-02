@@ -30,6 +30,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly double _quickReplyFontSize;
     private readonly Func<DecomposePlanActionDefinition, Task<bool>>? _applyAction;
     private readonly Action<Plan>? _onGatesChanged;
+    private readonly Action<Plan>? _onStartPlan;
     private readonly Action<Plan>? _onResumePlan;
     private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
     private readonly Action<Plan>? _onEndPlan;
@@ -47,6 +48,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<DecomposePlanActionDefinition, Task<bool>>? applyAction = null,
         Plan? durablePlan = null,
         Action<Plan>? onGatesChanged = null,
+        Action<Plan>? onStartPlan    = null,
         Action<Plan>? onResumePlan   = null,
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange = null,
         Action<Plan>? onEndPlan      = null,
@@ -68,6 +70,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _quickReplyFontSize = quickReplyFontSize;
         _applyAction        = applyAction;
         _onGatesChanged     = onGatesChanged;
+        _onStartPlan        = onStartPlan;
         _onResumePlan       = onResumePlan;
         _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
         _onEndPlan          = onEndPlan;
@@ -109,6 +112,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var quickReplyFontSize = _quickReplyFontSize;
         var applyAction        = _applyAction;
         var onGatesChanged     = _onGatesChanged;
+        var onStartPlan        = _onStartPlan;
         var onResumePlan       = _onResumePlan;
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
         var onEndPlan          = _onEndPlan;
@@ -253,6 +257,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 interruptedPanel.Children.Add(endButton);
             }
             header.Children.Add(interruptedPanel);
+        }
+
+        if (durablePlan is not null &&
+            durablePlan.LifecycleStatus == PlanLifecycleStatus.Approved &&
+            onStartPlan is not null)
+        {
+            var approvedPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin      = new Thickness(0, 0, 0, 8),
+            };
+            var capturedPlan   = durablePlan;
+            var capturedAction = onStartPlan;
+            var startButton    = TranscriptQuickReplyFactory.CreateButton(
+                "Start Plan",
+                quickReplyFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip("Begin executing this approved plan."));
+            startButton.Focusable = false;
+            startButton.Click += (_, _) =>
+            {
+                capturedAction(capturedPlan);
+                Close();
+            };
+            approvedPanel.Children.Add(startButton);
+            header.Children.Add(approvedPanel);
         }
 
         var summaryBlock = new TextBlock
