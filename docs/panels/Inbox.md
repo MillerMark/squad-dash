@@ -99,6 +99,17 @@ Action buttons are deferred prompts baked into the message at composition time. 
 
 A button is permanently disabled once clicked — the used state is persisted to the message file so it survives a panel reload.
 
+### Plan-specific actions
+
+Inbox messages for plan proposals include additional action buttons:
+
+| Button | Effect |
+|--------|--------|
+| **Add to Backlog** | Writes the plan's tasks and dependencies to `.squad/tasks.md`. |
+| **Add to Plans** | Collects the plan into the Plans panel as an Approved durable record without starting execution. See [Collecting a Plan](plans.md#collecting-a-plan-add-to-plans). |
+| **Execute in _branch_** | Switches to the target branch and starts the execution loop immediately. |
+| **Execute in Active Branch** | Starts execution on the current branch. |
+
 > **Why deferred?** Maintenance tasks run while you are away. Action buttons let you review their findings and decide what to do when you return, without losing the context the agent captured.
 
 ---

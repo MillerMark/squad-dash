@@ -45,3 +45,25 @@ Developer reference for the pure-logic helpers and test coverage introduced by t
 - **Coalescing** is purely in-memory: `ReadAgentSatelliteCoalescer.FindActiveEntry` walks the transcript list in reverse and reuses the last open `read_agent` entry for the same `agent_id`. It has a WPF dependency (`ToolTranscriptEntry`) so only `TryExtractAgentId` is covered by headless unit tests.
 - **Envelope repair** is a single bounded retry: if the repair turn also produces no valid envelope, `_repairAttemptActive` prevents a second attempt and the plan transitions to `Blocked`.
 - **PlanStore state machine** is enforced by `PlanStoreUpdater` pure static methods (`ApplyExecutionStarted`, `ApplyStepAccepted`, `ApplyCompleted`, `ApplyInterrupted`, `ApplyStopped`, `ApplyBlocked`). Load-time repair of impossible states is handled by `PlanStoreUpdater.RepairInconsistentState`.
+
+---
+
+## Collected-Plan Services (steps 001–008)
+
+These services implement the "collect now, execute later" workflow.
+
+| Class | Responsibility |
+|---|---|
+| `PlanCollectionService` | Owns the pending → durable transition. Converts a `PendingDecomposePlan` to an `Approved` Plan in the `PlanStore`. Idempotent, stale-revision rejection, active-plan protection, best-effort pending cleanup. |
+| `PlanExecutionTransitionService` | Owns `Start` (Approved → Executing) and `Resume` (Interrupted → Executing). Pure logic + persistence; no UI. Idempotent guards for already-executing and terminal plans. |
+| `PlanProgressPublisher` | Enforces persist-then-notify ordering: durable save must succeed before any observer is notified; an observer failure does not invalidate a saved transition. |
+| `PlanViewerLiveSyncHandler` | Subscribes to `PlanProgressEvent` via `WeakEventBroker`. Filters by PlanId, rejects stale events (lower completion count), coalesces rapid updates with an 80 ms `DispatcherTimer`, and detaches on window close. |
+| `PlanApprovalControlLockPolicy` | Pure-logic policy determining whether Plan Viewer approval controls are read-only based on execution progress. Task-entry, task-exit, stage-milestone, and ALL-join lock rules. |
+| `PlanProgressEvent` | Published via `WeakEventBroker` on every lifecycle or progress change. Carries the fully updated `Plan` so subscribers avoid a separate store read. |
+
+### Key invariants
+
+- **Collection never launches execution.** `PlanCollectionService.Collect` only persists an `Approved` plan; starting the loop is a separate explicit `PlanExecutionTransitionService.Start` call.
+- **Durable Plan is authoritative.** `.squad/plans/{planId}.json` is the system of record. `.squad/tasks.md` is a host-managed projection written during execution.
+- **Persist-then-notify ordering.** `PlanProgressPublisher.TryPublish` calls `persist(plan)` first; if that throws, no notification fires. If `notify(plan)` throws, the persisted state is still valid.
+- **80 ms coalescence window.** `PlanViewerLiveSyncHandler` buffers rapid `PlanProgressEvent` bursts into a single UI refresh every 80 ms, preventing visual thrashing during fast task completions.

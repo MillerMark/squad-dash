@@ -4,6 +4,30 @@
 
 ---
 
+### 2026-08-02 — Collected-plan workflow: service ownership and invariants
+
+**Context:** The staged-plan-lifecycle feature (PLANLIBRARY-20260802) introduced the ability to collect Inbox plan proposals into the Plans panel without starting execution, then explicitly start or resume them later with live progress observation.
+
+**Decisions:**
+
+1. **`PlanCollectionService` owns the collection transition.** Converting a transient `PendingDecomposePlan` into a durable `Approved` plan in `PlanStore` is the sole responsibility of this service. It enforces idempotency, stale-revision rejection, active-plan protection, and best-effort pending cleanup. Collection never starts a loop, switches branches, or writes `.squad/tasks.md`.
+
+2. **`PlanExecutionTransitionService` owns start and resume.** `Start` (Approved → Executing) and `Resume` (Interrupted → Executing) are separate transitions from collection. Both have idempotent guards for already-executing plans and reject terminal plans.
+
+3. **`PlanProgressPublisher` enforces persist-then-notify ordering.** Durable persistence must succeed before any observer notification fires. An observer failure must not invalidate an already-saved transition.
+
+4. **`PlanViewerLiveSyncHandler` provides 80 ms coalescence.** Rapid `PlanProgressEvent` bursts are coalesced into a single UI refresh every 80 ms via `DispatcherTimer`. Events are filtered by PlanId, stale events (lower completion count) are rejected, and the subscription detaches on window close.
+
+5. **`PlanApprovalControlLockPolicy` makes completed regions read-only.** Once a task completes or a gate is traversed, its approval controls in the Plan Viewer become immutable. Tooltip text explains the lock reason.
+
+6. **Durable Plan is authoritative; `.squad/tasks.md` is a projection.** The system of record is `.squad/plans/{planId}.json`. `.squad/tasks.md` is a host-managed projection written during execution. Agents never edit `.squad/tasks.md`.
+
+**Rationale:** Separating collection, start, resume, persistence, and notification into distinct services keeps each testable in isolation and prevents accidental side effects (e.g., a collect action inadvertently starting the loop). The persist-then-notify contract prevents ghost progress (notifications without durable state). The 80 ms coalescence prevents visual thrashing during rapid task completions.
+
+**Scope:** All agents working on plan lifecycle, Inbox, or Plans panel features.
+
+---
+
 ### 2026-06-02 — Never swallow exceptions silently in try/catch blocks
 
 **Decision:**

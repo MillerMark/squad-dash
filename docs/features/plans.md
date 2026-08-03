@@ -39,6 +39,28 @@ Use the `/plan` slash command or describe a multi-step feature in plain language
 
 ---
 
+## Collecting a Plan (Add to Plans)
+
+Instead of executing a plan immediately, you can **collect** it — saving the plan to the Plans panel without starting work. This lets you review, reorder, or delay execution at your discretion.
+
+**How to collect:**
+1. A plan proposal arrives in the Inbox.
+2. Click the **Add to Plans** action button.
+3. The plan transitions from a transient Inbox proposal to a durable `Approved` record in `.squad/plans/{planId}.json`.
+4. The plan row appears in the Plans panel with an ✅ Approved badge, ready to start whenever you choose.
+
+**What collection does _not_ do:**
+- Does not switch branches, start the loop, or write `.squad/tasks.md`.
+- Does not modify any files in the worktree.
+
+**Idempotency:** Clicking "Add to Plans" on an already-collected plan is a safe no-op. Stale Inbox actions against a newer plan revision are silently rejected.
+
+**Starting or resuming later:**
+- Right-click an Approved plan in the Plans panel → **Start Plan**, or open the Plan Viewer and click **Start Plan**.
+- Right-click an Interrupted plan → **Resume Plan**, or use the **Resume Plan** button in the Plan Viewer.
+
+---
+
 ## Plan Lifecycle
 
 Each plan moves through a defined set of lifecycle statuses:
@@ -131,11 +153,28 @@ Click any plan row in the Plans panel to open the Plan Viewer:
 
 | Path | Contents |
 |---|---|
-| `.squad/plans/{planId}.json` | Durable plan record (lifecycle status, tasks, gates, timestamps) |
+| `.squad/plans/{planId}.json` | **Authoritative** durable plan record (lifecycle status, tasks, gates, timestamps) |
 | `.squad/plans/pending/{planId}.json` | Staged proposal before user approval |
-| `.squad/tasks.md` | Live task backlog owned by SquadDash during execution — never commit this manually |
+| `.squad/tasks.md` | Projection of the active plan during execution — never commit this manually |
+
+> **Source of truth:** The durable Plan record (`.squad/plans/{planId}.json`) is always authoritative. `.squad/tasks.md` is a host-managed projection written during execution and should not be treated as the canonical plan state. Agents never edit `.squad/tasks.md` — it is host-owned.
 
 > **Important:** Do not commit `.squad/tasks.md` during plan execution. SquadDash manages all task status markers. Committing it externally will cause false dirty-worktree warnings that SquadDash must reconcile.
+
+---
+
+## Locked Historical Controls
+
+Once a task completes or a gate is traversed, its approval controls in the Plan Viewer become read-only. This prevents retroactive edits to work that has already been verified and committed.
+
+| Control | Locked when |
+|---|---|
+| Task-entry gate (before a task) | Task has started or completed |
+| Task-exit gate (after a task) | Task has completed |
+| Stage milestone | Gate traversed, or all upstream tasks complete and downstream work has begun |
+| ALL-join gate | All inbound tasks have completed |
+
+Locked controls display a tooltip explaining the lock — for example, _"Task entry — completed work cannot be modified."_ Plans that have not yet started execution have no execution locks.
 
 ---
 
@@ -187,3 +226,37 @@ Every completed plan round is appended to `.squad/logs/plan-execution.ndjson` (N
 - **[Inbox Panel](inbox.md)** — Where plan proposals and gate alerts arrive
 - **[Tasks Panel](../panels/Tasks.md)** — The actionable task backlog surface
 - **[Slash Commands](../reference/slash-commands.md)** — `/plan` command reference
+- **[Human Approval Workflow](../human-approval-workflow.md)** — Gate editing, versioned approval tokens, and cross-surface coordination
+
+---
+
+## Known Limitations
+
+- **Single active plan per workspace.** Only one plan can be Executing at a time. Collecting multiple plans is supported; starting a second plan while one is executing is blocked.
+- **No drag-and-drop reorder.** Collected plans in the Plans panel cannot be reordered visually; they sort by creation timestamp.
+- **No partial collection.** "Add to Plans" collects the entire plan. You cannot collect a subset of tasks from a single proposal.
+- **Stale Inbox actions.** If the plan is revised between proposal and collection, the original Inbox "Add to Plans" button silently rejects. The user must re-open the updated proposal.
+- **No undo after Start Plan.** Once a plan transitions from Approved → Executing, it cannot be returned to Approved without interruption.
+
+---
+
+## Manual Verification Checklist
+
+Use this checklist to verify the collected-plan workflow end-to-end:
+
+1. **Create a plan proposal** — Send a multi-step prompt (e.g., `/plan refactor auth, add tests, update docs`). Verify the Inbox shows a staged plan with **Add to Backlog** and **Add to Plans** action buttons.
+2. **Collect the plan** — Click **Add to Plans**. Verify:
+   - The plan row appears in the Plans panel with ✅ Approved status.
+   - No branch switch occurred. No loop started. `.squad/tasks.md` was not written.
+   - The durable plan file exists at `.squad/plans/{planId}.json`.
+3. **Idempotent re-collect** — Click **Add to Plans** again on the same Inbox message. Verify no error and no duplicate plan row.
+4. **Open the Plan Viewer** — Click the plan row in the Plans panel. Verify the dependency graph renders with all tasks in Pending status. Verify approval-gate controls are editable (no lock icons).
+5. **Start the plan** — Right-click the plan row → **Start Plan** (or click **Start Plan** in the Plan Viewer). Verify:
+   - Status transitions to ▶ Executing.
+   - The loop begins running tasks.
+   - `.squad/tasks.md` is now written.
+   - Progress updates appear live in the Plans panel.
+6. **Verify live sync** — Open the Plan Viewer while a plan is executing. Verify task nodes update in real time as steps complete (green nodes, commit SHAs).
+7. **Verify locked controls** — After at least one task completes, verify that its entry/exit gate controls in the Plan Viewer show lock icons and the tooltip reads _"… — completed work cannot be modified."_
+8. **Interrupt and resume** — Stop the app mid-execution. Restart. Verify the plan shows ⚠ Interrupted. Click **Resume Plan**. Verify execution resumes from where it left off.
+9. **End a plan** — On an interrupted plan, click **End Plan**. Verify status transitions to ⏹ Stopped and the plan cannot be resumed.

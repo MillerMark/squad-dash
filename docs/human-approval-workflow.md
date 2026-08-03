@@ -277,3 +277,12 @@ Revision safety is enforced at multiple levels:
 
 - On restart, `RestoreActivePlanIds()` rebuilds state from persisted Inbox messages. If the Inbox file was corrupted, the JSON deserializer logs a trace message (`TraceCategory.Inbox`) and skips that entry.
 - Check `SquadDashTrace` output for `"Durable approval state could not be parsed"` messages.
+
+### Gate controls are locked / greyed out in the Plan Viewer
+
+- Controls become read-only after their associated work has completed. This is enforced by `PlanApprovalControlLockPolicy`.
+- **Task-entry gates** lock when the task has started or completed.
+- **Task-exit gates** lock when the task has completed.
+- **Stage milestones** lock when the gate is traversed, or when all upstream tasks are complete and downstream work has begun.
+- Locked controls display a tooltip explaining the reason (e.g., _"Task entry — completed work cannot be modified."_).
+- Plans that have not yet started execution (Staged or Approved) have no execution locks.
