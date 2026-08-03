@@ -361,6 +361,8 @@
     <Compile Include="..\SquadDash\PlanGateVisualizationPolicy.cs" Link="Source\PlanGateVisualizationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalPresentationAnchorResolver.cs" Link="Source\PlanApprovalPresentationAnchorResolver.cs" />
     <Compile Include="..\SquadDash\PlanApprovalSummaryBuilder.cs" Link="Source\PlanApprovalSummaryBuilder.cs" />
+    <Compile Include="..\SquadDash\ApprovalAnchorInferenceEngine.cs" Link="Source\ApprovalAnchorInferenceEngine.cs" />
+    <Compile Include="..\SquadDash\ApprovalAnchorPresentation.cs" Link="Source\ApprovalAnchorPresentation.cs" />
     <Compile Include="..\SquadDash\ApprovalReviewSnapshot.cs" Link="Source\ApprovalReviewSnapshot.cs" />
     <Compile Include="..\SquadDash\ApprovalReviewSnapshotBuilder.cs" Link="Source\ApprovalReviewSnapshotBuilder.cs" />
     <Compile Include="..\SquadDash\DurableApprovalRequestManager.cs" Link="Source\DurableApprovalRequestManager.cs" />
