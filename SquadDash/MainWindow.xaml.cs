@@ -4129,7 +4129,7 @@ public partial class MainWindow : Window
 
             // Only show Prioritize when this item is not already next-to-dispatch (index 0).
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
-            if (!isAlreadyFirst && !isQueuedLoop)
+            if (!isAlreadyFirst && !isQueuedLoop && !isPlanContinuation)
             {
                 var prioritizeItem = MakeItem("Prioritize — send this next");
                 prioritizeItem.Click += (_, _) => OnQueueTabPrioritize(capturedId);
@@ -4144,7 +4144,7 @@ public partial class MainWindow : Window
             }
             tab.ContextMenu = cm;
 
-            if (!isQueuedLoop)
+            if (!isQueuedLoop && !isPlanContinuation)
             {
                 // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
                 // then wire up the four mouse events needed for the drag lifecycle.

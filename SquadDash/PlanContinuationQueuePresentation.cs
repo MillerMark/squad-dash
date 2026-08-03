@@ -25,7 +25,7 @@ internal static class PlanContinuationQueuePresentation
 
         return new PlanContinuationQueueDisplay(
             nextStepNumber,
-            $"Plan Step {nextStepNumber}",
+            $"Plan Step {nextStepNumber}: {nextTaskName}",
             $"This is a locked continuation of the currently executing plan.\n\n" +
             $"Plan: {plan.Title}\n" +
             $"Next task: {nextTaskName}\n" +

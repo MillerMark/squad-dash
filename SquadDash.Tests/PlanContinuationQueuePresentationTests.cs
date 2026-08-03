@@ -12,7 +12,7 @@ internal sealed class PlanContinuationQueuePresentationTests
         {
             Assert.That(display, Is.Not.Null);
             Assert.That(display!.StepNumber, Is.EqualTo(3));
-            Assert.That(display.Label, Is.EqualTo("Plan Step 3"));
+            Assert.That(display.Label, Is.EqualTo("Plan Step 3: Task 3"));
             Assert.That(display.Description, Does.Contain("locked continuation"));
             Assert.That(display.Description, Does.Contain("Plan: Plan"));
             Assert.That(display.Description, Does.Contain("Next task: Task 3"));
