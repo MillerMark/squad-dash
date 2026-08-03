@@ -91,9 +91,12 @@ internal static class PendingDecomposePlanAdapter
                 AfterTaskIds: validation.AfterTaskIds,
                 BeforeTaskIds: validation.BeforeTaskIds,
                 Assertions: validation.Assertions,
-                OutputIds: validation.OutputIds ?? [],
+                // Preserve null versus an explicitly empty collection. Revision V4 sealed the
+                // serialized validation contract, so collapsing [] to null (or vice versa) makes
+                // an otherwise identical approved plan fail durable initialization.
+                OutputIds: validation.OutputIds,
                 Mode: validation.Mode,
-                Commands: validation.Commands ?? [],
+                Commands: validation.Commands,
                 RevalidateAtCompletion: validation.RevalidateAtCompletion,
                 Status: PlanValidationStatus.Pending)).ToArray()
             : [];
@@ -142,9 +145,9 @@ internal static class PendingDecomposePlanAdapter
                     AfterTaskIds: validation.AfterTaskIds,
                     BeforeTaskIds: validation.BeforeTaskIds,
                     Assertions: validation.Assertions,
-                    OutputIds: validation.OutputIds.Count > 0 ? validation.OutputIds : null,
+                    OutputIds: validation.OutputIds,
                     Mode: validation.Mode,
-                    Commands: validation.Commands.Count > 0 ? validation.Commands : null,
+                    Commands: validation.Commands,
                     RevalidateAtCompletion: validation.RevalidateAtCompletion))
                 .ToArray()
             : null;

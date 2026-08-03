@@ -142,6 +142,43 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyExecutionStarted_FreshValidationPlan_PreservesExplicitEmptyCollectionsAndRevision()
+    {
+        var group = MakeGroup(2) with
+        {
+            Validations =
+            [
+                new DecomposedValidationNode(
+                    "GROUP-001-VAL-001",
+                    "Validate projection",
+                    "Validate the durable projection.",
+                    ["GROUP-001-001"],
+                    ["GROUP-001-002"],
+                    ["The projection remains intact."],
+                    OutputIds: [],
+                    Commands: []),
+            ],
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            existing: null,
+            group,
+            revision,
+            items,
+            "GROUP-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.Validations, Has.Count.EqualTo(1));
+            Assert.That(plan.Validations![0].OutputIds, Is.Empty);
+            Assert.That(plan.Validations[0].Commands, Is.Empty);
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+        });
+    }
+
+    [Test]
     public void ApplyExecutionStarted_ApprovalWindow_AllowsIndependentTaskThenBlocksFrontier()
     {
         var group = MakeApprovalWindowGroup();

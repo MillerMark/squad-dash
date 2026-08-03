@@ -237,6 +237,48 @@ internal sealed class PendingDecomposePlanAdapterTests
         });
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void RevisionIsValid_PreservesExplicitlyEmptyAndOmittedValidationCollections(
+        bool explicitlyEmpty)
+    {
+        var basePending = MakePending("PLANCONTROLUX-20260803");
+        var validation = new DecomposedValidationNode(
+            "PLANCONTROLUX-20260803-VAL-001",
+            "Validate controls",
+            "Validate the projected control contract.",
+            ["PLANCONTROLUX-20260803-001"],
+            ["PLANCONTROLUX-20260803-002"],
+            ["The control remains wired."],
+            OutputIds: explicitlyEmpty ? [] : null,
+            Commands: explicitlyEmpty ? [] : null);
+        var group = basePending.Group with { Validations = [validation] };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group),
+            DateTimeOffset.UtcNow);
+        var reconstructed = PendingDecomposePlanAdapter.FromPlan(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+            Assert.That(
+                PendingDecomposePlanStore.ComputeRevision(reconstructed.Group),
+                Is.EqualTo(revision));
+            if (explicitlyEmpty)
+            {
+                Assert.That(reconstructed.Group.Validations![0].OutputIds, Is.Empty);
+                Assert.That(reconstructed.Group.Validations[0].Commands, Is.Empty);
+            }
+            else
+            {
+                Assert.That(reconstructed.Group.Validations![0].OutputIds, Is.Null);
+                Assert.That(reconstructed.Group.Validations[0].Commands, Is.Null);
+            }
+        });
+    }
+
     [Test]
     public void ToPlan_ThenFromPlan_RevisionMatchesPendingDecomposePlanStore()
     {

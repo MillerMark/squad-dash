@@ -49,7 +49,7 @@ internal static class PlanValidationPromptBuilder
         AppendTaskOutputs(sb, plan, validation);
 
         // Verification commands
-        if (validation.Commands.Count > 0)
+        if (validation.Commands is { Count: > 0 })
         {
             sb.AppendLine("## Verification Commands");
             sb.AppendLine();
@@ -140,7 +140,7 @@ internal static class PlanValidationPromptBuilder
     {
         // Gather completed tasks referenced by afterTaskIds or outputIds
         var relevantTaskIds = new HashSet<string>(validation.AfterTaskIds, StringComparer.Ordinal);
-        if (validation.OutputIds.Count > 0)
+        if (validation.OutputIds is { Count: > 0 })
         {
             var outputTaskIds = plan.Tasks
                 .Where(t => t.Outputs is { Count: > 0 } &&

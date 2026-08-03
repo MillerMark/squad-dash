@@ -43598,8 +43598,8 @@ public partial class MainWindow : Window
             if (existing is null && !PendingDecomposePlanAdapter.RevisionIsValid(updated))
             {
                 error =
-                    $"Plan {groupId} did not start because its durable task and approval-gate " +
-                    "projection does not match the user-approved revision.";
+                    "Its durable task, approval-gate, and validation projection does not match " +
+                    "the user-approved revision.";
                 return false;
             }
             if (!PlanTaskProjectionValidator.TryGetValidatedItems(

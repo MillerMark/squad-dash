@@ -199,9 +199,13 @@ internal sealed record PlanValidationNode(
     [property: JsonPropertyName("afterTaskIds")] IReadOnlyList<string> AfterTaskIds,
     [property: JsonPropertyName("beforeTaskIds")] IReadOnlyList<string> BeforeTaskIds,
     [property: JsonPropertyName("assertions")] IReadOnlyList<string> Assertions,
-    [property: JsonPropertyName("outputIds")] IReadOnlyList<string> OutputIds,
+    [property: JsonPropertyName("outputIds")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? OutputIds,
     [property: JsonPropertyName("mode")] string Mode,
-    [property: JsonPropertyName("commands")] IReadOnlyList<string> Commands,
+    [property: JsonPropertyName("commands")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Commands,
     [property: JsonPropertyName("revalidateAtCompletion")] bool RevalidateAtCompletion,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("startedAt")]
