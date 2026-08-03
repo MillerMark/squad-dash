@@ -22,6 +22,7 @@
     <Compile Include="..\SquadDash\PlanPreflightRecoveryContent.cs" Link="Source\PlanPreflightRecoveryContent.cs" />
     <Compile Include="..\SquadDash\PendingPlanGateEditor.cs" Link="Source\PendingPlanGateEditor.cs" />
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />
+    <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />

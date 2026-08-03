@@ -659,6 +659,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var isLocked = existingGate is not null || displayedGate is not null;
             var milestoneAnchor = StageAnchor(columnIndex + 1);
             var milestoneIsPrimary = existingGate is null || IsPrimary(existingGate, milestoneAnchor);
+            var milestoneExecutionLocked = durablePlan is not null &&
+                PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                PlanApprovalControlLockPolicy.IsStageMilestoneLocked(durablePlan, afterIds, beforeIds);
 
             var leftTasks = leftColumn.ToArray();
             var leftX = positions[leftTasks[0].Id].X;
@@ -681,7 +684,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var milestoneStop = CreateApprovalStop(
                 isLocked,
-                onGatesChanged is null
+                milestoneExecutionLocked
+                    ? PlanApprovalControlLockPolicy.LockedTooltip("Stage milestone")
+                : onGatesChanged is null
                     ? isLocked
                         ? "Preview: human approval is required at this stage milestone."
                         : "Preview: this stop controls approval at the stage milestone."
@@ -690,7 +695,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to remove."
                             : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                         : "Require human approval after the stage to the left completes and before the next stage begins.",
-                onGatesChanged is null
+                milestoneExecutionLocked ? null
+                : onGatesChanged is null
                     ? null
                     : () =>
                 {
@@ -918,6 +924,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinAnchor = AllAnchor(joinBeforeIds);
             var joinIsPrimary = existingJoinGate is null || IsPrimary(existingJoinGate, joinAnchor);
             var joinController = coveringJoinGate is null ? null : ResolvePresentationAnchor(coveringJoinGate);
+            var joinExecutionLocked = durablePlan is not null &&
+                PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                PlanApprovalControlLockPolicy.IsAllJoinLocked(durablePlan, joinAfterIds, joinBeforeIds);
             var badgeText = new TextBlock
             {
                 Text                = "ALL",
@@ -934,7 +943,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var joinStop = CreateApprovalStop(
                     joinIsLocked,
-                    onGatesChanged is null
+                    joinExecutionLocked
+                        ? PlanApprovalControlLockPolicy.LockedTooltip("ALL join")
+                    : onGatesChanged is null
                         ? joinIsLocked
                             ? "Preview: human approval is required at this ALL join."
                             : "Preview: this stop controls approval at the ALL join."
@@ -947,7 +958,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval after every incoming task completes and before joined work begins.",
-                    onGatesChanged is null
+                    joinExecutionLocked ? null
+                    : onGatesChanged is null
                         ? null
                         : () =>
                     {
@@ -1124,7 +1136,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (durablePlan is not null && onGatesChanged is not null)
             {
                 var capturedTask = task;
-                var addBeforeItem = new MenuItem { Header = "Require approval before this task" };
+                var taskEntryLocked = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                    PlanApprovalControlLockPolicy.IsTaskEntryLocked(durablePlan, capturedTask.Id);
+                var taskExitLocked = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                    PlanApprovalControlLockPolicy.IsTaskExitLocked(durablePlan, capturedTask.Id);
+
+                var addBeforeItem = new MenuItem
+                {
+                    Header = "Require approval before this task",
+                    IsEnabled = !taskEntryLocked,
+                };
+                if (taskEntryLocked)
+                    addBeforeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        PlanApprovalControlLockPolicy.LockedTooltip("Task entry"));
                 addBeforeItem.Click += (_, _) =>
                 {
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
@@ -1136,7 +1160,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 };
 
-                var addAfterItem = new MenuItem { Header = "Require approval after this task" };
+                var addAfterItem = new MenuItem
+                {
+                    Header = "Require approval after this task",
+                    IsEnabled = !taskExitLocked,
+                };
+                if (taskExitLocked)
+                    addAfterItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        PlanApprovalControlLockPolicy.LockedTooltip("Task exit"));
                 addAfterItem.Click += (_, _) =>
                 {
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
@@ -1166,10 +1197,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var approvalGate in gatesForTask)
                     {
                         var capturedGate = approvalGate;
+                        var durableGate = durablePlan.ApprovalGates.FirstOrDefault(g =>
+                            string.Equals(g.GateId, capturedGate.GateId, StringComparison.Ordinal));
+                        var gateIsTraversed = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                            durableGate is not null &&
+                            (durableGate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped);
                         var removeItem = new MenuItem
                         {
                             Header = $"Remove approval gate: {capturedGate.Message}",
+                            IsEnabled = !gateIsTraversed,
                         };
+                        if (gateIsTraversed)
+                            removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                                PlanApprovalControlLockPolicy.LockedTooltip("Traversed gate"));
                         removeItem.Click += (_, _) =>
                         {
                             var updated = PlanGateManager.RemoveGate(durablePlan, capturedGate.GateId);
@@ -1223,6 +1263,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 if (!isRoot)
                 {
+                    var entryExecutionLocked = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                        PlanApprovalControlLockPolicy.IsTaskEntryLocked(durablePlan, capturedTaskForStop.Id);
                     var existingBeforeGate = FindTaskGateBefore(capturedTaskForStop.Id);
                     var beforeAnchor = TaskBeforeAnchor(capturedTaskForStop.Id);
                     var coveringBeforeGate = existingBeforeGate is null
@@ -1250,7 +1292,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var beforeStop = CreateApprovalStop(
                         beforeEngaged,
-                        collectivelyCoveredEntry
+                        entryExecutionLocked
+                            ? PlanApprovalControlLockPolicy.LockedTooltip("Task entry")
+                        : collectivelyCoveredEntry
                             ? "This task entry is covered by every incoming approval requirement."
                         : coveringBeforeGate is not null
                             ? "This task entry is covered by a larger approval requirement."
@@ -1259,7 +1303,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ? "Human approval is required before this task begins. Click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval before this task begins.",
-                        () =>
+                        entryExecutionLocked ? null : () =>
                         {
                             if (collectivelyCoveredEntry)
                             {
@@ -1292,6 +1336,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 if (!isLeaf)
                 {
+                    var exitExecutionLocked = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
+                        PlanApprovalControlLockPolicy.IsTaskExitLocked(durablePlan, capturedTaskForStop.Id);
                     var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
                     var afterAnchor = TaskAfterAnchor(capturedTaskForStop.Id);
                     var afterBoundary = DirectDependents(capturedTaskForStop.Id);
@@ -1324,7 +1370,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
                     var afterStop = CreateApprovalStop(
                         afterEngaged,
-                        collectivelyCoveredByAllJoins
+                        exitExecutionLocked
+                            ? PlanApprovalControlLockPolicy.LockedTooltip("Task exit")
+                        : collectivelyCoveredByAllJoins
                             ? "This task exit is covered by its enabled ALL approval requirements."
                         : coveringAfterGate is not null
                             ? "This task exit is covered by a larger approval requirement."
@@ -1333,7 +1381,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ? "Human approval is required after this task completes. Click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval after this task completes.",
-                        () =>
+                        exitExecutionLocked ? null : () =>
                         {
                             if (collectivelyCoveredByAllJoins)
                             {
