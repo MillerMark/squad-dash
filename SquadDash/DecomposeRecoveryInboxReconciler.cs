@@ -13,14 +13,15 @@ internal static class DecomposeRecoveryInboxReconciler
     internal sealed record Result(InboxMessage Message, bool IsActionable, bool ShouldArchive);
 
     internal static bool IsRecoveryMessage(InboxMessage message) =>
-        message.Id.StartsWith(RecoveryPrefix, StringComparison.Ordinal) ||
-        message.Actions.Any(action => string.Equals(
-            action.RouteMode,
-            DecomposePlanInbox.RecoveryRouteMode,
-            StringComparison.OrdinalIgnoreCase));
+        !string.IsNullOrWhiteSpace(message.Id) &&
+        (message.Id.StartsWith(RecoveryPrefix, StringComparison.Ordinal) ||
+         message.Actions?.Any(action => action is not null && string.Equals(
+             action.RouteMode,
+             DecomposePlanInbox.RecoveryRouteMode,
+             StringComparison.OrdinalIgnoreCase)) == true);
 
     internal static string? GetPlanId(InboxMessage message) =>
-        message.Attachments.FirstOrDefault(attachment =>
+        message.Attachments?.FirstOrDefault(attachment => attachment is not null &&
             string.Equals(attachment.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase))
             ?.PlanGroupId;
 
@@ -29,7 +30,7 @@ internal static class DecomposeRecoveryInboxReconciler
         if (!IsRecoveryMessage(message))
             return new Result(message, IsActionable: true, ShouldArchive: false);
 
-        var attachment = message.Attachments.FirstOrDefault(candidate =>
+        var attachment = message.Attachments?.FirstOrDefault(candidate => candidate is not null &&
             string.Equals(candidate.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase));
         var planId = attachment?.PlanGroupId;
         var revision = attachment?.PlanRevision;
@@ -53,9 +54,10 @@ internal static class DecomposeRecoveryInboxReconciler
         }
 
         var explanation = GetResolutionExplanation(plan, planId, revision);
-        var body = message.Body.Contains(ResolutionMarker, StringComparison.Ordinal)
-            ? message.Body
-            : $"{message.Body}\n\n---\n\n{ResolutionMarker} {explanation}";
+        var originalBody = message.Body ?? string.Empty;
+        var body = originalBody.Contains(ResolutionMarker, StringComparison.Ordinal)
+            ? originalBody
+            : $"{originalBody}\n\n---\n\n{ResolutionMarker} {explanation}".TrimStart();
         var resolved = message with
         {
             Read = true,

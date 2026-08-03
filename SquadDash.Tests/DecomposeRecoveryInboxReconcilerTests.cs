@@ -75,6 +75,29 @@ internal sealed class DecomposeRecoveryInboxReconcilerTests
         Assert.That(result.Message.Body, Does.Contain("definition changed"));
     }
 
+    [Test]
+    public void Reconcile_LegacyRecoveryMessageWithNullCollections_DoesNotCrashStartup()
+    {
+        var legacyMessage = new InboxMessage
+        {
+            Id = "decompose-recovery-LEGACY-001-LEGACY-001-001-old-revision",
+            Subject = "Blocked plan: Legacy",
+            Body = null!,
+            Actions = null!,
+            Attachments = null!,
+        };
+
+        var result = DecomposeRecoveryInboxReconciler.Reconcile(legacyMessage, plan: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsActionable, Is.False);
+            Assert.That(result.ShouldArchive, Is.True);
+            Assert.That(result.Message.Actions, Is.Empty);
+            Assert.That(result.Message.Body, Does.Contain("Recovery request resolved"));
+        });
+    }
+
     private static InboxMessage MakeMessage()
     {
         var pending = new PendingDecomposePlan(
