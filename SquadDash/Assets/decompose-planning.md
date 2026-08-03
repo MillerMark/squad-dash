@@ -1,5 +1,5 @@
 ---
-schema-version: 3
+schema-version: 4
 host-owned: true
 ---
 
@@ -29,9 +29,14 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 - Attributive references: "the plan is to…", "plan A vs plan B"
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain the optional `delivery` field. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
+`summary`, and 2–25 `tasks`. It may also contain optional `validations` and `delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
+
+Plan for cohesion, not merely local completion. When separate tasks produce and consume components,
+declare the outputs and integration responsibility in their descriptions and add first-class validation
+nodes for important cross-task contracts. A supporting-artifact task may complete before production
+integration, but its later consumers and the validation that proves their relationship must be explicit.
 
 ## TASKS_JSON schema
 
@@ -56,9 +61,37 @@ fence around the object is accepted but not required.
 - `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments remain unavailable until SquadDash can isolate writers in separate worktrees.
 - `tasks[].genericAgentReason`: required only with `agentRoutingMode: "generic"`; explain why no roster specialist is appropriate.
 - `tasks[].parallelEligible`: optional boolean. Set true only when the task may run concurrently with other dependency-ready tasks; dependencies still control readiness and SquadDash may serialize work when scopes conflict.
+- `tasks[].outputs`: optional list of stable `{ "outputId", "description" }` contracts produced by
+  this task for later tasks. Use lowercase kebab-case IDs that describe capabilities rather than
+  provisional class names.
+- `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
+  A consumer may name several outputs, and one output may have several consumers.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.
+- `validations`: optional array of first-class, non-mutating cross-task validation nodes. Include these
+  when correctness depends on outputs from multiple tasks communicating, being consumed, replacing a
+  placeholder, or jointly satisfying an observable scenario. Do not add ceremonial validations to a
+  simple plan whose task-level acceptance already proves the result.
+- `validations[].validationId`: exactly `{groupId}-VAL-NNN`.
+- `validations[].title`: concise user-facing contractual outcome.
+- `validations[].description`: explain the relationship being validated and why it matters to the plan.
+- `validations[].afterTaskIds`: non-empty list of tasks whose completion makes the validation eligible.
+- `validations[].beforeTaskIds`: tasks and their downstream frontier that must wait for validation. Use
+  `[]` for a final validation that gates only plan completion.
+- `validations[].assertions`: non-empty list of observable, falsifiable contractual claims. Do not use
+  vague assertions such as "components work together."
+- `validations[].outputIds`: optional list of stable task output IDs whose relationship is covered.
+- `validations[].mode`: `command`, `evidence`, or `hybrid`. `command` executes deterministic commands;
+  `evidence` requests evidence-backed assessment; `hybrid` requires both.
+- `validations[].commands`: required for `command` and `hybrid`; omit for `evidence`. Commands must be
+  non-mutating and scoped to the workspace.
+- `validations[].revalidateAtCompletion`: normally `true` when later work could invalidate the result.
+
+Validation nodes are DAG work, not human approvals. They become ready only after every `afterTaskIds`
+task completes, may run while unrelated branches continue, and block only their declared downstream
+frontier. A failed validation must preserve completed work and identify the violated assertion; it must
+not silently rewrite production code.
 
 The dependency graph must be acyclic. Use dependencies only for real prerequisites; independent
 tasks should remain independent so a future scheduler may run them concurrently. Each task must
@@ -82,6 +115,7 @@ TASKS_JSON:
       "description": "Introduce ISearchIndex and its in-memory implementation with unit tests; do not change existing UI call sites yet.",
       "dependsOn": [],
       "priority": "high",
+      "outputs": [{ "outputId": "search-index-contract", "description": "The reusable search index abstraction and in-memory implementation." }],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers the new search abstraction."
     },
@@ -91,6 +125,8 @@ TASKS_JSON:
       "description": "Move document indexing behind ISearchIndex and add integration tests proving existing indexing behavior is preserved.",
       "dependsOn": ["SEARCH-20260725-001"],
       "priority": "high",
+      "inputs": ["search-index-contract"],
+      "outputs": [{ "outputId": "indexed-document-path", "description": "Document indexing routed through ISearchIndex." }],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers search indexing."
     },
@@ -100,8 +136,26 @@ TASKS_JSON:
       "description": "Update the search UI controller to consume ISearchIndex, remove the superseded direct indexing path, and run the full test suite.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
+      "inputs": ["search-index-contract", "indexed-document-path"],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers this UI integration."
+    }
+  ],
+  "validations": [
+    {
+      "validationId": "SEARCH-20260725-VAL-001",
+      "title": "Verify the UI uses the migrated search path",
+      "description": "Confirm the search UI reaches document indexing through ISearchIndex and the superseded direct path is no longer active.",
+      "afterTaskIds": ["SEARCH-20260725-002", "SEARCH-20260725-003"],
+      "beforeTaskIds": [],
+      "assertions": [
+        "The search UI calls the ISearchIndex-backed path.",
+        "The former direct indexing path is not reachable from the search UI.",
+        "The user-visible search scenario still returns indexed documents."
+      ],
+      "outputIds": ["search-index-contract", "indexed-document-path"],
+      "mode": "evidence",
+      "revalidateAtCompletion": true
     }
   ]
 }

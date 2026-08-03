@@ -493,6 +493,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
+        var displayedValidations = group.Validations ?? [];
+        var validationRailHeight = displayedValidations.Count == 0
+            ? 0
+            : (34 + displayedValidations.Count * 34) * _scaleFactor;
+        var graphTop = 68 * _scaleFactor + validationRailHeight;
+        var validationRailRight = 0.0;
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
 
         static string StageAnchor(int leftStage) => $"stage:{leftStage}";
@@ -578,11 +584,79 @@ internal sealed class PlanViewerWindow : ChromedWindow
             UIElement headerElement = titleBlock;
 
             Canvas.SetLeft(headerElement, x);
-            Canvas.SetTop(headerElement, (68 - 36) * _scaleFactor);
+            Canvas.SetTop(headerElement, graphTop - 36 * _scaleFactor);
             canvas.Children.Add(headerElement);
 
             for (var row = 0; row < tasks.Length; row++)
-                positions[tasks[row].Id] = new Point(x, 68 * _scaleFactor + row * RowSpacing);
+                positions[tasks[row].Id] = new Point(x, graphTop + row * RowSpacing);
+        }
+
+        if (displayedValidations.Count > 0)
+        {
+            var railLabel = new TextBlock
+            {
+                Text = "VALIDATIONS",
+                FontWeight = FontWeights.SemiBold,
+                ToolTip = "Cross-task contracts run when all prerequisite tasks have completed.",
+            };
+            railLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            railLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            Canvas.SetLeft(railLabel, 8 * _scaleFactor);
+            Canvas.SetTop(railLabel, 6 * _scaleFactor);
+            canvas.Children.Add(railLabel);
+
+            for (var index = 0; index < displayedValidations.Count; index++)
+            {
+                var validation = displayedValidations[index];
+                var durableValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
+                    string.Equals(candidate.ValidationId, validation.ValidationId, StringComparison.Ordinal));
+                var triggerLevel = validation.AfterTaskIds
+                    .Where(levels.ContainsKey)
+                    .Select(id => levels[id])
+                    .DefaultIfEmpty(0)
+                    .Max();
+                var sourceRight = validation.AfterTaskIds
+                    .Where(positions.ContainsKey)
+                    .Select(id => positions[id].X + NodeWidth)
+                    .DefaultIfEmpty(42 * _scaleFactor + triggerLevel * ColumnSpacing + NodeWidth)
+                    .Max();
+                var targetLeft = validation.BeforeTaskIds
+                    .Where(positions.ContainsKey)
+                    .Select(id => positions[id].X)
+                    .DefaultIfEmpty(sourceRight + 72 * _scaleFactor)
+                    .Min();
+                var anchorX = (sourceRight + targetLeft) / 2.0;
+                var validationStatus = durableValidation?.Status ?? PlanValidationStatus.Pending;
+
+                var row = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"{validation.Title}\n\n{validation.Description}\n\n" +
+                        string.Join("\n", validation.Assertions.Select(assertion => $"• {assertion}"))),
+                };
+                row.Children.Add(CreateValidationShield(validationStatus));
+                var title = new TextBlock
+                {
+                    Text = validation.Title,
+                    Margin = new Thickness(6 * _scaleFactor, 2 * _scaleFactor, 0, 0),
+                    MaxWidth = 240 * _scaleFactor,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                title.SetResourceReference(TextBlock.ForegroundProperty,
+                    validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
+                title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                row.Children.Add(title);
+
+                Canvas.SetLeft(row, Math.Max(8 * _scaleFactor, anchorX - 12 * _scaleFactor));
+                Canvas.SetTop(row, (28 + index * 34) * _scaleFactor);
+                Panel.SetZIndex(row, 30);
+                canvas.Children.Add(row);
+                validationRailRight = Math.Max(
+                    validationRailRight,
+                    Math.Max(8 * _scaleFactor, anchorX - 12 * _scaleFactor) + 280 * _scaleFactor);
+            }
         }
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
@@ -1596,7 +1670,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
         }
 
-        canvas.Width  = positions.Values.Max(point => point.X) + NodeWidth;
+        canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
         canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight;
 
         SizeWindowToContent(canvas.Width, canvas.Height);
@@ -2028,6 +2102,79 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // No room — use scrollbar fallback.
             approvalSummary.MaxHeight = 170;
         }
+    }
+
+    private FrameworkElement CreateValidationShield(string status)
+    {
+        var s = _scaleFactor;
+        var shield = new Path
+        {
+            Data = Geometry.Parse("M 12,1 L 22,5 L 22,12 C 22,18 18,22 12,25 C 6,22 2,18 2,12 L 2,5 Z"),
+            Width = 24 * s,
+            Height = 26 * s,
+            Stretch = Stretch.Fill,
+            StrokeThickness = 1.6,
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+        var check = new Path
+        {
+            Data = Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
+            Width = 12 * s,
+            Height = 9 * s,
+            Stretch = Stretch.Fill,
+            StrokeThickness = 2,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            StrokeLineJoin = PenLineJoin.Round,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        switch (status)
+        {
+            case PlanValidationStatus.Passed:
+                shield.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                shield.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
+                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                break;
+            case PlanValidationStatus.Validating:
+                shield.SetResourceReference(Shape.FillProperty, "PriorityMid");
+                shield.SetResourceReference(Shape.StrokeProperty, "PriorityMid");
+                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                break;
+            case PlanValidationStatus.Failed:
+                shield.SetResourceReference(Shape.FillProperty, "PriorityCritical");
+                shield.SetResourceReference(Shape.StrokeProperty, "PriorityCritical");
+                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                break;
+            case PlanValidationStatus.Stale:
+                shield.Fill = Brushes.Transparent;
+                shield.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
+                check.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
+                check.Opacity = 0.65;
+                break;
+            case PlanValidationStatus.Ready:
+                shield.Fill = Brushes.Transparent;
+                shield.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+                check.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+                break;
+            default:
+                shield.Fill = Brushes.Transparent;
+                shield.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+                check.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+                check.Opacity = 0.45;
+                break;
+        }
+
+        var grid = new Grid
+        {
+            Width = 24 * s,
+            Height = 26 * s,
+            Background = Brushes.Transparent,
+        };
+        grid.Children.Add(shield);
+        grid.Children.Add(check);
+        return grid;
     }
 
     private FrameworkElement CreateApprovalStop(

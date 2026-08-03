@@ -85,7 +85,18 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         // include titles in the approval contract because the title is user-visible work data.
         // Plans with approval gates use V3 so gate boundaries are included in the revision.
         object payload;
-        if (group.ApprovalGates is { Count: > 0 })
+        if (group.Validations is { Count: > 0 })
+        {
+            payload = new RevisionPayloadV4(
+                group.GroupId,
+                group.GroupTitle,
+                group.Branch,
+                group.Summary,
+                group.Tasks,
+                group.ApprovalGates ?? [],
+                group.Validations);
+        }
+        else if (group.ApprovalGates is { Count: > 0 })
         {
             payload = new RevisionPayloadV3(
                 group.GroupId,
@@ -145,4 +156,13 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         [property: JsonPropertyName("summary")] string Summary,
         [property: JsonPropertyName("tasks")] IReadOnlyList<DecomposedSubTask> Tasks,
         [property: JsonPropertyName("approvalGates")] IReadOnlyList<DecomposedGate> ApprovalGates);
+
+    private sealed record RevisionPayloadV4(
+        [property: JsonPropertyName("groupId")] string GroupId,
+        [property: JsonPropertyName("groupTitle")] string GroupTitle,
+        [property: JsonPropertyName("branch")] string Branch,
+        [property: JsonPropertyName("summary")] string Summary,
+        [property: JsonPropertyName("tasks")] IReadOnlyList<DecomposedSubTask> Tasks,
+        [property: JsonPropertyName("approvalGates")] IReadOnlyList<DecomposedGate> ApprovalGates,
+        [property: JsonPropertyName("validations")] IReadOnlyList<DecomposedValidationNode> Validations);
 }

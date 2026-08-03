@@ -31,6 +31,7 @@ internal static class PlanStoreUpdater
             : MapTasks(existing.Tasks, group.Tasks, items);
         var progress = BuildProgress(items, executingTaskId);
         var projectedGates = PendingDecomposePlanAdapter.MapApprovalGates(group, revision);
+        var projectedValidations = PendingDecomposePlanAdapter.MapValidations(group);
 
         if (existing is not null)
         {
@@ -38,6 +39,10 @@ internal static class PlanStoreUpdater
                                 existing.ApprovalGates.Count > 0
                 ? existing.ApprovalGates
                 : projectedGates;
+            var validations = string.Equals(existing.Revision, revision, StringComparison.Ordinal) &&
+                              existing.Validations is { Count: > 0 }
+                ? existing.Validations
+                : projectedValidations;
             return existing with
             {
                 Revision         = revision,
@@ -47,6 +52,7 @@ internal static class PlanStoreUpdater
                 LifecycleStatus  = PlanLifecycleStatus.Executing,
                 Tasks            = tasks,
                 ApprovalGates    = approvalGates,
+                Validations      = validations,
                 Progress         = progress,
                 InterruptionData = null,
                 HostRevision     = group.HostRevision ?? revision,
@@ -71,7 +77,8 @@ internal static class PlanStoreUpdater
             Timestamps:      new PlanTimestamps(
                 CreatedAt: now,
                 StartedAt: now),
-            HostRevision:    group.HostRevision ?? revision);
+            HostRevision:    group.HostRevision ?? revision,
+            Validations:     projectedValidations);
     }
 
     /// <summary>
@@ -235,6 +242,94 @@ internal static class PlanStoreUpdater
         {
             LifecycleStatus = anyStillAwaiting ? PlanLifecycleStatus.AwaitingApproval : PlanLifecycleStatus.Executing,
             ApprovalGates   = updatedGates,
+        };
+    }
+
+    internal static Plan ApplyValidationReady(Plan existing, string validationId)
+    {
+        var validations = existing.Validations ?? [];
+        if (!validations.Any(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
+                validation.Status is PlanValidationStatus.Pending or PlanValidationStatus.Stale))
+            return existing;
+        return existing with
+        {
+            Validations = validations.Select(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
+                    ? validation with { Status = PlanValidationStatus.Ready }
+                    : validation).ToArray(),
+        };
+    }
+
+    internal static Plan ApplyValidationStarted(Plan existing, string validationId)
+    {
+        var validations = existing.Validations ?? [];
+        if (!validations.Any(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
+                validation.Status == PlanValidationStatus.Ready))
+            return existing;
+        return existing with
+        {
+            Validations = validations.Select(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
+                    ? validation with
+                    {
+                        Status = PlanValidationStatus.Validating,
+                        StartedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = null,
+                        Summary = null,
+                        Evidence = null,
+                    }
+                    : validation).ToArray(),
+        };
+    }
+
+    internal static Plan ApplyValidationResult(
+        Plan existing,
+        string validationId,
+        bool passed,
+        string summary,
+        IReadOnlyList<string> evidence,
+        string? validatedCommit)
+    {
+        var validations = existing.Validations ?? [];
+        if (!validations.Any(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
+                validation.Status is PlanValidationStatus.Ready or PlanValidationStatus.Validating))
+            return existing;
+        return existing with
+        {
+            Validations = validations.Select(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
+                    ? validation with
+                    {
+                        Status = passed ? PlanValidationStatus.Passed : PlanValidationStatus.Failed,
+                        CompletedAt = DateTimeOffset.UtcNow,
+                        ValidatedCommit = validatedCommit,
+                        Summary = summary,
+                        Evidence = evidence,
+                    }
+                    : validation).ToArray(),
+        };
+    }
+
+    internal static Plan ApplyValidationStale(Plan existing, string validationId, string reason)
+    {
+        var validations = existing.Validations ?? [];
+        if (!validations.Any(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
+                validation.Status == PlanValidationStatus.Passed))
+            return existing;
+        return existing with
+        {
+            Validations = validations.Select(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
+                    ? validation with
+                    {
+                        Status = PlanValidationStatus.Stale,
+                        Summary = reason,
+                    }
+                    : validation).ToArray(),
         };
     }
 
@@ -492,7 +587,9 @@ internal static class PlanStoreUpdater
                 AgentAssignments: MapAgentAssignments(sub.AgentAssignments),
                 ParallelEligible: sub.ParallelEligible,
                 AgentRoutingMode: sub.AgentRoutingMode,
-                GenericAgentReason: sub.GenericAgentReason);
+                GenericAgentReason: sub.GenericAgentReason,
+                Outputs: MapOutputs(sub.Outputs),
+                Inputs: sub.Inputs);
         }).ToList();
     }
 
@@ -528,6 +625,8 @@ internal static class PlanStoreUpdater
                 ParallelEligible   = sub.ParallelEligible,
                 AgentRoutingMode   = sub.AgentRoutingMode,
                 GenericAgentReason = sub.GenericAgentReason,
+                Outputs            = MapOutputs(sub.Outputs),
+                Inputs             = sub.Inputs,
             };
         }).ToList();
     }
@@ -584,7 +683,13 @@ internal static class PlanStoreUpdater
             AgentAssignments:   MapAgentAssignments(sub.AgentAssignments),
             ParallelEligible:   sub.ParallelEligible,
             AgentRoutingMode:   sub.AgentRoutingMode,
-            GenericAgentReason: sub.GenericAgentReason);
+            GenericAgentReason: sub.GenericAgentReason,
+            Outputs:            MapOutputs(sub.Outputs),
+            Inputs:             sub.Inputs);
+
+    private static IReadOnlyList<PlanTaskOutput>? MapOutputs(
+        IReadOnlyList<DecomposedTaskOutput>? outputs) =>
+        outputs?.Select(output => new PlanTaskOutput(output.OutputId, output.Description)).ToArray();
 
     private static IReadOnlyList<PlanAgentAssignment>? MapAgentAssignments(
         IReadOnlyList<DecomposedAgentAssignment>? assignments) =>

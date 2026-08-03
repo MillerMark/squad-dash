@@ -13,6 +13,31 @@ internal sealed record DecomposedGate(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                   IReadOnlyList<string>? BeforeTaskIds = null);
 
+/// <summary>
+/// A first-class, non-mutating validation node in a decomposed plan. It becomes eligible after
+/// its prerequisite tasks complete and blocks its downstream frontier until its assertions pass.
+/// </summary>
+internal sealed record DecomposedValidationNode(
+    [property: JsonPropertyName("validationId")] string ValidationId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("afterTaskIds")] IReadOnlyList<string> AfterTaskIds,
+    [property: JsonPropertyName("beforeTaskIds")] IReadOnlyList<string> BeforeTaskIds,
+    [property: JsonPropertyName("assertions")] IReadOnlyList<string> Assertions,
+    [property: JsonPropertyName("outputIds")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? OutputIds = null,
+    [property: JsonPropertyName("mode")] string Mode = "evidence",
+    [property: JsonPropertyName("commands")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Commands = null,
+    [property: JsonPropertyName("revalidateAtCompletion")]
+                                                bool RevalidateAtCompletion = true);
+
+internal sealed record DecomposedTaskOutput(
+    [property: JsonPropertyName("outputId")] string OutputId,
+    [property: JsonPropertyName("description")] string Description);
+
 internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("groupId")]    string GroupId,
     [property: JsonPropertyName("groupTitle")] string GroupTitle,
@@ -23,6 +48,9 @@ internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("approvalGates")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                IReadOnlyList<DecomposedGate>? ApprovalGates = null,
+    [property: JsonPropertyName("validations")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                               IReadOnlyList<DecomposedValidationNode>? Validations = null,
     [property: JsonIgnore]                     string? HostRevision = null);
 
 internal sealed record DecomposedAgentAssignment(
@@ -51,4 +79,10 @@ internal sealed record DecomposedSubTask(
                                                 string? AgentRoutingMode = null,
     [property: JsonPropertyName("genericAgentReason")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? GenericAgentReason = null);
+                                                string? GenericAgentReason = null,
+    [property: JsonPropertyName("outputs")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<DecomposedTaskOutput>? Outputs = null,
+    [property: JsonPropertyName("inputs")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Inputs = null);

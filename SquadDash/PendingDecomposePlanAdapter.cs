@@ -38,12 +38,16 @@ internal static class PendingDecomposePlanAdapter
                     a.AgentHandle, a.Role, a.AllowGenericChildren)).ToArray(),
                 ParallelEligible: t.ParallelEligible,
                 AgentRoutingMode: t.AgentRoutingMode,
-                GenericAgentReason: t.GenericAgentReason))
+                GenericAgentReason: t.GenericAgentReason,
+                Outputs: t.Outputs?.Select(output => new PlanTaskOutput(
+                    output.OutputId, output.Description)).ToArray(),
+                Inputs: t.Inputs))
             .ToArray();
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
 
         var approvalGates = MapApprovalGates(group, pending.Revision);
+        var validations = MapValidations(group);
 
         return new Plan(
             PlanId:          group.GroupId,
@@ -57,7 +61,8 @@ internal static class PendingDecomposePlanAdapter
             ApprovalGates:   approvalGates,
             Progress:        new PlanProgress(CompletedCount: 0, TotalCount: totalCount),
             Timestamps:      new PlanTimestamps(CreatedAt: timestamp),
-            HostRevision:    group.HostRevision);
+            HostRevision:    group.HostRevision,
+            Validations:     validations);
     }
 
     /// <summary>
@@ -75,6 +80,22 @@ internal static class PendingDecomposePlanAdapter
                 BeforeTaskIds: g.BeforeTaskIds ?? [],
                 Status:       PlanGateStatus.Pending,
                 PlanRevision: revision)).ToArray()
+            : [];
+
+    internal static IReadOnlyList<PlanValidationNode> MapValidations(DecomposedTaskGroup group) =>
+        group.Validations is { Count: > 0 }
+            ? group.Validations.Select(validation => new PlanValidationNode(
+                ValidationId: validation.ValidationId,
+                Title: validation.Title,
+                Description: validation.Description,
+                AfterTaskIds: validation.AfterTaskIds,
+                BeforeTaskIds: validation.BeforeTaskIds,
+                Assertions: validation.Assertions,
+                OutputIds: validation.OutputIds ?? [],
+                Mode: validation.Mode,
+                Commands: validation.Commands ?? [],
+                RevalidateAtCompletion: validation.RevalidateAtCompletion,
+                Status: PlanValidationStatus.Pending)).ToArray()
             : [];
 
     /// <summary>
@@ -96,7 +117,10 @@ internal static class PendingDecomposePlanAdapter
                     a.AgentHandle, a.Role, a.AllowGenericChildren)).ToArray(),
                 ParallelEligible: t.ParallelEligible,
                 AgentRoutingMode: t.AgentRoutingMode,
-                GenericAgentReason: t.GenericAgentReason))
+                GenericAgentReason: t.GenericAgentReason,
+                Outputs: t.Outputs?.Select(output => new DecomposedTaskOutput(
+                    output.OutputId, output.Description)).ToArray(),
+                Inputs: t.Inputs))
             .ToArray();
 
         var gates = plan.ApprovalGates is { Count: > 0 }
@@ -109,6 +133,22 @@ internal static class PendingDecomposePlanAdapter
                 .ToArray()
             : null;
 
+        var validations = plan.Validations is { Count: > 0 }
+            ? (IReadOnlyList<DecomposedValidationNode>?)plan.Validations
+                .Select(validation => new DecomposedValidationNode(
+                    ValidationId: validation.ValidationId,
+                    Title: validation.Title,
+                    Description: validation.Description,
+                    AfterTaskIds: validation.AfterTaskIds,
+                    BeforeTaskIds: validation.BeforeTaskIds,
+                    Assertions: validation.Assertions,
+                    OutputIds: validation.OutputIds.Count > 0 ? validation.OutputIds : null,
+                    Mode: validation.Mode,
+                    Commands: validation.Commands.Count > 0 ? validation.Commands : null,
+                    RevalidateAtCompletion: validation.RevalidateAtCompletion))
+                .ToArray()
+            : null;
+
         var group = new DecomposedTaskGroup(
             GroupId:       plan.PlanId,
             GroupTitle:    plan.Title,
@@ -116,6 +156,7 @@ internal static class PendingDecomposePlanAdapter
             Summary:       plan.Summary,
             Tasks:         tasks,
             ApprovalGates: gates,
+            Validations:   validations,
             HostRevision:  plan.HostRevision);
 
         return new PendingDecomposePlan(plan.Revision, group);

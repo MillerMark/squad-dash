@@ -64,6 +64,17 @@ internal static class PlanRecoveryState
     internal const string Ended                = "ended";
 }
 
+/// <summary>Plan-validation status constants.</summary>
+internal static class PlanValidationStatus
+{
+    internal const string Pending    = "pending";
+    internal const string Ready      = "ready";
+    internal const string Validating = "validating";
+    internal const string Passed     = "passed";
+    internal const string Failed     = "failed";
+    internal const string Stale      = "stale";
+}
+
 internal sealed record PlanAgentAssignment(
     [property: JsonPropertyName("agentHandle")] string AgentHandle,
     [property: JsonPropertyName("role")] string Role,
@@ -87,6 +98,10 @@ internal sealed record PlanTaskAttempt(
     [property: JsonPropertyName("note")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Note = null);
+
+internal sealed record PlanTaskOutput(
+    [property: JsonPropertyName("outputId")] string OutputId,
+    [property: JsonPropertyName("description")] string Description);
 
 /// <summary>Immutable task entry inside a Plan.</summary>
 internal sealed record PlanTask(
@@ -124,7 +139,13 @@ internal sealed record PlanTask(
                                                 string? GenericAgentReason = null,
     [property: JsonPropertyName("attemptHistory")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskAttempt>? AttemptHistory = null);
+                                                IReadOnlyList<PlanTaskAttempt>? AttemptHistory = null,
+    [property: JsonPropertyName("outputs")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskOutput>? Outputs = null,
+    [property: JsonPropertyName("inputs")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Inputs = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -163,6 +184,38 @@ internal sealed record PlanApprovalGate(
     [property: JsonPropertyName("lastReworkInstructions")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                   string? LastReworkInstructions = null);
+
+/// <summary>
+/// Durable cross-task validation node. Unlike a human approval gate, this is executable plan
+/// work with no repository mutation: it evaluates declared assertions and records evidence.
+/// </summary>
+internal sealed record PlanValidationNode(
+    [property: JsonPropertyName("validationId")] string ValidationId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("afterTaskIds")] IReadOnlyList<string> AfterTaskIds,
+    [property: JsonPropertyName("beforeTaskIds")] IReadOnlyList<string> BeforeTaskIds,
+    [property: JsonPropertyName("assertions")] IReadOnlyList<string> Assertions,
+    [property: JsonPropertyName("outputIds")] IReadOnlyList<string> OutputIds,
+    [property: JsonPropertyName("mode")] string Mode,
+    [property: JsonPropertyName("commands")] IReadOnlyList<string> Commands,
+    [property: JsonPropertyName("revalidateAtCompletion")] bool RevalidateAtCompletion,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("startedAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                DateTimeOffset? StartedAt = null,
+    [property: JsonPropertyName("completedAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                DateTimeOffset? CompletedAt = null,
+    [property: JsonPropertyName("validatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ValidatedCommit = null,
+    [property: JsonPropertyName("summary")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Summary = null,
+    [property: JsonPropertyName("evidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Evidence = null);
 
 /// <summary>Lightweight progress snapshot — does not store per-task detail.</summary>
 internal sealed record PlanProgress(
@@ -295,4 +348,12 @@ internal sealed record Plan(
     /// </summary>
     [property: JsonPropertyName("hostRevision")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                    string? HostRevision = null);
+                                                    string? HostRevision = null,
+
+    /// <summary>
+    /// First-class cross-task validation nodes. Null preserves compatibility with plans written
+    /// before validation nodes were introduced.
+    /// </summary>
+    [property: JsonPropertyName("validations")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                    IReadOnlyList<PlanValidationNode>? Validations = null);

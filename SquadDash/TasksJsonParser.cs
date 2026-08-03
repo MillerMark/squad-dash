@@ -19,8 +19,14 @@ internal static class TasksJsonParser
     private static readonly Regex TaskIdPattern =
         new(@"^([A-Z]+-\d{8})-\d{3}$", RegexOptions.Compiled);
 
+    private static readonly Regex ValidationIdPattern =
+        new(@"^([A-Z]+-\d{8})-VAL-\d{3}$", RegexOptions.Compiled);
+
     private static readonly Regex AgentHandlePattern =
         new(@"^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
+
+    private static readonly Regex OutputIdPattern =
+        new(@"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions ParseOptions = new()
     {
@@ -206,6 +212,24 @@ internal static class TasksJsonParser
             }
         }
 
+        var outputOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+        var tasksById = parsed.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        foreach (var task in parsed.Tasks)
+        {
+            foreach (var output in task.Outputs ?? [])
+            {
+                var outputId = output.OutputId ?? string.Empty;
+                if (!OutputIdPattern.IsMatch(outputId) ||
+                    string.IsNullOrWhiteSpace(output.Description) ||
+                    !outputOwners.TryAdd(outputId, task.Id))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate output id '{output.OutputId}'");
+                    return false;
+                }
+            }
+        }
+
         // Validate all dependsOn IDs reference valid siblings.
         foreach (var task in parsed.Tasks)
         {
@@ -229,6 +253,18 @@ internal static class TasksJsonParser
                 SquadDashTrace.Write(TraceCategory.General,
                     $"TasksJsonParser: task '{task.Id}' has invalid parentTaskId '{task.ParentTaskId}'");
                 return false;
+            }
+
+            foreach (var input in task.Inputs ?? [])
+            {
+                if (!outputOwners.TryGetValue(input, out var ownerId) ||
+                    string.Equals(ownerId, task.Id, StringComparison.Ordinal) ||
+                    !DependsTransitivelyOn(tasksById, task.Id, ownerId))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: task '{task.Id}' references input '{input}' without depending on its producer");
+                    return false;
+                }
             }
         }
 
@@ -312,7 +348,95 @@ internal static class TasksJsonParser
             }
         }
 
+        if (parsed.Validations is { Count: > 0 })
+        {
+            if (parsed.Validations.Count > 16)
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    "TasksJsonParser: validations exceeds maximum of 16");
+                return false;
+            }
+
+            var validationIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var validation in parsed.Validations)
+            {
+                var validationId = validation.ValidationId ?? string.Empty;
+                var match = ValidationIdPattern.Match(validationId);
+                if (!match.Success || match.Groups[1].Value != parsed.GroupId ||
+                    !validationIds.Add(validationId))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: invalid or duplicate validation id '{validation.ValidationId}'");
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(validation.Title) ||
+                    string.IsNullOrWhiteSpace(validation.Description) ||
+                    validation.Assertions is not { Count: > 0 } ||
+                    validation.Assertions.Any(string.IsNullOrWhiteSpace) ||
+                    validation.AfterTaskIds is not { Count: > 0 })
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
+                    return false;
+                }
+                if (validation.AfterTaskIds.Concat(validation.BeforeTaskIds).Any(id => !validIds.Contains(id)) ||
+                    validation.AfterTaskIds.Intersect(validation.BeforeTaskIds, StringComparer.Ordinal).Any())
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: validation '{validation.ValidationId}' has an unknown or overlapping task boundary");
+                    return false;
+                }
+                if ((validation.OutputIds ?? []).Any(outputId =>
+                        !outputOwners.TryGetValue(outputId, out var ownerId) ||
+                        !validation.AfterTaskIds.Any(afterId =>
+                            string.Equals(afterId, ownerId, StringComparison.Ordinal) ||
+                            DependsTransitivelyOn(tasksById, afterId, ownerId))))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: validation '{validation.ValidationId}' references an unknown output");
+                    return false;
+                }
+                if (validation.Mode is not ("command" or "evidence" or "hybrid") ||
+                    (validation.Mode is "command" or "hybrid") && validation.Commands is not { Count: > 0 })
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: validation '{validation.ValidationId}' has an invalid mode or no command");
+                    return false;
+                }
+                if (validation.BeforeTaskIds.Any(beforeId => validation.AfterTaskIds.Any(afterId =>
+                        DependsTransitivelyOn(tasksById, afterId, beforeId))))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: validation '{validation.ValidationId}' creates a dependency cycle");
+                    return false;
+                }
+            }
+        }
+
         group = parsed;
         return true;
+    }
+
+    private static bool DependsTransitivelyOn(
+        IReadOnlyDictionary<string, DecomposedSubTask> tasksById,
+        string taskId,
+        string possibleAncestorId)
+    {
+        var pending = new Stack<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        pending.Push(taskId);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current) || !tasksById.TryGetValue(current, out var task))
+                continue;
+            foreach (var dependency in task.DependsOn ?? [])
+            {
+                if (string.Equals(dependency, possibleAncestorId, StringComparison.Ordinal))
+                    return true;
+                pending.Push(dependency);
+            }
+        }
+        return false;
     }
 }
