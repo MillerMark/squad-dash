@@ -96,11 +96,12 @@ internal static class PlanStoreUpdater
         if (acceptedResult is not null)
             updated = ApplyAcceptedResult(updated, acceptedResult);
         var progress = BuildProgress(items, nextExecutingTaskId);
-        return existing with
+        var plan = existing with
         {
             Tasks    = updated,
             Progress = progress,
         };
+        return ApplyReadyValidations(plan);
     }
 
     /// <summary>
@@ -243,6 +244,33 @@ internal static class PlanStoreUpdater
             LifecycleStatus = anyStillAwaiting ? PlanLifecycleStatus.AwaitingApproval : PlanLifecycleStatus.Executing,
             ApprovalGates   = updatedGates,
         };
+    }
+
+    /// <summary>
+    /// Auto-transitions pending or stale validation nodes to <see cref="PlanValidationStatus.Ready"/>
+    /// when all of their prerequisite tasks (<see cref="PlanValidationNode.AfterTaskIds"/>) have
+    /// reached a terminal status. Called automatically by <see cref="ApplyStepAccepted"/> so that
+    /// validation readiness is re-evaluated every time a task completes.
+    /// </summary>
+    internal static Plan ApplyReadyValidations(Plan plan)
+    {
+        if (plan.Validations is not { Count: > 0 }) return plan;
+
+        var readinessStates = PlanValidationReadinessEvaluator.Evaluate(plan);
+        var readyIds = readinessStates
+            .Where(state => state.IsReady)
+            .Select(state => state.ValidationId)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (readyIds.Count == 0) return plan;
+
+        var updated = plan.Validations.Select(validation =>
+            readyIds.Contains(validation.ValidationId) &&
+            validation.Status is PlanValidationStatus.Pending or PlanValidationStatus.Stale
+                ? validation with { Status = PlanValidationStatus.Ready }
+                : validation).ToArray();
+
+        return ReferenceEquals(plan.Validations, updated) ? plan : plan with { Validations = updated };
     }
 
     internal static Plan ApplyValidationReady(Plan existing, string validationId)
