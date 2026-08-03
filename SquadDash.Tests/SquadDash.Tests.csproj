@@ -30,6 +30,7 @@
     <Compile Include="..\SquadDash\PlanExecutionBoundaryPolicy.cs" Link="Source\PlanExecutionBoundaryPolicy.cs" />
     <Compile Include="..\SquadDash\PlanTaskActivityPulseEvent.cs" Link="Source\PlanTaskActivityPulseEvent.cs" />
     <Compile Include="..\SquadDash\HumanApprovalIdentityResolver.cs" Link="Source\HumanApprovalIdentityResolver.cs" />
+    <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />
     <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />

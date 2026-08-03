@@ -2469,17 +2469,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _ => "Waiting for prerequisite tasks",
     };
 
-    private static string BuildApprovalResolvedToolTip(PlanApprovalGate? gate, string location)
-    {
-        var text = $"Human approval was granted {location}.";
-        if (!string.IsNullOrWhiteSpace(gate?.ResolvedBy))
-            text += $"\nApproved by {gate.ResolvedBy}.";
-        if (gate?.ResolvedAt is { } resolvedAt)
-            text += $"\n{StatusTimingPresentation.FormatRelativeTimestamp(resolvedAt)}";
-        if (!string.IsNullOrWhiteSpace(gate?.ResolutionNote))
-            text += $"\nNote: {gate.ResolutionNote}";
-        return text;
-    }
+    private static string BuildApprovalResolvedToolTip(PlanApprovalGate? gate, string location) =>
+        ApprovalResolvedTooltipPresentation.Build(gate, location);
 
     private FrameworkElement CreateApprovalStop(
         bool engaged,
