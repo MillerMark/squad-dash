@@ -115,7 +115,7 @@ internal static class DecomposePlanInbox
             From = "SquadDash",
             Timestamp = timestamp,
             Read = false,
-            Priority = "high",
+            Priority = "critical",
             Body = $"Plan **{plan.Group.GroupTitle}** blocked at task `{taskId}`.\n\n> {reason}\n\n" +
                    "**Review Completed Work** — inspect commits produced before the interruption, then accept them without rerunning the task.\n" +
                    "**Continue / Retry** — resumes from preserved work if present, or reruns the same task.\n" +

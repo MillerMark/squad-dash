@@ -8,6 +8,26 @@ namespace SquadDash.Tests;
 internal sealed class InboxMessageWindowApprovalUpdateTests
 {
     [Test]
+    public void ApplyInteractiveFontSize_UsesBodySizeForActionsAndAttachments() =>
+        WpfTestContext.Run(() =>
+        {
+            var actions = new WrapPanel();
+            var action = new Button { FontSize = 9 };
+            actions.Children.Add(action);
+            var attachments = new WrapPanel();
+            var label = new TextBlock { FontSize = 9 };
+            attachments.Children.Add(new Border { Child = label });
+
+            InboxMessageWindow.ApplyInteractiveFontSize(actions, attachments, 19);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(action.FontSize, Is.EqualTo(19));
+                Assert.That(label.FontSize, Is.EqualTo(19));
+            });
+        });
+
+    [Test]
     public void AttachApprovalUpdatingOverlay_UsesMessageLayoutRootAndIsIdempotent() =>
         WpfTestContext.Run(() =>
         {

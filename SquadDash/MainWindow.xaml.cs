@@ -9597,6 +9597,7 @@ public partial class MainWindow : Window
             _pushNotificationService);
 
         await _planApprovalRuntime.RestoreAsync(_planStore.LoadAll());
+        ReconcileDecomposeRecoveryInboxMessages();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
         ReconcileOpenInboxWindows(messages);
@@ -11061,7 +11062,6 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         ShowSystemTranscriptEntry(
             $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task.");
-        ArchiveDecomposeRecoveryInboxMessages(storedPlan.PlanId);
         await StartBackloggedDecomposeGroupAsync(
             currentGroup with { HostRevision = currentRevision },
             continuationTaskId: null,
@@ -11069,17 +11069,85 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private void ArchiveDecomposeRecoveryInboxMessages(string planId)
+    /// <summary>
+    /// Revalidates active recovery reminders against the canonical plan lifecycle. Resolved
+    /// reminders are retained in the archive without live actions; current blockers are critical.
+    /// </summary>
+    private void ReconcileDecomposeRecoveryInboxMessages(string? planId = null)
     {
-        if (_inboxStore is null) return;
-        var prefix = $"decompose-recovery-{planId}-";
-        foreach (var message in _inboxStore.LoadAll()
-                     .Where(message => message.Id.StartsWith(prefix, StringComparison.Ordinal)))
-            _inboxStore.Archive(message.Id);
+        if (_inboxStore is null || _planStore is null) return;
 
+        var changed = false;
+        foreach (var message in _inboxStore.LoadAll()
+                     .Where(DecomposeRecoveryInboxReconciler.IsRecoveryMessage)
+                     .Where(message => planId is null || string.Equals(
+                         DecomposeRecoveryInboxReconciler.GetPlanId(message),
+                         planId,
+                         StringComparison.Ordinal)))
+        {
+            var referencedPlanId = DecomposeRecoveryInboxReconciler.GetPlanId(message);
+            var plan = string.IsNullOrWhiteSpace(referencedPlanId)
+                ? null
+                : _planStore.Load(referencedPlanId);
+            var result = DecomposeRecoveryInboxReconciler.Reconcile(message, plan);
+            if (!Equals(result.Message, message))
+            {
+                _inboxStore.Save(result.Message);
+                changed = true;
+            }
+            if (result.ShouldArchive)
+            {
+                _inboxStore.Archive(message.Id);
+                changed = true;
+            }
+        }
+
+        if (!changed) return;
         var current = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(current);
         ReconcileOpenInboxWindows(current);
+    }
+
+    /// <summary>
+    /// Final race-safe validation used when a recovery message is opened or one of its actions
+    /// is clicked. A plan transition between rendering and clicking cannot invoke stale work.
+    /// </summary>
+    private bool TryPrepareRecoveryInboxMessageForUse(
+        string messageId,
+        out InboxMessage? preparedMessage)
+    {
+        preparedMessage = null;
+        if (_inboxStore is null) return true;
+
+        var message = _inboxStore.GetById(messageId);
+        if (message is null)
+            return !messageId.StartsWith("decompose-recovery-", StringComparison.Ordinal);
+        if (!DecomposeRecoveryInboxReconciler.IsRecoveryMessage(message))
+        {
+            preparedMessage = message;
+            return true;
+        }
+
+        var planId = DecomposeRecoveryInboxReconciler.GetPlanId(message);
+        var plan = _planStore is null || string.IsNullOrWhiteSpace(planId)
+            ? null
+            : _planStore.Load(planId);
+        var result = DecomposeRecoveryInboxReconciler.Reconcile(message, plan);
+        if (!Equals(result.Message, message))
+            _inboxStore.Save(result.Message);
+        if (result.ShouldArchive)
+            _inboxStore.Archive(message.Id);
+
+        if (!result.IsActionable)
+        {
+            var current = _inboxStore.LoadAll();
+            _inboxPanel?.Refresh(current);
+            ReconcileOpenInboxWindows(current);
+            return false;
+        }
+
+        preparedMessage = result.Message;
+        return true;
     }
 
     private static void RestoreFileAtomically(string path, string content)
@@ -40880,6 +40948,11 @@ public partial class MainWindow : Window
     private void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
+        if (!TryPrepareRecoveryInboxMessageForUse(messageId, out var preparedMessage))
+        {
+            _inboxPanel?.ShowTransientNotice("This recovery request is no longer active.");
+            return;
+        }
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
         if (existing is not null)
         {
@@ -40889,7 +40962,7 @@ public partial class MainWindow : Window
             existing.Activate();
             return;
         }
-        var msg = _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
+        var msg = preparedMessage ?? _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
         if (msg is null)
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: message not found — refreshing list for msgId={messageId}");
@@ -41943,6 +42016,7 @@ public partial class MainWindow : Window
                     _planStore.Save(repaired);
                 }
             }
+            ReconcileDecomposeRecoveryInboxMessages();
         }
         catch (Exception ex)
         {
@@ -41974,6 +42048,7 @@ public partial class MainWindow : Window
             // execute again; the panel can recover from PlanStore on its next refresh.
             SquadDashTrace.Write(TraceCategory.General, $"PublishPlanProgress event: {notificationError}");
         }
+        ReconcileDecomposeRecoveryInboxMessages(plan.PlanId);
         return true;
     }
 
@@ -42458,6 +42533,13 @@ public partial class MainWindow : Window
 
             if (string.Equals(action.RouteMode, DecomposePlanInbox.RecoveryRouteMode, StringComparison.OrdinalIgnoreCase))
             {
+                if (!TryPrepareRecoveryInboxMessageForUse(message.Id, out var preparedMessage) || preparedMessage is null)
+                {
+                    ShowSystemTranscriptEntry(
+                        "This plan recovery request has already been resolved. Open the plan to see its current state.");
+                    return;
+                }
+                message = preparedMessage;
                 var actionKey = message.Id + "\u001f" + action.Label;
                 if (!_decomposeInboxActionsInProgress.Add(actionKey))
                     return;

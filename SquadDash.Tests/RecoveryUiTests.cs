@@ -95,11 +95,11 @@ internal sealed class RecoveryUiTests
     // ── Metadata ─────────────────────────────────────────────────────────────
 
     [Test]
-    public void BuildRecoveryMessage_PriorityIsHigh()
+    public void BuildRecoveryMessage_PriorityIsCritical()
     {
         var message = BuildMessage();
-        Assert.That(message.Priority, Is.EqualTo("high"),
-            "Recovery messages are high-priority to surface them prominently.");
+        Assert.That(message.Priority, Is.EqualTo("critical"),
+            "A blocked plan needs immediate attention and must use critical priority.");
     }
 
     [Test]

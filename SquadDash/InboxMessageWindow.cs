@@ -26,6 +26,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string, InboxMessage>? _attachSelectedTextToNewChat;
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
+    private readonly WrapPanel _attachmentsPanel;
     private readonly WrapPanel _actionsPanel;
     private readonly Grid _rootGrid;
     private readonly ContentControl _preflightRecoveryHost;
@@ -157,17 +158,17 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var visibleAttachments = message.Attachments
             .Where(DurableApprovalRequestManager.IsPresentationAttachment)
             .ToArray();
-        var attachmentsPanel = new WrapPanel
+        _attachmentsPanel = new WrapPanel
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
             Visibility  = visibleAttachments.Length > 0 ? Visibility.Visible : Visibility.Collapsed,
         };
-        Grid.SetRow(attachmentsPanel, 1);
-        root.Children.Add(attachmentsPanel);
+        Grid.SetRow(_attachmentsPanel, 1);
+        root.Children.Add(_attachmentsPanel);
 
         foreach (var att in visibleAttachments)
-            attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _lookupTask, openDecomposePlan));
+            _attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _bodyFontSize, _lookupTask, openDecomposePlan));
 
         // ── Actions ───────────────────────────────────────────────────────────
         var actionRegion = new StackPanel();
@@ -183,7 +184,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         actionRegion.Children.Add(_actionsPanel);
 
         foreach (var action in message.Actions)
-            _actionsPanel.Children.Add(BuildActionButton(action, message, onActionClicked));
+            _actionsPanel.Children.Add(BuildActionButton(action, message, _bodyFontSize, onActionClicked));
 
         _preflightRecoveryHost = new ContentControl
         {
@@ -495,6 +496,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         if (_bodyViewer.Document is not null)
             RebuildDocument();
+        ApplyInteractiveFontSize(_actionsPanel, _attachmentsPanel, _bodyFontSize);
 
         _onFontSizeChanged?.Invoke(_bodyFontSize);
     }
@@ -547,6 +549,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private static Button BuildActionButton(
         InboxAction action,
         InboxMessage msg,
+        double fontSize,
         Action<InboxAction, InboxMessage> onActionClicked)
     {
         var isDraft = string.Equals(action.RouteMode, "draft", StringComparison.OrdinalIgnoreCase);
@@ -558,13 +561,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
             BorderThickness = new Thickness(1),
             Cursor          = Cursors.Hand,
             MinHeight       = 28,
+            FontSize        = fontSize,
         };
         if (Application.Current.TryFindResource("QuickReplyButtonStyle") is Style qrStyle)
             btn.Style = qrStyle;
         btn.SetResourceReference(Button.BackgroundProperty,   "QuickReplySurface");
         btn.SetResourceReference(Button.ForegroundProperty,   "QuickReplyText");
         btn.SetResourceReference(Button.BorderBrushProperty,  "QuickReplyBorder");
-        btn.SetResourceReference(Button.FontSizeProperty,     "FontSizeBody");
 
         // Show hint as a tooltip. For routeMode "done" with no hint, use a sensible default.
         var hint = action.Hint;
@@ -600,6 +603,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private static UIElement BuildAttachmentChip(
         InboxAttachment att,
         Window? owner,
+        double fontSize,
         Func<string, TaskItem?>? lookupTask = null,
         Action<InboxAttachment>? openDecomposePlan = null)
     {
@@ -630,8 +634,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
             Text         = $"{icon} {att.Label}",
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth     = 160,
+            FontSize     = fontSize,
         };
-        label.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         chip.Child = label;
 
@@ -1019,6 +1023,21 @@ internal sealed class InboxMessageWindow : ChromedWindow
         messageLayoutRoot.Children.Add(overlay);
     }
 
+    /// <summary>Keeps Inbox actions and attachment labels aligned with the message body zoom.</summary>
+    internal static void ApplyInteractiveFontSize(
+        WrapPanel actionsPanel,
+        WrapPanel attachmentsPanel,
+        double fontSize)
+    {
+        foreach (var button in actionsPanel.Children.OfType<Button>())
+            button.FontSize = fontSize;
+        foreach (var label in attachmentsPanel.Children
+                     .OfType<Border>()
+                     .Select(border => border.Child)
+                     .OfType<TextBlock>())
+            label.FontSize = fontSize;
+    }
+
     /// <summary>
     /// Replaces the body content and action buttons after an atomic update.
     /// Hides the spinner overlay and re-enables actions.
@@ -1034,7 +1053,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // Replace action buttons
         _actionsPanel.Children.Clear();
         foreach (var action in updatedMessage.Actions)
-            _actionsPanel.Children.Add(BuildActionButton(action, updatedMessage, onActionClicked));
+            _actionsPanel.Children.Add(BuildActionButton(action, updatedMessage, _bodyFontSize, onActionClicked));
         _actionsPanel.Visibility = updatedMessage.Actions is { Count: > 0 }
             ? Visibility.Visible
             : Visibility.Collapsed;
