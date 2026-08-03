@@ -33,6 +33,7 @@
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
+    <Compile Include="..\SquadDash\ValidationShieldPresenter.cs" Link="Source\ValidationShieldPresenter.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
   </ItemGroup>

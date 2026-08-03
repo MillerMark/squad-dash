@@ -1,0 +1,204 @@
+namespace SquadDash;
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+/// <summary>
+/// Pure presentation logic for plan validation shields. Derives visual state,
+/// tooltip content, and task-highlighting sets from durable plan state.
+/// Stateless and testable without WPF dependencies.
+/// </summary>
+internal static class ValidationShieldPresenter
+{
+    // ── Shield visual state ───────────────────────────────────────────────────
+
+    /// <summary>Visual state categories for the validation shield icon.</summary>
+    internal enum ShieldVisualState
+    {
+        /// <summary>Outlined shield with outlined check — waiting for prerequisites.</summary>
+        Pending,
+        /// <summary>Outlined shield with outlined check — prerequisites met, ready to validate.</summary>
+        Ready,
+        /// <summary>Active/animated — validation currently executing.</summary>
+        Validating,
+        /// <summary>Filled shield with high-contrast check — validation passed.</summary>
+        Passed,
+        /// <summary>Filled shield with X mark — validation failed.</summary>
+        Failed,
+        /// <summary>Dimmed/dashed — validation was invalidated, needs rerun.</summary>
+        Stale,
+    }
+
+    /// <summary>
+    /// Derives the shield visual state from the durable <see cref="PlanValidationStatus"/> string.
+    /// </summary>
+    internal static ShieldVisualState DeriveVisualState(string? status) => status switch
+    {
+        PlanValidationStatus.Ready      => ShieldVisualState.Ready,
+        PlanValidationStatus.Validating => ShieldVisualState.Validating,
+        PlanValidationStatus.Passed     => ShieldVisualState.Passed,
+        PlanValidationStatus.Failed     => ShieldVisualState.Failed,
+        PlanValidationStatus.Stale      => ShieldVisualState.Stale,
+        _ => ShieldVisualState.Pending,
+    };
+
+    // ── Tooltip content ───────────────────────────────────────────────────────
+
+    /// <summary>Structured tooltip content for a validation shield.</summary>
+    internal sealed record ShieldTooltipContent(
+        string Title,
+        string Description,
+        string StatusLabel,
+        IReadOnlyList<string> Assertions,
+        IReadOnlyList<string> PrerequisiteLabels,
+        IReadOnlyList<string> BlockedLabels,
+        IReadOnlyList<string>? Evidence,
+        string? Summary);
+
+    /// <summary>
+    /// Builds tooltip content for a validation node using only model data.
+    /// </summary>
+    internal static ShieldTooltipContent BuildTooltipContent(
+        PlanValidationNode validation,
+        IReadOnlyList<PlanTask> allTasks)
+    {
+        var tasksByIdMap = allTasks.ToDictionary(t => t.TaskId, StringComparer.Ordinal);
+
+        string TaskLabel(string id) => tasksByIdMap.TryGetValue(id, out var task)
+            ? $"{task.Title ?? task.Description} ({id})"
+            : id;
+
+        var prereqLabels = validation.AfterTaskIds.Select(TaskLabel).ToArray();
+        var blockedLabels = validation.BeforeTaskIds.Select(TaskLabel).ToArray();
+
+        return new ShieldTooltipContent(
+            Title: validation.Title,
+            Description: validation.Description,
+            StatusLabel: FormatStatus(validation.Status),
+            Assertions: validation.Assertions,
+            PrerequisiteLabels: prereqLabels,
+            BlockedLabels: blockedLabels,
+            Evidence: validation.Evidence,
+            Summary: validation.Summary);
+    }
+
+    /// <summary>Human-readable status label.</summary>
+    internal static string FormatStatus(string status) => status switch
+    {
+        PlanValidationStatus.Ready      => "Ready to validate",
+        PlanValidationStatus.Validating => "Validating now",
+        PlanValidationStatus.Passed     => "Passed",
+        PlanValidationStatus.Failed     => "Failed",
+        PlanValidationStatus.Stale      => "Needs revalidation",
+        _                               => "Waiting for prerequisite tasks",
+    };
+
+    // ── Task highlighting ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Computes the set of task IDs that should be highlighted when a shield is hovered.
+    /// Includes both prerequisite (afterTaskIds) and blocked downstream (beforeTaskIds + transitive).
+    /// </summary>
+    internal static ValidationHighlightSet ComputeHighlightedTasks(
+        PlanValidationNode validation,
+        IReadOnlyList<PlanTask> allTasks)
+    {
+        var prerequisiteIds = new HashSet<string>(validation.AfterTaskIds, StringComparer.Ordinal);
+        var directlyBlocked = new HashSet<string>(validation.BeforeTaskIds, StringComparer.Ordinal);
+
+        // Compute transitive downstream: tasks that depend (directly or transitively) on blocked tasks.
+        var allBlocked = new HashSet<string>(directlyBlocked, StringComparer.Ordinal);
+        var frontier = new Queue<string>(directlyBlocked);
+        var taskDependents = BuildDependentsMap(allTasks);
+        while (frontier.Count > 0)
+        {
+            var current = frontier.Dequeue();
+            if (!taskDependents.TryGetValue(current, out var dependents)) continue;
+            foreach (var dep in dependents)
+            {
+                if (allBlocked.Add(dep))
+                    frontier.Enqueue(dep);
+            }
+        }
+
+        return new ValidationHighlightSet(prerequisiteIds, allBlocked);
+    }
+
+    /// <summary>Prerequisite and blocked task ID sets for hover highlighting.</summary>
+    internal sealed record ValidationHighlightSet(
+        IReadOnlySet<string> PrerequisiteTaskIds,
+        IReadOnlySet<string> BlockedTaskIds);
+
+    // ── Compact summary for Plans panel ───────────────────────────────────────
+
+    /// <summary>Summary counts for plan validation nodes, suitable for compact display.</summary>
+    internal sealed record ValidationSummary(
+        int Total,
+        int Passed,
+        int Failed,
+        int Stale,
+        int Validating,
+        int Ready,
+        int Pending);
+
+    /// <summary>
+    /// Summarizes validation states for a plan. Returns null if the plan has no validations.
+    /// </summary>
+    internal static ValidationSummary? Summarize(Plan plan)
+    {
+        var validations = plan.Validations;
+        if (validations is null or { Count: 0 })
+            return null;
+
+        int passed = 0, failed = 0, stale = 0, validating = 0, ready = 0, pending = 0;
+        foreach (var v in validations)
+        {
+            switch (v.Status)
+            {
+                case PlanValidationStatus.Passed: passed++; break;
+                case PlanValidationStatus.Failed: failed++; break;
+                case PlanValidationStatus.Stale: stale++; break;
+                case PlanValidationStatus.Validating: validating++; break;
+                case PlanValidationStatus.Ready: ready++; break;
+                default: pending++; break;
+            }
+        }
+        return new ValidationSummary(validations.Count, passed, failed, stale, validating, ready, pending);
+    }
+
+    /// <summary>
+    /// Builds a concise label for the plan validation summary (e.g. "2/3 passed", "1 failed").
+    /// Returns null if there are no validations.
+    /// </summary>
+    internal static string? BuildSummaryLabel(ValidationSummary? summary)
+    {
+        if (summary is null) return null;
+        if (summary.Failed > 0) return $"{summary.Failed} validation{(summary.Failed > 1 ? "s" : "")} failed";
+        if (summary.Validating > 0) return "Validating…";
+        if (summary.Passed == summary.Total) return $"All {summary.Total} validations passed";
+        if (summary.Passed > 0) return $"{summary.Passed}/{summary.Total} validations passed";
+        if (summary.Ready > 0) return $"{summary.Ready} validation{(summary.Ready > 1 ? "s" : "")} ready";
+        return $"{summary.Total} validation{(summary.Total > 1 ? "s" : "")} pending";
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Dictionary<string, List<string>> BuildDependentsMap(IReadOnlyList<PlanTask> tasks)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var task in tasks)
+        {
+            foreach (var dep in task.DependsOn)
+            {
+                if (!map.TryGetValue(dep, out var list))
+                {
+                    list = [];
+                    map[dep] = list;
+                }
+                list.Add(task.TaskId);
+            }
+        }
+        return map;
+    }
+}

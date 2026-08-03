@@ -297,6 +297,24 @@ internal sealed class PlansPanelController
                 activityBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 rowStack.Children.Add(activityBlock);
             }
+
+            // ── Validation summary row ────────────────────────────────────
+            if (ValidationShieldPresenter.BuildSummaryLabel(
+                    ValidationShieldPresenter.Summarize(plan)) is { } validationLabel)
+            {
+                var summary = ValidationShieldPresenter.Summarize(plan)!;
+                var validationBlock = new TextBlock
+                {
+                    Text = "🛡 " + validationLabel,
+                    Margin = new Thickness(20, 1, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                validationBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                validationBlock.SetResourceReference(TextBlock.ForegroundProperty,
+                    summary.Failed > 0 ? "PriorityCritical" :
+                    summary.Passed == summary.Total ? "PriorityLow" : "SubtleText");
+                rowStack.Children.Add(validationBlock);
+            }
         }
 
         row.Child = rowStack;

@@ -521,6 +521,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             : 68 * _scaleFactor;
         var graphTop = 68 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
+        var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
 
         static string StageAnchor(int leftStage) => $"stage:{leftStage}";
@@ -682,7 +683,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetLeft(row, rowLeft);
                 Canvas.SetTop(row, 28 * _scaleFactor);
                 Panel.SetZIndex(row, 30);
+                row.Background = Brushes.Transparent;
+                row.Cursor = Cursors.Hand;
                 canvas.Children.Add(row);
+                _deferredShieldHovers.Add((row, validation.AfterTaskIds, validation.BeforeTaskIds));
                 validationRailRight = rowLeft + 280 * _scaleFactor;
                 validationRailNextLeft = validationRailRight + 16 * _scaleFactor;
             }
@@ -1706,6 +1710,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
         }
 
+        // Wire validation-shield hover: glow prerequisite and blocked task nodes.
+        foreach (var (shieldRow, afterIds, beforeIds) in _deferredShieldHovers)
+        {
+            var capturedRow = shieldRow;
+            var capturedAfter = afterIds;
+            var capturedBefore = beforeIds;
+            capturedRow.MouseEnter += (_, _) =>
+            {
+                foreach (var tid in capturedAfter)
+                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                foreach (var tid in capturedBefore)
+                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+            };
+            capturedRow.MouseLeave += (_, _) =>
+            {
+                foreach (var tid in capturedAfter)
+                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                foreach (var tid in capturedBefore)
+                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+            };
+        }
+
         canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
         canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight;
 
@@ -2152,11 +2178,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             StrokeThickness = 1.6,
             StrokeLineJoin = PenLineJoin.Round,
         };
-        var check = new Path
+
+        // Failed uses an X mark; all other states use a check mark.
+        var isFailed = status == PlanValidationStatus.Failed;
+        var innerIcon = new Path
         {
-            Data = Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
+            Data = isFailed
+                ? Geometry.Parse("M 7,7 L 17,17 M 17,7 L 7,17")
+                : Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
             Width = 12 * s,
-            Height = 9 * s,
+            Height = isFailed ? 12 * s : 9 * s,
             Stretch = Stretch.Fill,
             StrokeThickness = 2,
             StrokeStartLineCap = PenLineCap.Round,
@@ -2171,34 +2202,35 @@ internal sealed class PlanViewerWindow : ChromedWindow
             case PlanValidationStatus.Passed:
                 shield.SetResourceReference(Shape.FillProperty, "PriorityLow");
                 shield.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
-                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
                 break;
             case PlanValidationStatus.Validating:
                 shield.SetResourceReference(Shape.FillProperty, "PriorityMid");
                 shield.SetResourceReference(Shape.StrokeProperty, "PriorityMid");
-                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
                 break;
             case PlanValidationStatus.Failed:
                 shield.SetResourceReference(Shape.FillProperty, "PriorityCritical");
                 shield.SetResourceReference(Shape.StrokeProperty, "PriorityCritical");
-                check.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
                 break;
             case PlanValidationStatus.Stale:
                 shield.Fill = Brushes.Transparent;
                 shield.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
-                check.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
-                check.Opacity = 0.65;
+                shield.StrokeDashArray = [3, 2];
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
+                innerIcon.Opacity = 0.65;
                 break;
             case PlanValidationStatus.Ready:
                 shield.Fill = Brushes.Transparent;
                 shield.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
-                check.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
                 break;
             default:
                 shield.Fill = Brushes.Transparent;
                 shield.SetResourceReference(Shape.StrokeProperty, "SubtleText");
-                check.SetResourceReference(Shape.StrokeProperty, "SubtleText");
-                check.Opacity = 0.45;
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+                innerIcon.Opacity = 0.45;
                 break;
         }
 
@@ -2209,7 +2241,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Background = Brushes.Transparent,
         };
         grid.Children.Add(shield);
-        grid.Children.Add(check);
+        grid.Children.Add(innerIcon);
         return grid;
     }
 
