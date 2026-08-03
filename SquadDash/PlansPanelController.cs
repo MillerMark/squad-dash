@@ -23,6 +23,7 @@ internal sealed class PlansPanelController
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
+    private readonly Func<bool>?   _isPromptRunning;
 
     private readonly PlansPanelViewModel _viewModel = new();
     internal PlansPanelViewModel ViewModel => _viewModel;
@@ -32,6 +33,9 @@ internal sealed class PlansPanelController
 
     // Cached plan list for targeted live updates — avoids a full store reload on each event.
     private List<Plan> _currentPlans = [];
+
+    // Braille-dot spinner indicator for the actively-executing plan.
+    private TextBlock? _executingSpinnerBlock;
 
     // ── Construction ─────────────────────────────────────────────────────────
 
@@ -47,7 +51,8 @@ internal sealed class PlansPanelController
         Action<Plan>? startPlan            = null,
         Action<Plan>? resumePlan           = null,
         Action<Plan>? endPlan              = null,
-        Action<Plan>? approveGate          = null)
+        Action<Plan>? approveGate          = null,
+        Func<bool>?   isPromptRunning      = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -60,6 +65,7 @@ internal sealed class PlansPanelController
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
+        _isPromptRunning      = isPromptRunning;
 
         _viewModel.ShowCompleted = initialShowCompleted;
     }
@@ -383,7 +389,7 @@ internal sealed class PlansPanelController
             : "Executing";
     }
 
-    private static FrameworkElement BuildStatusIndicator(Plan plan)
+    private FrameworkElement BuildStatusIndicator(Plan plan)
     {
         var iconBlock = new TextBlock
         {
@@ -391,26 +397,43 @@ internal sealed class PlansPanelController
             Margin = new Thickness(0, 0, 5, 0),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
-            RenderTransformOrigin = new Point(0.5, 0.5),
         };
         iconBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
 
         if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing)
         {
-            iconBlock.Text = "⟳";
-            var rotation = new RotateTransform();
-            iconBlock.RenderTransform = rotation;
-            rotation.BeginAnimation(
-                RotateTransform.AngleProperty,
-                new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900))
-                {
-                    RepeatBehavior = RepeatBehavior.Forever,
-                });
-            iconBlock.ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing");
+            if (_isPromptRunning?.Invoke() == true)
+            {
+                // Actively executing — show braille-dot spinner (first frame; timer advances it).
+                iconBlock.Text = UiTimingConstants.ToolSpinnerFrames[0];
+                iconBlock.RenderTransform = null;
+                iconBlock.ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing");
+                _executingSpinnerBlock = iconBlock;
+            }
+            else
+            {
+                // Plan is in Executing state but the prompt is not running (paused/waiting) — show no icon.
+                iconBlock.Text = "";
+                _executingSpinnerBlock = null;
+            }
+        }
+        else
+        {
+            _executingSpinnerBlock = null;
         }
 
         return iconBlock;
+    }
+
+    /// <summary>
+    /// Called by MainWindow on each tool-spinner timer tick to advance the braille-dot frame
+    /// for any executing plan indicator. No-op if no plan is currently animating.
+    /// </summary>
+    internal void AdvancePlanActivityFrame(int frame)
+    {
+        if (_executingSpinnerBlock is { } block)
+            block.Text = UiTimingConstants.ToolSpinnerFrames[frame];
     }
 
     private static void ShowEmpty(StackPanel panel, string message)

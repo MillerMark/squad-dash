@@ -40,7 +40,7 @@ internal sealed class PlansPanelControllerTests
                     StackPanel activePanel,
                     StackPanel completedPanel,
                     List<bool> visibilityCalls)
-        BuildController()
+        BuildController(Func<bool>? isPromptRunning = null)
     {
         var activePanel    = new StackPanel();
         var completedPanel = new StackPanel();
@@ -54,7 +54,8 @@ internal sealed class PlansPanelControllerTests
             openPlan:             _ => { },
             syncBorderVisibility: v => visibilityCalls.Add(v),
             setMenuChecked:       _ => { },
-            persistVisibility:    () => { });
+            persistVisibility:    () => { },
+            isPromptRunning:      isPromptRunning);
 
         return (controller, activePanel, completedPanel, visibilityCalls);
     }
@@ -180,7 +181,7 @@ internal sealed class PlansPanelControllerTests
     public void ExecutingPlan_UsesPortraitProgressAndActivityRows() =>
         WpfTestContext.Run(() =>
         {
-            var (ctrl, activePanel, _, _) = BuildController();
+            var (ctrl, activePanel, _, _) = BuildController(isPromptRunning: () => true);
             var tasks = Enumerable.Range(1, 8)
                 .Select(index => new PlanTask(
                     $"task-{index}", $"Task {index}", "Work", [], "normal",
@@ -207,8 +208,50 @@ internal sealed class PlansPanelControllerTests
             {
                 Assert.That(progressText.Text, Is.EqualTo("3/8 complete"));
                 Assert.That(activityText.Text, Is.EqualTo("Step 5 running"));
-                Assert.That(statusIcon.Text, Is.EqualTo("⟳"));
-                Assert.That(statusIcon.RenderTransform, Is.TypeOf<System.Windows.Media.RotateTransform>());
+                Assert.That(statusIcon.Text, Is.EqualTo(UiTimingConstants.ToolSpinnerFrames[0]));
             });
+        });
+
+    [Test]
+    public void ExecutingPlan_NotRunning_ShowsNoIcon() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController(isPromptRunning: () => false);
+            var plan = MakePlan(status: PlanLifecycleStatus.Executing) with
+            {
+                Tasks = [new PlanTask("t1", "Task 1", "Work", [], "normal", PlanTaskStatus.Executing)],
+                Progress = new PlanProgress(0, 1, ExecutingTaskId: "t1"),
+            };
+
+            ctrl.Refresh([plan]);
+
+            var row = activePanel.Children.OfType<Border>().Single();
+            var rowStack = (StackPanel)row.Child;
+            var titleRow = (StackPanel)rowStack.Children[0];
+            var statusIcon = (TextBlock)titleRow.Children[0];
+
+            Assert.That(statusIcon.Text, Is.EqualTo(""));
+        });
+
+    [Test]
+    public void ExecutingPlan_AdvanceFrame_UpdatesSpinnerText() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController(isPromptRunning: () => true);
+            var plan = MakePlan(status: PlanLifecycleStatus.Executing) with
+            {
+                Tasks = [new PlanTask("t1", "Task 1", "Work", [], "normal", PlanTaskStatus.Executing)],
+                Progress = new PlanProgress(0, 1, ExecutingTaskId: "t1"),
+            };
+
+            ctrl.Refresh([plan]);
+            ctrl.AdvancePlanActivityFrame(3);
+
+            var row = activePanel.Children.OfType<Border>().Single();
+            var rowStack = (StackPanel)row.Child;
+            var titleRow = (StackPanel)rowStack.Children[0];
+            var statusIcon = (TextBlock)titleRow.Children[0];
+
+            Assert.That(statusIcon.Text, Is.EqualTo(UiTimingConstants.ToolSpinnerFrames[3]));
         });
 }

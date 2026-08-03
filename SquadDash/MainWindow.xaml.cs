@@ -141,7 +141,7 @@ public partial class MainWindow : Window
     private const int CoordinatorToolFailureTraceThreshold = 5;
     private const int CoordinatorToolFailureTraceEvery = 25;
     private const int DynamicAgentHistoryCardLimit = 6;
-    private static readonly string[] ToolSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    private static readonly string[] ToolSpinnerFrames = UiTimingConstants.ToolSpinnerFrames;
     private enum PromptTextChangedPhase
     {
         ReadText,
@@ -34373,6 +34373,8 @@ public partial class MainWindow : Window
     {
         _toolSpinnerFrame = (_toolSpinnerFrame + 1) % ToolSpinnerFrames.Length;
 
+        _plansPanelController?.AdvancePlanActivityFrame(_toolSpinnerFrame);
+
         var runningEntries = _agentThreadRegistry.ToolEntries.Values.Where(item => !item.IsCompleted).ToList();
 
         foreach (var entry in runningEntries)
@@ -42862,7 +42864,8 @@ public partial class MainWindow : Window
                     var awaitingGate = plan.ApprovalGates.FirstOrDefault(g =>
                         g.Status == PlanGateStatus.AwaitingApproval);
                     if (awaitingGate is not null) ApproveCurrentPlan(plan);
-                });
+                },
+                isPromptRunning: () => _isPromptRunning);
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch

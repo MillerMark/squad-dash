@@ -151,4 +151,6 @@ internal static class UiTimingConstants
 
     /// <summary>Transcript tab countdown tick interval.</summary>
     public static readonly TimeSpan TabCountdownInterval = TimeSpan.FromSeconds(1);
+    /// <summary>Braille-dot spinner frames used for tool activity and plan execution indicators.</summary>
+    internal static readonly string[] ToolSpinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 }
