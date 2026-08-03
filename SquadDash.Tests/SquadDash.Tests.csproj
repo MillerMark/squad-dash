@@ -352,6 +352,7 @@
     <!-- First-class Plans (PLANS-20260727) -->
     <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryPresentation.cs" Link="Source\PlanRecoveryPresentation.cs" />
+    <Compile Include="..\SquadDash\CompletedWorkReviewPresentation.cs" Link="Source\CompletedWorkReviewPresentation.cs" />
     <Compile Include="..\SquadDash\PlanStore.cs" Link="Source\PlanStore.cs" />
     <Compile Include="..\SquadDash\PendingDecomposePlanAdapter.cs" Link="Source\PendingDecomposePlanAdapter.cs" />
     <Compile Include="..\SquadDash\PlanGateManager.cs" Link="Source\PlanGateManager.cs" />

@@ -10611,7 +10611,9 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null || _inboxStore is null) return;
         var plan = ResolveRecoveryPendingPlan(groupId, revision);
         if (plan is null) return;
-        var message = DecomposePlanInbox.BuildRecoveryMessage(plan, taskId, reason, DateTimeOffset.Now);
+        var durablePlan = _planStore?.Load(groupId);
+        var evidence = durablePlan?.InterruptionData?.TaskCommitEvidence;
+        var message = DecomposePlanInbox.BuildRecoveryMessage(plan, taskId, reason, DateTimeOffset.Now, evidence);
         if (_inboxStore.GetById(message.Id) is not null) return;
         _inboxStore.Save(message);
         _inboxPanel?.Refresh(_inboxStore.LoadAll());
@@ -10728,6 +10730,11 @@ public partial class MainWindow : Window
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
+
+        var review = durablePlan is null
+            ? null
+            : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
+
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
@@ -10780,12 +10787,28 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (review is not null)
+                AppendCompletedWorkReviewDetails(blocks, review);
+
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
             var recommendationRun = new Run(presentation.Recommendation) { FontWeight = FontWeights.SemiBold };
             recommendation.Inlines.Add(recommendationRun);
             blocks.Add(recommendation);
 
         }
+
+        if (review is not null)
+        {
+            AddAsyncAction(
+                "Review Completed Work",
+                "Review the committed work, changed files, test results, and downstream effects before accepting.",
+                async () => await AdoptVerifiedCommitRangeForReviewAsync(durablePlan!));
+            AddAsyncAction(
+                "Accept Commit and Continue",
+                "Accept the committed work as the task result and continue the plan.",
+                async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
+        }
+
         AddAsyncAction(
             "Assess & Continue",
             "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
@@ -10853,6 +10876,96 @@ public partial class MainWindow : Window
                 catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
             };
             panel.Children.Add(button);
+        }
+    }
+
+    private void AppendCompletedWorkReviewDetails(
+        BlockCollection blocks,
+        CompletedWorkReviewPresentation review)
+    {
+        if (review.ChangedFiles.Count > 0)
+        {
+            var filesHeader = CreateTranscriptParagraph(bottomMargin: 2);
+            filesHeader.Margin = new Thickness(12, 4, 0, 2);
+            var filesRun = new Run($"Changed files ({review.ChangedFiles.Count}):")
+                { FontWeight = FontWeights.SemiBold };
+            filesRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            filesHeader.Inlines.Add(filesRun);
+            blocks.Add(filesHeader);
+
+            var maxFiles = Math.Min(review.ChangedFiles.Count, 8);
+            for (var i = 0; i < maxFiles; i++)
+            {
+                var fileParagraph = CreateTranscriptParagraph(bottomMargin: 1);
+                fileParagraph.Margin = new Thickness(24, 0, 0, 1);
+                var fileRun = new Run($"• {review.ChangedFiles[i]}");
+                fileRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                fileParagraph.Inlines.Add(fileRun);
+                blocks.Add(fileParagraph);
+            }
+            if (review.ChangedFiles.Count > maxFiles)
+            {
+                var moreParagraph = CreateTranscriptParagraph(bottomMargin: 2);
+                moreParagraph.Margin = new Thickness(24, 0, 0, 2);
+                var moreRun = new Run($"… and {review.ChangedFiles.Count - maxFiles} more");
+                moreRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                moreParagraph.Inlines.Add(moreRun);
+                blocks.Add(moreParagraph);
+            }
+        }
+
+        if (review.TestSummary is not null)
+        {
+            var testParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+            testParagraph.Margin = new Thickness(12, 2, 0, 3);
+            var testRun = new Run($"Tests: {review.TestSummary}");
+            testRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            testParagraph.Inlines.Add(testRun);
+            blocks.Add(testParagraph);
+        }
+
+        if (review.DownstreamTasks.Count > 0)
+        {
+            var downstreamParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+            downstreamParagraph.Margin = new Thickness(12, 2, 0, 3);
+            var names = string.Join(", ", review.DownstreamTasks.Select(d => $"\"{d}\""));
+            var downstreamRun = new Run(
+                $"Downstream: {review.DownstreamTasks.Count} " +
+                (review.DownstreamTasks.Count == 1 ? "task" : "tasks") +
+                $" blocked — {names}");
+            downstreamRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            downstreamParagraph.Inlines.Add(downstreamRun);
+            blocks.Add(downstreamParagraph);
+        }
+
+        var effectParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+        effectParagraph.Margin = new Thickness(12, 2, 0, 3);
+        var effectRun = new Run(review.AcceptanceEffect);
+        effectRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        effectParagraph.Inlines.Add(effectRun);
+        blocks.Add(effectParagraph);
+
+        if (review.RetryRiskWarning is not null)
+        {
+            var warningParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+            warningParagraph.Margin = new Thickness(12, 2, 0, 4);
+            var warningRun = new Run($"⚠ {review.RetryRiskWarning}")
+                { FontWeight = FontWeights.SemiBold };
+            warningRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            warningParagraph.Inlines.Add(warningRun);
+            blocks.Add(warningParagraph);
+        }
+    }
+
+    private async Task AdoptVerifiedCommitRangeForReviewAsync(Plan plan)
+    {
+        try
+        {
+            await AdoptVerifiedCommitRangeAsync(plan);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("RecoveryReview", $"Review completed work failed: {ex.Message}");
         }
     }
 

@@ -96,7 +96,8 @@ internal static class DecomposePlanInbox
         PendingDecomposePlan plan,
         string taskId,
         string reason,
-        DateTimeOffset timestamp)
+        DateTimeOffset timestamp,
+        PlanTaskCommitEvidence? taskCommitEvidence = null)
     {
         InboxAction BuildAction(string label, string action, string hint) => new()
         {
@@ -108,6 +109,48 @@ internal static class DecomposePlanInbox
             Hint = hint,
         };
 
+        var hasCommitEvidence = taskCommitEvidence is not null &&
+            string.Equals(taskCommitEvidence.TaskId, taskId, StringComparison.Ordinal);
+
+        var actions = new List<InboxAction>();
+
+        if (hasCommitEvidence)
+        {
+            actions.Add(BuildAction(
+                "Review Completed Work",
+                "review-completed-work",
+                "Review the committed work, changed files, test results, and downstream effects before accepting."));
+            actions.Add(BuildAction(
+                "Accept Commit and Continue",
+                "review-completed-work",
+                "Accept the committed work as the task result and continue the plan."));
+        }
+
+        actions.Add(BuildAction(
+            "Assess & Continue",
+            "assess-and-continue",
+            "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing the plan."));
+        actions.Add(BuildAction(
+            "Replan Remaining Work",
+            "replan-failed-task",
+            "Replace the blocked task with smaller approved steps."));
+
+        var body = $"Plan **{plan.Group.GroupTitle}** stopped unexpectedly at task `{taskId}`. Recovery is available.\n\n";
+
+        if (hasCommitEvidence)
+        {
+            var shortCommit = taskCommitEvidence!.Commit.Length > 7
+                ? taskCommitEvidence.Commit[..7]
+                : taskCommitEvidence.Commit;
+            body += $"**Committed work detected.** Commit `{shortCommit}` — {taskCommitEvidence.Summary}\n\n" +
+                    "**Review Completed Work** — inspect the commit, changed files, and test results before accepting.\n" +
+                    "**Accept Commit and Continue** — mark the task complete based on the committed evidence.\n";
+        }
+
+        body += "**Assess & Continue** — AI classifies the current task as complete, partial, or not started. SquadDash validates the evidence before accepting or continuing anything.\n" +
+                "**Replan Remaining Work** — replaces this task with smaller, dependency-aware steps.\n\n" +
+                $"Recorded stop detail: {reason}";
+
         return new InboxMessage
         {
             Id = BuildRecoveryMessageId(plan, taskId),
@@ -116,10 +159,7 @@ internal static class DecomposePlanInbox
             Timestamp = timestamp,
             Read = false,
             Priority = "critical",
-            Body = $"Plan **{plan.Group.GroupTitle}** stopped unexpectedly at task `{taskId}`. Recovery is available.\n\n" +
-                   "**Assess & Continue** — AI classifies the current task as complete, partial, or not started. SquadDash validates the evidence before accepting or continuing anything.\n" +
-                   "**Replan Remaining Work** — replaces this task with smaller, dependency-aware steps.\n\n" +
-                   $"Recorded stop detail: {reason}",
+            Body = body,
             Attachments =
             [
                 new InboxAttachment
@@ -131,11 +171,7 @@ internal static class DecomposePlanInbox
                     Content = JsonSerializer.Serialize(plan, SnapshotOptions),
                 }
             ],
-            Actions =
-            [
-                BuildAction("Assess & Continue", "assess-and-continue", "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing the plan."),
-                BuildAction("Replan Remaining Work", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
-            ],
+            Actions = actions,
         };
     }
 

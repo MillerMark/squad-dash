@@ -51,7 +51,8 @@ internal static class DecomposeRecoveryInboxReconciler
                 PendingDecomposePlanAdapter.FromPlan(plan!),
                 currentTaskId!,
                 plan!.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.",
-                message.Timestamp) with
+                message.Timestamp,
+                plan.InterruptionData?.TaskCommitEvidence) with
             {
                 Read = message.Read,
                 Priority = "critical",
