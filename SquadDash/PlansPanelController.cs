@@ -540,6 +540,7 @@ internal sealed class PlansPanelController
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = ToolTipHelper.MakeThemedToolTip("Pause plan execution after the current step is accepted."),
             };
+            System.Windows.Automation.AutomationProperties.SetName(pause, "Pause after current step");
             pause.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
             pause.Click += (_, args) =>
             {
@@ -561,6 +562,7 @@ internal sealed class PlansPanelController
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = ToolTipHelper.MakeThemedToolTip("Resume with the next runnable plan step."),
             };
+            System.Windows.Automation.AutomationProperties.SetName(resume, "Resume plan");
             resume.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
             resume.Click += (_, args) =>
             {
