@@ -358,6 +358,8 @@ public partial class MainWindow : Window
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
+    private PlanValidationResultPayload? _capturedValidationResult;
+    private string?                 _capturedValidationResultError;
     private string?                 _decomposeIterationBaselineCommit;
     private string?                 _decomposeContinuationTaskId;
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
@@ -9068,6 +9070,19 @@ public partial class MainWindow : Window
     private void CaptureExecutingPlanStepResult(string? rawResponse)
     {
         if (_activeDecomposeGroupId is null) return;
+
+        // Try to capture a validation result first
+        if (PlanValidationResultParser.TryParse(rawResponse, out var valResult, out var valError))
+        {
+            _capturedValidationResult = valResult;
+            _capturedValidationResultError = null;
+        }
+        else
+        {
+            _capturedValidationResult = null;
+            _capturedValidationResultError = valError;
+        }
+
         if (DecomposeStepResultParser.TryParse(rawResponse, out var result, out var error))
         {
             _capturedDecomposeStepResult = result;
@@ -9129,6 +9144,15 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
+        _capturedValidationResult = null;
+        _capturedValidationResultError = null;
+
+        // When a validation turn is active, skip task preparation — the validation prompt
+        // was already enqueued by ScheduleValidationTurnAsync.
+        var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExec?.ActiveValidationId is not null)
+            return null;
+
         if (_CodeHealthGroupRunner.CurrentStepId is null || _CodeHealthGroupRunner.CurrentRevision is null)
             throw new InvalidOperationException(
                 $"Plan {_activeDecomposeGroupId} has no dependency-eligible step to execute.");
@@ -9371,11 +9395,19 @@ public partial class MainWindow : Window
         }
 
         var groupId = _activeDecomposeGroupId;
+
+        // Handle validation turn finalization if a validation is in progress
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution?.ActiveValidationId is { } activeValId)
+        {
+            FinalizeValidationTurn(groupId, activeValId);
+            return;
+        }
+
         var taskId = _CodeHealthGroupRunner.CurrentStepId ?? "unknown task";
         var revision = _CodeHealthGroupRunner.CurrentRevision ?? string.Empty;
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
-        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         if (activeExecution is null)
         {
             // A graceful stop can clear the durable execution envelope while the
@@ -9731,7 +9763,16 @@ public partial class MainWindow : Window
         {
             var plan = _planStore.Load(groupId);
             if (plan is not null)
+            {
+                // Check for a ready validation before proceeding to the next task or gate.
+                var readyValidation = PlanValidationScheduler.SelectNextSchedulable(plan);
+                if (readyValidation is not null)
+                {
+                    await ScheduleValidationTurnAsync(groupId, plan, readyValidation);
+                    return;
+                }
                 await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, plan);
+            }
         }
     }
 
@@ -9742,9 +9783,209 @@ public partial class MainWindow : Window
         var plan = _planStore?.Load(groupId);
         var blockedTaskIds = plan is null
             ? null
-            : ApprovalGateReadinessEvaluator.ComputeAllBlockedTaskIds(plan);
+            : UnionBlockedTaskIds(plan);
         return _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId, blockedTaskIds);
     }
+
+    private static IReadOnlySet<string>? UnionBlockedTaskIds(Plan plan)
+    {
+        var gateBlocked = ApprovalGateReadinessEvaluator.ComputeAllBlockedTaskIds(plan);
+        var validationBlocked = PlanValidationScheduler.ComputeBlockedTaskIds(plan);
+        if (gateBlocked.Count == 0) return validationBlocked.Count == 0 ? null : validationBlocked;
+        if (validationBlocked.Count == 0) return gateBlocked;
+        var union = new HashSet<string>(gateBlocked, StringComparer.Ordinal);
+        union.UnionWith(validationBlocked);
+        return union;
+    }
+
+    /// <summary>
+    /// Schedules a validation turn for a ready validation node. Transitions the validation to
+    /// Validating state, persists durable progress, records <see cref="ActiveLoopExecutionState.ActiveValidationId"/>,
+    /// and enqueues the validation prompt for the next loop iteration.
+    /// </summary>
+    private async Task ScheduleValidationTurnAsync(
+        string groupId,
+        Plan plan,
+        PlanValidationNode validation)
+    {
+        try
+        {
+            // Transition to Validating and persist
+            var updated = PlanStoreUpdater.ApplyValidationStarted(plan, validation.ValidationId);
+            if (!TryPublishPlanProgress(updated, out var progressError))
+            {
+                SquadDashTrace.Write("PlanValidation",
+                    $"Failed to persist validation-started for {validation.ValidationId}: {progressError}");
+                return;
+            }
+
+            // Record the active validation in durable execution state
+            var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+            if (activeExecution is not null)
+            {
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with
+                    {
+                        ActiveValidationId = validation.ValidationId,
+                        ValidationRepairCount = 0,
+                    });
+            }
+
+            // Read observed HEAD for repository evidence
+            string? observedHead = null;
+            if (_currentWorkspace is not null)
+            {
+                try
+                {
+                    observedHead = (await RunGitAsync(
+                        _currentWorkspace.FolderPath,
+                        "rev-parse HEAD")).Trim();
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("PlanValidation", $"Failed to read HEAD: {ex.Message}");
+                }
+            }
+
+            // Build and enqueue validation prompt
+            var prompt = PlanValidationPromptBuilder.Build(updated, validation, observedHead);
+            ScheduleDecomposeSystemEntry(
+                $"🔍 Scheduling validation: {validation.Title} ({validation.ValidationId})");
+            EnqueuePrompt(prompt, isSystemInjected: true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanValidation",
+                $"Failed to schedule validation turn for {validation.ValidationId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Finalizes a validation turn by applying the captured validation result to durable plan state.
+    /// Handles missing envelope repair (once), tolerant result acceptance, and state cleanup.
+    /// </summary>
+    private void FinalizeValidationTurn(
+        string groupId,
+        string validationId)
+    {
+        var valResult = _capturedValidationResult;
+        var valError = _capturedValidationResultError;
+        _capturedValidationResult = null;
+        _capturedValidationResultError = null;
+
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution is null)
+        {
+            SquadDashTrace.Write("PlanValidation",
+                $"Skipping validation finalization — execution state is missing for {validationId}.");
+            return;
+        }
+
+        if (valResult is null && valError is not null)
+        {
+            // Tolerant repair: attempt one envelope repair before failing
+            if (activeExecution.ValidationRepairCount < 1)
+            {
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with { ValidationRepairCount = activeExecution.ValidationRepairCount + 1 });
+                var repairPrompt = PlanValidationRepairPrompt.Build(groupId, validationId, valError);
+                ScheduleDecomposeSystemEntry(
+                    $"⚙ Requesting missing validation result envelope for {validationId}.");
+                EnqueuePrompt(repairPrompt, isSystemInjected: true);
+                return;
+            }
+
+            // Repair exhausted — mark validation as failed
+            SquadDashTrace.Write("PlanValidation",
+                $"Validation {validationId} failed after repair attempt: {valError}");
+            ApplyAndPublishValidationResult(groupId, validationId, false,
+                $"Validation failed: missing result envelope after repair. {valError}", [], null);
+            ClearActiveValidation(activeExecution);
+            return;
+        }
+
+        if (valResult is not null)
+        {
+            // Validate scope
+            if (!string.Equals(valResult.ValidationId, validationId, StringComparison.Ordinal) ||
+                !string.Equals(valResult.PlanId, groupId, StringComparison.Ordinal))
+            {
+                SquadDashTrace.Write("PlanValidation",
+                    $"Validation result scope mismatch: expected {groupId}/{validationId}, " +
+                    $"got {valResult.PlanId}/{valResult.ValidationId}.");
+                ApplyAndPublishValidationResult(groupId, validationId, false,
+                    "Validation result scope mismatch.", [], null);
+                ClearActiveValidation(activeExecution);
+                return;
+            }
+
+            var evidence = valResult.AssertionEvidence
+                .Select(e => $"[{(e.Passed ? "PASS" : "FAIL")}] {e.Assertion}: {e.Evidence}")
+                .ToArray();
+            ApplyAndPublishValidationResult(groupId, validationId, valResult.Passed,
+                valResult.Summary, evidence, valResult.ValidatedCommit);
+            ClearActiveValidation(activeExecution);
+
+            if (valResult.Passed)
+                ScheduleDecomposeSystemEntry(
+                    $"✅ Validation passed: {validationId} — {valResult.Summary}");
+            else
+                ScheduleDecomposeSystemEntry(
+                    $"❌ Validation failed: {validationId} — {valResult.Summary}");
+            return;
+        }
+
+        // No result and no error — treat as missing envelope
+        if (activeExecution.ValidationRepairCount < 1)
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with { ValidationRepairCount = activeExecution.ValidationRepairCount + 1 });
+            var repairPrompt = PlanValidationRepairPrompt.Build(groupId, validationId,
+                "No validation result was returned.");
+            ScheduleDecomposeSystemEntry(
+                $"⚙ Requesting missing validation result envelope for {validationId}.");
+            EnqueuePrompt(repairPrompt, isSystemInjected: true);
+            return;
+        }
+
+        ApplyAndPublishValidationResult(groupId, validationId, false,
+            "Validation failed: no result returned after repair.", [], null);
+        ClearActiveValidation(activeExecution);
+    }
+
+    private void ApplyAndPublishValidationResult(
+        string groupId,
+        string validationId,
+        bool passed,
+        string summary,
+        IReadOnlyList<string> evidence,
+        string? validatedCommit)
+    {
+        try
+        {
+            var plan = _planStore?.Load(groupId);
+            if (plan is null) return;
+            var updated = PlanStoreUpdater.ApplyValidationResult(
+                plan, validationId, passed, summary, evidence, validatedCommit);
+            TryPublishPlanProgress(updated, out _);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanValidation",
+                $"Failed to persist validation result for {validationId}: {ex.Message}");
+        }
+    }
+
+    private void ClearActiveValidation(ActiveLoopExecutionState activeExecution)
+    {
+        _conversationManager.UpdateActiveLoopExecutionState(
+            activeExecution with
+            {
+                ActiveValidationId = null,
+                ValidationRepairCount = 0,
+            });
+    }
+
 
     private async Task<string?> ValidateDecomposeStepCommitAsync(DecomposeStepResult result)
     {

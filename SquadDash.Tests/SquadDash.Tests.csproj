@@ -26,6 +26,10 @@
     <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />
     <Compile Include="..\SquadDash\PlanValidationReadinessEvaluator.cs" Link="Source\PlanValidationReadinessEvaluator.cs" />
+    <Compile Include="..\SquadDash\PlanValidationScheduler.cs" Link="Source\PlanValidationScheduler.cs" />
+    <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
+    <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
