@@ -518,6 +518,33 @@ internal sealed class TranscriptConversationManagerTests {
         Assert.That(manager.ConversationState.QueueLastChangedAt!.Value, Is.GreaterThan(before));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_PreservesLockedHostPresentation()
+    {
+        var manager = MakeManager();
+
+        manager.UpdateQueuedPromptsState([
+            new PromptQueueItem
+            {
+                Text = "Continue plan P",
+                SequenceNumber = 1,
+                SourceTag = "plan-continuation",
+                IsSystemInjected = true,
+                IsLocked = true,
+                DisplayLabel = "Plan Step 4",
+                ReadOnlyDisplayText = "Read-only continuation details"
+            }
+        ]);
+
+        var entry = manager.ConversationState.QueuedPromptEntries!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry.IsLocked, Is.True);
+            Assert.That(entry.DisplayLabel, Is.EqualTo("Plan Step 4"));
+            Assert.That(entry.ReadOnlyDisplayText, Is.EqualTo("Read-only continuation details"));
+        });
+    }
+
     // ── UpdateQueuedPromptsState — image attachment preservation (411e34f) ────
 
     [Test, Apartment(ApartmentState.STA)]

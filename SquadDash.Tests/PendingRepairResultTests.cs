@@ -48,6 +48,27 @@ internal sealed class PendingRepairResultTests
     // ── 1. Normal consumption ──────────────────────────────────────────────────
 
     [Test]
+    public void MatchingPendingResult_FinalizesWithoutDispatchingTaskAgain()
+    {
+        var execution = CreateExecution(pendingResult: CreatePending(
+            result: CreateValidResult(attemptId: "attempt-1")));
+
+        Assert.That(PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+            execution, "group-1", "rev-abc", "task-1"), Is.True);
+    }
+
+    [Test]
+    public void CrossAttemptPendingResult_NeverSuppressesTaskDispatch()
+    {
+        var execution = CreateExecution(pendingResult: CreatePending(
+            attemptId: "old-attempt",
+            result: CreateValidResult(attemptId: "old-attempt")));
+
+        Assert.That(PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+            execution, "group-1", "rev-abc", "task-1"), Is.False);
+    }
+
+    [Test]
     public void NormalConsumption_PersistThenConsume_ClearsAfter()
     {
         var result = CreateValidResult(attemptId: "attempt-1");

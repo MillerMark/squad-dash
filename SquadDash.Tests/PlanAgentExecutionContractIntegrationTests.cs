@@ -93,7 +93,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
     }
 
     [Test]
-    public void AssignedTask_DeterministicFailureMatrix_FailsClosed()
+    public void AssignedTask_DeterministicFailureMatrix_FailsClosedOnlyForUnsafeEvidence()
     {
         var attempt = CreateAttempt();
         var launch = ResolveLaunch(attempt, ToolCallId);
@@ -137,15 +137,21 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             Assert.That(PlanAgentAssignmentValidator.Validate(
                 TaskId, Revision, [_assignment], failed), Does.Contain("complete successfully"));
             Assert.That(PlanAgentAssignmentValidator.Validate(
-                TaskId, Revision, [_assignment], completeWithoutReads), Does.Contain("host-observed reads"));
+                TaskId, Revision, [_assignment], completeWithoutReads), Is.Null);
             Assert.That(PlanAgentAssignmentValidator.Validate(
-                TaskId, Revision, [_assignment], duplicate), Does.Contain("undeclared"));
+                TaskId, Revision, [_assignment], duplicate), Is.Null);
             Assert.That(PlanAgentAssignmentValidator.Validate(
-                TaskId, Revision, [_assignment], child), Does.Contain("forbids"));
+                TaskId, Revision, [_assignment], child), Is.Null);
+            Assert.That(PlanAgentAssignmentValidator.GetAdvisories([_assignment], completeWithoutReads),
+                Is.Not.Empty);
+            Assert.That(PlanAgentAssignmentValidator.GetAdvisories([_assignment], duplicate),
+                Is.Not.Empty);
+            Assert.That(PlanAgentAssignmentValidator.GetAdvisories([_assignment], child),
+                Is.Not.Empty);
             Assert.That(replayedLaunch.IsVerifiedRosterAssignment, Is.False,
                 "An envelope from an earlier host attempt must not verify in a retry.");
             Assert.That(PlanAgentAssignmentValidator.Validate(
-                TaskId, Revision, [_assignment], replayed), Does.Contain("undeclared"));
+                TaskId, Revision, [_assignment], replayed), Does.Contain("did not launch required"));
             Assert.That(PlanAgentAssignmentValidator.ValidateWrapUp(
                 TaskId,
                 [_assignment],
@@ -285,7 +291,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
     }
 
     [Test]
-    public void ContentModifiedCharter_InPrompt_StillRequiresAuthoritativeCharterRead()
+    public void ContentModifiedCharter_InPrompt_RecordsMissingReadAsAdvisory()
     {
         var crlfCharter = Charter.Replace("\n", "\r\n") + "\r\n";
         _workspace.CreateFile("repo/.squad/agents/talia-rune/charter.md", crlfCharter);
@@ -330,12 +336,13 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             succeeded: true);
 
         Assert.That(PlanAgentAssignmentValidator.Validate(
-            TaskId, Revision, [_assignment], attempt),
-            Does.Contain("host-observed reads"));
+            TaskId, Revision, [_assignment], attempt), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories([_assignment], attempt),
+            Has.Some.Contains("charter.md"));
     }
 
     [Test]
-    public void ContextReadRequired_MissingContextRead_ValidationFails()
+    public void ContextReadRequired_MissingContextRead_DoesNotDiscardCompletedWork()
     {
         var attempt = CreateAttempt();
         var launch = ResolveLaunch(attempt, ToolCallId);
@@ -350,8 +357,9 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             succeeded: true);
 
         Assert.That(PlanAgentAssignmentValidator.Validate(
-            TaskId, Revision, [_assignment], attempt),
-            Does.Contain("host-observed reads"));
+            TaskId, Revision, [_assignment], attempt), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories([_assignment], attempt),
+            Is.Not.Empty);
     }
 
     private static string BuildResult(string attemptId) =>

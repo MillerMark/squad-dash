@@ -30,17 +30,32 @@ internal sealed class PlanAgentAssignmentValidatorTests
     }
 
     [Test]
-    public void Validate_RejectsUnexpectedCoordinatorPrimaryAndForbiddenChildren()
+    public void Validate_AcceptsAdditionalHelpersAndReportsAdvisories()
     {
         var unexpected = Attempt(launched: true).RecordUnexpectedPrimaryLaunch("tool-generic");
         Assert.That(PlanAgentAssignmentValidator.Validate(
-            unexpected.TaskId, unexpected.Revision, [Expected], unexpected), Does.Contain("undeclared"));
+            unexpected.TaskId, unexpected.Revision, [Expected], unexpected), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories([Expected], unexpected),
+            Has.Some.Contains("additional helper"));
 
         var noChildrenExpected = Expected with { AllowGenericChildren = false };
         var child = Attempt(launched: true, allowChildren: false)
             .RecordChildLaunch("tool-primary", "tool-child");
         Assert.That(PlanAgentAssignmentValidator.Validate(
-            child.TaskId, child.Revision, [noChildrenExpected], child), Does.Contain("forbids"));
+            child.TaskId, child.Revision, [noChildrenExpected], child), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories([noChildrenExpected], child),
+            Has.Some.Contains("generic child helper"));
+    }
+
+    [Test]
+    public void Validate_MissingObservedContextIsAdvisory()
+    {
+        var attempt = Attempt(launched: true, requiredContext: ["C:\\repo\\history.md"]);
+
+        Assert.That(PlanAgentAssignmentValidator.Validate(
+            attempt.TaskId, attempt.Revision, [Expected], attempt), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories([Expected], attempt),
+            Has.Some.Contains("history.md"));
     }
 
     [Test]
@@ -106,7 +121,7 @@ internal sealed class PlanAgentAssignmentValidatorTests
     }
 
     [Test]
-    public void ValidateWrapUp_RejectsMissingDuplicateOrMisattributedRosterHandles()
+    public void ValidateWrapUp_RequiresEachNamedOwnerButToleratesReportedHelpers()
     {
         var attempt = Attempt(launched: true);
 
@@ -125,7 +140,7 @@ internal sealed class PlanAgentAssignmentValidatorTests
                     new DecomposeAgentExecution("talia-rune", "talia-rune", null),
                     new DecomposeAgentExecution("temporary-agent", "temporary-agent", null)
                 ]),
-                Does.Contain("undeclared"));
+                Is.Null);
         });
     }
 

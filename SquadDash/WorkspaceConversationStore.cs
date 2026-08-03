@@ -875,8 +875,7 @@ internal sealed record PendingRepairResult(
     {
         return string.Equals(GroupId, groupId, StringComparison.Ordinal) &&
                string.Equals(Revision, revision, StringComparison.Ordinal) &&
-               (AttemptId is null || attemptId is null ||
-                string.Equals(AttemptId, attemptId, StringComparison.Ordinal));
+               (AttemptId is null || string.Equals(AttemptId, attemptId, StringComparison.Ordinal));
     }
 }
 
@@ -971,7 +970,10 @@ internal sealed record QueuedPromptEntry(
     string? SimResponse = null,
     int SimDelaySeconds = 0,
     int QueueNumber = 0,
-    string? SourceTag = null);
+    string? SourceTag = null,
+    bool IsLocked = false,
+    string? DisplayLabel = null,
+    string? ReadOnlyDisplayText = null);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

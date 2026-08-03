@@ -2459,6 +2459,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (IsActiveQueueItemLocked())
+                return;
+
             if (_currentWorkspace is null)
             {
                 MessageBox.Show(
@@ -2898,7 +2901,7 @@ public partial class MainWindow : Window
         var items = _promptQueue.Items;
         // If the user is editing the rightmost (first-to-dispatch) tab, hold the entire
         // queue so they can finish editing before anything fires.
-        if (items.Count > 0 && items[0].Id == _activeTabId)
+        if (items.Count > 0 && items[0].Id == _activeTabId && !items[0].IsLocked)
             return null;
         for (int i = 0; i < items.Count; i++)
         {
@@ -3364,7 +3367,8 @@ public partial class MainWindow : Window
     private bool IsRightmostQueueTabActive() =>
         _activeTabId is not null &&
         _promptQueue.Count > 0 &&
-        _promptQueue.Items[0].Id == _activeTabId;
+        _promptQueue.Items[0].Id == _activeTabId &&
+        !_promptQueue.Items[0].IsLocked;
 
     private int? GetActiveQueueTabIndex()
     {
@@ -3446,6 +3450,18 @@ public partial class MainWindow : Window
     {
         var swFull = Stopwatch.StartNew();
         var items = _promptQueue.Items;
+        if (_activeTabId is not null && items.All(item => item.Id != _activeTabId))
+        {
+            _activeTabId = null;
+            SetPromptTextBoxLogicalBuffer(
+                _queuePreEditDraft ?? string.Empty,
+                (_queuePreEditDraft ?? string.Empty).Length,
+                0,
+                0,
+                "queue-removed-active-item");
+            _queuePreEditDraft = null;
+            ApplyPromptEditorLockState();
+        }
         QueueTabBorder.Visibility = (items.Count > 0 || _queueManuallyPaused) ? Visibility.Visible : Visibility.Collapsed;
         QueueTabStrip.Children.Clear();
 
@@ -3468,8 +3484,10 @@ public partial class MainWindow : Window
                 var queuedLoop = isQueuedLoop && QueuedLoopJob.TryDecode(item.Text, out var decodedJob)
                     ? decodedJob
                     : null;
-                var label = isPlanContinuation
-                    ? "Continue plan"
+                var label = !string.IsNullOrWhiteSpace(item.DisplayLabel)
+                    ? item.DisplayLabel!
+                    : isPlanContinuation
+                    ? "Plan continuation"
                     : queuedLoop is not null ? queuedLoop.DisplayLabel
                     : isNext ? $"Queue #{item.QueueNumber}" : $"#{item.QueueNumber}";
                 var tooltip = isPlanContinuation
@@ -4037,6 +4055,8 @@ public partial class MainWindow : Window
     private UIElement CreateQueueTab(string? id, string label, string? tooltip = null)
     {
         bool isActive = _activeTabId == id;
+        var queueItem = id is null ? null : _promptQueue.Items.FirstOrDefault(item => item.Id == id);
+        var isLocked = queueItem?.IsLocked == true;
 
         var textBlock = new TextBlock
         {
@@ -4052,7 +4072,7 @@ public partial class MainWindow : Window
 
         var tabKey = id ?? "";
         bool hasAttachment = _followUpAttachments.TryGetValue(tabKey, out var attachList) && attachList.Count > 0;
-        bool showPause = id is not null && isActive;
+        bool showPause = id is not null && isActive && !isLocked;
 
         UIElement tabChild;
         if (hasAttachment || showPause)
@@ -4096,19 +4116,16 @@ public partial class MainWindow : Window
         if (id is not null)
         {
             var capturedId = id;
-            var isPlanContinuation = _promptQueue.Items.Any(item =>
-                item.Id == capturedId &&
-                string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
-            var isQueuedLoop = _promptQueue.Items.Any(item =>
-                item.Id == capturedId &&
-                string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal));
+            var isPlanContinuation = string.Equals(
+                queueItem?.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal);
+            var isQueuedLoop = string.Equals(
+                queueItem?.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
             if (isQueuedLoop)
                 tab.Cursor = Cursors.Arrow;
             var cm = MakeMenu();
 
             // Activate the tab on right-click so user can see what they're deleting.
-            if (!isPlanContinuation && !isQueuedLoop)
-                cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
+            cm.Opened += (_, _) => OnQueueTabClicked(capturedId);
 
             // Only show Prioritize when this item is not already next-to-dispatch (index 0).
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
@@ -4136,6 +4153,10 @@ public partial class MainWindow : Window
                 tab.MouseMove += (_, e) => OnQueueTabMouseMove(e);
                 tab.MouseLeftButtonUp += (_, e) => OnQueueTabMouseUp(capturedId, e);
                 tab.LostMouseCapture += (_, _) => CancelDrag();
+            }
+            else
+            {
+                tab.MouseLeftButtonUp += (_, _) => OnQueueTabClicked(capturedId);
             }
         }
         else
@@ -4171,10 +4192,6 @@ public partial class MainWindow : Window
 
     private void OnQueueTabClicked(string? id)
     {
-        if (id is not null && _promptQueue.Items.Any(item =>
-                item.Id == id &&
-                IsHostQueueItem(item)))
-            return;
         if (_activeTabId == id) return;
 
         var sw = Stopwatch.StartNew();
@@ -4196,7 +4213,7 @@ public partial class MainWindow : Window
         else
         {
             var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
-            if (current is not null)
+            if (current is not null && !current.IsLocked)
             {
                 current.Text = PromptTextBox.Text;
                 current.CaretIndex = PromptTextBox.CaretIndex;
@@ -4223,7 +4240,9 @@ public partial class MainWindow : Window
             if (target is not null)
             {
                 SetPromptTextBoxLogicalBuffer(
-                    target.Text,
+                    target.IsLocked
+                        ? target.ReadOnlyDisplayText ?? target.Text
+                        : target.Text,
                     target.CaretIndex,
                     target.SelectionStart,
                     target.SelectionLength,
@@ -4241,6 +4260,7 @@ public partial class MainWindow : Window
         // Fast path: only update the two tabs whose visual state changed rather than
         // tearing down and rebuilding the entire tab strip on every Ctrl+Tab cycle.
         FastSyncQueueTabActiveState(previousId, id);
+        ApplyPromptEditorLockState();
         SetQueuePaused(_queueManuallyPaused);
         long msAfterTabSync = sw.ElapsedMilliseconds;
 
@@ -4618,6 +4638,21 @@ public partial class MainWindow : Window
             activeTabId: _activeTabId,
             queueManuallyPaused: _queueManuallyPaused,
             isRightmostTab: IsRightmostQueueTabActive());
+        RunButton.IsEnabled = !IsActiveQueueItemLocked();
+    }
+
+    private bool IsActiveQueueItemLocked() =>
+        _activeTabId is not null &&
+        _promptQueue.Items.FirstOrDefault(item => item.Id == _activeTabId)?.IsLocked == true;
+
+    private void ApplyPromptEditorLockState()
+    {
+        var isLocked = IsActiveQueueItemLocked();
+        PromptTextBox.IsReadOnly = isLocked;
+        PromptTextBox.SetResourceReference(
+            Control.ForegroundProperty,
+            isLocked ? "SubtleText" : "LabelText");
+        SyncSendButton();
     }
 
     private async void AbortButton_Click(object sender, RoutedEventArgs e)
@@ -6018,6 +6053,21 @@ public partial class MainWindow : Window
     private async Task ExecuteLoopIterationAsync(string prompt, string? sessionId)
     {
         var isExecutingPlan = _activeDecomposeGroupId is not null;
+        if (isExecutingPlan &&
+            _CodeHealthGroupRunner?.CurrentRevision is { } currentRevision &&
+            _CodeHealthGroupRunner.CurrentStepId is { } currentTaskId &&
+            PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+                _conversationManager.ConversationState.ActiveLoopExecution,
+                _activeDecomposeGroupId!,
+                currentRevision,
+                currentTaskId))
+        {
+            var stepNumber = (_planStore?.Load(_activeDecomposeGroupId!)?.Progress.CompletedCount ?? 0) + 1;
+            ScheduleDecomposeSystemEntry(
+                $"Validating completed work for Step {stepNumber}. The implementation will not be run again.");
+            await FinalizeExecutingPlanIterationAsync();
+            return;
+        }
         if (isExecutingPlan)
         {
             var continuationContext = await PrepareExecutingPlanIterationAsync();
@@ -6035,12 +6085,24 @@ public partial class MainWindow : Window
                 _CodeHealthGroupRunner?.GetCurrentStepTitle(),
                 loopMdPath);
         }
-        await _pec.ExecutePromptAsync(
-            prompt,
-            addToHistory: false,
-            clearPromptBox: false,
-            sessionIdOverride: sessionId,
-            displayPrompt: displayPrompt);
+        if (isExecutingPlan)
+            _pendingPromptIsSystemInjected = true;
+        try
+        {
+            await _pec.ExecutePromptAsync(
+                prompt,
+                addToHistory: false,
+                clearPromptBox: false,
+                sessionIdOverride: sessionId,
+                displayPrompt: isExecutingPlan
+                    ? SystemTranscriptStatusPrefix + displayPrompt
+                    : displayPrompt);
+        }
+        finally
+        {
+            if (isExecutingPlan)
+                _pendingPromptIsSystemInjected = false;
+        }
 
         while (LastTurnNeedsInput() && _loopController.StopState == LoopStopState.None)
         {
@@ -8455,6 +8517,13 @@ public partial class MainWindow : Window
     {
         if (_activeDecomposeGroupId is null) return;
         _promptQueue.RemoveByTag(PlanContinuationQueueTag);
+        var plan = _planStore?.Load(_activeDecomposeGroupId);
+        var presentation = plan is null ? null : PlanContinuationQueuePresentation.Build(plan);
+        if (presentation is null)
+        {
+            SyncQueuePanel();
+            return;
+        }
         _promptQueue.EnqueueItem(new PromptQueueItem
         {
             Text = $"Continue plan {_activeDecomposeGroupId}",
@@ -8462,6 +8531,9 @@ public partial class MainWindow : Window
             QueueNumber = NextQueueNumber(),
             IsSystemInjected = true,
             SourceTag = PlanContinuationQueueTag,
+            IsLocked = true,
+            DisplayLabel = presentation.Label,
+            ReadOnlyDisplayText = presentation.Description,
         });
         var continuation = _promptQueue.Items.Last(item =>
             string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
@@ -8483,6 +8555,11 @@ public partial class MainWindow : Window
             QueueNumber = NextQueueNumber(),
             IsSystemInjected = true,
             SourceTag = QueuedLoopJobTag,
+            IsLocked = true,
+            DisplayLabel = job.DisplayLabel,
+            ReadOnlyDisplayText =
+                $"This is a locked filtered-loop job containing {job.TaskCount} task(s).\n\n" +
+                "SquadDash will start it after the active loop finishes. Its task snapshot cannot be edited or sent manually.",
         });
         SyncQueuePanel();
         AppendLoopOutputLine(
@@ -9137,11 +9214,6 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Task {currentTaskId} assigns {assignments.Count} primary agents. " +
                 "Concurrent primary writers are disabled until SquadDash can provision isolated worktrees.");
-        if (assignments?.Any(assignment => assignment.AllowGenericChildren) == true)
-            throw new InvalidOperationException(
-                $"Task {currentTaskId} permits generic child workers. " +
-                "Child workers are disabled until SquadDash can enforce read-only isolation.");
-
         PlanExecutionAttemptState? attempt = null;
         if (assignments is { Count: 1 })
         {
@@ -9413,6 +9485,11 @@ public partial class MainWindow : Window
         }
         if (assignmentError is not null)
             error = assignmentError;
+        else
+        {
+            foreach (var advisory in PlanAgentAssignmentValidator.GetAdvisories(expectedAssignments, executionAttempt))
+                SquadDashTrace.Write("PlanRouting", $"Plan {groupId} task {taskId}: {advisory}");
+        }
 
         if (result is not null && !string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
             error = $"The result was for group {result.GroupId}, but SquadDash is executing {groupId}.";
@@ -9545,8 +9622,14 @@ public partial class MainWindow : Window
                         executionAttempt.AttemptId,
                         expectedAssignments,
                         repairError);
+                    var stepNumber = (_planStore?.Load(groupId)?.Progress.CompletedCount ?? 0) + 1;
+                    var workState = taskCommitEvidence is not null
+                        ? $"Step {stepNumber} work is committed but not yet accepted. "
+                        : $"The assigned worker completed Step {stepNumber}, but the step is not yet accepted. ";
                     ScheduleDecomposeSystemEntry(
-                        $"⚙ SquadDash is requesting the missing coordinator wrap-up without relaunching completed workers (reason: {repairError})");
+                        workState +
+                        "SquadDash is validating the result envelope without relaunching workers. " +
+                        $"Technical detail: {repairError}");
                 }
                 else if (assignmentError is not null &&
                          string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal) &&
@@ -9578,8 +9661,11 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    var stepNumber = (_planStore?.Load(groupId)?.Progress.CompletedCount ?? 0) + 1;
                     ScheduleDecomposeSystemEntry(
-                        $"⚙ SquadDash is requesting the missing result envelope (reason: {repairError})");
+                        $"Step {stepNumber} is not yet accepted. " +
+                        "SquadDash is requesting the missing result envelope without repeating the task. " +
+                        $"Technical detail: {repairError}");
                 }
                 EnqueuePrompt(repairPrompt, isSystemInjected: true);
                 return;
@@ -26813,6 +26899,9 @@ public partial class MainWindow : Window
                 _promptQueue.Enqueue(entry.Text, _promptQueueCoordinator.NextSequenceNumber(), entry.IsDictated, isSystemInjected: entry.IsSystemInjected, sourceTag: entry.SourceTag);
                 var restoredItem = _promptQueue.Items[^1];
                 restoredItem.QueueNumber = entry.QueueNumber > 0 ? entry.QueueNumber : NextQueueNumber();
+                restoredItem.IsLocked = entry.IsLocked;
+                restoredItem.DisplayLabel = entry.DisplayLabel;
+                restoredItem.ReadOnlyDisplayText = entry.ReadOnlyDisplayText;
                 if (entry.IsSimEntry)
                 {
                     restoredItem.IsSimEntry      = true;
@@ -30426,9 +30515,11 @@ public partial class MainWindow : Window
                 var systemText = promptBody.StartsWith(SystemTranscriptStatusPrefix, StringComparison.Ordinal)
                     ? promptBody[SystemTranscriptStatusPrefix.Length..]
                     : "↩ Following up…";
-                var systemRun = new Run(systemText);
-                systemRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                promptParagraph.Inlines.Add(systemRun);
+                AddPromptBodyInlines(
+                    promptParagraph.Inlines,
+                    systemText,
+                    FontWeights.Normal,
+                    "SubtleText");
             }
             else if (thread.Kind == TranscriptThreadKind.Coordinator && !string.IsNullOrWhiteSpace(_settingsSnapshot.UserName))
             {

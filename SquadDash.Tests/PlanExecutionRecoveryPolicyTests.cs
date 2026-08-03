@@ -9,7 +9,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
         new("vesper-knox", "Test verification", false);
 
     [Test]
-    public void UnexpectedPrimaryLaunch_StartsOneFreshAttemptThenBlocks()
+    public void AdditionalCoordinatorHelpers_DoNotInvalidateCompletedNamedWork()
     {
         var contaminated = Attempt() with { UnexpectedPrimaryToolCallIds = ["tool-wrong"] };
 
@@ -17,10 +17,10 @@ internal sealed class PlanExecutionRecoveryPolicyTests
         {
             Assert.That(
                 PlanExecutionRecoveryPolicy.Resolve(contaminated, [Assignment], 0, 0),
-                Is.EqualTo(PlanExecutionRecoveryAction.StartFreshAttempt));
+                Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
             Assert.That(
                 PlanExecutionRecoveryPolicy.Resolve(contaminated, [Assignment], 0, 1),
-                Is.EqualTo(PlanExecutionRecoveryAction.Block));
+                Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
         });
     }
 
@@ -41,7 +41,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
     }
 
     [Test]
-    public void ProhibitedChildLaunch_IsTerminalContamination()
+    public void NamedAgentChildLaunch_IsAdvisoryNotTerminal()
     {
         var contaminated = Attempt() with
         {
@@ -50,7 +50,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
 
         Assert.That(
             PlanExecutionRecoveryPolicy.HasTerminalEvidenceContamination(contaminated, [Assignment]),
-            Is.True);
+            Is.False);
     }
 
     [Test]
@@ -86,7 +86,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
     }
 
     [Test]
-    public void CompletedPrimaryMissingRequiredContext_RequiresFreshAttempt()
+    public void CompletedPrimaryMissingObservedContext_UsesEnvelopeRepair()
     {
         var evidence = Attempt().Assignments[0] with
         {
@@ -100,7 +100,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
 
         Assert.That(
             PlanExecutionRecoveryPolicy.Resolve(attempt, [Assignment], 0, 0),
-            Is.EqualTo(PlanExecutionRecoveryAction.StartFreshAttempt));
+            Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
     }
 
     [Test]

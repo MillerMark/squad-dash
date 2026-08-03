@@ -50,10 +50,6 @@ internal static class PlanAgentAssignmentValidator
             return $"Task {taskId} has stale assignment evidence from another task or revision.";
         if (!string.Equals(attempt.Status, "active", StringComparison.Ordinal))
             return $"Task {taskId} execution attempt {attempt.AttemptId} is not active.";
-        if (attempt.UnexpectedPrimaryToolCallIds is { Count: > 0 })
-            return $"Task {taskId} launched undeclared coordinator-owned primary worker(s): " +
-                   string.Join(", ", attempt.UnexpectedPrimaryToolCallIds) + ".";
-
         foreach (var assignment in expected)
         {
             var evidence = attempt.Assignments.FirstOrDefault(item =>
@@ -63,19 +59,50 @@ internal static class PlanAgentAssignmentValidator
             if (evidence.CompletedAt is null || evidence.Succeeded != true)
                 return $"Assignment '{assignment.AgentHandle}' did not complete successfully in the current attempt.";
 
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns non-fatal delegation observations retained for diagnostics. These signals are
+    /// useful for improving routing quality, but they do not invalidate verified work owned by
+    /// the required roster agent.
+    /// </summary>
+    internal static IReadOnlyList<string> GetAdvisories(
+        IReadOnlyList<DecomposedAgentAssignment>? expected,
+        PlanExecutionAttemptState? attempt)
+    {
+        if (attempt is null)
+            return [];
+
+        var advisories = new List<string>();
+        if (attempt.UnexpectedPrimaryToolCallIds is { Count: > 0 })
+            advisories.Add(
+                $"Coordinator launched {attempt.UnexpectedPrimaryToolCallIds.Count} additional helper worker(s); " +
+                "they did not satisfy named-agent ownership.");
+
+        foreach (var evidence in attempt.Assignments)
+        {
+            var assignment = expected?.FirstOrDefault(candidate =>
+                string.Equals(candidate.AgentHandle, evidence.AgentHandle, StringComparison.OrdinalIgnoreCase));
+            if (evidence.ChildToolCallIds is { Count: > 0 } && assignment?.AllowGenericChildren == false)
+                advisories.Add(
+                    $"Assignment '{evidence.AgentHandle}' used {evidence.ChildToolCallIds.Count} generic child helper(s) " +
+                    "although the plan preferred direct execution.");
+
             var missingContext = evidence.RequiredContextPaths
                 .Where(required => !(evidence.ObservedContextPaths ?? [])
                     .Any(observed => PlanExecutionAttemptState.PathsEqual(required, observed)))
                 .Select(Path.GetFileName)
                 .ToArray();
             if (missingContext.Length > 0)
-                return $"Assignment '{assignment.AgentHandle}' did not produce host-observed reads for: {string.Join(", ", missingContext)}.";
-
-            if (!assignment.AllowGenericChildren && evidence.ChildToolCallIds is { Count: > 0 })
-                return $"Assignment '{assignment.AgentHandle}' launched generic children even though the plan forbids them.";
+                advisories.Add(
+                    $"Assignment '{evidence.AgentHandle}' did not produce host-observed reads for: " +
+                    string.Join(", ", missingContext) + ".");
         }
 
-        return null;
+        return advisories;
     }
 
     internal static string? ValidateWrapUp(
@@ -91,9 +118,6 @@ internal static class PlanAgentAssignmentValidator
             return $"Task {taskId} omitted or reported the wrong host executionAttemptId.";
         if (reported is not { Count: > 0 })
             return $"Task {taskId} omitted its structured agentExecutions coordinator wrap-up.";
-
-        if (reported.Count != expected.Count)
-            return $"Task {taskId} coordinator wrap-up contained undeclared primary assignments.";
 
         foreach (var expectedAssignment in expected)
         {

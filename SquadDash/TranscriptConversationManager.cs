@@ -1309,7 +1309,10 @@ internal sealed class TranscriptConversationManager {
                         })
                         .ToList();
                 }
-                return new QueuedPromptEntry(i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse, i.SimDelaySeconds, i.QueueNumber, i.SourceTag);
+                return new QueuedPromptEntry(
+                    i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse,
+                    i.SimDelaySeconds, i.QueueNumber, i.SourceTag, i.IsLocked, i.DisplayLabel,
+                    i.ReadOnlyDisplayText);
             }).ToArray();
         }
         var previousState = _conversationState;
@@ -1371,6 +1374,9 @@ internal sealed class TranscriptConversationManager {
                 a.SimDelaySeconds  != b.SimDelaySeconds ||
                 a.QueueNumber      != b.QueueNumber ||
                 a.SourceTag        != b.SourceTag ||
+                a.IsLocked         != b.IsLocked ||
+                a.DisplayLabel     != b.DisplayLabel ||
+                a.ReadOnlyDisplayText != b.ReadOnlyDisplayText ||
                 !FollowUpAttachmentDtosEqual(a.Attachments, b.Attachments))
                 return false;
         }

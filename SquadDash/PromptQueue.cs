@@ -23,6 +23,12 @@ internal sealed class PromptQueueItem {
     public int     SimDelaySeconds  { get; set; }
     /// <summary>Optional tag identifying the feature that queued this item (e.g. "branch-indicator").</summary>
     public string? SourceTag        { get; set; }
+    /// <summary>True when the item may be inspected and reordered but its contents cannot be edited or sent manually.</summary>
+    public bool IsLocked            { get; set; }
+    /// <summary>Optional concise tab label for host-managed queue items.</summary>
+    public string? DisplayLabel     { get; set; }
+    /// <summary>Optional explanatory text shown instead of the operational payload while a locked item is selected.</summary>
+    public string? ReadOnlyDisplayText { get; set; }
     /// <summary>Text the item was created with; used to detect substantial user edits during a guided tour.</summary>
     public string? InitialText      { get; set; }
     /// <summary>

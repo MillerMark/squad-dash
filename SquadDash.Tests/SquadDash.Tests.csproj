@@ -132,6 +132,8 @@
     <Compile Include="..\SquadDash\LoopStartupResumePolicy.cs" Link="Source\LoopStartupResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopRoundExecutionIdentity.cs" Link="Source\LoopRoundExecutionIdentity.cs" />
     <Compile Include="..\SquadDash\PlanLoopTranscriptPresentation.cs" Link="Source\PlanLoopTranscriptPresentation.cs" />
+    <Compile Include="..\SquadDash\PlanContinuationQueuePresentation.cs" Link="Source\PlanContinuationQueuePresentation.cs" />
+    <Compile Include="..\SquadDash\PlanRepairReplayPolicy.cs" Link="Source\PlanRepairReplayPolicy.cs" />
     <Compile Include="..\SquadDash\LoopStopResumePolicy.cs" Link="Source\LoopStopResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopResumeExecutionPolicy.cs" Link="Source\LoopResumeExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />

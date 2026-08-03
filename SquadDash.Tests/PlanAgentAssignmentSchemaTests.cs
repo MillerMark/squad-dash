@@ -89,7 +89,7 @@ internal sealed class PlanAgentAssignmentSchemaTests
                 "ROUTE-20260728", "Routing", "feature/routing", "Verify routing",
                 [new DecomposedSubTask(
                     "ROUTE-20260728-001", "Implement", [], "high", "Implement routing",
-                    AgentAssignments: [new DecomposedAgentAssignment("talia-rune", "SDK", false)])]);
+                    AgentAssignments: [new DecomposedAgentAssignment("talia-rune", "SDK", true)])]);
 
             Assert.That(PlanAgentAssignmentCatalogValidator.TryValidate(
                 group, temp, out var validError), Is.True, validError);

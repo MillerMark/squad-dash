@@ -50,12 +50,6 @@ internal static class PlanAgentAssignmentCatalogValidator
 
             foreach (var assignment in task.AgentAssignments ?? [])
             {
-                if (assignment.AllowGenericChildren)
-                {
-                    error = $"Task {task.Id} allows generic child workers. " +
-                            "Child workers are temporarily unavailable until SquadDash can enforce read-only isolation.";
-                    return false;
-                }
                 var agent = roster.FirstOrDefault(candidate =>
                     candidate.IsActive &&
                     string.Equals(candidate.Handle, assignment.AgentHandle, StringComparison.OrdinalIgnoreCase));

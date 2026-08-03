@@ -44,8 +44,6 @@ internal static class PlanExecutionRecoveryPolicy
     {
         if (attempt is null)
             return false;
-        if (attempt.UnexpectedPrimaryToolCallIds is { Count: > 0 })
-            return true;
         if (attempt.GenericChildToolCallIds is { Count: > 0 })
             return true;
         if (!string.IsNullOrWhiteSpace(attempt.GenericPrimaryToolCallId) &&
@@ -54,17 +52,11 @@ internal static class PlanExecutionRecoveryPolicy
 
         return attempt.Assignments.Any(evidence =>
         {
-            var assignment = expectedAssignments?.FirstOrDefault(expected =>
-                string.Equals(expected.AgentHandle, evidence.AgentHandle, StringComparison.OrdinalIgnoreCase));
-            if (evidence.ChildToolCallIds is { Count: > 0 } && assignment?.AllowGenericChildren != true)
-                return true;
             if (string.IsNullOrWhiteSpace(evidence.PrimaryToolCallId))
                 return false;
             if (evidence.CompletedAt is null || evidence.Succeeded != true)
                 return true;
-            return evidence.RequiredContextPaths.Any(required =>
-                !(evidence.ObservedContextPaths ?? []).Any(observed =>
-                    PlanExecutionAttemptState.PathsEqual(required, observed)));
+            return false;
         });
     }
 

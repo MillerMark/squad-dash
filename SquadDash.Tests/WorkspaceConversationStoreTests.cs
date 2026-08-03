@@ -585,7 +585,14 @@ internal sealed class WorkspaceConversationStoreTests {
                 QueuedPromptEntries = [
                     new QueuedPromptEntry("typed prompt",    IsDictated: false),
                     new QueuedPromptEntry("dictated prompt", IsDictated: true),
-                    new QueuedPromptEntry("system follow-up", IsDictated: false, IsSystemInjected: true)
+                    new QueuedPromptEntry(
+                        "system follow-up",
+                        IsDictated: false,
+                        IsSystemInjected: true,
+                        SourceTag: "plan-continuation",
+                        IsLocked: true,
+                        DisplayLabel: "Plan Step 3",
+                        ReadOnlyDisplayText: "Locked plan continuation")
                 ],
                 QueueLastChangedAt = queueLastChangedAt
             });
@@ -604,6 +611,9 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(entries![1].IsSystemInjected, Is.False);
             Assert.That(entries![2].Text,       Is.EqualTo("system follow-up"));
             Assert.That(entries![2].IsSystemInjected, Is.True);
+            Assert.That(entries![2].IsLocked, Is.True);
+            Assert.That(entries![2].DisplayLabel, Is.EqualTo("Plan Step 3"));
+            Assert.That(entries![2].ReadOnlyDisplayText, Is.EqualTo("Locked plan continuation"));
             Assert.That(loaded.QueueLastChangedAt, Is.EqualTo(queueLastChangedAt));
         });
     }
