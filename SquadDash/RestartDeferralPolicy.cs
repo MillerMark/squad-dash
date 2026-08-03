@@ -9,6 +9,7 @@ internal enum RestartDeferralReason {
     VoiceInput,
     DocRevision,
     CommitHistoryCategorization,
+    PlanRecoveryAssessment,
 }
 
 internal static class RestartDeferralPolicy {
@@ -23,7 +24,8 @@ internal static class RestartDeferralPolicy {
         // We lift the restart gate so a pending build-restart can proceed without
         // requiring the user to manually cancel the unresponsive prompt first.
         bool promptAppearsStalled = false,
-        bool isCommitHistoryCategorizationInFlight = false) {
+        bool isCommitHistoryCategorizationInFlight = false,
+        bool isPlanRecoveryAssessmentInFlight = false) {
         if (isPromptRunning && !promptAppearsStalled)
             return RestartDeferralReason.PromptRunning;
         if (isLoopRunning)
@@ -40,6 +42,8 @@ internal static class RestartDeferralPolicy {
             return RestartDeferralReason.DocRevision;
         if (isCommitHistoryCategorizationInFlight)
             return RestartDeferralReason.CommitHistoryCategorization;
+        if (isPlanRecoveryAssessmentInFlight)
+            return RestartDeferralReason.PlanRecoveryAssessment;
 
         return RestartDeferralReason.None;
     }
@@ -60,6 +64,8 @@ internal static class RestartDeferralPolicy {
                 "Build finished. Restart will happen after in-flight AI revisions complete.",
             RestartDeferralReason.CommitHistoryCategorization =>
                 "Build finished. Restart will happen after commit history categorization completes.",
+            RestartDeferralReason.PlanRecoveryAssessment =>
+                "Build finished. Restart will happen after plan recovery evidence is safely applied.",
             _ =>
                 "Build finished. Restart pending."
         };

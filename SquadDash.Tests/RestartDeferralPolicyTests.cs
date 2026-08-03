@@ -3,6 +3,21 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class RestartDeferralPolicyTests {
     [Test]
+    public void GetDeferralReason_BlocksRestart_WhilePlanRecoveryAssessmentIsApplying() {
+        var reason = RestartDeferralPolicy.GetDeferralReason(
+            isPromptRunning: false,
+            isLoopRunning: false,
+            hasBackgroundWork: false,
+            hasPendingDirectQuickReplyHandoff: false,
+            isVoiceInputActiveOrDraining: false,
+            hasDocRevisionInFlight: false,
+            isPlanRecoveryAssessmentInFlight: true);
+
+        Assert.That(reason, Is.EqualTo(RestartDeferralReason.PlanRecoveryAssessment));
+        Assert.That(RestartDeferralPolicy.BuildStatusMessage(reason), Does.Contain("recovery evidence"));
+    }
+
+    [Test]
     public void GetDeferralReason_BlocksRestart_WhenBackgroundWorkIsActive() {
         var reason = RestartDeferralPolicy.GetDeferralReason(
             isPromptRunning: false,

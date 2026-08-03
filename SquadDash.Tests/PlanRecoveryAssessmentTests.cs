@@ -27,6 +27,24 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void Assessment_WithTrailingCommasAndComments_ParsesTolerantly()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
+             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
+             "classification":"inconclusive","summary":"Needs review.",
+             "remainingWork":[],"verification":null,
+             "commits":[
+               {"commit":"bbbbbbbb","relation":"unknown","reason":"Unclear.",},
+             ], // repairable JSON style emitted by some models
+            }
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
+        Assert.That(response!.Classification, Is.EqualTo(PlanRecoveryClassification.Inconclusive));
+    }
+
+    [Test]
     public void CompleteAssessment_WithoutPassedVerification_IsRejected()
     {
         var text = Prefix + """

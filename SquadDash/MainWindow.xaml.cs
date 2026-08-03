@@ -370,6 +370,7 @@ public partial class MainWindow : Window
     private PendingRecoveryAnalysisContext? _pendingRecoveryAnalysis;
     private PendingPlanRecoveryAssessment? _pendingPlanRecoveryAssessment;
     private AssessedRecoveryContinuation? _assessedRecoveryContinuation;
+    private bool _planRecoveryAssessmentApplying;
 
     // ── Panel docking ────────────────────────────────────────────────────────
     private PanelDockingService? _dockingService;
@@ -2909,7 +2910,12 @@ public partial class MainWindow : Window
 
     private bool CanAutoDispatchPromptQueue(string reason)
     {
-        if (_isPromptRunning || IsNativeLoopRunning || _isClosing || _restartPending)
+        var recoveryAssessmentMayFinishBeforeRestart = _restartPending &&
+            _pendingPlanRecoveryAssessment is not null &&
+            _promptQueue.Items.Any(item => string.Equals(
+                item.SourceTag, "plan-recovery-assessment", StringComparison.Ordinal));
+        if (_isPromptRunning || IsNativeLoopRunning || _isClosing ||
+            (_restartPending && !recoveryAssessmentMayFinishBeforeRestart))
             return false;
 
         if (_backgroundTaskPresenter.HasBackgroundTasks())
@@ -8358,6 +8364,7 @@ public partial class MainWindow : Window
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
+        _ = DrainQueueIfNeededAsync();
     }
 
     private async Task<bool> RetryDecomposeTaskAsync(PendingDecomposePlan plan, string taskId)
@@ -10709,9 +10716,10 @@ public partial class MainWindow : Window
         var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
         var taskParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-        taskParagraph.Inlines.Add(new Run("Task: "));
+        taskParagraph.Inlines.Add(new Run("Attempted Task: \""));
         var taskRun = new Run(taskTitle) { FontWeight = FontWeights.SemiBold };
         taskParagraph.Inlines.Add(taskRun);
+        taskParagraph.Inlines.Add(new Run("\""));
         blocks.Add(taskParagraph);
 
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
@@ -10819,6 +10827,7 @@ public partial class MainWindow : Window
             button.Click += (_, _) =>
             {
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
+                PrepareForHostRecoveryAction();
                 action();
             };
             panel.Children.Add(button);
@@ -10839,6 +10848,7 @@ public partial class MainWindow : Window
             button.Click += async (_, _) =>
             {
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
+                PrepareForHostRecoveryAction();
                 try { await action(); }
                 catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
             };
@@ -10852,7 +10862,8 @@ public partial class MainWindow : Window
         string AssessmentId,
         string BaselineCommit,
         string AssessedHead,
-        string StatusSnapshot);
+        string StatusSnapshot,
+        int RepairAttempts = 0);
 
     private sealed record AssessedRecoveryContinuation(
         string PlanId,
@@ -10933,6 +10944,16 @@ public partial class MainWindow : Window
         SyncSendButton();
         ShowSystemTranscriptEntry(
             $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
+        _ = DrainQueueIfNeededAsync();
+    }
+
+    private void PrepareForHostRecoveryAction()
+    {
+        if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+            _pec.DisableQuickReplies(_lastQuickReplyEntry);
+        ClearActiveQuickReplyState();
+        ResetQueuePausedState();
+        _loopFollowUpTcs?.TrySetResult(true);
     }
 
     private static string BuildPlanRecoveryAssessmentPrompt(
@@ -10988,23 +11009,77 @@ public partial class MainWindow : Window
     {
         if (_pendingPlanRecoveryAssessment is null) return;
         var context = _pendingPlanRecoveryAssessment;
-        _pendingPlanRecoveryAssessment = null;
 
         if (!PlanRecoveryAssessmentParser.TryParse(rawResponse, out var response, out var error) || response is null)
         {
+            if (context.RepairAttempts == 0)
+            {
+                _pendingPlanRecoveryAssessment = context with { RepairAttempts = 1 };
+                _promptQueue.EnqueueAtFront(
+                    BuildPlanRecoveryAssessmentRepairPrompt(context, error, rawResponse),
+                    _promptQueueCoordinator.NextSequenceNumber(),
+                    sourceTag: "plan-recovery-assessment",
+                    isSystemInjected: true);
+                SyncQueuePanel();
+                SyncSendButton();
+                ShowSystemTranscriptEntry(
+                    "SquadDash could not parse the recovery assessment. It asked AI once for a corrected structured response; the plan remains unchanged.");
+                _ = Dispatcher.BeginInvoke(
+                    new Action(() => _ = DrainQueueIfNeededAsync()),
+                    System.Windows.Threading.DispatcherPriority.ContextIdle);
+                return;
+            }
+
+            _pendingPlanRecoveryAssessment = null;
             ScheduleDecomposeSystemEntry(
-                "SquadDash could not validate the recovery assessment, so the plan remains stopped. " + error,
+                "SquadDash could not validate the recovery assessment after one automatic repair, so the plan remains stopped. " + error,
                 context.Plan.Group.GroupId,
                 context.Plan.Revision,
                 context.TaskId);
             return;
         }
 
+        _pendingPlanRecoveryAssessment = null;
+        _planRecoveryAssessmentApplying = true;
         Dispatcher.BeginInvoke(new Action(async () =>
         {
             try { await ValidateAndApplyPlanRecoveryAssessmentAsync(response, context); }
             catch (Exception ex) { HandleUiCallbackException("Plan recovery assessment", ex); }
+            finally
+            {
+                _planRecoveryAssessmentApplying = false;
+                TryCompletePendingRestart(
+                    "plan-recovery-assessment-finished",
+                    emergencySaveBeforeClose: true);
+            }
         }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private static string BuildPlanRecoveryAssessmentRepairPrompt(
+        PendingPlanRecoveryAssessment context,
+        string? error,
+        string? invalidResponse)
+    {
+        var response = invalidResponse ?? string.Empty;
+        if (response.Length > 16000) response = response[^16000..];
+        return $$"""
+            Your previous recovery assessment could not be parsed: {{error ?? "invalid structured response"}}.
+            Make no repository changes and do not repeat the assessment. Return only one corrected
+            {{PlanRecoveryAssessmentParser.Marker}} JSON object using the evidence and conclusions already obtained.
+            Copy these identity fields exactly:
+            - recoveryAssessmentId: {{context.AssessmentId}}
+            - planId: {{context.Plan.Group.GroupId}}
+            - taskId: {{context.TaskId}}
+            - revision: {{context.Plan.Revision}}
+            - baselineCommit: {{context.BaselineCommit}}
+            - assessedHead: {{context.AssessedHead}}
+            Use classification complete, partial, not_started, or inconclusive. Include summary, remainingWork (an
+            empty array unless partial), verification, and a commits array classifying every commit as task, mixed,
+            unrelated, or unknown. Output strict JSON with double-quoted property names and no prose after the object.
+
+            Previous response:
+            {{response}}
+            """;
     }
 
     private async Task ValidateAndApplyPlanRecoveryAssessmentAsync(
@@ -37092,7 +37167,9 @@ public partial class MainWindow : Window
             isVoiceInputActiveOrDraining:    _pttState == PttState.Active || _pttDraining,
             hasDocRevisionInFlight:          MarkdownDocumentWindow.AnyRevisionInFlight,
             promptAppearsStalled:            _pec.PromptAppearsDeadShown,
-            isCommitHistoryCategorizationInFlight: _commitActivityGraphWindow?.IsCategorizationInFlight == true);
+            isCommitHistoryCategorizationInFlight: _commitActivityGraphWindow?.IsCategorizationInFlight == true,
+            isPlanRecoveryAssessmentInFlight: _pendingPlanRecoveryAssessment is not null ||
+                                              _planRecoveryAssessmentApplying);
 
     private bool DeferPendingRestartIfBlocked(string reason)
     {
@@ -37134,7 +37211,9 @@ public partial class MainWindow : Window
     {
         if (_restartStatusPanelControl == null) return;
 
-        var shouldShow = _restartPending && _isPromptRunning;
+        var shouldShow = _restartPending &&
+                         (_isPromptRunning || _pendingPlanRecoveryAssessment is not null ||
+                          _planRecoveryAssessmentApplying);
         _restartStatusPanelControl.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
     }
 

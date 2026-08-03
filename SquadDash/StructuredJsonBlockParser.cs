@@ -17,6 +17,8 @@ internal static class StructuredJsonBlockParser
     private static readonly JsonSerializerOptions ParseOptions = new()
     {
         PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
     };
 
     internal static bool TryExtractObject<T>(
