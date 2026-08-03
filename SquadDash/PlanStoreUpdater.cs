@@ -82,6 +82,30 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Marks an individual scheduled task as executing. This transition occurs at the start of
+    /// every iteration, after the scheduler has selected the task, so live UI never depends on
+    /// the earlier plan-start projection having guessed the next task correctly.
+    /// </summary>
+    internal static Plan ApplyTaskStarted(Plan existing, string taskId)
+    {
+        if (!existing.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+                task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)))
+            return existing;
+
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = existing.Tasks.Select(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+                task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
+                    ? task with { Status = PlanTaskStatus.Executing }
+                    : task).ToArray(),
+            Progress = existing.Progress with { ExecutingTaskId = taskId },
+        };
+    }
+
+    /// <summary>
     /// Updates progress and durable result provenance after a single step result is accepted by
     /// SquadDash. Re-reads item statuses from <paramref name="items"/> and points
     /// <see cref="PlanProgress.ExecutingTaskId"/> at <paramref name="nextExecutingTaskId"/>.
@@ -223,6 +247,20 @@ internal static class PlanStoreUpdater
         };
     }
 
+    /// <summary>Archives a non-running plan without deleting its durable history.</summary>
+    internal static Plan ApplyArchived(Plan existing)
+    {
+        if (existing.LifecycleStatus is PlanLifecycleStatus.Executing or PlanLifecycleStatus.AwaitingApproval)
+            return existing;
+
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Archived,
+            Progress = existing.Progress with { ExecutingTaskId = null },
+            Timestamps = existing.Timestamps with { ArchivedAt = DateTimeOffset.UtcNow },
+        };
+    }
+
     /// <summary>
     /// Transitions the gate to <see cref="PlanGateStatus.AwaitingApproval"/> and the plan to
     /// <see cref="PlanLifecycleStatus.AwaitingApproval"/>. Sets <see cref="PlanApprovalGate.RequestedAt"/>
@@ -260,14 +298,24 @@ internal static class PlanStoreUpdater
     /// Returns the plan unchanged if <paramref name="gateId"/> is not found or the gate is not
     /// in <see cref="PlanGateStatus.AwaitingApproval"/> status.
     /// </summary>
-    internal static Plan ApplyGateApproved(Plan existing, string gateId, string? note)
+    internal static Plan ApplyGateApproved(
+        Plan existing,
+        string gateId,
+        string? note,
+        string? resolvedBy = null)
     {
         var gate = existing.ApprovalGates.FirstOrDefault(g =>
             string.Equals(g.GateId, gateId, StringComparison.Ordinal));
         if (gate is null || gate.Status != PlanGateStatus.AwaitingApproval)
             return existing;
 
-        var updatedGate  = gate with { Status = PlanGateStatus.Approved, ResolvedAt = DateTimeOffset.UtcNow, ResolutionNote = note };
+        var updatedGate  = gate with
+        {
+            Status = PlanGateStatus.Approved,
+            ResolvedAt = DateTimeOffset.UtcNow,
+            ResolutionNote = note,
+            ResolvedBy = resolvedBy,
+        };
         var updatedGates = existing.ApprovalGates
             .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
             .ToList<PlanApprovalGate>();
@@ -517,6 +565,7 @@ internal static class PlanStoreUpdater
             NotifiedAt = null,
             ResolvedAt = null,
             ResolutionNote = null,
+            ResolvedBy = null,
             ReworkCount = gate.ReworkCount + 1,
             LastReworkRequestedAt = now,
             LastReworkInstructions = instructions.Trim(),

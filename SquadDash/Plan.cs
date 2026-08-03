@@ -183,7 +183,10 @@ internal sealed record PlanApprovalGate(
                                                   DateTimeOffset? LastReworkRequestedAt = null,
     [property: JsonPropertyName("lastReworkInstructions")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  string? LastReworkInstructions = null);
+                                                  string? LastReworkInstructions = null,
+    [property: JsonPropertyName("resolvedBy")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? ResolvedBy = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan

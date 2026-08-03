@@ -1642,7 +1642,9 @@
                                                Margin="0,0,0,0" />
                                 </StackPanel>
                                 <!-- Loop mode options (always visible, not inside scroll) -->
-                                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                <StackPanel x:Name="LoopContinuousContextPanel"
+                                            DockPanel.Dock="Top"
+                                            Margin="0,0,0,6">
                                     <CheckBox x:Name="LoopContinuousContextCheckBox"
                                               Content="Continuous context"
                                               IsChecked="True"
@@ -1652,6 +1654,20 @@
                                               Click="LoopContinuousContextCheckBox_Click" />
                                 </StackPanel>
                                 <!-- Action buttons -->
+                                <Border x:Name="LoopPlanControlNotice"
+                                        DockPanel.Dock="Top"
+                                        Margin="0,0,0,4"
+                                        Padding="8,6"
+                                        CornerRadius="6"
+                                        Visibility="Collapsed"
+                                        Background="{DynamicResource HoverSurface}"
+                                        BorderBrush="{DynamicResource PanelBorder}"
+                                        BorderThickness="1">
+                                    <TextBlock Text="Plan execution is controlled from the Plans panel."
+                                               TextWrapping="Wrap"
+                                               FontSize="{DynamicResource FontSizeSmall}"
+                                               Foreground="{DynamicResource SubtleText}" />
+                                </Border>
                                 <Button x:Name="StartLoopButton"
                                         DockPanel.Dock="Top"
                                         Content="▶ Start Loop"
@@ -2485,16 +2501,24 @@
                                            VerticalAlignment="Center" />
                             </DockPanel>
 
-                            <!-- Row 1: Show completed toggle -->
-                            <CheckBox x:Name="PlansShowCompletedCheckBox"
-                                      Grid.Row="1"
-                                      Content="Show completed"
-                                      Margin="0,6,0,0"
-                                      VerticalAlignment="Center"
-                                      FontSize="{DynamicResource FontSizeSmall}"
-                                      Style="{StaticResource ThemedCheckBoxStyle}"
-                                      Checked="PlansShowCompletedCheckBox_Checked"
-                                      Unchecked="PlansShowCompletedCheckBox_Unchecked" />
+                            <!-- Row 1: History toggles -->
+                            <StackPanel Grid.Row="1" Margin="0,6,0,0">
+                                <CheckBox x:Name="PlansShowCompletedCheckBox"
+                                          Content="Show completed"
+                                          VerticalAlignment="Center"
+                                          FontSize="{DynamicResource FontSizeSmall}"
+                                          Style="{StaticResource ThemedCheckBoxStyle}"
+                                          Checked="PlansShowCompletedCheckBox_Checked"
+                                          Unchecked="PlansShowCompletedCheckBox_Unchecked" />
+                                <CheckBox x:Name="PlansShowArchivedCheckBox"
+                                          Content="Show archived"
+                                          Margin="0,2,0,0"
+                                          VerticalAlignment="Center"
+                                          FontSize="{DynamicResource FontSizeSmall}"
+                                          Style="{StaticResource ThemedCheckBoxStyle}"
+                                          Checked="PlansShowArchivedCheckBox_Checked"
+                                          Unchecked="PlansShowArchivedCheckBox_Unchecked" />
+                            </StackPanel>
 
                             <!-- Row 2: Plan list (scrollable) -->
                             <ScrollViewer Grid.Row="2"
@@ -2510,6 +2534,14 @@
                                                    FontWeight="SemiBold"
                                                    Foreground="{DynamicResource SubtleText}" />
                                         <StackPanel x:Name="PlansCompletedPanel" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="PlansArchivedSection" Visibility="Collapsed">
+                                        <TextBlock Text="Archived"
+                                                   Margin="0,8,0,4"
+                                                   FontSize="{DynamicResource FontSizeSmall}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource SubtleText}" />
+                                        <StackPanel x:Name="PlansArchivedPanel" />
                                     </StackPanel>
                                 </StackPanel>
                             </ScrollViewer>

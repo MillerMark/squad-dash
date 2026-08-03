@@ -516,9 +516,80 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
         var displayedValidations = group.Validations ?? [];
-        var validationRailHeight = displayedValidations.Count == 0
+        static bool SameIds(IEnumerable<string> left, IEnumerable<string> right) =>
+            left.OrderBy(id => id, StringComparer.Ordinal)
+                .SequenceEqual(right.OrderBy(id => id, StringComparer.Ordinal));
+
+        var validationAnchors = new Dictionary<string, (string Kind, string? TaskId, int StageIndex, string? AllKey)>(StringComparer.Ordinal);
+        foreach (var validation in displayedValidations)
+        {
+            var stageIndex = -1;
+            for (var index = 0; index < columns.Length - 1; index++)
+            {
+                var immediateAfter = columns[index].Select(task => task.Id);
+                var immediateBefore = columns[index + 1].Select(task => task.Id);
+                var cumulativeAfter = group.Tasks.Where(task => levels[task.Id] <= columns[index].Key).Select(task => task.Id);
+                var cumulativeBefore = group.Tasks.Where(task => levels[task.Id] > columns[index].Key).Select(task => task.Id);
+                if ((SameIds(validation.AfterTaskIds, immediateAfter) && SameIds(validation.BeforeTaskIds, immediateBefore)) ||
+                    (SameIds(validation.AfterTaskIds, cumulativeAfter) && SameIds(validation.BeforeTaskIds, cumulativeBefore)))
+                {
+                    stageIndex = index;
+                    break;
+                }
+            }
+
+            if (stageIndex >= 0)
+            {
+                validationAnchors[validation.ValidationId] = ("stage", null, stageIndex, null);
+                continue;
+            }
+
+            var allTargets = group.Tasks
+                .Where(task => task.DependsOn.Count > 1 && SameIds(task.DependsOn, validation.AfterTaskIds))
+                .Select(task => task.Id)
+                .ToArray();
+            if (allTargets.Length > 0 && SameIds(allTargets, validation.BeforeTaskIds))
+            {
+                validationAnchors[validation.ValidationId] =
+                    ("all", null, -1, string.Join("\u001f", validation.AfterTaskIds.OrderBy(id => id, StringComparer.Ordinal)));
+                continue;
+            }
+
+            var beforeTask = validation.BeforeTaskIds.Count == 1
+                ? group.Tasks.FirstOrDefault(task =>
+                    string.Equals(task.Id, validation.BeforeTaskIds[0], StringComparison.Ordinal) &&
+                    SameIds(task.DependsOn, validation.AfterTaskIds))
+                : null;
+            if (beforeTask is not null)
+            {
+                validationAnchors[validation.ValidationId] = ("before", beforeTask.Id, -1, null);
+                continue;
+            }
+
+            var afterTask = validation.AfterTaskIds.Count == 1
+                ? group.Tasks.FirstOrDefault(task =>
+                {
+                    if (!string.Equals(task.Id, validation.AfterTaskIds[0], StringComparison.Ordinal)) return false;
+                    var dependents = group.Tasks
+                        .Where(candidate => candidate.DependsOn.Contains(task.Id, StringComparer.Ordinal))
+                        .Select(candidate => candidate.Id);
+                    return SameIds(dependents, validation.BeforeTaskIds);
+                })
+                : null;
+            validationAnchors[validation.ValidationId] = afterTask is not null
+                ? ("after", afterTask.Id, -1, null)
+                : ("rail", null, -1, null);
+        }
+
+        var topStackCount = validationAnchors.Values
+            .Where(anchor => anchor.Kind is "stage" or "rail")
+            .GroupBy(anchor => anchor.Kind == "stage" ? $"stage:{anchor.StageIndex}" : "rail")
+            .Select(grouping => grouping.Count())
+            .DefaultIfEmpty(0)
+            .Max();
+        var validationRailHeight = topStackCount == 0
             ? 0
-            : 68 * _scaleFactor;
+            : (42 + topStackCount * 66) * _scaleFactor;
         var graphTop = 68 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
@@ -610,85 +681,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetTop(headerElement, graphTop - 36 * _scaleFactor);
             canvas.Children.Add(headerElement);
 
+            var nextY = graphTop;
             for (var row = 0; row < tasks.Length; row++)
-                positions[tasks[row].Id] = new Point(x, graphTop + row * RowSpacing);
-        }
-
-        if (displayedValidations.Count > 0)
-        {
-            var railLabel = new TextBlock
             {
-                Text = "VALIDATIONS",
-                FontWeight = FontWeights.SemiBold,
-                ToolTip = "Cross-task contracts run when all prerequisite tasks have completed.",
-            };
-            railLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            railLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            Canvas.SetLeft(railLabel, 8 * _scaleFactor);
-            Canvas.SetTop(railLabel, 6 * _scaleFactor);
-            canvas.Children.Add(railLabel);
-
-            var validationRailNextLeft = 8 * _scaleFactor;
-            foreach (var validation in displayedValidations
-                         .OrderBy(candidate => candidate.AfterTaskIds
-                             .Where(levels.ContainsKey)
-                             .Select(id => levels[id])
-                             .DefaultIfEmpty(0)
-                             .Max())
-                         .ThenBy(candidate => candidate.ValidationId, StringComparer.Ordinal))
-            {
-                var durableValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
-                    string.Equals(candidate.ValidationId, validation.ValidationId, StringComparison.Ordinal));
-                var triggerLevel = validation.AfterTaskIds
-                    .Where(levels.ContainsKey)
-                    .Select(id => levels[id])
-                    .DefaultIfEmpty(0)
-                    .Max();
-                var sourceRight = validation.AfterTaskIds
-                    .Where(positions.ContainsKey)
-                    .Select(id => positions[id].X + NodeWidth)
-                    .DefaultIfEmpty(42 * _scaleFactor + triggerLevel * ColumnSpacing + NodeWidth)
-                    .Max();
-                var targetLeft = validation.BeforeTaskIds
-                    .Where(positions.ContainsKey)
-                    .Select(id => positions[id].X)
-                    .DefaultIfEmpty(sourceRight + 72 * _scaleFactor)
-                    .Min();
-                var anchorX = (sourceRight + targetLeft) / 2.0;
-                var validationStatus = durableValidation?.Status ?? PlanValidationStatus.Pending;
-
-                var row = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    ToolTip = BuildValidationToolTip(
-                        validation,
-                        durableValidation,
-                        tasksById),
-                };
-                row.Children.Add(CreateValidationShield(validationStatus));
-                var title = new TextBlock
-                {
-                    Text = validation.Title,
-                    Margin = new Thickness(6 * _scaleFactor, 2 * _scaleFactor, 0, 0),
-                    MaxWidth = 240 * _scaleFactor,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                title.SetResourceReference(TextBlock.ForegroundProperty,
-                    validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
-                title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                row.Children.Add(title);
-
-                var rowLeft = Math.Max(validationRailNextLeft, anchorX - 12 * _scaleFactor);
-                Canvas.SetLeft(row, rowLeft);
-                Canvas.SetTop(row, 28 * _scaleFactor);
-                Panel.SetZIndex(row, 30);
-                row.Background = Brushes.Transparent;
-                row.Cursor = Cursors.Hand;
-                canvas.Children.Add(row);
-                _deferredShieldHovers.Add((row, validation.AfterTaskIds, validation.BeforeTaskIds));
-                validationRailRight = rowLeft + 280 * _scaleFactor;
-                validationRailNextLeft = validationRailRight + 16 * _scaleFactor;
+                positions[tasks[row].Id] = new Point(x, nextY);
+                var attachedCount = validationAnchors.Values.Count(anchor =>
+                    anchor.TaskId is not null &&
+                    string.Equals(anchor.TaskId, tasks[row].Id, StringComparison.Ordinal));
+                nextY += Math.Max(RowSpacing,
+                    NodeHeight + (attachedCount == 0 ? 40 : 18 + attachedCount * 66) * _scaleFactor);
             }
         }
 
@@ -730,6 +731,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // next stage also blocks its downstream stages through the dependency graph.
         var lockedMilestoneBoundaryXs = new List<double>();
         var stageBoundaries = new List<(string[] AfterIds, string[] BeforeIds)>();
+        var stageBoundaryXs = new List<double>();
 
         // Compute a uniform band height from the tallest stage (most tasks), extending by the
         // octagon control height above and below so the band visually connects to the stop.
@@ -781,6 +783,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var leftX = positions[leftTasks[0].Id].X;
             var nextX = positions[columns[columnIndex + 1].First().Id].X;
             var boundaryX = (leftX + NodeWidth + nextX) / 2.0;
+            stageBoundaryXs.Add(boundaryX);
             if (isLocked) lockedMilestoneBoundaryXs.Add(boundaryX);
             var milestoneBand = new Border
             {
@@ -806,7 +809,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var milestoneStop = CreateApprovalStop(
                     isLocked,
                     milestoneApproved
-                        ? "Human approval was granted at this stage milestone."
+                        ? BuildApprovalResolvedToolTip(existingGate, "this stage milestone")
                         : milestoneExecutionLocked
                     ? PlanApprovalControlLockPolicy.LockedTooltip("Stage milestone")
                 : onGatesChanged is null
@@ -843,6 +846,115 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Panel.SetZIndex(milestoneStop, 25);
                 canvas.Children.Add(milestoneStop);
                 approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
+            }
+        }
+
+        var validationBottom = 0.0;
+        if (displayedValidations.Count > 0)
+        {
+            var railLabel = new TextBlock
+            {
+                Text = "VALIDATIONS",
+                FontWeight = FontWeights.SemiBold,
+                ToolTip = "Cross-task contracts run when their declared prerequisites are complete.",
+            };
+            railLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            railLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            Canvas.SetLeft(railLabel, 8 * _scaleFactor);
+            Canvas.SetTop(railLabel, 6 * _scaleFactor);
+            canvas.Children.Add(railLabel);
+
+            var stackIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
+            var fallbackNextLeft = 100 * _scaleFactor;
+            foreach (var validation in displayedValidations
+                         .OrderBy(candidate => candidate.AfterTaskIds
+                             .Where(levels.ContainsKey)
+                             .Select(id => levels[id])
+                             .DefaultIfEmpty(0)
+                             .Max())
+                         .ThenBy(candidate => candidate.ValidationId, StringComparer.Ordinal))
+            {
+                var durableValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
+                    string.Equals(candidate.ValidationId, validation.ValidationId, StringComparison.Ordinal));
+                var validationStatus = durableValidation?.Status ?? PlanValidationStatus.Pending;
+                var anchor = validationAnchors[validation.ValidationId];
+                var stackKey = anchor.Kind switch
+                {
+                    "stage" => $"stage:{anchor.StageIndex}",
+                    "all" => $"all:{anchor.AllKey}",
+                    "before" => $"before:{anchor.TaskId}",
+                    "after" => $"after:{anchor.TaskId}",
+                    _ => "rail",
+                };
+                var stackIndex = stackIndexes.GetValueOrDefault(stackKey);
+                stackIndexes[stackKey] = stackIndex + 1;
+
+                var visual = new StackPanel
+                {
+                    Orientation = Orientation.Vertical,
+                    Width = 144 * _scaleFactor,
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    ToolTip = BuildValidationToolTip(validation, durableValidation, tasksById),
+                };
+                var shield = CreateValidationShield(validationStatus);
+                shield.HorizontalAlignment = HorizontalAlignment.Center;
+                visual.Children.Add(shield);
+                var title = new TextBlock
+                {
+                    Text = validation.Title,
+                    Margin = new Thickness(0, 3 * _scaleFactor, 0, 0),
+                    MaxWidth = 140 * _scaleFactor,
+                    TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    MaxHeight = 32 * _scaleFactor,
+                    ToolTip = BuildValidationToolTip(validation, durableValidation, tasksById),
+                };
+                title.SetResourceReference(TextBlock.ForegroundProperty,
+                    validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
+                title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                visual.Children.Add(title);
+
+                double left;
+                double top;
+                if (anchor.Kind == "stage" && anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count)
+                {
+                    left = stageBoundaryXs[anchor.StageIndex] - 72 * _scaleFactor;
+                    top = graphTop - (112 + stackIndex * 66) * _scaleFactor;
+                }
+                else if (anchor.Kind is "before" or "after" &&
+                         anchor.TaskId is not null && positions.TryGetValue(anchor.TaskId, out var taskPosition))
+                {
+                    left = anchor.Kind == "before"
+                        ? taskPosition.X - 72 * _scaleFactor
+                        : taskPosition.X + NodeWidth - 72 * _scaleFactor;
+                    top = taskPosition.Y + NodeHeight + (8 + stackIndex * 66) * _scaleFactor;
+                }
+                else if (anchor.Kind == "all" && anchor.AllKey is not null)
+                {
+                    var matchingGate = gates.FirstOrDefault(candidate =>
+                        string.Equals(
+                            string.Join("\u001f", candidate.Dependencies.OrderBy(id => id, StringComparer.Ordinal)),
+                            anchor.AllKey,
+                            StringComparison.Ordinal));
+                    left = matchingGate.Center.X - 72 * _scaleFactor;
+                    top = matchingGate.Center.Y + (24 + stackIndex * 66) * _scaleFactor;
+                }
+                else
+                {
+                    left = fallbackNextLeft;
+                    top = 28 * _scaleFactor;
+                    fallbackNextLeft += 156 * _scaleFactor;
+                }
+
+                Canvas.SetLeft(visual, left);
+                Canvas.SetTop(visual, top);
+                Panel.SetZIndex(visual, 30);
+                canvas.Children.Add(visual);
+                _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
+                validationRailRight = Math.Max(validationRailRight, left + 144 * _scaleFactor);
+                validationBottom = Math.Max(validationBottom, top + 64 * _scaleFactor);
             }
         }
 
@@ -1048,7 +1160,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var joinStop = CreateApprovalStop(
                     joinIsLocked,
                     joinApproved
-                        ? "Human approval was granted at this ALL join."
+                        ? BuildApprovalResolvedToolTip(existingJoinGate ?? coveringJoinGate, "this ALL join")
                     : joinExecutionLocked
                         ? PlanApprovalControlLockPolicy.LockedTooltip("ALL join")
                     : onGatesChanged is null
@@ -1473,7 +1585,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var beforeStop = CreateApprovalStop(
                             beforeEngaged,
                             beforeApproved
-                                ? "Human approval was granted before this task began."
+                                ? BuildApprovalResolvedToolTip(controllingBeforeGate, "before this task began")
                             : entryExecutionLocked
                             ? PlanApprovalControlLockPolicy.LockedTooltip("Task entry")
                         : collectivelyCoveredEntry
@@ -1566,7 +1678,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var afterStop = CreateApprovalStop(
                             afterEngaged,
                             afterApproved
-                                ? "Human approval was granted after this task completed."
+                                ? BuildApprovalResolvedToolTip(controllingAfterGate, "after this task completed")
                             : exitExecutionLocked
                             ? PlanApprovalControlLockPolicy.LockedTooltip("Task exit")
                         : collectivelyCoveredByAllJoins
@@ -1733,7 +1845,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
-        canvas.Height = positions.Values.Max(point => point.Y) + NodeHeight;
+        canvas.Height = Math.Max(
+            positions.Values.Max(point => point.Y) + NodeHeight,
+            validationBottom);
 
         SizeWindowToContent(canvas.Width, canvas.Height);
 
@@ -2343,6 +2457,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PlanValidationStatus.Stale => "Needs revalidation",
         _ => "Waiting for prerequisite tasks",
     };
+
+    private static string BuildApprovalResolvedToolTip(PlanApprovalGate? gate, string location)
+    {
+        var text = $"Human approval was granted {location}.";
+        if (!string.IsNullOrWhiteSpace(gate?.ResolvedBy))
+            text += $"\nApproved by {gate.ResolvedBy}.";
+        if (gate?.ResolvedAt is { } resolvedAt)
+            text += $"\n{StatusTimingPresentation.FormatRelativeTimestamp(resolvedAt)}";
+        if (!string.IsNullOrWhiteSpace(gate?.ResolutionNote))
+            text += $"\nNote: {gate.ResolutionNote}";
+        return text;
+    }
 
     private FrameworkElement CreateApprovalStop(
         bool engaged,

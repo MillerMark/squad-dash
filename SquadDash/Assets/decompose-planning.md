@@ -104,7 +104,9 @@ fence around the object is accepted but not required.
   placeholder, or jointly satisfying an observable scenario. Do not add ceremonial validations to a
   simple plan whose task-level acceptance already proves the result.
 - `validations[].validationId`: exactly `{groupId}-VAL-NNN`.
-- `validations[].title`: concise user-facing contractual outcome.
+- `validations[].title`: concise user-facing contractual outcome, normally 2–5 words. It is always
+  rendered below the validation shield, including in narrow stage columns, so do not repeat the
+  description or task names in the title.
 - `validations[].description`: explain the relationship being validated and why it matters to the plan.
 - `validations[].afterTaskIds`: non-empty list of tasks whose completion makes the validation eligible.
 - `validations[].beforeTaskIds`: tasks and their downstream frontier that must wait for validation. Use

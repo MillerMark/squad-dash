@@ -786,4 +786,54 @@ internal sealed class PlanStoreUpdaterTests
         Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-001").Status,
             Is.EqualTo(PlanTaskStatus.Complete));
     }
+
+    [Test]
+    public void ApplyTaskStarted_MarksAuthoritativeTaskAndProgressExecuting()
+    {
+        var group = MakeGroup(3);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", items, "GROUP-001-001");
+
+        var updated = PlanStoreUpdater.ApplyTaskStarted(plan, "GROUP-001-002");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(updated.Progress.ExecutingTaskId, Is.EqualTo("GROUP-001-002"));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-002").Status,
+                Is.EqualTo(PlanTaskStatus.Executing));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-001").Status,
+                Is.EqualTo(PlanTaskStatus.Pending));
+        });
+    }
+
+    [Test]
+    public void ApplyArchived_PreservesHistoryAndHidesPlanAsTerminal()
+    {
+        var group = MakeGroup(2);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, "rev1", items, null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Approved,
+        };
+
+        var archived = PlanStoreUpdater.ApplyArchived(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(archived.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Archived));
+            Assert.That(archived.Timestamps.ArchivedAt, Is.Not.Null);
+            Assert.That(archived.Tasks, Is.EqualTo(plan.Tasks));
+            Assert.That(PlanLifecycleStatus.IsTerminal(archived.LifecycleStatus), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyArchived_RefusesActivelyExecutingPlan()
+    {
+        var plan = MakeExecutingPlan(0, 1, "GROUP-001-001");
+
+        Assert.That(PlanStoreUpdater.ApplyArchived(plan), Is.SameAs(plan));
+    }
 }

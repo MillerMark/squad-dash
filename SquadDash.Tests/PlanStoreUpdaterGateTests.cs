@@ -107,6 +107,16 @@ internal sealed class PlanStoreUpdaterGateTests
     }
 
     [Test]
+    public void ApplyGateApproved_RecordsHumanIdentity()
+    {
+        var plan = MakePlanWithGate(PlanGateStatus.AwaitingApproval);
+        var updated = PlanStoreUpdater.ApplyGateApproved(
+            plan, KnownGateId, note: "Reviewed", resolvedBy: "Mark (@mark)");
+
+        Assert.That(updated.ApprovalGates[0].ResolvedBy, Is.EqualTo("Mark (@mark)"));
+    }
+
+    [Test]
     public void ApplyGateApproved_WhenNoOtherGatesAwaitingApproval_TransitionsPlanToExecuting()
     {
         var plan    = MakePlanWithGate(PlanGateStatus.AwaitingApproval) with

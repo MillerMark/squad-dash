@@ -45,12 +45,16 @@ internal sealed class PlansPanelControllerTests
         var activePanel    = new StackPanel();
         var completedPanel = new StackPanel();
         var completedSection = new Border();
+        var archivedPanel = new StackPanel();
+        var archivedSection = new Border();
         var visibilityCalls  = new List<bool>();
 
         var controller = new PlansPanelController(
             activePanel:          activePanel,
             completedPanel:       completedPanel,
             completedSection:     completedSection,
+            archivedPanel:        archivedPanel,
+            archivedSection:      archivedSection,
             openPlan:             _ => { },
             syncBorderVisibility: v => visibilityCalls.Add(v),
             setMenuChecked:       _ => { },
@@ -199,16 +203,17 @@ internal sealed class PlansPanelControllerTests
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
             var progressRow = (StackPanel)rowStack.Children[1];
-            var progressText = progressRow.Children.OfType<TextBlock>().Single();
+            var progressText = progressRow.Children.OfType<TextBlock>()
+                .Single(block => block.Text == "3/8 complete");
+            var spinner = progressRow.Children.OfType<TextBlock>()
+                .Single(block => block.Text == UiTimingConstants.ToolSpinnerFrames[0]);
             var activityText = (TextBlock)rowStack.Children[2];
-            var titleRow = (StackPanel)rowStack.Children[0];
-            var statusIcon = (TextBlock)titleRow.Children[0];
 
             Assert.Multiple(() =>
             {
                 Assert.That(progressText.Text, Is.EqualTo("3/8 complete"));
                 Assert.That(activityText.Text, Is.EqualTo("Step 5 running"));
-                Assert.That(statusIcon.Text, Is.EqualTo(UiTimingConstants.ToolSpinnerFrames[0]));
+                Assert.That(spinner.Text, Is.EqualTo(UiTimingConstants.ToolSpinnerFrames[0]));
             });
         });
 
@@ -230,7 +235,7 @@ internal sealed class PlansPanelControllerTests
             var titleRow = (StackPanel)rowStack.Children[0];
             var statusIcon = (TextBlock)titleRow.Children[0];
 
-            Assert.That(statusIcon.Text, Is.EqualTo(""));
+            Assert.That(statusIcon.Text, Is.EqualTo("⟳"));
         });
 
     [Test]
@@ -249,9 +254,34 @@ internal sealed class PlansPanelControllerTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
-            var statusIcon = (TextBlock)titleRow.Children[0];
+            var progressRow = (StackPanel)rowStack.Children[1];
+            var statusIcon = progressRow.Children.OfType<TextBlock>()
+                .Single(block => block.Text == UiTimingConstants.ToolSpinnerFrames[3]);
 
             Assert.That(statusIcon.Text, Is.EqualTo(UiTimingConstants.ToolSpinnerFrames[3]));
+        });
+
+    [Test]
+    public void ArchivedPlan_IsHiddenUntilShowArchivedIsEnabled() =>
+        WpfTestContext.Run(() =>
+        {
+            var active = new StackPanel();
+            var completed = new StackPanel();
+            var completedSection = new Border();
+            var archived = new StackPanel();
+            var archivedSection = new Border();
+            var controller = new PlansPanelController(
+                active, completed, completedSection, archived, archivedSection, _ => { });
+            var plan = MakePlan(status: PlanLifecycleStatus.Archived);
+
+            controller.Refresh([plan]);
+            Assert.That(archivedSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+
+            controller.SetShowArchived(true);
+            Assert.Multiple(() =>
+            {
+                Assert.That(archivedSection.Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(archived.Children.OfType<Border>().Single().Tag, Is.EqualTo(plan.PlanId));
+            });
         });
 }

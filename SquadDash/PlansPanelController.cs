@@ -15,11 +15,16 @@ internal sealed class PlansPanelController
     private readonly StackPanel  _activePanel;
     private readonly StackPanel  _completedPanel;
     private readonly UIElement   _completedSection;
+    private readonly StackPanel  _archivedPanel;
+    private readonly UIElement   _archivedSection;
     private readonly Action<Plan>  _openPlan;
     private readonly Action<Plan>? _startPlan;
     private readonly Action<Plan>? _resumePlan;
     private readonly Action<Plan>? _endPlan;
     private readonly Action<Plan>? _approveGate;
+    private readonly Action<Plan>? _archivePlan;
+    private readonly Action<Plan>? _pausePlan;
+    private readonly Action<Plan>? _abortPlan;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -43,8 +48,11 @@ internal sealed class PlansPanelController
         StackPanel   activePanel,
         StackPanel   completedPanel,
         UIElement    completedSection,
+        StackPanel   archivedPanel,
+        UIElement    archivedSection,
         Action<Plan> openPlan,
         bool         initialShowCompleted  = false,
+        bool         initialShowArchived   = false,
         Action<bool>? syncBorderVisibility = null,
         Action<bool>? setMenuChecked       = null,
         Action?       persistVisibility    = null,
@@ -52,22 +60,31 @@ internal sealed class PlansPanelController
         Action<Plan>? resumePlan           = null,
         Action<Plan>? endPlan              = null,
         Action<Plan>? approveGate          = null,
+        Action<Plan>? archivePlan          = null,
+        Action<Plan>? pausePlan            = null,
+        Action<Plan>? abortPlan            = null,
         Func<bool>?   isPromptRunning      = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
         _completedSection     = completedSection;
+        _archivedPanel        = archivedPanel;
+        _archivedSection      = archivedSection;
         _openPlan             = openPlan;
         _startPlan            = startPlan;
         _resumePlan           = resumePlan;
         _endPlan              = endPlan;
         _approveGate          = approveGate;
+        _archivePlan          = archivePlan;
+        _pausePlan            = pausePlan;
+        _abortPlan            = abortPlan;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
         _isPromptRunning      = isPromptRunning;
 
         _viewModel.ShowCompleted = initialShowCompleted;
+        _viewModel.ShowArchived = initialShowArchived;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -98,9 +115,19 @@ internal sealed class PlansPanelController
     {
         _viewModel.ShowCompleted = show;
         // Toggle completed section visibility without a full rebuild.
-        var anyCompleted = _currentPlans.Any(p => PlanLifecycleStatus.IsTerminal(p.LifecycleStatus));
+        var anyCompleted = _currentPlans.Any(p =>
+            PlanLifecycleStatus.IsTerminal(p.LifecycleStatus) &&
+            p.LifecycleStatus != PlanLifecycleStatus.Archived);
         _completedSection.Visibility =
             show && anyCompleted ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    internal void SetShowArchived(bool show)
+    {
+        _viewModel.ShowArchived = show;
+        var anyArchived = _currentPlans.Any(p => p.LifecycleStatus == PlanLifecycleStatus.Archived);
+        _archivedSection.Visibility =
+            show && anyArchived ? Visibility.Visible : Visibility.Collapsed;
     }
 
     internal void Show(bool flash = false)
@@ -144,7 +171,8 @@ internal sealed class PlansPanelController
     private void HighlightRow(string planId)
     {
         var row = FindRowByPlanId(_activePanel, planId)
-               ?? FindRowByPlanId(_completedPanel, planId);
+               ?? FindRowByPlanId(_completedPanel, planId)
+               ?? FindRowByPlanId(_archivedPanel, planId);
         if (row is null)
             return;
 
@@ -189,11 +217,17 @@ internal sealed class PlansPanelController
 
     private void RebuildPanels()
     {
+        _executingSpinnerBlock = null;
         _activePanel.Children.Clear();
         _completedPanel.Children.Clear();
+        _archivedPanel.Children.Clear();
 
-        var active    = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
-        var completed = _currentPlans.Where(p => PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
+        var active = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
+        var completed = _currentPlans.Where(p =>
+            PlanLifecycleStatus.IsTerminal(p.LifecycleStatus) &&
+            p.LifecycleStatus != PlanLifecycleStatus.Archived).ToList();
+        var archived = _currentPlans.Where(p =>
+            p.LifecycleStatus == PlanLifecycleStatus.Archived).ToList();
 
         if (active.Count == 0 && completed.Count == 0)
         {
@@ -210,9 +244,15 @@ internal sealed class PlansPanelController
 
         foreach (var plan in completed)
             _completedPanel.Children.Add(BuildRow(plan));
+        foreach (var plan in archived)
+            _archivedPanel.Children.Add(BuildRow(plan));
 
         _completedSection.Visibility =
             _viewModel.ShowCompleted && completed.Count > 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        _archivedSection.Visibility =
+            _viewModel.ShowArchived && archived.Count > 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
     }
@@ -235,7 +275,7 @@ internal sealed class PlansPanelController
         // ── Title row: status icon + title ────────────────────────────────
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
 
-        var iconBlock = BuildStatusIndicator(plan);
+        var iconBlock = BuildTitleStatusOrControl(plan);
 
         var titleBlock = new TextBlock
         {
@@ -259,6 +299,24 @@ internal sealed class PlansPanelController
                 Orientation = Orientation.Horizontal,
                 Margin      = new Thickness(20, 2, 0, 0),
             };
+
+            if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing &&
+                _isPromptRunning?.Invoke() == true)
+            {
+                var spinnerBlock = new TextBlock
+                {
+                    Text = UiTimingConstants.ToolSpinnerFrames[0],
+                    Width = 14,
+                    Margin = new Thickness(-20, 0, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing"),
+                };
+                spinnerBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                spinnerBlock.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
+                progressRow.Children.Add(spinnerBlock);
+                _executingSpinnerBlock = spinnerBlock;
+            }
 
             var bar = new ProgressBar
             {
@@ -355,7 +413,19 @@ internal sealed class PlansPanelController
 
         if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
-            if (_resumePlan is not null)
+            if (IsUserPaused(plan) && _startPlan is not null)
+            {
+                var resumeItem = new MenuItem
+                {
+                    Header = "Resume Plan",
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Continue with the next runnable step. The accepted step will not be repeated."),
+                };
+                resumeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                resumeItem.Click += (_, _) => _startPlan(plan);
+                menu.Items.Add(resumeItem);
+            }
+            else if (_resumePlan is not null)
             {
                 var resumeItem = new MenuItem
                 {
@@ -385,6 +455,49 @@ internal sealed class PlansPanelController
             menu.Items.Add(approveItem);
         }
 
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing)
+        {
+            if (_pausePlan is not null)
+            {
+                var pauseItem = new MenuItem
+                {
+                    Header = "Pause After Current Step",
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Finish and record the current step, then pause before starting more plan work."),
+                };
+                pauseItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                pauseItem.Click += (_, _) => _pausePlan(plan);
+                menu.Items.Add(pauseItem);
+            }
+            if (_abortPlan is not null)
+            {
+                var abortItem = new MenuItem
+                {
+                    Header = "Abort Current Work…",
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Immediately stop active agents and preserve the task for evidence-based recovery."),
+                };
+                abortItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                abortItem.Click += (_, _) => _abortPlan(plan);
+                menu.Items.Add(abortItem);
+            }
+        }
+
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Archived &&
+            plan.LifecycleStatus is not (PlanLifecycleStatus.Executing or PlanLifecycleStatus.AwaitingApproval) &&
+            _archivePlan is not null)
+        {
+            var archiveItem = new MenuItem
+            {
+                Header = "Archive Plan",
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Hide this plan without deleting its task, approval, or validation history."),
+            };
+            archiveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            archiveItem.Click += (_, _) => _archivePlan(plan);
+            menu.Items.Add(archiveItem);
+        }
+
         row.ContextMenu = menu;
 
         return row;
@@ -397,6 +510,8 @@ internal sealed class PlansPanelController
     {
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
             return "Approval ready";
+        if (IsUserPaused(plan))
+            return "Paused after accepted step";
         if (plan.Progress.ExecutingTaskId is not { Length: > 0 } executingTaskId)
             return null;
 
@@ -407,8 +522,54 @@ internal sealed class PlansPanelController
             : "Executing";
     }
 
-    private FrameworkElement BuildStatusIndicator(Plan plan)
+    private static bool IsUserPaused(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+        plan.InterruptionData?.Reason.StartsWith("Paused by user", StringComparison.OrdinalIgnoreCase) == true;
+
+    private FrameworkElement BuildTitleStatusOrControl(Plan plan)
     {
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing && _pausePlan is not null)
+        {
+            var pause = new Button
+            {
+                Content = "Ⅱ",
+                Width = 20,
+                Height = 20,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Pause plan execution after the current step is accepted."),
+            };
+            pause.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+            pause.Click += (_, args) =>
+            {
+                args.Handled = true;
+                _pausePlan(plan);
+            };
+            return pause;
+        }
+
+        if (IsUserPaused(plan) && _startPlan is not null)
+        {
+            var resume = new Button
+            {
+                Content = "▶",
+                Width = 20,
+                Height = 20,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Resume with the next runnable plan step."),
+            };
+            resume.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+            resume.Click += (_, args) =>
+            {
+                args.Handled = true;
+                _startPlan(plan);
+            };
+            return resume;
+        }
+
         var iconBlock = new TextBlock
         {
             Text = StatusIcon(plan.LifecycleStatus),
@@ -418,28 +579,6 @@ internal sealed class PlansPanelController
         };
         iconBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
-
-        if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing)
-        {
-            if (_isPromptRunning?.Invoke() == true)
-            {
-                // Actively executing — show braille-dot spinner (first frame; timer advances it).
-                iconBlock.Text = UiTimingConstants.ToolSpinnerFrames[0];
-                iconBlock.RenderTransform = null;
-                iconBlock.ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing");
-                _executingSpinnerBlock = iconBlock;
-            }
-            else
-            {
-                // Plan is in Executing state but the prompt is not running (paused/waiting) — show no icon.
-                iconBlock.Text = "";
-                _executingSpinnerBlock = null;
-            }
-        }
-        else
-        {
-            _executingSpinnerBlock = null;
-        }
 
         return iconBlock;
     }

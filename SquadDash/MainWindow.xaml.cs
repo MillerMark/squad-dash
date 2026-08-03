@@ -364,6 +364,8 @@ public partial class MainWindow : Window
     private string?                 _decomposeContinuationTaskId;
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
+    private bool                    _pausePlanAfterCurrentStepRequested;
+    private bool                    _planAbortRequestedByUser;
     private bool                    _decomposeRepairPending;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
@@ -4765,6 +4767,9 @@ public partial class MainWindow : Window
                 $"Stop running work target kind={target.TaskKind} task={target.TaskId} idSource={target.TaskIdSource} coordinator={target.IsCoordinator} agentId={target.AgentId ?? "(none)"} toolCallId={target.ToolCallId ?? "(none)"} label={target.DisplayLabel}");
         }
 
+        if (_activeDecomposeGroupId is not null && IsLoopRunning)
+            _planAbortRequestedByUser = true;
+
         if (_promptQueue.Count > 0)
             SetQueuePaused(true);
 
@@ -6243,13 +6248,19 @@ public partial class MainWindow : Window
         _loopRoundStartedAt = null;
 
         var interruptedTaskId = _CodeHealthGroupRunner?.CurrentStepId ?? stoppedExecution?.TaskId;
+        var pausedAfterStep = _pausePlanAfterCurrentStepRequested;
+        var abortedByUser = _planAbortRequestedByUser;
         var interruptionResult = PlanInterruptionPersistenceResult.NotNeeded;
         if (!resumeDecision.PreserveExecution && stoppedPlanId is not null)
         {
             interruptionResult = TryInterruptExecutingPlan(
                 stoppedPlanId,
                 interruptedTaskId,
-                "Plan execution stopped before the current task was accepted.",
+                pausedAfterStep
+                    ? "Paused by user after the previous task was accepted."
+                    : abortedByUser
+                        ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
+                    : "Plan execution stopped before the current task was accepted.",
                 stoppedIteration,
                 preferDurableTaskId: true);
             interruptedTaskId = interruptionResult.Plan?.InterruptionData?.InterruptedTaskId
@@ -6283,16 +6294,22 @@ public partial class MainWindow : Window
         if (interruptionResult.Plan is { } newlyInterruptedPlan)
         {
             ScheduleDecomposeSystemEntry(
-                $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
+                pausedAfterStep
+                    ? $"Plan {newlyInterruptedPlan.Title} paused safely after the completed step. It can be resumed from the Plans panel."
+                    : abortedByUser
+                        ? $"Plan work was aborted at {interruptedTaskId ?? "the current task"}. Assess the preserved work before continuing."
+                    : $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
                 newlyInterruptedPlan.PlanId,
                 newlyInterruptedPlan.Revision,
                 interruptedTaskId);
-            if (interruptedTaskId is not null)
+            if (!pausedAfterStep && interruptedTaskId is not null)
                 SaveDecomposeRecoveryInboxReminder(
                     newlyInterruptedPlan.PlanId,
                     newlyInterruptedPlan.Revision,
                     interruptedTaskId,
-                    "Plan execution stopped before the current task was accepted.");
+                    abortedByUser
+                        ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
+                        : "Plan execution stopped before the current task was accepted.");
         }
         else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
@@ -6325,6 +6342,8 @@ public partial class MainWindow : Window
         }
 
         _loopResumeSuppressed = false;
+        _pausePlanAfterCurrentStepRequested = false;
+        _planAbortRequestedByUser = false;
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
         if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
@@ -6345,17 +6364,20 @@ public partial class MainWindow : Window
         var blockedTaskId = failureIdentity.TaskId;
         var blockedRevision = failureIdentity.Revision;
         var failedIteration = _loopCurrentIteration;
-        if (blockedTaskId is not null && string.Equals(
+        if (!_planAbortRequestedByUser && blockedTaskId is not null && string.Equals(
                 _CodeHealthGroupRunner?.CurrentStepId,
                 blockedTaskId,
                 StringComparison.Ordinal))
             _CodeHealthGroupRunner?.MarkCurrentStepFailed();
+        var interruptionReason = _planAbortRequestedByUser
+            ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
+            : msg;
         var interruptionResult = blockedGroupId is null
             ? PlanInterruptionPersistenceResult.NotNeeded
             : TryInterruptExecutingPlan(
                 blockedGroupId,
                 blockedTaskId,
-                msg,
+                interruptionReason,
                 failedIteration,
                 preferDurableTaskId: false);
         _pec.SetIsLoopRunning(false);
@@ -6372,8 +6394,17 @@ public partial class MainWindow : Window
         else
             ClearExecutingPlanState();
         _loopResumeSuppressed = false;
-        AppendLoopOutputLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
-        AppendLine($"❌ Loop error: {msg}", ThemeBrush("SystemErrorText"));
+        _pausePlanAfterCurrentStepRequested = false;
+        AppendLoopOutputLine(
+            _planAbortRequestedByUser
+                ? "⏹ Plan work aborted; recovery evidence was preserved."
+                : $"❌ Loop error: {msg}",
+            _planAbortRequestedByUser ? LoopLifecycleBrush : ThemeBrush("SystemErrorText"));
+        AppendLine(
+            _planAbortRequestedByUser
+                ? "⏹ Plan work aborted; recovery is available."
+                : $"❌ Loop error: {msg}",
+            _planAbortRequestedByUser ? null : ThemeBrush("SystemErrorText"));
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "plan_error",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
@@ -6389,12 +6420,19 @@ public partial class MainWindow : Window
             blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
         {
             ScheduleDecomposeSystemEntry(
-                $"Plan {blockedGroupId} stopped at {blockedTaskId}: {msg}",
+                _planAbortRequestedByUser
+                    ? $"Plan work was aborted at {blockedTaskId}. Assess the preserved work before continuing."
+                    : $"Plan {blockedGroupId} stopped at {blockedTaskId}: {msg}",
                 blockedGroupId,
                 blockedRevision,
                 blockedTaskId);
-            SaveDecomposeRecoveryInboxReminder(blockedGroupId, blockedRevision, blockedTaskId, msg);
+            SaveDecomposeRecoveryInboxReminder(
+                blockedGroupId,
+                blockedRevision,
+                blockedTaskId,
+                interruptionReason);
         }
+        _planAbortRequestedByUser = false;
         if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
             ScheduleDecomposeSystemEntry(
@@ -7142,9 +7180,14 @@ public partial class MainWindow : Window
         double h = padding + titleRow;
         if (LoopStatusLabel?.Visibility == Visibility.Visible)
             h += 20 + 6;
-        h += checkboxRow + 6;
-        h += buttonHeight;                    // Start button
-        h += buttonMargin + buttonHeight;     // Stop button
+        if (LoopContinuousContextPanel?.Visibility == Visibility.Visible)
+            h += checkboxRow + 6;
+        if (LoopPlanControlNotice?.Visibility == Visibility.Visible)
+            h += 48;
+        if (StartLoopButton?.Visibility == Visibility.Visible)
+            h += buttonHeight;
+        if (StopLoopButton?.Visibility == Visibility.Visible)
+            h += buttonMargin + buttonHeight;
         if (AbortLoopButton?.Visibility == Visibility.Visible)
             h += buttonMargin + buttonHeight;
         if (LoopOptionsPanel?.Visibility == Visibility.Visible)
@@ -7170,9 +7213,23 @@ public partial class MainWindow : Window
 
         bool nativeMode = _settingsSnapshot.LoopMode == LoopMode.NativeAgents;
         bool busyCoordinator = _isPromptRunning && nativeMode && !running;
+        bool planControlled = _activeDecomposeGroupId is not null;
+
+        LoopPlanControlNotice.Visibility = planControlled
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        LoopContinuousContextPanel.Visibility = planControlled
+            ? Visibility.Collapsed
+            : Visibility.Visible;
 
         // In Queue Loop state: coordinator is busy in native mode, loop not yet running.
-        if (busyCoordinator || _loopQueued)
+        if (planControlled)
+        {
+            StartLoopButton.Visibility = Visibility.Collapsed;
+            StopLoopButton.Visibility = Visibility.Collapsed;
+            AbortLoopButton.Visibility = Visibility.Collapsed;
+        }
+        else if (busyCoordinator || _loopQueued)
         {
             StartLoopButton.Visibility = Visibility.Visible;
             StartLoopButton.IsEnabled = !_loopQueued; // disable once already queued
@@ -7187,7 +7244,8 @@ public partial class MainWindow : Window
 
         StopLoopButton.IsEnabled = running || _loopQueued;
         StopLoopButton.Content = (_loopQueued && !running) ? "✕ Dequeue Loop" : "■ Stop After This";
-        AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        if (!planControlled)
+            AbortLoopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
 
         if (LoopFilePicker is not null)
         {
@@ -7196,7 +7254,7 @@ public partial class MainWindow : Window
                 ? Visibility.Collapsed
                 : _loopFileEntries.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         }
-        LoopContinuousContextCheckBox.IsEnabled = !running;
+        LoopContinuousContextCheckBox.IsEnabled = !running && !planControlled;
         LoopContinuousContextCheckBox.IsChecked = _settingsSnapshot.LoopContinuousContext;
 
         var executingPlanPrefix = _activeDecomposeGroupId is not null ? "Executing Plan · " : string.Empty;
@@ -8948,6 +9006,8 @@ public partial class MainWindow : Window
             if (existing.Window.WindowState == WindowState.Minimized)
                 existing.Window.WindowState = WindowState.Normal;
             existing.Window.Activate();
+            existing.Window.Focus();
+            existing.Window.PulseAttention();
             return;
         }
 
@@ -9278,6 +9338,16 @@ public partial class MainWindow : Window
             string.Equals(task.Id, currentTaskId, StringComparison.Ordinal));
         if (currentTask is null)
             throw new InvalidDataException($"Plan {_activeDecomposeGroupId} is missing task {currentTaskId}.");
+
+        if (durablePlan is not null && currentTaskId is not null)
+        {
+            var startedPlan = PlanStoreUpdater.ApplyTaskStarted(durablePlan, currentTaskId);
+            if (!ReferenceEquals(startedPlan, durablePlan) &&
+                !TryPublishPlanProgress(startedPlan, out var startProjectionError))
+                SquadDashTrace.Write(
+                    "PlanProgress",
+                    $"Could not publish executing task {currentTaskId}: {startProjectionError}");
+        }
 
         var execution = _conversationManager.ConversationState.ActiveLoopExecution
             ?? throw new InvalidOperationException("The active plan execution was not persisted.");
@@ -9806,6 +9876,14 @@ public partial class MainWindow : Window
                 "SquadDash accepted the task commit but could not durably record plan progress: " +
                 (persistenceError ?? "unknown persistence failure"),
                 taskCommitEvidence);
+            return;
+        }
+        if (_pausePlanAfterCurrentStepRequested)
+        {
+            SuppressLoopResumeAfterExplicitStop("pause-plan-after-step");
+            _loopController.RequestStop();
+            ScheduleDecomposeSystemEntry(
+                $"Plan will pause after accepted task \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? result.TaskId}\".");
             return;
         }
         var durableAfterAcceptance = _planStore?.Load(groupId);
@@ -10644,12 +10722,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        var resolvedBy = _currentWorkspace is null
+            ? Environment.UserName
+            : await HumanApprovalIdentityResolver.ResolveAsync(_currentWorkspace.FolderPath);
         var resolution = await _planApprovalRuntime.ApproveAsync(
             clickToken,
             plan,
             note,
             persistPlan: updated => TryPublishPlanProgress(updated, out _),
-            gateIdsToResolve: gateIdsToResolve);
+            gateIdsToResolve: gateIdsToResolve,
+            resolvedBy: resolvedBy);
 
         if (resolution.Result == ApprovalClickResult.Approved && resolution.UpdatedPlan is not null)
         {
@@ -23551,6 +23633,18 @@ public partial class MainWindow : Window
     {
         try { _plansPanelController?.SetShowCompleted(false); }
         catch (Exception ex) { HandleUiCallbackException(nameof(PlansShowCompletedCheckBox_Unchecked), ex); }
+    }
+
+    private void PlansShowArchivedCheckBox_Checked(object sender, RoutedEventArgs e)
+    {
+        try { _plansPanelController?.SetShowArchived(true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PlansShowArchivedCheckBox_Checked), ex); }
+    }
+
+    private void PlansShowArchivedCheckBox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        try { _plansPanelController?.SetShowArchived(false); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(PlansShowArchivedCheckBox_Unchecked), ex); }
     }
 
     private void LoopPanelCloseButton_Click(object sender, RoutedEventArgs e)
@@ -43195,6 +43289,8 @@ public partial class MainWindow : Window
                 activePanel:      PlansActivePanel!,
                 completedPanel:   PlansCompletedPanel!,
                 completedSection: PlansCompletedSection!,
+                archivedPanel:    PlansArchivedPanel!,
+                archivedSection:  PlansArchivedSection!,
                 openPlan:         plan => OpenPlanFromStore(plan),
                 initialShowCompleted: false,
                 syncBorderVisibility: visible =>
@@ -43217,6 +43313,9 @@ public partial class MainWindow : Window
                         g.Status == PlanGateStatus.AwaitingApproval);
                     if (awaitingGate is not null) ApproveCurrentPlan(plan);
                 },
+                archivePlan: ArchivePlan,
+                pausePlan: RequestPlanPauseAfterCurrentStep,
+                abortPlan: AbortCurrentPlanWork,
                 isPromptRunning: () => _isPromptRunning);
 
             if (PlansPanelBorder is { } ppb)
@@ -43257,6 +43356,60 @@ public partial class MainWindow : Window
             OpenDecomposePlanViewer(pending, durablePlan: plan);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(OpenPlanFromStore), ex); }
+    }
+
+    private void ArchivePlan(Plan plan)
+    {
+        if (_planStore is null) return;
+        var archived = PlanStoreUpdater.ApplyArchived(plan);
+        if (ReferenceEquals(archived, plan))
+        {
+            AppendLine("A running plan must be paused or ended before it can be archived.");
+            return;
+        }
+        if (!TryPublishPlanProgress(archived, out var error))
+        {
+            AppendLine($"⚠ Plan could not be archived: {error}");
+            return;
+        }
+        if (PlansShowArchivedCheckBox is not null)
+            PlansShowArchivedCheckBox.IsChecked = true;
+    }
+
+    private void RequestPlanPauseAfterCurrentStep(Plan plan)
+    {
+        if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
+            return;
+        _pausePlanAfterCurrentStepRequested = true;
+        ScheduleDecomposeSystemEntry(
+            $"Plan {plan.Title} will pause after the current step is accepted.",
+            plan.PlanId,
+            plan.Revision,
+            plan.Progress.ExecutingTaskId);
+    }
+
+    private async void AbortCurrentPlanWork(Plan plan)
+    {
+        if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
+            return;
+        var result = MessageBox.Show(
+            "Abort the current plan work immediately? Files and commits will be preserved, and the task will require recovery assessment before continuing.",
+            "Abort Current Plan Work",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (result != MessageBoxResult.OK) return;
+
+        _planAbortRequestedByUser = true;
+        SuppressLoopResumeAfterExplicitStop("abort-plan-work");
+        if (_activeLoopMode == LoopMode.NativeAgents)
+        {
+            _loopController.RequestAbort();
+            _loopFollowUpTcs?.TrySetResult(false);
+        }
+        else
+        {
+            await _bridge.StopLoopAsync();
+        }
     }
 
     // ── Plan lifecycle event helpers ──────────────────────────────────────────

@@ -24,6 +24,7 @@ internal class ChromedWindow : Window {
     // Hover border state — populated by ApplyOuterBorder, consumed by the WndProc hook.
     private Border?          _hoverBorderInstance;
     private SolidColorBrush? _hoverBrushInstance;
+    private Border?          _outerBorderInstance;
     private bool             _hoverActive;
 
     private const int WM_MOUSEMOVE  = 0x0200;
@@ -117,6 +118,7 @@ internal class ChromedWindow : Window {
         };
         outerBorder.SetResourceReference(Border.BackgroundProperty,  backgroundResource);
         outerBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+        _outerBorderInstance = outerBorder;
 
         // Thin 1px overlay border that lights up when the mouse is over the window.
         // Driven by Win32 WM_MOUSEMOVE/WM_MOUSELEAVE via HoverWndProc for reliability
@@ -217,5 +219,25 @@ internal class ChromedWindow : Window {
         grid.Children.Add(closeBtn);
         Content = grid;
         return outerBorder;
+    }
+
+    /// <summary>
+    /// Replays the standard chrome attention animation for an already-open window.
+    /// This intentionally uses the same border and animation as the initial window-open cue.
+    /// </summary>
+    internal void PulseAttention()
+    {
+        if (_outerBorderInstance is null || !IsLoaded) return;
+        try
+        {
+            var glowColor = ((SolidColorBrush)FindResource("WindowBorderGlow")).Color;
+            var restBrush = (SolidColorBrush)FindResource("PanelBorder");
+            WindowOpenGlow.Animate(_outerBorderInstance, glowColor, restBrush);
+        }
+        catch
+        {
+            // Attention feedback is optional; activation must still succeed if a theme resource
+            // is temporarily unavailable while the application is switching themes.
+        }
     }
 }
