@@ -895,21 +895,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Width = 144 * _scaleFactor,
                     Background = Brushes.Transparent,
                     Cursor = Cursors.Hand,
+                    Focusable = true,
                     ToolTip = BuildValidationToolTip(validation, durableValidation, tasksById),
                 };
+                System.Windows.Automation.AutomationProperties.SetName(
+                    visual,
+                    $"Validation: {validation.Title} — {FormatValidationStatus(validationStatus)}");
+                System.Windows.Automation.AutomationProperties.SetHelpText(
+                    visual,
+                    validation.Description);
                 var shield = CreateValidationShield(validationStatus);
                 shield.HorizontalAlignment = HorizontalAlignment.Center;
                 visual.Children.Add(shield);
+                var displayTitle = ValidationShieldPresenter.TruncateTitle(validation.Title);
                 var title = new TextBlock
                 {
-                    Text = validation.Title,
+                    Text = displayTitle,
                     Margin = new Thickness(0, 3 * _scaleFactor, 0, 0),
                     MaxWidth = 140 * _scaleFactor,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     MaxHeight = 32 * _scaleFactor,
-                    ToolTip = BuildValidationToolTip(validation, durableValidation, tasksById),
+                    ToolTip = displayTitle != validation.Title
+                        ? BuildValidationToolTip(validation, durableValidation, tasksById)
+                        : null,
                 };
                 title.SetResourceReference(TextBlock.ForegroundProperty,
                     validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
@@ -954,7 +964,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 canvas.Children.Add(visual);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
                 validationRailRight = Math.Max(validationRailRight, left + 144 * _scaleFactor);
-                validationBottom = Math.Max(validationBottom, top + 64 * _scaleFactor);
+                // Full visual height: shield (26) + title margin (3) + title maxHeight (32) + bottom padding (5)
+                validationBottom = Math.Max(validationBottom, top + ValidationShieldPresenter.BaseShieldStackSpacing * _scaleFactor);
             }
         }
 

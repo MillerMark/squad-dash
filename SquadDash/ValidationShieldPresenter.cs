@@ -182,6 +182,146 @@ internal static class ValidationShieldPresenter
         return $"{summary.Total} validation{(summary.Total > 1 ? "s" : "")} pending";
     }
 
+    // ── Layout positioning (pure computation) ───────────────────────────────
+
+    /// <summary>The kind of anchor position for a validation shield.</summary>
+    internal enum AnchorKind { Stage, All, Before, After, Rail }
+
+    /// <summary>Describes where a validation shield is anchored in the plan graph.</summary>
+    internal sealed record ShieldAnchor(
+        AnchorKind Kind,
+        string? TaskId = null,
+        int StageIndex = -1,
+        string? AllKey = null);
+
+    /// <summary>Computed position for a single validation shield.</summary>
+    internal sealed record ShieldLayoutPosition(
+        double Left,
+        double Top,
+        int StackIndex,
+        ShieldAnchor Anchor);
+
+    /// <summary>Layout measurements for the validation rail.</summary>
+    internal sealed record ValidationRailMetrics(
+        double RailHeight,
+        double GraphTop,
+        double MaxRight,
+        double MaxBottom);
+
+    /// <summary>Per-shield width and height constants (before scale).</summary>
+    internal const double BaseShieldVisualWidth = 144;
+    internal const double BaseShieldStackSpacing = 66;
+    internal const double BaseShieldVisualHeight = 64;
+    internal const double BaseRailTopPadding = 42;
+
+    /// <summary>
+    /// Computes the layout position for a single validation shield given its anchor,
+    /// stage boundary positions, task node positions, gate centers, and stacking state.
+    /// </summary>
+    internal static ShieldLayoutPosition ComputeShieldPosition(
+        ShieldAnchor anchor,
+        int stackIndex,
+        double scaleFactor,
+        IReadOnlyList<double> stageBoundaryXs,
+        IReadOnlyDictionary<string, (double X, double Y)> taskPositions,
+        double nodeWidth,
+        double nodeHeight,
+        double graphTop,
+        IReadOnlyList<(double CenterX, double CenterY, string AllKey)>? gateCenters,
+        ref double fallbackNextLeft)
+    {
+        var s = scaleFactor;
+        double left, top;
+
+        switch (anchor.Kind)
+        {
+            case AnchorKind.Stage when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
+                left = stageBoundaryXs[anchor.StageIndex] - 72 * s;
+                top = graphTop - (112 + stackIndex * BaseShieldStackSpacing) * s;
+                break;
+
+            case AnchorKind.Before when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var beforePos):
+                left = beforePos.X - 72 * s;
+                top = beforePos.Y + nodeHeight + (8 + stackIndex * BaseShieldStackSpacing) * s;
+                break;
+
+            case AnchorKind.After when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var afterPos):
+                left = afterPos.X + nodeWidth - 72 * s;
+                top = afterPos.Y + nodeHeight + (8 + stackIndex * BaseShieldStackSpacing) * s;
+                break;
+
+            case AnchorKind.All when anchor.AllKey is not null && gateCenters is not null:
+                var matchingGate = gateCenters.FirstOrDefault(g =>
+                    string.Equals(g.AllKey, anchor.AllKey, StringComparison.Ordinal));
+                if (matchingGate != default)
+                {
+                    left = matchingGate.CenterX - 72 * s;
+                    top = matchingGate.CenterY + (24 + stackIndex * BaseShieldStackSpacing) * s;
+                }
+                else
+                {
+                    left = fallbackNextLeft;
+                    top = 28 * s;
+                    fallbackNextLeft += 156 * s;
+                }
+                break;
+
+            default:
+                left = fallbackNextLeft;
+                top = 28 * s;
+                fallbackNextLeft += 156 * s;
+                break;
+        }
+
+        return new ShieldLayoutPosition(left, top, stackIndex, anchor);
+    }
+
+    /// <summary>
+    /// Computes the vertical space reserved for top-rail validation stacks (stage/rail anchors).
+    /// Returns the rail height in scaled pixels.
+    /// </summary>
+    internal static double ComputeValidationRailHeight(
+        IReadOnlyList<ShieldAnchor> anchors, double scaleFactor)
+    {
+        var topStackCount = anchors
+            .Where(a => a.Kind is AnchorKind.Stage or AnchorKind.Rail)
+            .GroupBy(a => a.Kind == AnchorKind.Stage ? $"stage:{a.StageIndex}" : "rail")
+            .Select(g => g.Count())
+            .DefaultIfEmpty(0)
+            .Max();
+        return topStackCount == 0
+            ? 0
+            : (BaseRailTopPadding + topStackCount * BaseShieldStackSpacing) * scaleFactor;
+    }
+
+    /// <summary>
+    /// Computes the extra row spacing needed when validations attach below a task node.
+    /// </summary>
+    internal static double ComputeAttachedTaskSpacing(
+        int attachedValidationCount, double nodeHeight, double baseRowSpacing, double scaleFactor)
+    {
+        if (attachedValidationCount == 0)
+            return Math.Max(baseRowSpacing, nodeHeight + 40 * scaleFactor);
+        return Math.Max(baseRowSpacing,
+            nodeHeight + (18 + attachedValidationCount * BaseShieldStackSpacing) * scaleFactor);
+    }
+
+    // ── Title truncation ─────────────────────────────────────────────────────
+
+    /// <summary>Maximum character length for shield titles before truncation.</summary>
+    internal const int MaxTitleLength = 28;
+
+    /// <summary>
+    /// Truncates a validation title to fit within the shield label area.
+    /// Returns the original title if short enough, otherwise truncates with ellipsis.
+    /// </summary>
+    internal static string TruncateTitle(string? title)
+    {
+        if (string.IsNullOrEmpty(title)) return string.Empty;
+        if (title.Length <= MaxTitleLength) return title;
+        return title[..(MaxTitleLength - 1)] + "…";
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Dictionary<string, List<string>> BuildDependentsMap(IReadOnlyList<PlanTask> tasks)
