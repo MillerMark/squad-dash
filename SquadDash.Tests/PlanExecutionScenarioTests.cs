@@ -397,7 +397,7 @@ internal sealed class PlanExecutionScenarioTests
                 [new DecomposedSubTask("PLAN-20260728-001", "First task", [], "high")]));
 
     [Test]
-    public void RecoveryInbox_BuildRecoveryMessage_HasExactlyTwoActions()
+    public void RecoveryInbox_BuildRecoveryMessage_HasCanonicalRecoveryActions()
     {
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             BuildRecoveryPlan(),
@@ -405,8 +405,12 @@ internal sealed class PlanExecutionScenarioTests
             "The AI exceeded the context window.",
             DateTimeOffset.Parse("2026-07-28T10:00:00Z"));
 
-        Assert.That(message.Actions.Count, Is.EqualTo(2),
-            "The recovery message must provide exactly two actions: Continue/Retry and Replan.");
+        Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
+        {
+            "Review Completed Work…",
+            "Replan Failed Task",
+            "Continue / Retry Task",
+        }));
     }
 
     [Test]

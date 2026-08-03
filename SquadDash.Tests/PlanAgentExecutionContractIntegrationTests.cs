@@ -285,7 +285,7 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
     }
 
     [Test]
-    public void ContentModifiedCharter_AfterTransportNormalization_IsRejected()
+    public void ContentModifiedCharter_InPrompt_StillRequiresAuthoritativeCharterRead()
     {
         var crlfCharter = Charter.Replace("\n", "\r\n") + "\r\n";
         _workspace.CreateFile("repo/.squad/agents/talia-rune/charter.md", crlfCharter);
@@ -307,18 +307,31 @@ internal sealed class PlanAgentExecutionContractIntegrationTests
             "Own SDK-boundary implementaxion");
 
         var launch = ResolveLaunchWithPrompt(attempt, ToolCallId, modifiedPrompt);
-        Assert.That(launch.IsVerifiedRosterAssignment, Is.False);
+        Assert.That(launch.IsVerifiedRosterAssignment, Is.True,
+            "The host capability authenticates the launch; charter receipt is completion evidence.");
 
         attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
             attempt, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
-        attempt = RecordRequiredContextReads(attempt);
+        foreach (var requiredPath in attempt.Assignments.Single().RequiredContextPaths
+                     .Where(path => !path.EndsWith("charter.md", StringComparison.OrdinalIgnoreCase)))
+        {
+            using var args = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                path = Path.GetRelativePath(_workspacePath, requiredPath)
+            }));
+            var readPath = PlanContextReadEvidence.TryResolveFullPath(
+                new SquadSdkEvent { ToolName = "view", Args = args.RootElement.Clone() },
+                _workspacePath);
+            attempt = attempt.RecordContextRead(ToolCallId, readPath!);
+        }
         attempt = attempt.RecordPrimaryCompletion(
             ToolCallId,
             new DateTimeOffset(2026, 7, 29, 10, 0, 0, TimeSpan.Zero),
             succeeded: true);
 
         Assert.That(PlanAgentAssignmentValidator.Validate(
-            TaskId, Revision, [_assignment], attempt), Is.Not.Null);
+            TaskId, Revision, [_assignment], attempt),
+            Does.Contain("host-observed reads"));
     }
 
     [Test]

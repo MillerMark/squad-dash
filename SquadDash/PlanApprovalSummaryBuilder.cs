@@ -28,38 +28,43 @@ internal static class PlanApprovalSummaryBuilder
             .ThenBy(gate => gate.GateId, StringComparer.Ordinal)
             .ToArray();
 
-        var stageAnchors = ordered.Select(ParseStageAnchor).Where(stage => stage.HasValue)
+        var stageAnchors = ordered
+            .Select(gate => PlanApprovalPresentationAnchorResolver.Resolve(gate, plan.Tasks, levels))
+            .Select(ParseStageAnchor).Where(stage => stage.HasValue)
             .Select(stage => stage!.Value).ToHashSet();
         var betweenEveryStage = stageCount > 1 && ordered.Length == stageCount - 1 &&
             Enumerable.Range(1, stageCount - 1).All(stageAnchors.Contains);
         if (betweenEveryStage)
             return new PlanApprovalSummary(true, []);
 
-        var items = ordered.Select(gate => BuildItem(gate)).ToArray();
+        var items = ordered.Select(gate => BuildItem(gate, plan.Tasks, levels)).ToArray();
         return new PlanApprovalSummary(false, items);
     }
 
-    private static ApprovalSummaryItem BuildItem(PlanApprovalGate gate)
+    private static ApprovalSummaryItem BuildItem(
+        PlanApprovalGate gate,
+        IReadOnlyList<PlanTask> tasks,
+        IReadOnlyDictionary<string, int> levels)
     {
-        var anchor = gate.PresentationAnchor ?? string.Empty;
+        var anchor = PlanApprovalPresentationAnchorResolver.Resolve(gate, tasks, levels) ?? string.Empty;
         if (anchor.StartsWith("task-before:", StringComparison.Ordinal))
             return new(ApprovalSummaryKind.TaskBefore, gate.AfterTaskIds, gate.BeforeTaskIds,
                 anchor["task-before:".Length..]);
         if (anchor.StartsWith("task-after:", StringComparison.Ordinal))
             return new(ApprovalSummaryKind.TaskAfter, gate.AfterTaskIds, gate.BeforeTaskIds,
                 anchor["task-after:".Length..]);
-        if (ParseStageAnchor(gate) is { } stage)
+        if (ParseStageAnchor(anchor) is { } stage)
             return new(ApprovalSummaryKind.Stage, gate.AfterTaskIds, gate.BeforeTaskIds, LeftStage: stage);
         if (anchor.StartsWith("all:", StringComparison.Ordinal))
             return new(ApprovalSummaryKind.All, gate.AfterTaskIds, gate.BeforeTaskIds);
         return new(ApprovalSummaryKind.Boundary, gate.AfterTaskIds, gate.BeforeTaskIds);
     }
 
-    private static int? ParseStageAnchor(PlanApprovalGate gate)
+    private static int? ParseStageAnchor(string? anchor)
     {
         const string prefix = "stage:";
-        return gate.PresentationAnchor?.StartsWith(prefix, StringComparison.Ordinal) == true &&
-               int.TryParse(gate.PresentationAnchor[prefix.Length..], out var stage)
+        return anchor?.StartsWith(prefix, StringComparison.Ordinal) == true &&
+               int.TryParse(anchor[prefix.Length..], out var stage)
             ? stage
             : null;
     }

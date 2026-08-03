@@ -65,7 +65,11 @@ internal sealed record PlanExecutionAttemptState(
                 ? Path.Combine(squadFolderPath, agent.CharterPath.Replace('/', Path.DirectorySeparatorChar))
                 : Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
             var charter = File.ReadAllText(charterPath);
-            var requiredContext = new List<string>();
+            // The capability authenticates the host-owned assignment envelope at launch.
+            // Reading the authoritative charter is separate completion evidence so an AI
+            // transcription difference cannot mislabel the worker while still ensuring the
+            // assigned worker actually received its current responsibilities.
+            var requiredContext = new List<string> { Path.GetFullPath(charterPath) };
             var historyPath = Path.Combine(Path.GetDirectoryName(charterPath)!, "history.md");
             if (File.Exists(historyPath))
                 requiredContext.Add(Path.GetFullPath(historyPath));

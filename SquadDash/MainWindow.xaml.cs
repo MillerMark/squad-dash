@@ -7108,6 +7108,8 @@ public partial class MainWindow : Window
             status = _loopCurrentIteration > 0
                 ? $"● {executingPlanPrefix}Running · Round {_loopCurrentIteration}"
                 : $"● {executingPlanPrefix}Running";
+        else if (_activePlanAwaitingGateApproval is not null)
+            status = "⏸ Plan · Waiting for approval";
         else
             status = string.Empty;
 
@@ -8305,6 +8307,12 @@ public partial class MainWindow : Window
         }
 
         var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
+        if (decision.Action == "review-completed-work")
+        {
+            var durablePlan = _planStore?.Load(decision.GroupId);
+            return durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                   await AdoptVerifiedCommitRangeAsync(durablePlan);
+        }
         if (decision.Action == "replan-failed-task")
         {
             QueueDecomposeReplan(plan, blockedTask.TaskId);
@@ -9552,6 +9560,7 @@ public partial class MainWindow : Window
         _inboxStore?.Delete(DeveloperApprovalSimulator.MessageId);
         _approvalTranscriptCards.Clear();
         _approvalPlansUpdating.Clear();
+        _activePlanAwaitingGateApproval = null;
         _planApprovalRuntime = null;
         _approvalNotificationCoordinator = null;
         if (_currentWorkspace is null || _planStore is null || _inboxStore is null)
@@ -9715,6 +9724,7 @@ public partial class MainWindow : Window
     private void RestoreAwaitingApprovalGateUI()
     {
         if (_planStore is null || _planApprovalRuntime is null) return;
+        (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
         foreach (var plan in _planStore.LoadAll())
         {
             if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
@@ -9723,11 +9733,23 @@ public partial class MainWindow : Window
             if (awaitingGate is null) continue;
             var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
             if (token is null) continue;
+            _activePlanAwaitingGateApproval ??= awaitingGate.GateId;
             var snapshot = BuildLightweightApprovalSnapshot(plan, awaitingGate);
             Dispatcher.BeginInvoke(
                 () => AppendGateApprovalActions(plan, awaitingGate, snapshot, token),
                 System.Windows.Threading.DispatcherPriority.Background);
+            attentionRequest ??= (plan, awaitingGate);
         }
+
+        if (attentionRequest is { } request)
+        {
+            // The original attention cue does not survive a process restart. Replay one
+            // cue after layout settles so the durable request is discoverable again.
+            Dispatcher.BeginInvoke(
+                new Action(async () => await TryShowApprovalCalloutAsync(request.Plan, request.Gate)),
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+        SyncLoopPanel();
     }
 
     /// <summary>
@@ -9849,7 +9871,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Shows a one-time Ultimate Callout beside the main window for approval attention.
+    /// Shows a one-time Ultimate Callout at the visible Inbox request or Inbox menu item.
     /// </summary>
     private async Task TryShowApprovalCalloutAsync(Plan plan, PlanApprovalGate gate)
     {
@@ -10451,10 +10473,24 @@ public partial class MainWindow : Window
         blocks.Add(planLinkParagraph);
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+        {
+            var guidance = CreateTranscriptParagraph(bottomMargin: 6);
+            guidance.Inlines.Add(new Run(
+                "If this task already produced a commit, review that completed work first. Continue / Retry may repeat the task."));
+            blocks.Add(guidance);
+            AddAsyncAction(
+                "Review Completed Work…",
+                "Review committed changes produced before this interruption. If accepted, SquadDash will mark this step complete and continue without repeating it.",
+                async () => await AdoptVerifiedCommitRangeAsync(durablePlan));
+        }
+        AddAsyncAction(
+            "Continue / Retry Task",
+            "Continue preserved work when present; otherwise rerun the interrupted task. Review completed work first when rerunning could duplicate an existing commit.",
+            async () => await RetryDecomposeTaskAsync(plan, taskId));
         AddAction("Replan Failed Task", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
-        AddAsyncAction("Continue / Retry Task", "Continue preserved work when present; otherwise retry the exact same task.",
-            async () => await RetryDecomposeTaskAsync(plan, taskId));
 
         // Show "Analyze with AI" only when there is evidence of prior work (preserved paths
         // or an iteration baseline commit) — avoids offering analysis with nothing to analyse.
@@ -10937,13 +10973,13 @@ public partial class MainWindow : Window
             : "\n\nAlready-completed dependent tasks: " + string.Join(", ", downstream);
         var confirmation = MessageBox.Show(
             this,
-            $"Adopt {selectedRange.Length} verified commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
-            $"as the completed result for {taskId}?\n\n" +
+            $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
+            $"as the completed result for {taskId} and continue the plan?\n\n" +
             $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
             $"Changed files:\n{changedFileLines}{warning}\n\n" +
             "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
             "Confirm that this preserved work satisfies the task.",
-            "Adopt Verified Commit Range",
+            "Accept Commit and Continue",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);
@@ -11025,11 +11061,25 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         ShowSystemTranscriptEntry(
             $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task.");
+        ArchiveDecomposeRecoveryInboxMessages(storedPlan.PlanId);
         await StartBackloggedDecomposeGroupAsync(
             currentGroup with { HostRevision = currentRevision },
             continuationTaskId: null,
             continuationPaths: []);
         return true;
+    }
+
+    private void ArchiveDecomposeRecoveryInboxMessages(string planId)
+    {
+        if (_inboxStore is null) return;
+        var prefix = $"decompose-recovery-{planId}-";
+        foreach (var message in _inboxStore.LoadAll()
+                     .Where(message => message.Id.StartsWith(prefix, StringComparison.Ordinal)))
+            _inboxStore.Archive(message.Id);
+
+        var current = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(current);
+        ReconcileOpenInboxWindows(current);
     }
 
     private static void RestoreFileAtomically(string path, string content)
@@ -25662,8 +25712,6 @@ public partial class MainWindow : Window
         await InitializeApprovalRuntimeAsync();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
-        RestoreAwaitingApprovalGateUI();
-
         // Load persisted panel layout for this workspace and apply any non-default placements.
         HintEngine.Instance.Initialize(_currentWorkspace.FolderPath);
         if (_dockingService is not null)
@@ -25773,6 +25821,9 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        // Transcript hydration replaces the document. Restore durable approval cards only
+        // after that replacement so a restart cannot silently erase the required action.
+        RestoreAwaitingApprovalGateUI();
         // Plan repair must run only after the workspace-scoped execution envelope has
         // loaded. Running it earlier turns a legitimately resumable plan into an
         // interruption before SquadDash has read the state that owns the restart.

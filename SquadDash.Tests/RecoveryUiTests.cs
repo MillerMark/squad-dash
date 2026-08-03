@@ -74,6 +74,15 @@ internal sealed class RecoveryUiTests
     }
 
     [Test]
+    public void BuildRecoveryMessage_HasReviewCompletedWorkAction()
+    {
+        var message = BuildMessage();
+        Assert.That(
+            message.Actions.Select(a => a.Label),
+            Has.Member("Review Completed Work…"));
+    }
+
+    [Test]
     public void BuildRecoveryMessage_HasReplanAction()
     {
         var message = BuildMessage();

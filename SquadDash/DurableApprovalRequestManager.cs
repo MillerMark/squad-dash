@@ -107,6 +107,10 @@ internal sealed class DurableApprovalRequestManager
 
                 var updated = existing with
                 {
+                    // A newly available checkpoint should bring the plan's single
+                    // aggregated request back to the top of the Inbox instead of
+                    // leaving it buried at the time of the first checkpoint.
+                    Timestamp = DateTimeOffset.UtcNow,
                     Read = false,
                     Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints),
                     Actions = BuildActions(plan, newState),

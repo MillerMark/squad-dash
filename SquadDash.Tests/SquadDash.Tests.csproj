@@ -354,6 +354,7 @@
     <Compile Include="..\SquadDash\PendingDecomposePlanAdapter.cs" Link="Source\PendingDecomposePlanAdapter.cs" />
     <Compile Include="..\SquadDash\PlanGateManager.cs" Link="Source\PlanGateManager.cs" />
     <Compile Include="..\SquadDash\PlanGateVisualizationPolicy.cs" Link="Source\PlanGateVisualizationPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanApprovalPresentationAnchorResolver.cs" Link="Source\PlanApprovalPresentationAnchorResolver.cs" />
     <Compile Include="..\SquadDash\PlanApprovalSummaryBuilder.cs" Link="Source\PlanApprovalSummaryBuilder.cs" />
     <Compile Include="..\SquadDash\ApprovalReviewSnapshot.cs" Link="Source\ApprovalReviewSnapshot.cs" />
     <Compile Include="..\SquadDash\ApprovalReviewSnapshotBuilder.cs" Link="Source\ApprovalReviewSnapshotBuilder.cs" />

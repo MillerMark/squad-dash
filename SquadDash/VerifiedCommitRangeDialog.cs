@@ -19,7 +19,7 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
         IReadOnlyList<RecoveryCommitRangeEntry> entries)
         : base(captionHeight: 34, resizeMode: ResizeMode.CanResize, resizeBorderThickness: 6)
     {
-        Title = "Adopt Verified Commit Range";
+        Title = "Review Completed Work";
         Width = 720;
         Height = 480;
         MinWidth = 560;
@@ -35,7 +35,7 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
 
         var instructions = new TextBlock
         {
-            Text = $"Select the last commit that belongs to {taskId}. SquadDash will adopt every commit after {Short(baselineCommit)} through the selected commit, validate the changed paths, and leave later commits outside the task range.",
+            Text = $"Select the last commit produced for {taskId}. SquadDash will review every commit after {Short(baselineCommit)} through your selection. No plan state changes until you review the range and accept it.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12),
         };

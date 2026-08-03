@@ -3,7 +3,6 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Generic;
-using System.IO;
 
 namespace SquadDash;
 
@@ -81,8 +80,7 @@ internal static class BackgroundAgentLaunchInfoResolver {
                           !launchedByCoordinator ||
                           !string.Equals(authorized.Role, assignment?.Role, StringComparison.Ordinal) ||
                           authorized.AllowGenericChildren != assignment?.AllowGenericChildren ||
-                          !string.Equals(authorized.CharterSha256, assignment?.CharterSha256, StringComparison.Ordinal) ||
-                          !PromptContainsAuthorizedCharter(prompt, authorized)
+                          !string.Equals(authorized.CharterSha256, assignment?.CharterSha256, StringComparison.Ordinal)
             ? null
             : roster.FirstOrDefault(candidate =>
                 string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(assignedAgentHandle), StringComparison.Ordinal));
@@ -157,34 +155,6 @@ internal static class BackgroundAgentLaunchInfoResolver {
 
         return null;
     }
-
-    private static bool PromptContainsAuthorizedCharter(
-        string? prompt,
-        PlanExecutionAssignmentAttempt authorization)
-    {
-        if (string.IsNullOrWhiteSpace(prompt) || !File.Exists(authorization.CharterPath))
-            return false;
-        try
-        {
-            var charter = File.ReadAllText(authorization.CharterPath);
-            return string.Equals(
-                       PlanExecutionAttemptState.Sha256(charter),
-                       authorization.CharterSha256,
-                       StringComparison.Ordinal) &&
-                   NormalizeCharterTransport(prompt).Contains(
-                       NormalizeCharterTransport(charter),
-                       StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private static string NormalizeCharterTransport(string value) =>
-        value.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .TrimEnd('\n');
 
     private sealed record AssignmentEnvelope(
         string? AttemptId,

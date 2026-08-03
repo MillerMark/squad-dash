@@ -39,4 +39,19 @@ internal sealed class PlanApprovalSummaryBuilderTests
             Is.EqualTo(new[] { ApprovalSummaryKind.TaskBefore, ApprovalSummaryKind.All }));
         Assert.That(result.Items[0].TaskId, Is.EqualTo("B"));
     }
+
+    [Test]
+    public void Build_InfersOneMilestoneAnchorForLegacyUnanchoredGate()
+    {
+        var plan = MakePlan([
+            new("G1", "legacy", ["A"], ["B"], PlanGateStatus.Pending),
+        ]);
+
+        var result = PlanApprovalSummaryBuilder.Build(
+            plan, new Dictionary<string, int>{{"A",0},{"B",1},{"C",2}});
+
+        Assert.That(result.Items, Has.Count.EqualTo(1));
+        Assert.That(result.Items[0].Kind, Is.EqualTo(ApprovalSummaryKind.Stage));
+        Assert.That(result.Items[0].LeftStage, Is.EqualTo(1));
+    }
 }

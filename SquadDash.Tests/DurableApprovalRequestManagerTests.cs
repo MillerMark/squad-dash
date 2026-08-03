@@ -137,6 +137,23 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public async Task AppendCheckpoint_RefreshesAggregatedMessageTimestamp()
+    {
+        var plan = MakePlan();
+        await _manager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], MakeSnapshot());
+        var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+        var oldTimestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        _inbox.Save(_inbox.GetById(messageId)! with { Timestamp = oldTimestamp });
+
+        var gate2 = new PlanApprovalGate(
+            "GATE-002", "Review after T2", ["T2"], ["T3"], PlanGateStatus.AwaitingApproval);
+        var expanded = MakePlan(gates: [plan.ApprovalGates[0], gate2]);
+        await _manager.AppendCheckpointAsync(expanded, gate2, MakeSnapshot(gateId: "GATE-002"));
+
+        Assert.That(_inbox.GetById(messageId)!.Timestamp, Is.GreaterThan(oldTimestamp));
+    }
+
+    [Test]
     public async Task ResolveCheckpoint_MovesToHistory()
     {
         var plan = MakePlan();

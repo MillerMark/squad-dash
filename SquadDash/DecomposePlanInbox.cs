@@ -117,6 +117,7 @@ internal static class DecomposePlanInbox
             Read = false,
             Priority = "high",
             Body = $"Plan **{plan.Group.GroupTitle}** blocked at task `{taskId}`.\n\n> {reason}\n\n" +
+                   "**Review Completed Work** — inspect commits produced before the interruption, then accept them without rerunning the task.\n" +
                    "**Continue / Retry** — resumes from preserved work if present, or reruns the same task.\n" +
                    "**Replan Failed Task** — replaces this task with smaller, dependency-aware steps.",
             Attachments =
@@ -132,6 +133,7 @@ internal static class DecomposePlanInbox
             ],
             Actions =
             [
+                BuildAction("Review Completed Work…", "review-completed-work", "Review committed changes produced before this interruption. If accepted, mark this step complete and continue without repeating it."),
                 BuildAction("Replan Failed Task", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
                 BuildAction("Continue / Retry Task", "retry-as-written", "Continue preserved work when present; otherwise retry the same task."),
             ],

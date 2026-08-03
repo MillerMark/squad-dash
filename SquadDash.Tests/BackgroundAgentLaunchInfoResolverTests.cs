@@ -161,7 +161,7 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
     }
 
     [Test]
-    public void TryResolve_VerifiesHostAttemptOnlyForCoordinatorLaunchWithCompleteCharter()
+    public void TryResolve_VerifiesHostAttemptOnlyForCoordinatorLaunchWithCapability()
     {
         var temp = Path.Combine(Path.GetTempPath(), "squaddash-attempt-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
@@ -221,7 +221,7 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
     }
 
     [Test]
-    public void TryResolve_VerifiesCharterAcrossTransportLineEndingAndFinalNewlineChanges()
+    public void TryResolve_DoesNotDependOnModelCopyingCharterTextExactly()
     {
         var temp = Path.Combine(Path.GetTempPath(), "squaddash-attempt-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
@@ -264,15 +264,15 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
 
             var normalized = Resolve("# Talia charter\nOwn SDK implementation.");
             var modified = Resolve("# Talia charter\nOwn UI implementation.");
-            var truncated = Resolve("# Talia charter\nOwn SDK");
+            var omitted = Resolve("Read the authoritative charter file before working.");
 
             Assert.Multiple(() => {
                 Assert.That(normalized!.DisplayName, Is.EqualTo("Talia Rune"));
                 Assert.That(normalized.IsVerifiedRosterAssignment, Is.True);
-                Assert.That(modified!.DisplayName, Is.EqualTo("Temporary Agent"));
-                Assert.That(modified.IsVerifiedRosterAssignment, Is.False);
-                Assert.That(truncated!.DisplayName, Is.EqualTo("Temporary Agent"));
-                Assert.That(truncated.IsVerifiedRosterAssignment, Is.False);
+                Assert.That(modified!.DisplayName, Is.EqualTo("Talia Rune"));
+                Assert.That(modified.IsVerifiedRosterAssignment, Is.True);
+                Assert.That(omitted!.DisplayName, Is.EqualTo("Talia Rune"));
+                Assert.That(omitted.IsVerifiedRosterAssignment, Is.True);
             });
         }
         finally

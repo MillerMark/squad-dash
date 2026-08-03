@@ -222,31 +222,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Orientation = Orientation.Horizontal,
                 Margin      = new Thickness(0, 0, 0, 8),
             };
-            if (onResumePlan is not null)
-            {
-                var capturedPlan   = durablePlan;
-                var capturedAction = onResumePlan;
-                var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
-                    "Resume Plan",
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip("Resume executing this interrupted plan from where it left off."));
-                resumeButton.Focusable = false;
-                resumeButton.Click += (_, _) =>
-                {
-                    capturedAction(capturedPlan);
-                    Close();
-                };
-                interruptedPanel.Children.Add(resumeButton);
-            }
             if (onAdoptVerifiedCommitRange is not null)
             {
                 var capturedPlan = durablePlan;
                 var capturedAction = onAdoptVerifiedCommitRange;
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Adopt Verified Work…",
+                    "Review Completed Work…",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Select and validate a preserved commit range for the interrupted task, then continue with the next task."));
+                        "Review committed changes produced before this interruption. If accepted, SquadDash will mark this step complete and continue without repeating it."));
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>
                 {
@@ -263,10 +247,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         interruptedPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
                             $"Verified commit-range adoption failed: {ex}");
-                        UIErrorHelper.ShowError("Adopt Verified Work", ex.Message, this);
+                        UIErrorHelper.ShowError("Review Completed Work", ex.Message, this);
                     }
                 };
                 interruptedPanel.Children.Add(adoptButton);
+            }
+            if (onResumePlan is not null)
+            {
+                var capturedPlan   = durablePlan;
+                var capturedAction = onResumePlan;
+                var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
+                    "Resume Plan",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Resume executing this interrupted plan. If the task already produced a commit, review completed work first so it is not repeated."));
+                resumeButton.Focusable = false;
+                resumeButton.Click += (_, _) =>
+                {
+                    capturedAction(capturedPlan);
+                    Close();
+                };
+                interruptedPanel.Children.Add(resumeButton);
             }
             if (onEndPlan is not null)
             {
@@ -500,8 +501,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             anchor.StartsWith("stage:", StringComparison.Ordinal) ? "stage" : "task";
 
         bool IsPrimary(PlanApprovalGate? gate, string anchor) => gate is not null &&
-            (string.IsNullOrWhiteSpace(gate.PresentationAnchor) ||
-             string.Equals(gate.PresentationAnchor, anchor, StringComparison.Ordinal));
+            string.Equals(ResolvePresentationAnchor(gate), anchor, StringComparison.Ordinal);
 
         void ShowCoveredGuidance(string controllingAnchor, string label)
         {
@@ -737,23 +737,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         string? ResolvePresentationAnchor(PlanApprovalGate gate)
         {
-            if (!string.IsNullOrWhiteSpace(gate.PresentationAnchor)) return gate.PresentationAnchor;
-            for (var i = 0; i < columns.Length - 1; i++)
-            {
-                var after = columns[i].Select(task => task.Id).ToArray();
-                var before = columns[i + 1].Select(task => task.Id).ToArray();
-                if (SameBoundary(gate.AfterTaskIds, gate.BeforeTaskIds, after, before))
-                    return StageAnchor(i + 1);
-            }
-            foreach (var allGate in gates)
-            {
-                var before = allGate.Targets.Select(task => task.Id).ToArray();
-                if (SameBoundary(gate.AfterTaskIds, gate.BeforeTaskIds, allGate.Dependencies, before))
-                    return AllAnchor(before);
-            }
-            if (gate.AfterTaskIds.Count == 1) return TaskAfterAnchor(gate.AfterTaskIds[0]);
-            if (gate.BeforeTaskIds.Count == 1) return TaskBeforeAnchor(gate.BeforeTaskIds[0]);
-            return null;
+            var sourceTasks = durablePlan?.Tasks ?? group.Tasks.Select(task => new PlanTask(
+                task.Id, task.Title, task.Description, task.DependsOn, task.Priority,
+                PlanTaskStatus.Pending)).ToArray();
+            return PlanApprovalPresentationAnchorResolver.Resolve(gate, sourceTasks, levels);
         }
 
         var visualizationTasks = durablePlan?.Tasks ?? group.Tasks.Select(task => new PlanTask(

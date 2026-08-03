@@ -319,7 +319,7 @@ internal static class DecomposePlanningInstructions
             builder.AppendLine($"{BackgroundAgentLaunchInfoResolver.AssignmentMarker}");
             builder.AppendLine(envelope);
             builder.AppendLine();
-            builder.AppendLine("Inject the complete charter below into that worker prompt:");
+            builder.AppendLine("Inject the complete charter below into that worker prompt. SquadDash also requires the worker to read the authoritative charter file, so transcription differences cannot substitute for host-observed context:");
             builder.AppendLine(File.ReadAllText(charterPath));
             builder.AppendLine();
             foreach (var requiredPath in authorization.RequiredContextPaths)
