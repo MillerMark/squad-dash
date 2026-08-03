@@ -116,10 +116,10 @@ internal static class DecomposePlanInbox
             Timestamp = timestamp,
             Read = false,
             Priority = "critical",
-            Body = $"Plan **{plan.Group.GroupTitle}** blocked at task `{taskId}`.\n\n> {reason}\n\n" +
-                   "**Review Completed Work** — inspect commits produced before the interruption, then accept them without rerunning the task.\n" +
-                   "**Continue / Retry** — resumes from preserved work if present, or reruns the same task.\n" +
-                   "**Replan Failed Task** — replaces this task with smaller, dependency-aware steps.",
+            Body = $"Plan **{plan.Group.GroupTitle}** stopped unexpectedly at task `{taskId}`. Recovery is available.\n\n" +
+                   "**Assess & Continue** — AI classifies the current task as complete, partial, or not started. SquadDash validates the evidence before accepting or continuing anything.\n" +
+                   "**Replan Remaining Work** — replaces this task with smaller, dependency-aware steps.\n\n" +
+                   $"Recorded stop detail: {reason}",
             Attachments =
             [
                 new InboxAttachment
@@ -133,9 +133,8 @@ internal static class DecomposePlanInbox
             ],
             Actions =
             [
-                BuildAction("Review Completed Work…", "review-completed-work", "Review committed changes produced before this interruption. If accepted, mark this step complete and continue without repeating it."),
-                BuildAction("Replan Failed Task", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
-                BuildAction("Continue / Retry Task", "retry-as-written", "Continue preserved work when present; otherwise retry the same task."),
+                BuildAction("Assess & Continue", "assess-and-continue", "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing the plan."),
+                BuildAction("Replan Remaining Work", "replan-failed-task", "Replace the blocked task with smaller approved steps."),
             ],
         };
     }

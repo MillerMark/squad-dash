@@ -47,9 +47,15 @@ internal static class DecomposeRecoveryInboxReconciler
 
         if (referencesCurrentPlan && activeLifecycle && referencesCurrentTask)
         {
-            var active = string.Equals(message.Priority, "critical", StringComparison.OrdinalIgnoreCase)
-                ? message
-                : message with { Priority = "critical" };
+            var active = DecomposePlanInbox.BuildRecoveryMessage(
+                PendingDecomposePlanAdapter.FromPlan(plan!),
+                currentTaskId!,
+                plan!.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.",
+                message.Timestamp) with
+            {
+                Read = message.Read,
+                Priority = "critical",
+            };
             return new Result(active, IsActionable: true, ShouldArchive: false);
         }
 

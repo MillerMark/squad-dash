@@ -368,6 +368,8 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
     private bool                        _inboxSavedForCurrentTurn;
     private PendingRecoveryAnalysisContext? _pendingRecoveryAnalysis;
+    private PendingPlanRecoveryAssessment? _pendingPlanRecoveryAssessment;
+    private AssessedRecoveryContinuation? _assessedRecoveryContinuation;
 
     // ── Panel docking ────────────────────────────────────────────────────────
     private PanelDockingService? _dockingService;
@@ -5254,6 +5256,7 @@ public partial class MainWindow : Window
                         else
                         {
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
+                            TryApplyPlanRecoveryAssessmentFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
                             _ = TryHandleGateResponseFromResponseAsync(rawResponse);
@@ -8300,26 +8303,37 @@ public partial class MainWindow : Window
             .FirstOrDefault(item =>
                 string.Equals(item.DecomposeGroupId, decision.GroupId, StringComparison.Ordinal) &&
                 (item.IsFailed || item.IsPartial));
-        if (blockedTask?.TaskId is null)
+        var durablePlan = _planStore?.Load(decision.GroupId);
+        var recoveryTaskId = blockedTask?.TaskId
+            ?? (durablePlan is not null &&
+                string.Equals(durablePlan.Revision, revision, StringComparison.Ordinal) &&
+                durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked
+                    ? durablePlan.InterruptionData?.InterruptedTaskId
+                    : null);
+        if (recoveryTaskId is null)
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} does not have a failed or partial step.");
             return false;
         }
 
         var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
+        if (decision.Action == "assess-and-continue")
+        {
+            await AssessAndContinuePlanRecoveryAsync(plan, recoveryTaskId);
+            return true;
+        }
         if (decision.Action == "review-completed-work")
         {
-            var durablePlan = _planStore?.Load(decision.GroupId);
             return durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                    await AdoptVerifiedCommitRangeAsync(durablePlan);
         }
         if (decision.Action == "replan-failed-task")
         {
-            QueueDecomposeReplan(plan, blockedTask.TaskId);
+            QueueDecomposeReplan(plan, recoveryTaskId);
             return true;
         }
         else
-            return await RetryDecomposeTaskAsync(plan, blockedTask.TaskId);
+            return await RetryDecomposeTaskAsync(plan, recoveryTaskId);
     }
 
     private void QueueDecomposeReplan(PendingDecomposePlan plan, string taskId)
@@ -8911,12 +8925,10 @@ public partial class MainWindow : Window
         Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
             ? p => _ = StartDecomposeLoopAsync(p.PlanId)
             : null;
-        Action<Plan>? onResumePlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
-            ? p => _ = StartDecomposeLoopAsync(p.PlanId)
-            : null;
+        Action<Plan>? onResumePlan = null;
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
             durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
-                ? AdoptVerifiedCommitRangeAsync
+                ? AssessInterruptedPlanFromDurableAsync
                 : null;
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
@@ -9207,7 +9219,24 @@ public partial class MainWindow : Window
                 string.Equals(currentTask.AgentRoutingMode, "generic", StringComparison.Ordinal)
                     ? currentTask.GenericAgentReason
                     : null);
-        var contexts = new[] { continuationContext, routingContext }
+        string? assessedRecoveryContext = null;
+        if (_assessedRecoveryContinuation is { } assessed)
+        {
+            if (!string.Equals(assessed.PlanId, _activeDecomposeGroupId, StringComparison.Ordinal) ||
+                !string.Equals(assessed.TaskId, currentTaskId, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Assessed recovery context belongs to {assessed.PlanId}/{assessed.TaskId}, but the next task is " +
+                    $"{_activeDecomposeGroupId}/{currentTaskId}.");
+            assessedRecoveryContext =
+                $"RECOVERY ASSESSMENT (host-owned): AI previously classified task {currentTaskId} as partially complete.\n" +
+                $"Assessment summary: {assessed.Summary}\nRemaining work:\n" +
+                string.Join("\n", assessed.RemainingWork.Select(item => $"- {item}")) +
+                "\nInspect and preserve valid existing work. Complete only the remaining work, validate the whole task, " +
+                "and return the normal DECOMPOSE_STEP_RESULT_JSON payload. Do not repeat completed work and do not commit tasks.md.";
+            _assessedRecoveryContinuation = null;
+        }
+
+        var contexts = new[] { continuationContext, assessedRecoveryContext, routingContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         return string.Join("\n\n", contexts);
     }
@@ -9690,7 +9719,7 @@ public partial class MainWindow : Window
         TryPublishPlanBlocked(groupId, taskId);
         TryPublishPlanInterrupted(groupId, taskId, reason, taskCommitEvidence);
         ScheduleDecomposeSystemEntry(
-            $"Plan {groupId} is blocked at {taskId}. {reason}",
+            "Plan execution stopped unexpectedly. Recovery is available.",
             groupId,
             revision,
             taskId);
@@ -10636,26 +10665,22 @@ public partial class MainWindow : Window
         var reason = plan.InterruptionData?.Reason ?? "Plan execution was interrupted and needs your attention.";
         SaveDecomposeRecoveryInboxReminder(plan.PlanId, plan.Revision, taskId, reason);
 
-        const string marker = "Plan recovery available.";
-        if (_conversationManager.ConversationState.Turns.Any(turn =>
-                turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
+        const string marker = "Plan execution stopped unexpectedly. Recovery is available.";
+        var interruptionStarted = plan.Timestamps.InterruptedAt ?? plan.Timestamps.CreatedAt;
+        bool HasCurrentRecoveryEntry() => _conversationManager.ConversationState.Turns.Any(turn =>
+            turn.Timestamp >= interruptionStarted.AddSeconds(-1) &&
+            turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true);
+        if (HasCurrentRecoveryEntry())
             return;
         // Workspace initialization precedes transcript hydration. Defer only this startup
         // replay until hydration is idle; runtime interruption messages are still emitted
         // synchronously so an imminent restart cannot discard them.
         Dispatcher.BeginInvoke(() =>
         {
-            if (_conversationManager.ConversationState.Turns.Any(turn =>
-                    turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
+            if (HasCurrentRecoveryEntry())
                 return;
-            var taskTitle = plan.Tasks.FirstOrDefault(task =>
-                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Title ?? taskId;
-            var recoveryText = plan.InterruptionData?.TaskCommitEvidence is { } evidence &&
-                               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal)
-                ? $"{marker} The plan is preserved at “{taskTitle}.” SquadDash captured committed work from this task and recommends reviewing it before continuing."
-                : $"{marker} The plan is preserved at “{taskTitle}.” Review the repository evidence before choosing how to continue.";
             ScheduleDecomposeSystemEntry(
-                recoveryText,
+                marker,
                 plan.PlanId,
                 plan.Revision,
                 taskId);
@@ -10670,6 +10695,7 @@ public partial class MainWindow : Window
     {
         var blocks = targetBlocks ?? CoordinatorThread.Document.Blocks;
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+        planLinkParagraph.Inlines.Add(new Run("Plan: "));
         var planLink = new Hyperlink(new Run(plan.Group.GroupTitle))
         {
             Cursor = Cursors.Hand,
@@ -10679,6 +10705,14 @@ public partial class MainWindow : Window
         planLink.Click += (_, _) => OpenDecomposePlanViewer(plan);
         planLinkParagraph.Inlines.Add(planLink);
         blocks.Add(planLinkParagraph);
+
+        var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
+        var taskParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+        taskParagraph.Inlines.Add(new Run("Task: "));
+        var taskRun = new Run(taskTitle) { FontWeight = FontWeights.SemiBold };
+        taskParagraph.Inlines.Add(taskRun);
+        blocks.Add(taskParagraph);
 
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
@@ -10743,30 +10777,15 @@ public partial class MainWindow : Window
             recommendation.Inlines.Add(recommendationRun);
             blocks.Add(recommendation);
 
-            AddAsyncAction(
-                "Review Completed Work…",
-                "Review committed changes produced before this interruption. If accepted, SquadDash will mark this step complete and continue without repeating it.",
-                async () => await AdoptVerifiedCommitRangeAsync(durablePlan));
         }
         AddAsyncAction(
-            presentation?.RetryLabel ?? "Retry Task",
-            presentation?.RetryIsWarning == true
-                ? "Rerun this task even though repository evidence may already contain some or all of its work. Review completed work first to avoid duplication."
-                : "Continue the preserved task work after SquadDash verifies that its files have not changed.",
-            async () => await RetryDecomposeTaskAsync(plan, taskId),
-            tone: presentation?.RetryIsWarning == true ? QuickReplyTone.Warning : QuickReplyTone.Default);
+            "Assess & Continue",
+            "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
+            "SquadDash will validate the assessment, then accept completed work, continue partial work, or start the task. " +
+            "If evidence is inconclusive, nothing changes and you’ll be asked to review it.",
+            async () => await AssessAndContinuePlanRecoveryAsync(plan, taskId));
         AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
-
-        // Show "Analyze with AI" only when there is evidence of prior work (preserved paths
-        // or an iteration baseline commit) — avoids offering analysis with nothing to analyse.
-        var hasEvidence = _decomposeContinuationPaths.Count > 0
-                          || _decomposeIterationBaselineCommit is not null;
-        if (hasEvidence)
-        {
-            AddAsyncAction("Analyze with AI", "Gather evidence and ask AI to recommend evidence-based recovery options.",
-                async () => await AnalyzePlanRecoveryWithAiAsync(plan, taskId));
-        }
 
         if (showEndPlan)
         {
@@ -10827,6 +10846,371 @@ public partial class MainWindow : Window
         }
     }
 
+    private sealed record PendingPlanRecoveryAssessment(
+        PendingDecomposePlan Plan,
+        string TaskId,
+        string AssessmentId,
+        string BaselineCommit,
+        string AssessedHead,
+        string StatusSnapshot);
+
+    private sealed record AssessedRecoveryContinuation(
+        string PlanId,
+        string TaskId,
+        string Summary,
+        IReadOnlyList<string> RemainingWork);
+
+    private async Task<bool> AssessInterruptedPlanFromDurableAsync(Plan plan)
+    {
+        var taskId = plan.InterruptionData?.InterruptedTaskId
+            ?? plan.Progress.ExecutingTaskId
+            ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+        if (string.IsNullOrWhiteSpace(taskId))
+            throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
+        await AssessAndContinuePlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
+        return true;
+    }
+
+    private async Task AssessAndContinuePlanRecoveryAsync(PendingDecomposePlan plan, string taskId)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        if (_isPromptRunning || _loopController.IsRunning)
+            throw new InvalidOperationException(
+                "Wait for the current prompt or loop to finish before assessing interrupted work.");
+        if (_pendingPlanRecoveryAssessment is not null)
+            throw new InvalidOperationException("A plan recovery assessment is already in progress.");
+
+        var durable = _planStore.Load(plan.Group.GroupId);
+        if (durable is null ||
+            durable.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+            !string.Equals(durable.Revision, plan.Revision, StringComparison.Ordinal) ||
+            !string.Equals(durable.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "The interrupted plan changed after these recovery controls were created. Reopen the current plan state.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, durable.Branch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Plan {durable.PlanId} requires branch '{durable.Branch}', but '{activeBranch}' is active.");
+
+        var baselineCandidate = durable.InterruptionData?.TaskCommitEvidence?.BaselineCommit
+            ?? durable.InterruptionData?.LastCommit;
+        if (string.IsNullOrWhiteSpace(baselineCandidate))
+        {
+            var history = (await RunGitAsync(workspace, "rev-list HEAD"))
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            baselineCandidate = RecoveryCommitValidator.FindNewestRecordedCommit(
+                history,
+                durable.Tasks
+                    .Where(task => task.Status == PlanTaskStatus.Complete)
+                    .Select(task => task.Commit));
+        }
+        if (string.IsNullOrWhiteSpace(baselineCandidate))
+            throw new InvalidOperationException(
+                "SquadDash does not have a reliable commit from before this task began. Replan the remaining work instead of guessing.");
+
+        var baseline = (await RunGitAsync(
+            workspace, $"rev-parse --verify \"{baselineCandidate}^{{commit}}\"")).Trim();
+        var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
+        var status = NormalizeGitSnapshot(await RunGitAsync(
+            workspace, "status --porcelain --untracked-files=all"));
+        var assessmentId = Guid.NewGuid().ToString("N");
+        var evidence = await GatherPlanRecoveryEvidenceAsync(
+            workspace, durable.PlanId, taskId, baseline, plan);
+        var prompt = BuildPlanRecoveryAssessmentPrompt(
+            durable, taskId, assessmentId, baseline, head, evidence);
+
+        _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
+            plan, taskId, assessmentId, baseline, head, status);
+        _promptQueue.EnqueueAtFront(
+            prompt,
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "plan-recovery-assessment",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+        ShowSystemTranscriptEntry(
+            $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
+    }
+
+    private static string BuildPlanRecoveryAssessmentPrompt(
+        Plan plan,
+        string taskId,
+        string assessmentId,
+        string baseline,
+        string head,
+        string evidence)
+    {
+        return $$"""
+            Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
+            Do not edit files, create commits, revert work, or start the task. Inspect the repository and, when useful,
+            run non-mutating verification commands. Determine whether the task is complete, partially complete, not
+            started, or inconclusive. Classify every commit in the supplied baseline-to-HEAD range as task, mixed,
+            unrelated, or unknown. A mixed commit contains both task and unrelated work. Do not infer ownership from
+            time, author, or commit position alone; compare actual changes with the task specification.
+
+            Host-bound identity (copy exactly):
+            - recoveryAssessmentId: {{assessmentId}}
+            - planId: {{plan.PlanId}}
+            - taskId: {{taskId}}
+            - revision: {{plan.Revision}}
+            - baselineCommit: {{baseline}}
+            - assessedHead: {{head}}
+
+            {{evidence}}
+
+            Return exactly one {{PlanRecoveryAssessmentParser.Marker}} payload with this shape:
+            {
+              "recoveryAssessmentId": "{{assessmentId}}",
+              "planId": "{{plan.PlanId}}",
+              "taskId": "{{taskId}}",
+              "revision": "{{plan.Revision}}",
+              "baselineCommit": "{{baseline}}",
+              "assessedHead": "{{head}}",
+              "classification": "complete|partial|not_started|inconclusive",
+              "summary": "brief evidence-based explanation",
+              "remainingWork": ["required only for partial"],
+              "verification": { "status": "passed|failed|not_run", "command": "...", "summary": "..." },
+              "commits": [
+                { "commit": "full SHA", "relation": "task|mixed|unrelated|unknown", "reason": "..." }
+              ]
+            }
+
+            Complete requires passed verification and at least one task or mixed commit. Use inconclusive whenever the
+            evidence cannot safely distinguish task work from unrelated work. Do not include recovery choices or execute
+            a recovery action; SquadDash owns that decision.
+            """;
+    }
+
+    private void TryApplyPlanRecoveryAssessmentFromResponse(string? rawResponse)
+    {
+        if (_pendingPlanRecoveryAssessment is null) return;
+        var context = _pendingPlanRecoveryAssessment;
+        _pendingPlanRecoveryAssessment = null;
+
+        if (!PlanRecoveryAssessmentParser.TryParse(rawResponse, out var response, out var error) || response is null)
+        {
+            ScheduleDecomposeSystemEntry(
+                "SquadDash could not validate the recovery assessment, so the plan remains stopped. " + error,
+                context.Plan.Group.GroupId,
+                context.Plan.Revision,
+                context.TaskId);
+            return;
+        }
+
+        Dispatcher.BeginInvoke(new Action(async () =>
+        {
+            try { await ValidateAndApplyPlanRecoveryAssessmentAsync(response, context); }
+            catch (Exception ex) { HandleUiCallbackException("Plan recovery assessment", ex); }
+        }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private async Task ValidateAndApplyPlanRecoveryAssessmentAsync(
+        PlanRecoveryAssessmentResponse response,
+        PendingPlanRecoveryAssessment context)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        var planId = context.Plan.Group.GroupId;
+        if (!PlanRecoveryAssessmentValidator.MatchesRequest(
+                response,
+                context.AssessmentId,
+                planId,
+                context.TaskId,
+                context.Plan.Revision,
+                context.BaselineCommit,
+                context.AssessedHead))
+        {
+            KeepPlanStoppedAfterAssessment(
+                context,
+                "The AI response did not match the exact plan, task, revision, or repository snapshot requested.");
+            return;
+        }
+
+        var durable = _planStore.Load(planId);
+        if (durable is null ||
+            durable.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+            !string.Equals(durable.Revision, context.Plan.Revision, StringComparison.Ordinal) ||
+            !string.Equals(durable.InterruptionData?.InterruptedTaskId, context.TaskId, StringComparison.Ordinal))
+        {
+            KeepPlanStoppedAfterAssessment(context, "The plan changed while AI was assessing it.");
+            return;
+        }
+
+        var workspace = _currentWorkspace.FolderPath;
+        var currentHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        var currentStatus = NormalizeGitSnapshot(await RunGitAsync(
+            workspace, "status --porcelain --untracked-files=all"));
+        if (!string.Equals(currentHead, context.AssessedHead, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(currentStatus, context.StatusSnapshot, StringComparison.Ordinal))
+        {
+            KeepPlanStoppedAfterAssessment(
+                context,
+                "The repository changed while AI was assessing it. Run Assess & Continue again for the new state.");
+            return;
+        }
+
+        await RunGitAsync(
+            workspace,
+            $"merge-base --is-ancestor \"{context.BaselineCommit}\" \"{context.AssessedHead}\"");
+        var actualCommits = (await RunGitAsync(
+                workspace,
+                $"rev-list --reverse \"{context.BaselineCommit}..{context.AssessedHead}\""))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var normalizedAssessments = new List<PlanRecoveryCommitAssessment>();
+        var resolvedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var assessment in response.Commits)
+        {
+            var resolved = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{assessment.Commit}^{{commit}}\"")).Trim();
+            if (!resolvedSet.Add(resolved))
+            {
+                KeepPlanStoppedAfterAssessment(
+                    context,
+                    "The assessment referenced the same commit more than once.");
+                return;
+            }
+            normalizedAssessments.Add(assessment with { Commit = resolved });
+        }
+        var normalizedResponse = response with { Commits = normalizedAssessments };
+        if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+                normalizedResponse, actualCommits, out var attributed, out var coverageError))
+        {
+            KeepPlanStoppedAfterAssessment(context, coverageError!);
+            return;
+        }
+        switch (response.Classification)
+        {
+            case PlanRecoveryClassification.Complete:
+            {
+                var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+                var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
+                DecomposeWorktreePolicy.HasOnlyAllowedChanges(currentStatus, allowed, out var nonHostPaths);
+                if (nonHostPaths.Count > 0)
+                {
+                    KeepPlanStoppedAfterAssessment(
+                        context,
+                        "AI found completed work, but uncommitted repository changes prevent safe acceptance. Commit or stash them, then assess again.");
+                    return;
+                }
+                await AcceptAssessedPlanRecoveryAsync(durable, context, response, attributed[^1]);
+                break;
+            }
+            case PlanRecoveryClassification.Partial:
+            {
+                _assessedRecoveryContinuation = new AssessedRecoveryContinuation(
+                    planId, context.TaskId, response.Summary, response.RemainingWork!);
+                var started = await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
+                if (!started) _assessedRecoveryContinuation = null;
+                else ShowSystemTranscriptEntry(
+                    $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and resumed only the remaining work.");
+                break;
+            }
+            case PlanRecoveryClassification.NotStarted:
+                ShowSystemTranscriptEntry(
+                    $"AI found no work for {context.TaskId}. SquadDash is starting the task normally.");
+                await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
+                break;
+            default:
+                KeepPlanStoppedAfterAssessment(
+                    context,
+                    "AI could not determine the task state safely: " + response.Summary);
+                break;
+        }
+    }
+
+    private async Task AcceptAssessedPlanRecoveryAsync(
+        Plan durable,
+        PendingPlanRecoveryAssessment context,
+        PlanRecoveryAssessmentResponse response,
+        string terminalCommit)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durable);
+        if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+            throw new InvalidDataException("The managed plan projection could not be repaired: " + repair.Error);
+
+        var originalTasks = File.ReadAllText(tasksPath);
+        var shortCommit = terminalCommit[..Math.Min(7, terminalCommit.Length)];
+        var summary = "AI-assessed recovery: " + response.Summary;
+        var writer = new DecomposedTasksWriter();
+        if (!writer.MarkTaskComplete(tasksPath, context.TaskId, shortCommit, summary))
+            throw new InvalidOperationException(
+                $"Task {context.TaskId} could not be marked complete in the managed projection.");
+
+        DecomposedTaskGroup currentGroup;
+        Plan updated;
+        try
+        {
+            var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+            if (!parsed.DecomposeGroups.TryGetValue(durable.PlanId, out currentGroup!))
+                throw new InvalidDataException("The managed plan projection is missing after recovery acceptance.");
+            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
+                    durable, parsed, durable.PlanId, requireAllComplete: false,
+                    out var items, out var projectionError))
+                throw new InvalidDataException(
+                    "The recovered task could not be projected into the durable plan. " + projectionError);
+
+            var syntheticResult = new DecomposeStepResult(
+                durable.PlanId,
+                context.TaskId,
+                durable.Revision,
+                "complete",
+                shortCommit,
+                summary,
+                [],
+                response.Verification);
+            updated = PlanStoreUpdater.ApplyStepAccepted(
+                durable, items, nextExecutingTaskId: null, acceptedResult: syntheticResult);
+            var nextTaskId = updated.Tasks.FirstOrDefault(task =>
+                task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
+            var interruption = (updated.InterruptionData ?? new PlanInterruptionData(
+                "AI-assessed work was accepted by the host.", PlanRecoveryState.PendingRecovery, 0)) with
+            {
+                Reason = $"AI-assessed work for {context.TaskId} was accepted at {shortCommit}.",
+                InterruptedTaskId = nextTaskId,
+                LastCompletedTaskId = context.TaskId,
+                LastCommit = shortCommit,
+                PartialWorkEvidence = response.Summary,
+            };
+            updated = updated with
+            {
+                LifecycleStatus = PlanLifecycleStatus.Interrupted,
+                InterruptionData = interruption,
+                Progress = updated.Progress with { ExecutingTaskId = null },
+            };
+            if (!TryPublishPlanProgress(updated, out var saveError))
+                throw new IOException(saveError ?? "The durable plan could not be saved.");
+        }
+        catch
+        {
+            RestoreFileAtomically(tasksPath, originalTasks);
+            throw;
+        }
+
+        LoadTasksPanel();
+        ShowSystemTranscriptEntry(
+            $"✓ Assessed and accepted {context.TaskId} at commit {shortCommit}. Continuing with the next plan task.");
+        await StartBackloggedDecomposeGroupAsync(
+            currentGroup with { HostRevision = durable.Revision },
+            continuationTaskId: null,
+            continuationPaths: []);
+    }
+
+    private void KeepPlanStoppedAfterAssessment(
+        PendingPlanRecoveryAssessment context,
+        string message)
+    {
+        ShowSystemTranscriptEntry("The plan remains stopped. " + message);
+        AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
+    }
+
+    private static string NormalizeGitSnapshot(string value) =>
+        value.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd();
+
     private sealed record PendingRecoveryAnalysisContext(PendingDecomposePlan Plan, string TaskId);
 
     private async Task AnalyzePlanRecoveryWithAiAsync(PendingDecomposePlan plan, string taskId)
@@ -10869,7 +11253,9 @@ public partial class MainWindow : Window
         var diff      = string.Empty;
         try
         {
-            logOutput = await RunGitAsync(workspace, $"log --oneline {baselineCommit}..HEAD");
+            logOutput = await RunGitAsync(
+                workspace,
+                $"log --reverse --format=%H%x09%s \"{baselineCommit}..HEAD\"");
             diffStat  = await RunGitAsync(workspace, $"diff --stat {baselineCommit}..HEAD");
             status    = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
             diff      = await RunGitAsync(workspace, "diff --unified=3 HEAD");
@@ -11898,7 +12284,7 @@ public partial class MainWindow : Window
 
         // System-message header so the user understands the context.
         var headerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-        var headerRun = new Run("⚠ A task plan has a blocked step that needs your attention.");
+        var headerRun = new Run("Plan execution stopped unexpectedly. Recovery is available.");
         headerRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         headerRun.FontWeight = FontWeights.SemiBold;
         headerParagraph.Inlines.Add(headerRun);
@@ -42182,7 +42568,7 @@ public partial class MainWindow : Window
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
                 startPlan:  plan => _ = StartDecomposeLoopAsync(plan.PlanId),
-                resumePlan: plan => _ = StartDecomposeLoopAsync(plan.PlanId),
+                resumePlan: plan => _ = AssessInterruptedPlanFromDurableAsync(plan),
                 endPlan:    EndInterruptedPlan,
                 approveGate: plan =>
                 {

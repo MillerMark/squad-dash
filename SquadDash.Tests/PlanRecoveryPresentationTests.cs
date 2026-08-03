@@ -39,8 +39,8 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.CommitEvidence, Is.Null);
-            Assert.That(presentation.Heading, Is.EqualTo("Task ownership needs review."));
-            Assert.That(presentation.Explanation, Does.Contain("not capture definitive"));
+            Assert.That(presentation.Heading, Is.EqualTo("SquadDash could not confirm whether this task finished."));
+            Assert.That(presentation.Explanation, Does.Contain("may include unrelated work"));
         });
     }
 

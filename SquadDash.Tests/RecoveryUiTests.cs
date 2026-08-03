@@ -64,22 +64,22 @@ internal sealed class RecoveryUiTests
     // ── Actions ──────────────────────────────────────────────────────────────
 
     [Test]
-    public void BuildRecoveryMessage_HasContinueAction()
+    public void BuildRecoveryMessage_HasAssessAndContinueAction()
     {
         var message = BuildMessage();
         Assert.That(
             message.Actions.Select(a => a.Label),
-            Has.Member("Continue / Retry Task"),
-            "Recovery message must expose the continue/retry action.");
+            Has.Member("Assess & Continue"),
+            "Recovery message must expose the evidence-driven continuation action.");
     }
 
     [Test]
-    public void BuildRecoveryMessage_HasReviewCompletedWorkAction()
+    public void BuildRecoveryMessage_DoesNotOfferBlindRetry()
     {
         var message = BuildMessage();
         Assert.That(
             message.Actions.Select(a => a.Label),
-            Has.Member("Review Completed Work…"));
+            Has.None.Contains("Retry"));
     }
 
     [Test]
@@ -88,7 +88,7 @@ internal sealed class RecoveryUiTests
         var message = BuildMessage();
         Assert.That(
             message.Actions.Select(a => a.Label),
-            Has.Member("Replan Failed Task"),
+            Has.Member("Replan Remaining Work"),
             "Recovery message must expose the replan action.");
     }
 

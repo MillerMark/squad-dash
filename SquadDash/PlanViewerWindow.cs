@@ -227,10 +227,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var capturedPlan = durablePlan;
                 var capturedAction = onAdoptVerifiedCommitRange;
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Review Completed Work…",
+                    "Assess & Continue",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Review committed changes produced before this interruption. If accepted, SquadDash will mark this step complete and continue without repeating it."));
+                        "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."));
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>
                 {
@@ -246,8 +246,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         interruptedPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
-                            $"Verified commit-range adoption failed: {ex}");
-                        UIErrorHelper.ShowError("Review Completed Work", ex.Message, this);
+                            $"Plan recovery assessment failed: {ex}");
+                        UIErrorHelper.ShowError("Assess & Continue", ex.Message, this);
                     }
                 };
                 interruptedPanel.Children.Add(adoptButton);
@@ -257,10 +257,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var capturedPlan   = durablePlan;
                 var capturedAction = onResumePlan;
                 var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
-                    "Resume Plan",
+                    "Resume Plan Anyway…",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Resume executing this interrupted plan. If the task already produced a commit, review completed work first so it is not repeated."));
+                        "Resume without assessing repository evidence. This may repeat work from the interrupted task."),
+                    tone: QuickReplyTone.Warning);
                 resumeButton.Focusable = false;
                 resumeButton.Click += (_, _) =>
                 {

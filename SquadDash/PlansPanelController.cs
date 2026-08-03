@@ -327,7 +327,12 @@ internal sealed class PlansPanelController
         {
             if (_resumePlan is not null)
             {
-                var resumeItem = new MenuItem { Header = "Resume Plan" };
+                var resumeItem = new MenuItem
+                {
+                    Header = "Assess && Continue",
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "AI classifies the interrupted task, then SquadDash validates the evidence before continuing."),
+                };
                 resumeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 resumeItem.Click += (_, _) => _resumePlan(plan);
                 menu.Items.Add(resumeItem);

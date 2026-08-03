@@ -41,10 +41,10 @@ internal static class PlanRecoveryPresentationBuilder
         }
 
         return new PlanRecoveryPresentation(
-            "Task ownership needs review.",
-            "SquadDash did not capture definitive task-owned commit evidence before stopping. Commits after the recorded task baseline must be reviewed rather than attributed automatically.",
+            "SquadDash could not confirm whether this task finished.",
+            "The application stopped before the task result was recorded. The repository has changed since the task began, but those changes may include unrelated work.",
             CommitEvidence: null,
-            "Recommended: review the completed work before deciding whether to rerun the task.",
+            "Recommended: assess the current work before continuing.",
             "Retry Task Anyway…",
             RetryIsWarning: true);
     }

@@ -407,9 +407,8 @@ internal sealed class PlanExecutionScenarioTests
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
         {
-            "Review Completed Work…",
-            "Replan Failed Task",
-            "Continue / Retry Task",
+            "Assess & Continue",
+            "Replan Remaining Work",
         }));
     }
 

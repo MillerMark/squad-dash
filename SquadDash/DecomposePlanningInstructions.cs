@@ -155,8 +155,9 @@ internal static class DecomposePlanningInstructions
             {
                 sections.Add("\nInterrupted plans — do NOT independently assign or execute remaining tasks:\n" +
                     string.Join("\n", interruptedLines));
-                sections.Add("\nIf the user asks to resume an interrupted plan, use the host Resume Plan button " +
-                    "or emit a structured DECOMPOSE_RECOVERY_JSON decision to restart execution from the correct task.");
+                sections.Add("\nIf the user asks to continue an interrupted plan, use the host Assess & Continue action " +
+                    "or emit DECOMPOSE_RECOVERY_JSON with action assess-and-continue. Do not independently rerun the task; " +
+                    "SquadDash must first bind AI's assessment to the exact plan and repository snapshot.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
