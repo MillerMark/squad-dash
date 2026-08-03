@@ -33,10 +33,40 @@ Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
-Plan for cohesion, not merely local completion. When separate tasks produce and consume components,
-declare the outputs and integration responsibility in their descriptions and add first-class validation
-nodes for important cross-task contracts. A supporting-artifact task may complete before production
-integration, but its later consumers and the validation that proves their relationship must be explicit.
+Plan for cohesion, not merely local completion. Every implementation step must satisfy **two
+cohesion requirements**:
+
+1. **Observable outcome.** The step description must name a user-visible or host-observable result —
+   something a human tester or SquadDash itself can verify without reading code. "Users can filter
+   by date range in the search panel" or "The build succeeds with the new module linked" are
+   observable; "add a helper class" or "write unit tests" alone are not, because they describe
+   artifacts rather than outcomes.
+2. **Production consumer.** The step description must state *how* its output reaches a production
+   consumer. Name the call site, event subscription, configuration entry, or integration test that
+   proves the result is wired — not merely present in the repository. For example, "SearchPanel
+   calls `ISearchIndex.Query` and renders results" names the consumer; "Introduce ISearchIndex"
+   does not.
+
+Artifact-only wording such as "add a helper", "create a utility", or "add tests" is **insufficient**
+unless the same step or a named successor integrates the artifact into a production path.
+
+When separate tasks produce and consume components, declare the outputs and integration
+responsibility in their descriptions and add first-class validation nodes for important cross-task
+contracts. A supporting-artifact task may complete before production integration, but its later
+consumers and the validation that proves their relationship must be explicit.
+
+### Tailored end-to-end proof
+
+The final step of every plan must be a **tailored end-to-end proof** derived from the feature's
+acceptance criteria, not a generic documentation or test reminder. It must:
+- Restate the user-facing acceptance criteria.
+- Describe the exact verification scenario (which user action, which observable outcome).
+- Name the build, test, or demonstration command that proves the feature is live.
+
+Bad final steps: "Update documentation", "Run the test suite", "Clean up".
+Good final step: "Verify that clicking 'Export' in the Reports panel produces a downloadable CSV
+containing all filtered rows, by running `dotnet test --filter ReportExportIntegration` and
+confirming the test exercises the full UI→service→file path."
 
 ## TASKS_JSON schema
 
@@ -112,7 +142,7 @@ TASKS_JSON:
     {
       "id": "SEARCH-20260725-001",
       "title": "Introduce the search index abstraction",
-      "description": "Introduce ISearchIndex and its in-memory implementation with unit tests; do not change existing UI call sites yet.",
+      "description": "Introduce ISearchIndex and InMemorySearchIndex so that document indexing has a testable seam. Observable outcome: unit tests pass proving the in-memory implementation indexes and queries documents. Production consumer: task 002 will call ISearchIndex from the existing indexing path.",
       "dependsOn": [],
       "priority": "high",
       "outputs": [{ "outputId": "search-index-contract", "description": "The reusable search index abstraction and in-memory implementation." }],
@@ -122,7 +152,7 @@ TASKS_JSON:
     {
       "id": "SEARCH-20260725-002",
       "title": "Move document indexing behind ISearchIndex",
-      "description": "Move document indexing behind ISearchIndex and add integration tests proving existing indexing behavior is preserved.",
+      "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved. Observable outcome: the integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly. Production consumer: SearchPanel.Query (wired in task 003) will read from ISearchIndex.",
       "dependsOn": ["SEARCH-20260725-001"],
       "priority": "high",
       "inputs": ["search-index-contract"],
@@ -132,8 +162,8 @@ TASKS_JSON:
     },
     {
       "id": "SEARCH-20260725-003",
-      "title": "Migrate the search UI to ISearchIndex",
-      "description": "Update the search UI controller to consume ISearchIndex, remove the superseded direct indexing path, and run the full test suite.",
+      "title": "Migrate the search UI to ISearchIndex and verify end-to-end search",
+      "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and run the full test suite. Observable outcome: typing a query in the search panel returns matching documents from the ISearchIndex-backed path. End-to-end proof: run `dotnet test --filter SearchIntegration` and confirm the test exercises SearchPanel → ISearchIndex → InMemorySearchIndex → document results.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
       "inputs": ["search-index-contract", "indexed-document-path"],

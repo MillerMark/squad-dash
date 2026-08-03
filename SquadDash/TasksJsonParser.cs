@@ -413,6 +413,16 @@ internal static class TasksJsonParser
             }
         }
 
+        // Validate plan cohesion — observable outcomes, production consumers, tailored final proof.
+        var cohesionIssues = PlanCohesionValidator.Validate(parsed);
+        if (cohesionIssues.Count > 0)
+        {
+            foreach (var issue in cohesionIssues)
+                SquadDashTrace.Write(TraceCategory.General, $"TasksJsonParser: cohesion — {issue}");
+            // Cohesion issues are advisory warnings, not hard failures, to preserve backward compatibility.
+            // Plans with cohesion issues are accepted but logged for host review.
+        }
+
         group = parsed;
         return true;
     }
