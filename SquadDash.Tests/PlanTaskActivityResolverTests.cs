@@ -66,6 +66,20 @@ internal sealed class PlanTaskActivityResolverTests
     }
 
     [Test]
+    public void PendingTaskNamedByExecutingProgress_ResolvesToExecuting()
+    {
+        var tasks = new[] { MakeTask("t1", PlanTaskStatus.Pending) };
+        var plan = MakePlan(tasks: tasks) with
+        {
+            Progress = new PlanProgress(0, 1, ExecutingTaskId: "t1"),
+        };
+
+        var result = PlanTaskActivityResolver.Resolve(plan);
+
+        Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.Executing));
+    }
+
+    [Test]
     public void CompletedTask_ResolvesToCompleted()
     {
         var tasks = new[] { MakeTask("t1", PlanTaskStatus.Complete) };

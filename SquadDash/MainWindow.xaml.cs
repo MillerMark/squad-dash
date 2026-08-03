@@ -5698,7 +5698,7 @@ public partial class MainWindow : Window
             thread.DetailText = BuildThreadPreview(thread.LatestResponse!);
 
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Reading);
+        PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Reading, thread);
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }
@@ -5720,7 +5720,7 @@ public partial class MainWindow : Window
         AppendThinkingText(thread, thought, thread.Title);
         thread.DetailText = FormatThinkingText(thought);
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(SpinnerActivityKind.Thinking);
+        PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Thinking, thread);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_thinking_delta");
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -5813,7 +5813,7 @@ public partial class MainWindow : Window
         thread.IsCurrentBackgroundRun = true;
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
+        PulseAgentActivity(FindAgentCardForThread(thread), GetToolActivityKind(evt.ToolName), thread);
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_start");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -5831,7 +5831,7 @@ public partial class MainWindow : Window
         thread.IsCurrentBackgroundRun = true;
         thread.DetailText = ToolTranscriptFormatter.BuildRunningText(CreateToolDescriptor(evt), evt.ProgressMessage);
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
+        PulseAgentActivity(FindAgentCardForThread(thread), GetToolActivityKind(evt.ToolName), thread);
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_progress");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -5857,7 +5857,7 @@ public partial class MainWindow : Window
         }
 
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.FireActivityPulse(GetToolActivityKind(evt.ToolName));
+        PulseAgentActivity(FindAgentCardForThread(thread), GetToolActivityKind(evt.ToolName), thread);
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         ObserveSubagentToolActivityIfMeaningful(thread, evt, "subagent_tool_complete");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -38338,7 +38338,28 @@ public partial class MainWindow : Window
             "Tooling"   => SpinnerActivityKind.Reading,
             _           => SpinnerActivityKind.Thinking,
         };
-        _leadAgent.FireActivityPulse(kind);
+        PulseAgentActivity(_leadAgent, kind);
+    }
+
+    private void PulseAgentActivity(
+        AgentStatusCard? card,
+        SpinnerActivityKind kind,
+        TranscriptThreadState? thread = null)
+    {
+        card?.FireActivityPulse(kind);
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution?.DecomposeGroupId is not { } planId ||
+            execution.ActiveValidationId is not null)
+            return;
+
+        var taskId = thread?.AssignedPlanTaskId
+            ?? execution.PlanExecutionAttempt?.TaskId
+            ?? _planStore?.Load(planId)?.Progress.ExecutingTaskId;
+        if (string.IsNullOrWhiteSpace(taskId))
+            return;
+
+        _broker.Publish(new PlanTaskActivityPulseEvent(planId, taskId, kind));
     }
 
     private void UpdateAgentCardImageVisibility(double windowHeight)

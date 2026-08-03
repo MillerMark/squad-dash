@@ -40,6 +40,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<string>? _onOpenCommit;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
+    private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
+    private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
+        new(StringComparer.Ordinal);
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
 
@@ -109,6 +112,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 },
                 Dispatcher);
             Closed += (_, _) => _liveSyncHandler?.Detach();
+
+            _taskActivityPulseHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyPulse()
+                {
+                    if (_taskSpinnersById.TryGetValue(activity.TaskId, out var spinner))
+                        spinner.Pulse(activity.Kind);
+                }
+                if (Dispatcher.CheckAccess()) ApplyPulse();
+                else Dispatcher.BeginInvoke(ApplyPulse);
+            };
+            broker.Subscribe(_taskActivityPulseHandler);
+            Closed += (_, _) => broker.Unsubscribe(_taskActivityPulseHandler);
         }
     }
 
@@ -493,13 +511,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _contentHolder.Child = root;
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        _taskSpinnersById.Clear();
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
         var displayedValidations = group.Validations ?? [];
         var validationRailHeight = displayedValidations.Count == 0
             ? 0
-            : (34 + displayedValidations.Count * 34) * _scaleFactor;
+            : 68 * _scaleFactor;
         var graphTop = 68 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
@@ -608,9 +627,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Canvas.SetTop(railLabel, 6 * _scaleFactor);
             canvas.Children.Add(railLabel);
 
-            for (var index = 0; index < displayedValidations.Count; index++)
+            var validationRailNextLeft = 8 * _scaleFactor;
+            foreach (var validation in displayedValidations
+                         .OrderBy(candidate => candidate.AfterTaskIds
+                             .Where(levels.ContainsKey)
+                             .Select(id => levels[id])
+                             .DefaultIfEmpty(0)
+                             .Max())
+                         .ThenBy(candidate => candidate.ValidationId, StringComparer.Ordinal))
             {
-                var validation = displayedValidations[index];
                 var durableValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
                     string.Equals(candidate.ValidationId, validation.ValidationId, StringComparison.Ordinal));
                 var triggerLevel = validation.AfterTaskIds
@@ -634,9 +659,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var row = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        $"{validation.Title}\n\n{validation.Description}\n\n" +
-                        string.Join("\n", validation.Assertions.Select(assertion => $"• {assertion}"))),
+                    ToolTip = BuildValidationToolTip(
+                        validation,
+                        durableValidation,
+                        tasksById),
                 };
                 row.Children.Add(CreateValidationShield(validationStatus));
                 var title = new TextBlock
@@ -652,13 +678,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 row.Children.Add(title);
 
-                Canvas.SetLeft(row, Math.Max(8 * _scaleFactor, anchorX - 12 * _scaleFactor));
-                Canvas.SetTop(row, (28 + index * 34) * _scaleFactor);
+                var rowLeft = Math.Max(validationRailNextLeft, anchorX - 12 * _scaleFactor);
+                Canvas.SetLeft(row, rowLeft);
+                Canvas.SetTop(row, 28 * _scaleFactor);
                 Panel.SetZIndex(row, 30);
                 canvas.Children.Add(row);
-                validationRailRight = Math.Max(
-                    validationRailRight,
-                    Math.Max(8 * _scaleFactor, anchorX - 12 * _scaleFactor) + 280 * _scaleFactor);
+                validationRailRight = rowLeft + 280 * _scaleFactor;
+                validationRailNextLeft = validationRailRight + 16 * _scaleFactor;
             }
         }
 
@@ -1097,6 +1123,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
+        var taskActivityById = durablePlan is null
+            ? new Dictionary<string, PlanTaskActivityState>(StringComparer.Ordinal)
+            : PlanTaskActivityResolver.Resolve(durablePlan);
         var taskOrdinalById = group.Tasks
             .Select((task, index) => (task.Id, StepNumber: index + 1))
             .ToDictionary(item => item.Id, item => item.StepNumber, StringComparer.Ordinal);
@@ -1106,6 +1135,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var position = positions[task.Id];
             var durableTask = durablePlan?.Tasks.FirstOrDefault(t =>
                 string.Equals(t.TaskId, task.Id, StringComparison.Ordinal));
+            var isTaskExecuting = taskActivityById.TryGetValue(task.Id, out var activityState) &&
+                                  activityState == PlanTaskActivityState.Executing;
             var prereqLines = task.DependsOn.Count == 0
                 ? ["None — this task can start immediately."]
                 : task.DependsOn.Select(id =>
@@ -1115,11 +1146,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     return "• " + (label.Length > 60 ? label[..60] + "…" : label);
                 }).ToArray();
 
-            string? statusChipText = durableTask?.Status switch
+            string? statusChipText = isTaskExecuting ? null : durableTask?.Status switch
             {
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "✓ ",
-                PlanTaskStatus.Executing  => "⟳",
                 PlanTaskStatus.Failed     => "✖ ",
                 PlanTaskStatus.Partial    => "~ ",
                 _                        => null,
@@ -1155,7 +1185,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
             nodeTitle.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
 
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
-            if (statusChipText is not null && statusChipFgKey is not null)
+            if (isTaskExecuting)
+            {
+                var spinner = new ActivitySpinner
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 2, 0),
+                    AccentColor = ResolvePlanSpinnerColor(),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "This task is actively receiving work from one or more agents."),
+                };
+                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                _taskSpinnersById[task.Id] = spinner;
+                titleRow.Children.Add(spinner);
+                spinner.Pulse(SpinnerActivityKind.Thinking);
+            }
+            else if (statusChipText is not null && statusChipFgKey is not null)
             {
                 var chip = new TextBlock
                 {
@@ -1166,18 +1211,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
                 chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                if (durableTask?.Status == PlanTaskStatus.Executing)
-                {
-                    chip.RenderTransformOrigin = new Point(0.5, 0.5);
-                    var rotation = new RotateTransform();
-                    chip.RenderTransform = rotation;
-                    rotation.BeginAnimation(
-                        RotateTransform.AngleProperty,
-                        new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900))
-                        {
-                            RepeatBehavior = RepeatBehavior.Forever,
-                        });
-                }
                 titleRow.Children.Add(chip);
             }
             titleRow.Children.Add(nodeTitle);
@@ -2179,6 +2212,105 @@ internal sealed class PlanViewerWindow : ChromedWindow
         grid.Children.Add(check);
         return grid;
     }
+
+    private static Color ResolvePlanSpinnerColor()
+    {
+        if (Application.Current?.TryFindResource("ActivePanelTitle") is SolidColorBrush brush)
+            return brush.Color;
+        return Colors.SteelBlue;
+    }
+
+    private static ToolTip BuildValidationToolTip(
+        DecomposedValidationNode validation,
+        PlanValidationNode? durableValidation,
+        IReadOnlyDictionary<string, DecomposedSubTask> tasksById)
+    {
+        var panel = new StackPanel { MaxWidth = 560 };
+
+        TextBlock AddText(
+            string text,
+            string foreground = "LabelText",
+            FontWeight? weight = null,
+            Thickness? margin = null)
+        {
+            var block = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = weight ?? FontWeights.Normal,
+                Margin = margin ?? new Thickness(0),
+            };
+            block.SetResourceReference(TextBlock.ForegroundProperty, foreground);
+            block.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            panel.Children.Add(block);
+            return block;
+        }
+
+        string TaskLabel(string id) => tasksById.TryGetValue(id, out var task)
+            ? $"{task.Title ?? task.Description} ({id})"
+            : id;
+
+        AddText(validation.Title, weight: FontWeights.Bold, margin: new Thickness(0, 0, 0, 5));
+        AddText(validation.Description);
+        AddText(
+            $"Status: {FormatValidationStatus(durableValidation?.Status ?? PlanValidationStatus.Pending)}",
+            "SubtleText",
+            FontWeights.SemiBold,
+            new Thickness(0, 8, 0, 0));
+
+        AddText("Runs after:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+        foreach (var taskId in validation.AfterTaskIds)
+            AddText("• " + TaskLabel(taskId), "SubtleText");
+
+        AddText("Required outputs:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+        if (validation.OutputIds is { Count: > 0 })
+        {
+            foreach (var outputId in validation.OutputIds)
+            {
+                var producer = tasksById.Values.FirstOrDefault(task =>
+                    task.Outputs?.Any(output =>
+                        string.Equals(output.OutputId, outputId, StringComparison.Ordinal)) == true);
+                var output = producer?.Outputs?.FirstOrDefault(candidate =>
+                    string.Equals(candidate.OutputId, outputId, StringComparison.Ordinal));
+                var detail = output is null ? outputId : $"{outputId} — {output.Description}";
+                AddText("• " + detail, "SubtleText");
+            }
+        }
+        else
+        {
+            AddText("• Repository evidence from the prerequisite tasks", "SubtleText");
+        }
+
+        AddText("Releases when passed:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+        if (validation.BeforeTaskIds.Count == 0)
+            AddText("• Final plan completion", "SubtleText");
+        else
+            foreach (var taskId in validation.BeforeTaskIds)
+                AddText("• " + TaskLabel(taskId), "SubtleText");
+
+        AddText("Contract assertions:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+        foreach (var assertion in validation.Assertions)
+            AddText("• " + assertion, "SubtleText");
+
+        if (durableValidation?.Evidence is { Count: > 0 })
+        {
+            AddText("Recorded evidence:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+            foreach (var evidence in durableValidation.Evidence)
+                AddText("• " + evidence, "SubtleText");
+        }
+
+        return new ToolTip { Content = panel };
+    }
+
+    private static string FormatValidationStatus(string status) => status switch
+    {
+        PlanValidationStatus.Ready => "Ready to validate",
+        PlanValidationStatus.Validating => "Validating now",
+        PlanValidationStatus.Passed => "Passed",
+        PlanValidationStatus.Failed => "Failed",
+        PlanValidationStatus.Stale => "Needs revalidation",
+        _ => "Waiting for prerequisite tasks",
+    };
 
     private FrameworkElement CreateApprovalStop(
         bool engaged,

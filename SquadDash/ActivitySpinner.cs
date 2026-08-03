@@ -249,6 +249,12 @@ public sealed class ActivitySpinner : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// Applies an activity impulse without requiring an <see cref="AgentStatusCard"/> data
+    /// context. Plan task cards use this to aggregate pulses from every contributing agent.
+    /// </summary>
+    public void Pulse(SpinnerActivityKind kind) => OnActivityPulsed(this, kind);
+
     // ── Physics tick (≈60 Hz) ───────────────────────────────────────────────
 
     private void OnPhysicsTick(object? sender, EventArgs e)

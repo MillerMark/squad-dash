@@ -68,6 +68,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? AgentCardKey { get; set; }
     public string? OriginAgentDisplayName { get; set; }
     public string? OriginParentToolCallId { get; set; }
+    public string? AssignedPlanTaskId { get; set; }
     public string? RequestedAgentHandle { get; set; }
     public string? WorkingDirectory { get; set; }
     public bool? RosterIdentityVerified { get; set; }

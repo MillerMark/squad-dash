@@ -713,6 +713,8 @@ internal sealed class AgentThreadRegistry {
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
 
     internal void ApplyBackgroundLaunchInfo(TranscriptThreadState thread, BackgroundAgentLaunchInfo launchInfo) {
+        if (!string.IsNullOrWhiteSpace(launchInfo.AssignedTaskId))
+            thread.AssignedPlanTaskId = launchInfo.AssignedTaskId.Trim();
         thread.RosterIdentityVerified = launchInfo.IsVerifiedRosterAssignment;
         if (!launchInfo.IsVerifiedRosterAssignment)
             thread.AgentCardKey = null;
@@ -780,6 +782,8 @@ internal sealed class AgentThreadRegistry {
             thread.OriginAgentDisplayName = originDisplayName;
         if (!string.IsNullOrWhiteSpace(parentToolCallId))
             thread.OriginParentToolCallId = parentToolCallId.Trim();
+        if (!string.IsNullOrWhiteSpace(originThread.AssignedPlanTaskId))
+            thread.AssignedPlanTaskId = originThread.AssignedPlanTaskId;
     }
 
     internal void TryApplyOriginMetadataFromParentToolCall(
@@ -822,6 +826,7 @@ internal sealed class AgentThreadRegistry {
                 AgentCardKey = record.AgentCardKey,
                 OriginAgentDisplayName = record.OriginAgentDisplayName,
                 OriginParentToolCallId = record.OriginParentToolCallId,
+                AssignedPlanTaskId = record.AssignedPlanTaskId,
                 RosterIdentityVerified = record.RosterIdentityVerified,
                 Prompt = record.Prompt,
                 LatestResponse = SanitizeResponseTextOrNull(record.LatestResponse),

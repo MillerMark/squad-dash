@@ -63,7 +63,10 @@ internal static class PlanTaskActivityResolver
         if (task.Status is PlanTaskStatus.Failed)
             return PlanTaskActivityState.Blocked;
 
-        if (task.Status is PlanTaskStatus.Executing)
+        // The progress projection is the authoritative single-task fallback during
+        // restart convergence, when the task row can briefly remain Pending.
+        if (task.Status is PlanTaskStatus.Executing ||
+            string.Equals(plan.Progress.ExecutingTaskId, task.TaskId, StringComparison.Ordinal))
             return PlanTaskActivityState.Executing;
 
         // Partial status: task was interrupted mid-execution
