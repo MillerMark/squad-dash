@@ -798,11 +798,10 @@ internal sealed class MarkdownDocumentRenderer {
         nextIndex = startIndex;
         hash = string.Empty;
 
-        // Use char.IsLetterOrDigit for both boundary checks so that hex substrings
-        // embedded inside longer words (e.g. "succeeded" → "cceeded") are rejected.
-        // IsHexWordChar alone would pass the start-boundary when the preceding char is a
-        // non-hex letter such as 'u', which caused the original false-positive.
-        if (startIndex > 0 && char.IsLetterOrDigit(text[startIndex - 1]))
+        // A hash must be a complete prose token, not merely a hex run after arbitrary
+        // punctuation. This rejects plan IDs such as PLANSHIP-20260802 as well as
+        // $abc1234 and abc1234%, while retaining ordinary prose delimiters.
+        if (startIndex > 0 && !IsCommitStartBoundary(text[startIndex - 1]))
             return false;
 
         var end = startIndex;
@@ -813,11 +812,8 @@ internal sealed class MarkdownDocumentRenderer {
         if (length < 7 || length > 40)
             return false;
 
-        // End-boundary: reject if the hash is a prefix of a longer alphanumeric token
-        // (e.g. "abcdef123g" must not match because 'g' follows immediately).
-        // Previously this checked IsHexWordChar, which was dead code — the while loop
-        // already consumed all hex chars so text[end] could never be hex. Switching to
-        // char.IsLetterOrDigit makes this check meaningful for non-hex trailing chars.
+        // End-boundary: reject both longer alphanumeric tokens and punctuation that
+        // normally binds a value into another identifier.
         //
         // Notes on other edge cases:
         //   • Length range 7–40 is correct for SHA-1. Future SHA-256 hashes (64 chars)
@@ -826,7 +822,7 @@ internal sealed class MarkdownDocumentRenderer {
         //     lowercase but being permissive is safer.
         //   • Hex strings inside raw URLs may still be matched if the URL appears in
         //     plain text, because the scanner does not skip URL tokens. Lower priority.
-        if (end < text.Length && char.IsLetterOrDigit(text[end]))
+        if (end < text.Length && !IsCommitEndBoundary(text[end]))
             return false;
 
         hash = text[startIndex..end];
@@ -835,6 +831,12 @@ internal sealed class MarkdownDocumentRenderer {
 
         static bool IsHexWordChar(char c) =>
             c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+
+        static bool IsCommitStartBoundary(char c) =>
+            char.IsWhiteSpace(c) || c is '(' or '[' or '{' or '<' or ':' or '/' or '\\' or '\'' or '"' or '`';
+
+        static bool IsCommitEndBoundary(char c) =>
+            char.IsWhiteSpace(c) || c is ')' or ']' or '}' or '>' or '.' or ',' or '!' or '?' or ';' or ':' or '/' or '\\' or '\'' or '"' or '`';
     }
 
     /// <summary>

@@ -33,6 +33,34 @@ internal sealed class MarkdownDocumentRendererCommitHashTests {
             "No substring of the sentence should be detected as a commit hash.");
     }
 
+    [Test]
+    public void TryReadCommitHash_ReturnsFalse_ForPlanIdDateSuffix() {
+        const string text = "PLANSHIP-20260802.";
+        var anyMatch = false;
+        for (var i = 0; i < text.Length; i++) {
+            if (MarkdownDocumentRenderer.TryReadCommitHash(text, i, out _, out _))
+                anyMatch = true;
+        }
+        Assert.That(anyMatch, Is.False);
+    }
+
+    [TestCase("-abc1234")]
+    [TestCase("$abc1234")]
+    [TestCase("%abc1234")]
+    [TestCase("_abc1234")]
+    [TestCase("abc1234-")]
+    [TestCase("abc1234$")]
+    [TestCase("abc1234%")]
+    [TestCase("abc1234_")]
+    public void TryReadCommitHash_ReturnsFalse_ForIdentifierBindingPunctuation(string text) {
+        var anyMatch = false;
+        for (var i = 0; i < text.Length; i++) {
+            if (MarkdownDocumentRenderer.TryReadCommitHash(text, i, out _, out _))
+                anyMatch = true;
+        }
+        Assert.That(anyMatch, Is.False);
+    }
+
     // --- Negative: preceding letter/digit boundary ---
 
     [Test]
@@ -159,6 +187,20 @@ internal sealed class MarkdownDocumentRendererCommitHashTests {
         Assert.Multiple(() => {
             Assert.That(result, Is.True);
             Assert.That(hash, Is.EqualTo("abc1234f"));
+        });
+    }
+
+    [TestCase("(abc1234)", 1)]
+    [TestCase("abc1234.", 0)]
+    [TestCase("abc1234,", 0)]
+    [TestCase("abc1234!", 0)]
+    [TestCase("abc1234?", 0)]
+    [TestCase("/abc1234/", 1)]
+    public void TryReadCommitHash_ReturnsTrue_WithProseDelimiters(string text, int startIndex) {
+        var result = MarkdownDocumentRenderer.TryReadCommitHash(text, startIndex, out _, out var hash);
+        Assert.Multiple(() => {
+            Assert.That(result, Is.True);
+            Assert.That(hash, Is.EqualTo("abc1234"));
         });
     }
 
