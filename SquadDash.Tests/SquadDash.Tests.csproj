@@ -23,6 +23,8 @@
     <Compile Include="..\SquadDash\PendingPlanGateEditor.cs" Link="Source\PendingPlanGateEditor.cs" />
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />
     <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
     <Compile Remove="bin\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />

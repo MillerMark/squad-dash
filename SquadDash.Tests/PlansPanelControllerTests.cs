@@ -175,4 +175,40 @@ internal sealed class PlansPanelControllerTests
                 .FirstOrDefault(b => b.Tag is string s && s == "my-unique-id");
             Assert.That(row, Is.Not.Null);
         });
+
+    [Test]
+    public void ExecutingPlan_UsesPortraitProgressAndActivityRows() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController();
+            var tasks = Enumerable.Range(1, 8)
+                .Select(index => new PlanTask(
+                    $"task-{index}", $"Task {index}", "Work", [], "normal",
+                    index <= 3 ? PlanTaskStatus.Complete :
+                    index == 5 ? PlanTaskStatus.Executing : PlanTaskStatus.Pending))
+                .ToArray();
+            var plan = MakePlan(status: PlanLifecycleStatus.Executing) with
+            {
+                Tasks = tasks,
+                Progress = new PlanProgress(3, 8, ExecutingTaskId: "task-5"),
+            };
+
+            ctrl.Refresh([plan]);
+
+            var row = activePanel.Children.OfType<Border>().Single();
+            var rowStack = (StackPanel)row.Child;
+            var progressRow = (StackPanel)rowStack.Children[1];
+            var progressText = progressRow.Children.OfType<TextBlock>().Single();
+            var activityText = (TextBlock)rowStack.Children[2];
+            var titleRow = (StackPanel)rowStack.Children[0];
+            var statusIcon = (TextBlock)titleRow.Children[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(progressText.Text, Is.EqualTo("3/8 complete"));
+                Assert.That(activityText.Text, Is.EqualTo("Step 5 running"));
+                Assert.That(statusIcon.Text, Is.EqualTo("⟳"));
+                Assert.That(statusIcon.RenderTransform, Is.TypeOf<System.Windows.Media.RotateTransform>());
+            });
+        });
 }

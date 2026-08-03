@@ -9031,7 +9031,8 @@ public partial class MainWindow : Window
             onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
-            broker: _broker)
+            broker: _broker,
+            onOpenCommit: sha => _ = OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{sha}"))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -10040,7 +10041,9 @@ public partial class MainWindow : Window
             _transcriptFontSize,
             onApprove: note => _ = HandleApprovalClickAsync(clickToken, note),
             onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
-            requestVersion: clickToken.RequestVersion);
+            requestVersion: clickToken.RequestVersion,
+            onOpenPlan: () => OpenPlanFromStore(plan),
+            onOpenCommit: sha => _ = OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{sha}"));
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
         {

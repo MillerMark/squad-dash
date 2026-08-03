@@ -229,14 +229,7 @@ internal sealed class PlansPanelController
         // ── Title row: status icon + title ────────────────────────────────
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
 
-        var iconBlock = new TextBlock
-        {
-            Text              = StatusIcon(plan.LifecycleStatus),
-            Margin            = new Thickness(0, 0, 5, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        iconBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
+        var iconBlock = BuildStatusIndicator(plan);
 
         var titleBlock = new TextBlock
         {
@@ -275,7 +268,7 @@ internal sealed class PlansPanelController
 
             var countBlock = new TextBlock
             {
-                Text   = BuildProgressLabel(plan),
+                Text   = BuildProgressCountLabel(plan),
                 Margin = new Thickness(6, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -285,6 +278,19 @@ internal sealed class PlansPanelController
             progressRow.Children.Add(bar);
             progressRow.Children.Add(countBlock);
             rowStack.Children.Add(progressRow);
+
+            if (BuildActivityLabel(plan) is { Length: > 0 } activityLabel)
+            {
+                var activityBlock = new TextBlock
+                {
+                    Text = activityLabel,
+                    Margin = new Thickness(20, 1, 0, 0),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                activityBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                activityBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                rowStack.Children.Add(activityBlock);
+            }
         }
 
         row.Child = rowStack;
@@ -360,19 +366,51 @@ internal sealed class PlansPanelController
         return row;
     }
 
-    private static string BuildProgressLabel(Plan plan)
+    private static string BuildProgressCountLabel(Plan plan) =>
+        $"{plan.Progress.CompletedCount}/{plan.Progress.TotalCount} complete";
+
+    private static string? BuildActivityLabel(Plan plan)
     {
-        var completed = $"{plan.Progress.CompletedCount}/{plan.Progress.TotalCount} complete";
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
-            completed += " · approval ready";
+            return "Approval ready";
         if (plan.Progress.ExecutingTaskId is not { Length: > 0 } executingTaskId)
-            return completed;
+            return null;
 
         var taskIndex = plan.Tasks.ToList().FindIndex(task =>
             string.Equals(task.TaskId, executingTaskId, StringComparison.Ordinal));
         return taskIndex >= 0
-            ? $"{completed} · step {taskIndex + 1} running"
-            : $"{completed} · executing";
+            ? $"Step {taskIndex + 1} running"
+            : "Executing";
+    }
+
+    private static FrameworkElement BuildStatusIndicator(Plan plan)
+    {
+        var iconBlock = new TextBlock
+        {
+            Text = StatusIcon(plan.LifecycleStatus),
+            Margin = new Thickness(0, 0, 5, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+        };
+        iconBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
+
+        if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing)
+        {
+            iconBlock.Text = "⟳";
+            var rotation = new RotateTransform();
+            iconBlock.RenderTransform = rotation;
+            rotation.BeginAnimation(
+                RotateTransform.AngleProperty,
+                new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900))
+                {
+                    RepeatBehavior = RepeatBehavior.Forever,
+                });
+            iconBlock.ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing");
+        }
+
+        return iconBlock;
     }
 
     private static void ShowEmpty(StackPanel panel, string message)
@@ -392,7 +430,7 @@ internal sealed class PlansPanelController
     {
         PlanLifecycleStatus.Staged           => "📋",
         PlanLifecycleStatus.Approved         => "✅",
-        PlanLifecycleStatus.Executing        => "▶",
+        PlanLifecycleStatus.Executing        => "⟳",
         PlanLifecycleStatus.AwaitingApproval => "⏸",
         PlanLifecycleStatus.Interrupted      => "⚠",
         PlanLifecycleStatus.Stopped          => "⏹",

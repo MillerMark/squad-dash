@@ -55,6 +55,12 @@ internal static class TranscriptApprovalCardBuilder
 
         /// <summary>Root content stack containing all card sections.</summary>
         internal StackPanel ContentStack { get; init; } = null!;
+
+        /// <summary>Link that opens the plan represented by this approval request.</summary>
+        internal Hyperlink PlanLink { get; init; } = null!;
+
+        /// <summary>Commit-evidence links rendered in the card.</summary>
+        internal IReadOnlyList<Hyperlink> CommitLinks { get; init; } = [];
     }
 
     /// <summary>
@@ -68,10 +74,13 @@ internal static class TranscriptApprovalCardBuilder
         double fontSize,
         Action<string?> onApprove,
         Action? onRequestChanges = null,
-        int requestVersion = 1)
+        int requestVersion = 1,
+        Action? onOpenPlan = null,
+        Action<string>? onOpenCommit = null)
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
+        var commitLinks = new List<Hyperlink>();
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -101,10 +110,24 @@ internal static class TranscriptApprovalCardBuilder
         stack.Children.Add(headerPanel);
 
         // ── Plan progress ────────────────────────────────────────────────
-        var progressText = $"{snapshot.PlanTitle} — {snapshot.CompletedTaskCount}/{snapshot.TotalTaskCount} tasks complete";
+        var progressBlock = CreateStyledTextBlock(string.Empty, fontSize, "LabelText");
+        var planTitleLink = new Hyperlink(new Run(snapshot.PlanTitle))
+        {
+            Cursor = onOpenPlan is null ? Cursors.Arrow : Cursors.Hand,
+            IsEnabled = onOpenPlan is not null,
+            FontWeight = FontWeights.SemiBold,
+            ToolTip = onOpenPlan is null
+                ? null
+                : ToolTipHelper.MakeThemedToolTip("Open this plan in the Plan Viewer"),
+        };
+        planTitleLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        if (onOpenPlan is not null)
+            planTitleLink.Click += (_, _) => onOpenPlan();
+        progressBlock.Inlines.Add(planTitleLink);
+        var progressSuffix = $" — {snapshot.CompletedTaskCount}/{snapshot.TotalTaskCount} tasks complete";
         if (snapshot.CurrentStage is not null)
-            progressText += $" (stage: {snapshot.CurrentStage})";
-        var progressBlock = CreateStyledTextBlock(progressText, fontSize, "LabelText");
+            progressSuffix += $" (stage: {snapshot.CurrentStage})";
+        progressBlock.Inlines.Add(new Run(progressSuffix));
         progressBlock.Margin = new Thickness(0, 0, 0, 4);
         stack.Children.Add(progressBlock);
 
@@ -139,8 +162,24 @@ internal static class TranscriptApprovalCardBuilder
                         Margin = new Thickness(12, 0, 0, 0),
                     };
 
-                    var shaBlock = CreateStyledTextBlock(commit.Link.ShortSha, fontSize - 2, "SubtleText");
-                    shaBlock.FontFamily = new FontFamily("Consolas");
+                    var shaBlock = CreateStyledTextBlock(string.Empty, fontSize - 2, "SubtleText");
+                    var shaLink = new Hyperlink(new Run(commit.Link.ShortSha))
+                    {
+                        Cursor = onOpenCommit is null ? Cursors.Arrow : Cursors.Hand,
+                        IsEnabled = onOpenCommit is not null,
+                        FontFamily = new FontFamily("Consolas"),
+                        ToolTip = onOpenCommit is null
+                            ? null
+                            : ToolTipHelper.MakeThemedToolTip("Open this commit in the internal diff viewer"),
+                    };
+                    shaLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                    if (onOpenCommit is not null)
+                    {
+                        var capturedSha = commit.Link.FullSha;
+                        shaLink.Click += (_, _) => onOpenCommit(capturedSha);
+                    }
+                    commitLinks.Add(shaLink);
+                    shaBlock.Inlines.Add(shaLink);
                     commitLine.Children.Add(shaBlock);
 
                     var subjectBlock = CreateStyledTextBlock(
@@ -219,6 +258,34 @@ internal static class TranscriptApprovalCardBuilder
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         noteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         AutomationProperties.SetName(noteBox, "Approval note");
+
+        // A read-only RichTextBox normally owns transcript selection. Handle the click at
+        // the embedded editor so the parent cannot consume it before TextBox establishes a
+        // caret. Voice input already focused this control; this restores the equivalent
+        // mouse/keyboard path, including positioning the caret where the user clicked.
+        var noteSelectionAnchor = 0;
+        noteBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            FocusNoteEditorAtPoint(noteBox, e.GetPosition(noteBox));
+            noteSelectionAnchor = noteBox.CaretIndex;
+            noteBox.CaptureMouse();
+            e.Handled = true;
+        };
+        noteBox.PreviewMouseMove += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || !noteBox.IsMouseCaptured) return;
+            var index = noteBox.GetCharacterIndexFromPoint(e.GetPosition(noteBox), snapToText: true);
+            if (index < 0) index = noteBox.Text.Length;
+            noteBox.SelectionStart = Math.Min(noteSelectionAnchor, index);
+            noteBox.SelectionLength = Math.Abs(index - noteSelectionAnchor);
+            e.Handled = true;
+        };
+        noteBox.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!noteBox.IsMouseCaptured) return;
+            noteBox.ReleaseMouseCapture();
+            e.Handled = true;
+        };
 
         // Watermark overlay for the note box
         var watermark = CreateStyledTextBlock("Add a note about why you're approving…", fontSize - 1, "SubtleText");
@@ -360,7 +427,17 @@ internal static class TranscriptApprovalCardBuilder
             ResolvedIndicator = resolvedIndicator,
             ReworkIndicator = reworkIndicator,
             ContentStack = stack,
+            PlanLink = planTitleLink,
+            CommitLinks = commitLinks,
         };
+    }
+
+    internal static void FocusNoteEditorAtPoint(TextBox noteBox, Point point)
+    {
+        ArgumentNullException.ThrowIfNull(noteBox);
+        noteBox.Focus();
+        var index = noteBox.GetCharacterIndexFromPoint(point, snapToText: true);
+        noteBox.CaretIndex = index < 0 ? noteBox.Text.Length : index;
     }
 
     /// <summary>Shows the updating overlay and disables all actions.</summary>
@@ -567,6 +644,8 @@ internal static class TranscriptApprovalCardBuilder
             FontSize = fontSize + 2,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 8, 0),
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = new RotateTransform(),
         };
         dots.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         spinnerPanel.Children.Add(dots);
@@ -589,6 +668,16 @@ internal static class TranscriptApprovalCardBuilder
         };
         overlay.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         AutomationProperties.SetName(overlay, "Updating approval request");
+        if (dots.RenderTransform is RotateTransform rotation)
+        {
+            rotation.BeginAnimation(
+                RotateTransform.AngleProperty,
+                new System.Windows.Media.Animation.DoubleAnimation(
+                    0, 360, TimeSpan.FromMilliseconds(850))
+                {
+                    RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                });
+        }
         return overlay;
     }
 }

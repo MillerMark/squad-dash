@@ -13,7 +13,7 @@ namespace SquadDash;
 internal sealed class PlanViewerWindow : ChromedWindow
 {
     private const double BaseNodeWidth = 220;
-    private const double BaseNodeHeight = 78;
+    private const double BaseNodeHeight = 112;
     private const double BaseColumnSpacing = 360;
     private const double BaseRowSpacing = 152;
 
@@ -37,6 +37,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
+    private readonly Action<string>? _onOpenCommit;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Border? _contentHolder;
@@ -56,7 +57,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onApproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
-        WeakEventBroker? broker = null)
+        WeakEventBroker? broker = null,
+        Action<string>? onOpenCommit = null)
         : base(captionHeight: CloseButtonHeight)
     {
         const double baseFontSize = 12.0;
@@ -79,6 +81,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onApproveGate      = onApproveGate;
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
+        _onOpenCommit = onOpenCommit;
 
         Title     = plan.Group.GroupTitle;
         Width     = 1200;
@@ -504,6 +507,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         bool IsPrimary(PlanApprovalGate? gate, string anchor) => gate is not null &&
             string.Equals(ResolvePresentationAnchor(gate), anchor, StringComparison.Ordinal);
 
+        static bool IsUnresolvedApproval(PlanApprovalGate? gate) => gate?.Status is
+            PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval;
+
         void ShowCoveredGuidance(string controllingAnchor, string label)
         {
             if (!approvalControlsByAnchor.TryGetValue(controllingAnchor, out var target)) return;
@@ -683,9 +689,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(milestoneBand, -2);
             canvas.Children.Add(milestoneBand);
 
-            var milestoneStop = CreateApprovalStop(
-                isLocked,
-                milestoneExecutionLocked
+            var milestoneVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
+                milestoneExecutionLocked,
+                existingGate?.Status,
+                milestoneIsPrimary);
+            var milestoneApproved = milestoneVisual == PlanApprovalControlVisualState.ApprovedCheck;
+            if (milestoneVisual != PlanApprovalControlVisualState.Hidden)
+            {
+                var milestoneStop = CreateApprovalStop(
+                    isLocked,
+                    milestoneApproved
+                        ? "Human approval was granted at this stage milestone."
+                        : milestoneExecutionLocked
                     ? PlanApprovalControlLockPolicy.LockedTooltip("Stage milestone")
                 : onGatesChanged is null
                     ? isLocked
@@ -713,13 +728,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             milestoneAnchor,
                             removeSubsumedTaskGates: true);
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
-                },
-                isLocked && !milestoneIsPrimary ? 0.5 : 1.0);
-            Canvas.SetLeft(milestoneStop, boundaryX - 8 * _scaleFactor);
-            Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 6 * _scaleFactor);
-            Panel.SetZIndex(milestoneStop, 25);
-            canvas.Children.Add(milestoneStop);
-            approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
+                    },
+                    isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
+                    approved: milestoneApproved);
+                Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved ? 10 : 8) * _scaleFactor);
+                Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 6 * _scaleFactor);
+                Panel.SetZIndex(milestoneStop, 25);
+                canvas.Children.Add(milestoneStop);
+                approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
+            }
         }
 
         DecomposedGate? FindDisplayedGate(
@@ -759,19 +776,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
         // NodeHeight * k/(N+1) for k = 1..N (sorted top-to-bottom by destination Y).
-        var rightExitYs  = new Dictionary<string, List<double>>(StringComparer.Ordinal);
-        var leftEntryYs  = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+        var rightExitAnchors = new PlanConnectorAnchorDistributor();
+        var leftEntryAnchors = new PlanConnectorAnchorDistributor();
 
-        void RegisterExit(string taskId, double otherY)
-        {
-            if (!rightExitYs.TryGetValue(taskId, out var list)) rightExitYs[taskId] = list = [];
-            list.Add(otherY);
-        }
-        void RegisterEntry(string taskId, double otherY)
-        {
-            if (!leftEntryYs.TryGetValue(taskId, out var list)) leftEntryYs[taskId] = list = [];
-            list.Add(otherY);
-        }
+        void RegisterExit(string taskId, double otherY) =>
+            rightExitAnchors.Register(taskId, otherY);
+        void RegisterEntry(string taskId, double otherY) =>
+            leftEntryAnchors.Register(taskId, otherY);
 
         foreach (var (gateCenter, targets, dependencies, _, _) in gates)
         {
@@ -786,23 +797,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RegisterExit(dep,      positions[task.Id].Y + NodeHeight / 2.0);
                 RegisterEntry(task.Id, positions[dep].Y      + NodeHeight / 2.0);
             }
-        foreach (var list in rightExitYs.Values)  list.Sort();
-        foreach (var list in leftEntryYs.Values)   list.Sort();
+        rightExitAnchors.Sort();
+        leftEntryAnchors.Sort();
 
-        double SpreadExitY(string taskId, double otherY)
-        {
-            if (!rightExitYs.TryGetValue(taskId, out var list) || list.Count <= 1)
-                return positions[taskId].Y + NodeHeight / 2.0;
-            var idx = list.IndexOf(otherY);
-            return positions[taskId].Y + NodeHeight * (Math.Max(0, idx) + 1.0) / (list.Count + 1);
-        }
-        double SpreadEntryY(string taskId, double otherY)
-        {
-            if (!leftEntryYs.TryGetValue(taskId, out var list) || list.Count <= 1)
-                return positions[taskId].Y + NodeHeight / 2.0;
-            var idx = list.IndexOf(otherY);
-            return positions[taskId].Y + NodeHeight * (Math.Max(0, idx) + 1.0) / (list.Count + 1);
-        }
+        double SpreadExitY(string taskId, double otherY) =>
+            rightExitAnchors.ResolveY(taskId, otherY, positions[taskId].Y, NodeHeight);
+        double SpreadEntryY(string taskId, double otherY) =>
+            leftEntryAnchors.ResolveY(taskId, otherY, positions[taskId].Y, NodeHeight);
 
         // Pass 4: per-task connector tracking for hover highlight.
         var connectorsByTask = new Dictionary<string, List<ConnectorGroup>>(StringComparer.Ordinal);
@@ -928,10 +929,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var badgeContent = new Grid();
             badgeContent.Children.Add(badgeText);
 
+            var joinVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
+                joinExecutionLocked,
+                (existingJoinGate ?? coveringJoinGate)?.Status,
+                IsPrimary(existingJoinGate ?? coveringJoinGate, joinAnchor),
+                hasUnresolvedEquivalent: collectivelyCoveredJoin && durablePlan is not null &&
+                    durablePlan.ApprovalGates.Any(IsUnresolvedApproval));
+            var joinApproved = joinVisual == PlanApprovalControlVisualState.ApprovedCheck;
+            if (joinVisual != PlanApprovalControlVisualState.Hidden)
             {
                 var joinStop = CreateApprovalStop(
                     joinIsLocked,
-                    joinExecutionLocked
+                    joinApproved
+                        ? "Human approval was granted at this ALL join."
+                    : joinExecutionLocked
                         ? PlanApprovalControlLockPolicy.LockedTooltip("ALL join")
                     : onGatesChanged is null
                         ? joinIsLocked
@@ -971,7 +982,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
                     joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
-                                     collectivelyCoveredJoin) ? 0.5 : 1.0);
+                                     collectivelyCoveredJoin) ? 0.5 : 1.0,
+                    approved: joinApproved);
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -1008,6 +1020,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
+        var taskOrdinalById = group.Tasks
+            .Select((task, index) => (task.Id, StepNumber: index + 1))
+            .ToDictionary(item => item.Id, item => item.StepNumber, StringComparer.Ordinal);
 
         foreach (var task in group.Tasks)
         {
@@ -1027,7 +1042,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "✓ ",
-                PlanTaskStatus.Executing  => "▶ ",
+                PlanTaskStatus.Executing  => "⟳",
                 PlanTaskStatus.Failed     => "✖ ",
                 PlanTaskStatus.Partial    => "~ ",
                 _                        => null,
@@ -1074,6 +1089,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
                 chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                if (durableTask?.Status == PlanTaskStatus.Executing)
+                {
+                    chip.RenderTransformOrigin = new Point(0.5, 0.5);
+                    var rotation = new RotateTransform();
+                    chip.RenderTransform = rotation;
+                    rotation.BeginAnimation(
+                        RotateTransform.AngleProperty,
+                        new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900))
+                        {
+                            RepeatBehavior = RepeatBehavior.Forever,
+                        });
+                }
                 titleRow.Children.Add(chip);
             }
             titleRow.Children.Add(nodeTitle);
@@ -1088,7 +1115,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-            var content = new StackPanel();
+            var content = new StackPanel { ClipToBounds = true };
             content.Children.Add(titleRow);
             content.Children.Add(nodeDescription);
 
@@ -1097,14 +1124,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var shortSha = commitSha.Length >= 7 ? commitSha[..7] : commitSha;
                 var commitBlock = new TextBlock
                 {
-                    Text       = $"[{shortSha}]",
                     Margin     = new Thickness(0, 2, 0, 0),
                     FontFamily = new FontFamily("Consolas, Courier New, monospace"),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
                 };
                 commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                var commitLink = new Hyperlink(new Run(shortSha))
+                {
+                    Cursor = _onOpenCommit is null ? Cursors.Arrow : Cursors.Hand,
+                    IsEnabled = _onOpenCommit is not null,
+                    ToolTip = _onOpenCommit is null
+                        ? null
+                        : ToolTipHelper.MakeThemedToolTip("Open this commit in the internal diff viewer"),
+                };
+                commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                if (_onOpenCommit is not null)
+                {
+                    var capturedCommitSha = commitSha;
+                    commitLink.Click += (_, _) => _onOpenCommit(capturedCommitSha);
+                }
+                commitBlock.Inlines.Add(new Run("Commit "));
+                commitBlock.Inlines.Add(commitLink);
                 content.Children.Add(commitBlock);
             }
+
+            var nodeLayout = new Grid();
+            nodeLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            nodeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            nodeLayout.Children.Add(content);
+
+            var stepLabel = new TextBlock
+            {
+                Text = $"Step {taskOrdinalById[task.Id]}",
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(20 * _scaleFactor, 2, 20 * _scaleFactor, 0),
+            };
+            stepLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            stepLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            Grid.SetRow(stepLabel, 1);
+            nodeLayout.Children.Add(stepLabel);
 
             var border = new Border
             {
@@ -1113,8 +1172,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = BuildTaskToolTip(task.Description, prereqLines, durableTask?.CompletionSummary, durableTask?.Commit),
-                Child           = content,
+                ToolTip         = BuildTaskToolTip(
+                    task.Title ?? task.Description,
+                    task.Description,
+                    prereqLines,
+                    durableTask?.CompletionSummary,
+                    durableTask?.Commit),
+                Child           = nodeLayout,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
@@ -1243,7 +1307,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             // Task entry/exit approval stops. Root tasks have no meaningful entry boundary;
             // leaf tasks have no meaningful exit boundary, so those controls are omitted.
-            if (durablePlan is not null && onGatesChanged is not null)
+            if (durablePlan is not null)
             {
                 var capturedTaskForStop = task;
                 var isRoot = PlanGateManager.IsRootTask(durablePlan, capturedTaskForStop.Id);
@@ -1278,9 +1342,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                         collectivelyCoveredEntry;
                     var beforeIsPrimary = IsPrimary(existingBeforeGate, beforeAnchor);
                     var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
-                    var beforeStop = CreateApprovalStop(
-                        beforeEngaged,
-                        entryExecutionLocked
+                    var controllingBeforeGate = existingBeforeGate ?? coveringBeforeGate;
+                    var collectivelyUnresolvedEntry = collectivelyCoveredEntry && durablePlan.ApprovalGates.Any(candidate =>
+                        IsUnresolvedApproval(candidate) &&
+                        capturedTaskForStop.DependsOn.Any(id =>
+                            candidate.AfterTaskIds.Contains(id, StringComparer.Ordinal)) &&
+                        candidate.BeforeTaskIds.Contains(capturedTaskForStop.Id, StringComparer.Ordinal));
+                    var beforeVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
+                        entryExecutionLocked,
+                        controllingBeforeGate?.Status,
+                        IsPrimary(controllingBeforeGate, beforeAnchor),
+                        collectivelyUnresolvedEntry);
+                    var beforeApproved = beforeVisual == PlanApprovalControlVisualState.ApprovedCheck;
+                    if (beforeVisual != PlanApprovalControlVisualState.Hidden)
+                    {
+                        var beforeStop = CreateApprovalStop(
+                            beforeEngaged,
+                            beforeApproved
+                                ? "Human approval was granted before this task began."
+                            : entryExecutionLocked
                             ? PlanApprovalControlLockPolicy.LockedTooltip("Task entry")
                         : collectivelyCoveredEntry
                             ? "This task entry is covered by every incoming approval requirement."
@@ -1291,7 +1371,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ? "Human approval is required before this task begins. Click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval before this task begins.",
-                        entryExecutionLocked ? null : () =>
+                        entryExecutionLocked || onGatesChanged is null ? null : () =>
                         {
                             if (collectivelyCoveredEntry)
                             {
@@ -1313,13 +1393,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     $"Review before starting: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                        beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
-                                          collectivelyCoveredEntry) ? 0.5 : 1.0);
-                    Canvas.SetLeft(beforeStop, position.X + 6 * _scaleFactor);
-                    Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20 * _scaleFactor);
-                    Panel.SetZIndex(beforeStop, 25);
-                    canvas.Children.Add(beforeStop);
-                    approvalControlsByAnchor[beforeAnchor] = beforeStop;
+                            beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
+                                              collectivelyCoveredEntry) ? 0.5 : 1.0,
+                            approved: beforeApproved);
+                        Canvas.SetLeft(beforeStop, position.X + (beforeApproved ? 4 : 6) * _scaleFactor);
+                        Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved ? 22 : 20) * _scaleFactor);
+                        Panel.SetZIndex(beforeStop, 25);
+                        canvas.Children.Add(beforeStop);
+                        approvalControlsByAnchor[beforeAnchor] = beforeStop;
+                    }
                 }
 
                 if (!isLeaf)
@@ -1356,9 +1438,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                        collectivelyCoveredByAllJoins;
                     var afterIsPrimary = IsPrimary(existingAfterGate, afterAnchor);
                     var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
-                    var afterStop = CreateApprovalStop(
-                        afterEngaged,
-                        exitExecutionLocked
+                    var controllingAfterGate = existingAfterGate ?? coveringAfterGate;
+                    var collectivelyUnresolvedExit = collectivelyCoveredByAllJoins &&
+                        lockedAllJoinGates.Any(IsUnresolvedApproval);
+                    var afterVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
+                        exitExecutionLocked,
+                        controllingAfterGate?.Status,
+                        IsPrimary(controllingAfterGate, afterAnchor),
+                        collectivelyUnresolvedExit);
+                    var afterApproved = afterVisual == PlanApprovalControlVisualState.ApprovedCheck;
+                    if (afterVisual != PlanApprovalControlVisualState.Hidden)
+                    {
+                        var afterStop = CreateApprovalStop(
+                            afterEngaged,
+                            afterApproved
+                                ? "Human approval was granted after this task completed."
+                            : exitExecutionLocked
                             ? PlanApprovalControlLockPolicy.LockedTooltip("Task exit")
                         : collectivelyCoveredByAllJoins
                             ? "This task exit is covered by its enabled ALL approval requirements."
@@ -1369,7 +1464,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ? "Human approval is required after this task completes. Click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to make this the primary control."
                             : "Require human approval after this task completes.",
-                        exitExecutionLocked ? null : () =>
+                        exitExecutionLocked || onGatesChanged is null ? null : () =>
                         {
                             if (collectivelyCoveredByAllJoins)
                             {
@@ -1391,13 +1486,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     $"Review after completing: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                        afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
-                                         collectivelyCoveredByAllJoins) ? 0.5 : 1.0);
-                    Canvas.SetLeft(afterStop, position.X + NodeWidth - 22 * _scaleFactor);
-                    Canvas.SetTop(afterStop, position.Y + NodeHeight - 20 * _scaleFactor);
-                    Panel.SetZIndex(afterStop, 25);
-                    canvas.Children.Add(afterStop);
-                    approvalControlsByAnchor[afterAnchor] = afterStop;
+                            afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
+                                             collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
+                            approved: afterApproved);
+                        Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved ? 24 : 22) * _scaleFactor);
+                        Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved ? 22 : 20) * _scaleFactor);
+                        Panel.SetZIndex(afterStop, 25);
+                        canvas.Children.Add(afterStop);
+                        approvalControlsByAnchor[afterAnchor] = afterStop;
+                    }
                 }
             }
             else
@@ -1934,34 +2031,58 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private FrameworkElement CreateApprovalStop(
-        bool engaged, string toolTip, Action? toggle, double engagedOpacity = 1.0)
+        bool engaged,
+        string toolTip,
+        Action? toggle,
+        double engagedOpacity = 1.0,
+        bool approved = false)
     {
         var s = _scaleFactor;
-        var stop = new Polygon
+        FrameworkElement indicator;
+        Polygon? stop = null;
+        if (approved)
         {
-            Points =
-            [
-                new Point(5 * s, 1 * s), new Point(11 * s, 1 * s), new Point(15 * s, 5 * s), new Point(15 * s, 11 * s),
-                new Point(11 * s, 15 * s), new Point(5 * s, 15 * s), new Point(1 * s, 11 * s), new Point(1 * s, 5 * s),
-            ],
-            StrokeThickness = 1.6,
-            Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
-            StrokeLineJoin = PenLineJoin.Round,
-            Stretch = Stretch.None,
-        };
-        stop.SetResourceReference(Shape.StrokeProperty, "LineColor");
+            var approvedCheck = new TextBlock
+            {
+                Text = "✓",
+                FontSize = 18 * s,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                LineHeight = 20 * s,
+            };
+            approvedCheck.SetResourceReference(TextBlock.ForegroundProperty, "PlanApprovalResolved");
+            indicator = approvedCheck;
+        }
+        else
+        {
+            stop = new Polygon
+            {
+                Points =
+                [
+                    new Point(5 * s, 1 * s), new Point(11 * s, 1 * s), new Point(15 * s, 5 * s), new Point(15 * s, 11 * s),
+                    new Point(11 * s, 15 * s), new Point(5 * s, 15 * s), new Point(1 * s, 11 * s), new Point(1 * s, 5 * s),
+                ],
+                StrokeThickness = 1.6,
+                Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
+                StrokeLineJoin = PenLineJoin.Round,
+                Stretch = Stretch.None,
+            };
+            stop.SetResourceReference(Shape.StrokeProperty, "LineColor");
+            indicator = stop;
+        }
 
         var hitTarget = new Grid
         {
-            Width = 16 * s,
-            Height = 16 * s,
+            Width = (approved ? 20 : 16) * s,
+            Height = (approved ? 20 : 16) * s,
             Background = Brushes.Transparent,
             Cursor = toggle is null ? Cursors.Arrow : Cursors.Hand,
             ToolTip = ToolTipHelper.MakeThemedToolTip(toolTip),
             Opacity = engaged ? engagedOpacity : 1.0,
         };
-        hitTarget.Children.Add(stop);
-        if (toggle is not null)
+        hitTarget.Children.Add(indicator);
+        if (toggle is not null && stop is not null)
         {
             hitTarget.MouseEnter += (_, _) => stop.StrokeThickness = 2.2;
             hitTarget.MouseLeave += (_, _) => stop.StrokeThickness = 1.6;
@@ -1974,8 +2095,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return hitTarget;
     }
 
-    private static ToolTip BuildTaskToolTip(string description, string[] prereqLines, string? completionSummary = null, string? commit = null)
+    private static ToolTip BuildTaskToolTip(
+        string title,
+        string description,
+        string[] prereqLines,
+        string? completionSummary = null,
+        string? commit = null)
     {
+        var titleBlock = new TextBlock
+        {
+            Text = title,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 500,
+            FontWeight = FontWeights.Bold,
+            Margin = new Thickness(0, 0, 0, 5),
+        };
+        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
         var descBlock = new TextBlock
         {
             Text         = description,
@@ -1995,6 +2132,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         prereqHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
 
         var panel = new StackPanel { MaxWidth = 500 };
+        panel.Children.Add(titleBlock);
         panel.Children.Add(descBlock);
         panel.Children.Add(prereqHeader);
         foreach (var line in prereqLines)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Documents;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -110,6 +111,47 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.ResolvedIndicator.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(card.ResolvedIndicator.Text, Is.EqualTo("✓ Approved."));
         });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_PlanAndCommitEvidenceAreActionableLinks()
+    {
+        var plan = BuildTestPlan();
+        var openedPlan = false;
+        string? openedCommit = null;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onOpenPlan: () => openedPlan = true,
+            onOpenCommit: sha => openedCommit = sha);
+
+        card.PlanLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        card.CommitLinks[0].RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(openedPlan, Is.True);
+            Assert.That(openedCommit, Is.EqualTo("abc1234567890"));
+            Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusNoteEditorAtPoint_PlacesCaretWhenHostedInReadOnlyTranscript()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        card.NoteTextBox.Text = "Reviewed";
+
+        TranscriptApprovalCardBuilder.FocusNoteEditorAtPoint(
+            card.NoteTextBox,
+            new Point(double.MaxValue, double.MaxValue));
+
+        Assert.That(card.NoteTextBox.CaretIndex, Is.EqualTo(card.NoteTextBox.Text.Length));
     }
 
     [Test]
