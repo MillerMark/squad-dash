@@ -859,6 +859,27 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<string> GetRecentSessionIds() => RecentSessionIds ?? Array.Empty<string>();
 }
 
+/// <summary>
+/// Persisted repair result that survives process restart. Scoped to a specific
+/// workspace, plan group, revision, and execution attempt.
+/// </summary>
+internal sealed record PendingRepairResult(
+    string GroupId,
+    string Revision,
+    string TaskId,
+    string? AttemptId,
+    string? ResultJson,
+    string? ErrorText)
+{
+    internal bool Matches(string groupId, string revision, string? attemptId)
+    {
+        return string.Equals(GroupId, groupId, StringComparison.Ordinal) &&
+               string.Equals(Revision, revision, StringComparison.Ordinal) &&
+               (AttemptId is null || attemptId is null ||
+                string.Equals(AttemptId, attemptId, StringComparison.Ordinal));
+    }
+}
+
 internal sealed record ActiveLoopExecutionState(
     string LoopPath,
     string FilterText,
@@ -871,7 +892,8 @@ internal sealed record ActiveLoopExecutionState(
     string? RecoveryAttemptId = null,
     int RepairRequestCount = 0,
     int FreshAttemptCount = 0,
-    string? TaskBaselineCommit = null)
+    string? TaskBaselineCommit = null,
+    PendingRepairResult? PendingRepairResult = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -916,6 +938,13 @@ internal sealed record ActiveLoopExecutionState(
             ? null
             : state.TaskBaselineCommit.Trim();
 
+        // Validate PendingRepairResult scope — discard if group/revision mismatch
+        var pendingResult = state.PendingRepairResult;
+        if (pendingResult is not null &&
+            (!string.Equals(pendingResult.GroupId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(pendingResult.Revision, revision, StringComparison.Ordinal)))
+            pendingResult = null;
+
         return new ActiveLoopExecutionState(
             loopPath,
             filter,
@@ -928,7 +957,8 @@ internal sealed record ActiveLoopExecutionState(
             recoveryAttemptId,
             Math.Max(0, state.RepairRequestCount),
             Math.Max(0, state.FreshAttemptCount),
-            taskBaselineCommit);
+            taskBaselineCommit,
+            pendingResult);
     }
 }
 

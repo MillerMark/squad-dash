@@ -8980,6 +8980,48 @@ public partial class MainWindow : Window
             _capturedDecomposeStepResult = null;
             _capturedDecomposeStepResultError = error;
         }
+
+        // Persist the captured result durably so it survives process restart.
+        try
+        {
+            var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+            if (activeExecution is null || !activeExecution.IsExecutingPlan)
+                return;
+            if (!string.Equals(activeExecution.DecomposeGroupId, _activeDecomposeGroupId, StringComparison.Ordinal))
+                return;
+            // Only persist during a recovery flow (repair response arriving outside normal loop).
+            if (activeExecution.RecoveryTaskId is null)
+                return;
+
+            var groupId = activeExecution.DecomposeGroupId!;
+            var revision = activeExecution.DecomposeRevision ?? string.Empty;
+            var attemptId = activeExecution.PlanExecutionAttempt?.AttemptId;
+
+            // Validate result scope if we got a successful parse
+            if (result is not null)
+            {
+                if (!string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
+                    return;
+                if (result.ExecutionAttemptId is not null && attemptId is not null &&
+                    !string.Equals(result.ExecutionAttemptId, attemptId, StringComparison.Ordinal))
+                    return;
+            }
+
+            var pending = new PendingRepairResult(
+                groupId,
+                revision,
+                activeExecution.RecoveryTaskId,
+                attemptId,
+                result is not null ? JsonSerializer.Serialize(result) : null,
+                error);
+
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with { PendingRepairResult = pending });
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanRepair", $"Failed to persist pending repair result: {ex.Message}");
+        }
     }
 
     private async Task<string?> PrepareExecutingPlanIterationAsync()
@@ -9221,6 +9263,42 @@ public partial class MainWindow : Window
                 $"Skipping plan finalization after execution ownership was released plan={groupId} task={taskId}.");
             return;
         }
+
+        // Fall back to the persisted pending repair result if in-memory fields are empty (e.g., after restart).
+        if (result is null && error is null && activeExecution.PendingRepairResult is { } pending)
+        {
+            if (pending.Matches(groupId, revision, activeExecution.PlanExecutionAttempt?.AttemptId) &&
+                string.Equals(pending.TaskId, taskId, StringComparison.Ordinal))
+            {
+                if (pending.ResultJson is not null)
+                {
+                    try
+                    {
+                        result = JsonSerializer.Deserialize<DecomposeStepResult>(pending.ResultJson);
+                    }
+                    catch (Exception ex)
+                    {
+                        SquadDashTrace.Write("PlanRepair", $"Failed to deserialize persisted repair result: {ex.Message}");
+                        error = "Persisted repair result could not be deserialized.";
+                    }
+                }
+                else
+                {
+                    error = pending.ErrorText;
+                }
+                SquadDashTrace.Write("PlanRepair", $"Replaying persisted repair result for task={taskId} group={groupId}.");
+            }
+            else
+            {
+                // Stale or cross-scope pending result — discard it
+                SquadDashTrace.Write("PlanRepair",
+                    $"Discarding stale pending repair result: persisted group={pending.GroupId} rev={pending.Revision} task={pending.TaskId}, " +
+                    $"current group={groupId} rev={revision} task={taskId}.");
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with { PendingRepairResult = null });
+                activeExecution = _conversationManager.ConversationState.ActiveLoopExecution!;
+            }
+        }
         var executionAttempt = activeExecution.PlanExecutionAttempt;
         IReadOnlyList<DecomposedAgentAssignment>? expectedAssignments = null;
         DecomposedSubTask? persistedTask = null;
@@ -9277,6 +9355,14 @@ public partial class MainWindow : Window
 
         if (error is null && result is not null && !string.IsNullOrWhiteSpace(result.Commit))
             error = await ValidateDecomposeStepCommitAsync(result);
+
+        // The persisted pending result has been consumed — clear it regardless of outcome.
+        if (activeExecution.PendingRepairResult is not null)
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with { PendingRepairResult = null });
+            activeExecution = _conversationManager.ConversationState.ActiveLoopExecution!;
+        }
 
         if (error is not null || result is null)
         {
