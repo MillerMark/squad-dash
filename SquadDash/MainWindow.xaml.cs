@@ -4156,6 +4156,7 @@ public partial class MainWindow : Window
             }
             else
             {
+                tab.Tag = capturedId;
                 tab.MouseLeftButtonUp += (_, _) => OnQueueTabClicked(capturedId);
             }
         }
