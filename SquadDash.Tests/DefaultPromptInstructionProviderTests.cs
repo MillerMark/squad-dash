@@ -4,6 +4,20 @@ namespace SquadDash.Tests;
 internal sealed class DefaultPromptInstructionProviderTests
 {
     [Test]
+    public void QuickReplyInstructions_DescribeRiskTonesWithoutMakingThemDecorative()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().QuickReply;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("optional `tone` field"));
+            Assert.That(instruction, Does.Contain("\"warning\""));
+            Assert.That(instruction, Does.Contain("\"destructive\""));
+            Assert.That(instruction, Does.Contain("Never use tone merely to attract attention"));
+        });
+    }
+
+    [Test]
     public void DecomposePlanningSpecification_ContainsCompleteSchemas()
     {
         var instruction = DecomposePlanningInstructions.LoadSpecification();

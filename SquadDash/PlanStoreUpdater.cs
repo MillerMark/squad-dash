@@ -125,7 +125,8 @@ internal static class PlanStoreUpdater
         string? lastCompletedTaskId = null,
         string? lastCommit          = null,
         IReadOnlyList<string>? affectedPaths     = null,
-        string? partialWorkEvidence = null)
+        string? partialWorkEvidence = null,
+        PlanTaskCommitEvidence? taskCommitEvidence = null)
     {
         var now = DateTimeOffset.UtcNow;
         var interruptionData = new PlanInterruptionData(
@@ -136,7 +137,8 @@ internal static class PlanStoreUpdater
             LastCompletedTaskId: lastCompletedTaskId,
             LastCommit:          lastCommit,
             AffectedPaths:       affectedPaths,
-            PartialWorkEvidence: partialWorkEvidence);
+            PartialWorkEvidence: partialWorkEvidence,
+            TaskCommitEvidence:  taskCommitEvidence);
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,

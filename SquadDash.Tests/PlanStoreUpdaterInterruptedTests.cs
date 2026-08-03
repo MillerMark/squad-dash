@@ -84,6 +84,8 @@ internal sealed class PlanStoreUpdaterInterruptedTests
     {
         var plan    = MakePlan();
         var paths   = (IReadOnlyList<string>)["src/foo.cs", "src/bar.cs"];
+        var evidence = new PlanTaskCommitEvidence(
+            "GRP-001", "attempt-1", "base123", "abc1234", "Completed task", null);
         var updated = PlanStoreUpdater.ApplyInterrupted(
             plan,
             reason:              "network failure",
@@ -92,7 +94,8 @@ internal sealed class PlanStoreUpdaterInterruptedTests
             lastCompletedTaskId: "GRP-000",
             lastCommit:          "abc1234",
             affectedPaths:       paths,
-            partialWorkEvidence: "partial evidence");
+            partialWorkEvidence: "partial evidence",
+            taskCommitEvidence:  evidence);
 
         var data = updated.InterruptionData!;
         Assert.That(data.InterruptedTaskId,   Is.EqualTo("GRP-001"));
@@ -100,6 +103,7 @@ internal sealed class PlanStoreUpdaterInterruptedTests
         Assert.That(data.LastCommit,          Is.EqualTo("abc1234"));
         Assert.That(data.AffectedPaths,       Is.EqualTo(paths));
         Assert.That(data.PartialWorkEvidence, Is.EqualTo("partial evidence"));
+        Assert.That(data.TaskCommitEvidence,  Is.SameAs(evidence));
     }
 
     // ── ApplyStopped ──────────────────────────────────────────────────────────

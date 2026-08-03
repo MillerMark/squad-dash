@@ -41,6 +41,16 @@ internal sealed class TranscriptQuickReplyFactoryTests
         Assert.That(buttons, Is.EqualTo(new[] { button }));
     }
 
+    [TestCase("warning", QuickReplyTone.Warning)]
+    [TestCase(" WARNING ", QuickReplyTone.Warning)]
+    [TestCase("destructive", QuickReplyTone.Destructive)]
+    [TestCase("unknown", QuickReplyTone.Default)]
+    [TestCase(null, QuickReplyTone.Default)]
+    public void ParseTone_RecognizesSupportedValues(string? value, QuickReplyTone expected)
+    {
+        Assert.That(TranscriptQuickReplyFactory.ParseTone(value), Is.EqualTo(expected));
+    }
+
     [Test]
     public void RemovePendingDecomposeApprovalContainers_RemovesOnlyPlanActionsRecursively()
     {

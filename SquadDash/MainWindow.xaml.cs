@@ -9381,8 +9381,34 @@ public partial class MainWindow : Window
         if (result is not null && !string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
             error = $"The result was for group {result.GroupId}, but SquadDash is executing {groupId}.";
 
-        if (error is null && result is not null && !string.IsNullOrWhiteSpace(result.Commit))
-            error = await ValidateDecomposeStepCommitAsync(result);
+        PlanTaskCommitEvidence? taskCommitEvidence = null;
+        if (result is not null &&
+            !string.IsNullOrWhiteSpace(result.Commit) &&
+            string.Equals(result.GroupId, groupId, StringComparison.Ordinal) &&
+            string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
+            string.Equals(result.Revision, revision, StringComparison.Ordinal) &&
+            (executionAttempt is null ||
+             string.Equals(result.ExecutionAttemptId, executionAttempt.AttemptId, StringComparison.Ordinal)))
+        {
+            var commitValidationError = await ValidateDecomposeStepCommitAsync(result);
+            if (commitValidationError is null && !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
+            {
+                var resolvedCommit = (await RunGitAsync(
+                    _currentWorkspace.FolderPath,
+                    $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
+                taskCommitEvidence = new PlanTaskCommitEvidence(
+                    taskId,
+                    executionAttempt?.AttemptId,
+                    _decomposeIterationBaselineCommit!,
+                    resolvedCommit,
+                    result.Summary,
+                    result.Verification);
+            }
+            else if (error is null)
+            {
+                error = commitValidationError;
+            }
+        }
 
         // The persisted pending result has been consumed — clear it regardless of outcome.
         if (activeExecution.PendingRepairResult is not null)
@@ -9530,14 +9556,16 @@ public partial class MainWindow : Window
                 groupId,
                 taskId,
                 revision,
-                $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}");
+                $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}",
+                taskCommitEvidence);
             return;
         }
 
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out error))
         {
             _CodeHealthGroupRunner.MarkCurrentStepFailed();
-            StopAndOfferDecomposeRecovery(groupId, taskId, revision, error ?? "The result could not be applied.");
+            StopAndOfferDecomposeRecovery(
+                groupId, taskId, revision, error ?? "The result could not be applied.", taskCommitEvidence);
             return;
         }
 
@@ -9552,7 +9580,7 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         if (result.Status is "partial" or "failed")
         {
-            StopAndOfferDecomposeRecovery(groupId, taskId, revision, result.Summary);
+            StopAndOfferDecomposeRecovery(groupId, taskId, revision, result.Summary, taskCommitEvidence);
             return;
         }
 
@@ -9564,7 +9592,8 @@ public partial class MainWindow : Window
                 taskId,
                 revision,
                 "SquadDash accepted the task commit but could not durably record plan progress: " +
-                (persistenceError ?? "unknown persistence failure"));
+                (persistenceError ?? "unknown persistence failure"),
+                taskCommitEvidence);
             return;
         }
         if (state == DecomposeGroupExecutionState.Complete)
@@ -9650,18 +9679,21 @@ public partial class MainWindow : Window
         string groupId,
         string taskId,
         string revision,
-        string reason)
+        string reason,
+        PlanTaskCommitEvidence? taskCommitEvidence = null)
     {
         SuppressLoopResume("plan-blocked");
         _loopController.RequestStop();
         AppendLoopOutputLine($"⏹ Plan blocked at {taskId}: {reason}", LoopLifecycleBrush);
+        // Persist the final recovery state and its task-scoped commit evidence before rendering
+        // transcript or Inbox actions. The UI must describe the durable state it will operate on.
+        TryPublishPlanBlocked(groupId, taskId);
+        TryPublishPlanInterrupted(groupId, taskId, reason, taskCommitEvidence);
         ScheduleDecomposeSystemEntry(
             $"Plan {groupId} is blocked at {taskId}. {reason}",
             groupId,
             revision,
             taskId);
-        TryPublishPlanBlocked(groupId, taskId);
-        TryPublishPlanInterrupted(groupId, taskId, reason);
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
     }
 
@@ -10618,8 +10650,12 @@ public partial class MainWindow : Window
                 return;
             var taskTitle = plan.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Title ?? taskId;
+            var recoveryText = plan.InterruptionData?.TaskCommitEvidence is { } evidence &&
+                               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal)
+                ? $"{marker} The plan is preserved at “{taskTitle}.” SquadDash captured committed work from this task and recommends reviewing it before continuing."
+                : $"{marker} The plan is preserved at “{taskTitle}.” Review the repository evidence before choosing how to continue.";
             ScheduleDecomposeSystemEntry(
-                $"{marker} The plan is preserved at “{taskTitle}.” Review the completed work before retrying because retrying may repeat an existing commit.",
+                recoveryText,
                 plan.PlanId,
                 plan.Revision,
                 taskId);
@@ -10644,24 +10680,82 @@ public partial class MainWindow : Window
         planLinkParagraph.Inlines.Add(planLink);
         blocks.Add(planLinkParagraph);
 
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
+                               _decomposeContinuationPaths.Count > 0;
+        var presentation = durablePlan is null
+            ? null
+            : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
-            var guidance = CreateTranscriptParagraph(bottomMargin: 6);
-            guidance.Inlines.Add(new Run(
-                "If this task already produced a commit, review that completed work first. Continue / Retry may repeat the task."));
-            blocks.Add(guidance);
+            var heading = CreateTranscriptParagraph(bottomMargin: 3);
+            var headingRun = new Run(presentation!.Heading) { FontWeight = FontWeights.SemiBold };
+            headingRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            heading.Inlines.Add(headingRun);
+            blocks.Add(heading);
+
+            var explanation = CreateTranscriptParagraph(bottomMargin: 3);
+            explanation.Inlines.Add(new Run(presentation.Explanation));
+            blocks.Add(explanation);
+
+            if (presentation.CommitEvidence is { } commitEvidence)
+            {
+                var commitParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+                commitParagraph.Margin = new Thickness(12, 0, 0, 3);
+                var shortCommit = commitEvidence.Commit.Length > 7
+                    ? commitEvidence.Commit[..7]
+                    : commitEvidence.Commit;
+                commitParagraph.Inlines.Add(new Run("Commit: "));
+                var commitLink = new Hyperlink(new Run(shortCommit))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = "Open this commit in the internal diff viewer",
+                };
+                commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                commitLink.Click += async (_, _) =>
+                    await OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{commitEvidence.Commit}");
+                commitParagraph.Inlines.Add(commitLink);
+                commitParagraph.Inlines.Add(new Run($" — {commitEvidence.Summary}"));
+                blocks.Add(commitParagraph);
+
+                if (commitEvidence.Verification is { } verification)
+                {
+                    var verificationText = string.Join(" · ", new[]
+                    {
+                        string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase)
+                            ? "Verification passed"
+                            : $"Verification: {verification.Status}",
+                        verification.Command,
+                        verification.Summary,
+                    }.Where(value => !string.IsNullOrWhiteSpace(value)));
+                    var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+                    verificationParagraph.Margin = new Thickness(12, 0, 0, 3);
+                    var verificationRun = new Run(verificationText);
+                    verificationRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    verificationParagraph.Inlines.Add(verificationRun);
+                    blocks.Add(verificationParagraph);
+                }
+            }
+
+            var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
+            var recommendationRun = new Run(presentation.Recommendation) { FontWeight = FontWeights.SemiBold };
+            recommendation.Inlines.Add(recommendationRun);
+            blocks.Add(recommendation);
+
             AddAsyncAction(
                 "Review Completed Work…",
                 "Review committed changes produced before this interruption. If accepted, SquadDash will mark this step complete and continue without repeating it.",
                 async () => await AdoptVerifiedCommitRangeAsync(durablePlan));
         }
         AddAsyncAction(
-            "Continue / Retry Task",
-            "Continue preserved work when present; otherwise rerun the interrupted task. Review completed work first when rerunning could duplicate an existing commit.",
-            async () => await RetryDecomposeTaskAsync(plan, taskId));
-        AddAction("Replan Failed Task", "Replace this blocked step with smaller, dependency-aware steps.",
+            presentation?.RetryLabel ?? "Retry Task",
+            presentation?.RetryIsWarning == true
+                ? "Rerun this task even though repository evidence may already contain some or all of its work. Review completed work first to avoid duplication."
+                : "Continue the preserved task work after SquadDash verifies that its files have not changed.",
+            async () => await RetryDecomposeTaskAsync(plan, taskId),
+            tone: presentation?.RetryIsWarning == true ? QuickReplyTone.Warning : QuickReplyTone.Default);
+        AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
 
         // Show "Analyze with AI" only when there is evidence of prior work (preserved paths
@@ -10682,7 +10776,8 @@ public partial class MainWindow : Window
                 {
                     var durablePlan = _planStore?.Load(plan.Group.GroupId);
                     if (durablePlan is not null) EndInterruptedPlan(durablePlan);
-                });
+                },
+                tone: QuickReplyTone.Destructive);
         }
 
         blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
@@ -10694,12 +10789,14 @@ public partial class MainWindow : Window
             string label,
             string hint,
             Action action,
-            bool removeAfterAction = true)
+            bool removeAfterAction = true,
+            QuickReplyTone tone = QuickReplyTone.Default)
         {
             var button = TranscriptQuickReplyFactory.CreateButton(
                 label,
                 _transcriptFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip(hint));
+                toolTip: ToolTipHelper.MakeThemedToolTip(hint),
+                tone: tone);
             button.Click += (_, _) =>
             {
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
@@ -10712,12 +10809,14 @@ public partial class MainWindow : Window
             string label,
             string hint,
             Func<Task> action,
-            bool removeAfterAction = true)
+            bool removeAfterAction = true,
+            QuickReplyTone tone = QuickReplyTone.Default)
         {
             var button = TranscriptQuickReplyFactory.CreateButton(
                 label,
                 _transcriptFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip(hint));
+                toolTip: ToolTipHelper.MakeThemedToolTip(hint),
+                tone: tone);
             button.Click += async (_, _) =>
             {
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
@@ -42503,7 +42602,11 @@ public partial class MainWindow : Window
     /// Transitions the plan to <see cref="PlanLifecycleStatus.Interrupted"/> and fires a
     /// progress event. Called when the plan loop stops unexpectedly mid-execution.
     /// </summary>
-    private void TryPublishPlanInterrupted(string groupId, string taskId, string reason)
+    private void TryPublishPlanInterrupted(
+        string groupId,
+        string taskId,
+        string reason,
+        PlanTaskCommitEvidence? taskCommitEvidence = null)
     {
         if (_currentWorkspace is null || _planStore is null) return;
         try
@@ -42515,7 +42618,8 @@ public partial class MainWindow : Window
                 reason:            reason,
                 loopIteration:     _loopCurrentIteration,
                 interruptedTaskId: taskId,
-                lastCommit:        _decomposeIterationBaselineCommit);
+                lastCommit:        _decomposeIterationBaselineCommit,
+                taskCommitEvidence: taskCommitEvidence);
             PublishPlanProgress(updated);
         }
         catch (Exception ex)

@@ -216,7 +216,27 @@ internal sealed record PlanInterruptionData(
                                                         IReadOnlyList<string>? AffectedPaths      = null,
     [property: JsonPropertyName("partialWorkEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        string? PartialWorkEvidence = null);
+                                                        string? PartialWorkEvidence = null,
+    [property: JsonPropertyName("taskCommitEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        PlanTaskCommitEvidence? TaskCommitEvidence = null);
+
+/// <summary>
+/// Host-validated provenance for a commit produced by the interrupted task. This is deliberately
+/// scoped to a plan task and execution attempt; elapsed time, author identity, and position in the
+/// branch history are not sufficient to attribute a commit to plan work.
+/// </summary>
+internal sealed record PlanTaskCommitEvidence(
+    [property: JsonPropertyName("taskId")]             string TaskId,
+    [property: JsonPropertyName("executionAttemptId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        string? ExecutionAttemptId,
+    [property: JsonPropertyName("baselineCommit")]     string BaselineCommit,
+    [property: JsonPropertyName("commit")]             string Commit,
+    [property: JsonPropertyName("summary")]            string Summary,
+    [property: JsonPropertyName("verification")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        DecomposeStepVerification? Verification = null);
 
 // ─── Root aggregate ────────────────────────────────────────────────────────────
 

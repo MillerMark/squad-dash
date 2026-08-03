@@ -123,4 +123,26 @@ public sealed class QuickReplyOptionParserTests {
         Assert.That(parsed, Is.True);
         Assert.That(options[0].Prompt, Is.Null);
     }
+
+    [Test]
+    public void TryExtract_ParsesOptionalWarningTone() {
+        const string text = """
+            Choose an option.
+            QUICK_REPLIES_JSON:
+            [
+              {
+                "label": "Retry task anyway",
+                "routeMode": "start_coordinator",
+                "reason": "This may repeat committed work.",
+                "tone": "warning"
+              }
+            ]
+            """;
+
+        var parsed = QuickReplyOptionParser.TryExtractWithMetadata(
+            text, out _, out QuickReplyOptionMetadata[] options);
+
+        Assert.That(parsed, Is.True);
+        Assert.That(options.Single().Tone, Is.EqualTo("warning"));
+    }
 }

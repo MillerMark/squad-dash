@@ -163,6 +163,14 @@
     <SolidColorBrush x:Key="QuickReplyBorder" Color="#83A9D8"/>
     <SolidColorBrush x:Key="QuickReplyText" Color="#1E3A5F"/>
     <SolidColorBrush x:Key="QuickReplyHoverSurface" Color="#D6E8F8"/>
+    <SolidColorBrush x:Key="QuickReplyWarningSurface" Color="#FFF1C2"/>
+    <SolidColorBrush x:Key="QuickReplyWarningBorder" Color="#A76500"/>
+    <SolidColorBrush x:Key="QuickReplyWarningText" Color="#5A3500"/>
+    <SolidColorBrush x:Key="QuickReplyWarningHoverSurface" Color="#FFE39A"/>
+    <SolidColorBrush x:Key="QuickReplyDestructiveSurface" Color="#FBE3E3"/>
+    <SolidColorBrush x:Key="QuickReplyDestructiveBorder" Color="#B33A3A"/>
+    <SolidColorBrush x:Key="QuickReplyDestructiveText" Color="#7A1616"/>
+    <SolidColorBrush x:Key="QuickReplyDestructiveHoverSurface" Color="#F6CCCC"/>
     <!-- Recording Tokens -->
     <SolidColorBrush x:Key="RecordingLevelFill" Color="#2478CF"/>
     <SolidColorBrush x:Key="RecordingIconFill" Color="#CC2222"/>

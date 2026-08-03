@@ -544,7 +544,8 @@ internal sealed class MarkdownDocumentRenderer {
                     new QuickReplyRoutePresentation.RouteInfo(
                         routedQuickReply.RouteMode,
                         routedQuickReply.ContinuationAgentLabel,
-                        routedQuickReply.Reason)));
+                        routedQuickReply.Reason)),
+                TranscriptQuickReplyFactory.ParseTone(routeDecision.Option.Tone));
             button.Click += (s, e) => { DismissKeyboardHint(); _onQuickReplyButtonClick(s, e); };
             panel.Children.Add(button);
         }

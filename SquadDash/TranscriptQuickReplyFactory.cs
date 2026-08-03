@@ -5,6 +5,13 @@ using System.Windows.Input;
 
 namespace SquadDash;
 
+internal enum QuickReplyTone
+{
+    Default,
+    Warning,
+    Destructive,
+}
+
 internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
 internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
 internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
@@ -23,7 +30,8 @@ internal static class TranscriptQuickReplyFactory
         object content,
         double transcriptFontSize,
         object? tag = null,
-        object? toolTip = null)
+        object? toolTip = null,
+        QuickReplyTone tone = QuickReplyTone.Default)
     {
         var button = new Button
         {
@@ -36,17 +44,36 @@ internal static class TranscriptQuickReplyFactory
             MinHeight = 28,
             ToolTip = toolTip,
         };
-        if (Application.Current?.TryFindResource("QuickReplyButtonStyle") is Style style)
+        var styleKey = tone switch
+        {
+            QuickReplyTone.Warning => "QuickReplyWarningButtonStyle",
+            QuickReplyTone.Destructive => "QuickReplyDestructiveButtonStyle",
+            _ => "QuickReplyButtonStyle",
+        };
+        if (Application.Current?.TryFindResource(styleKey) is Style style)
             button.Style = style;
 
         // QuickReplyButtonStyle follows the environment scale. Transcript buttons additionally
         // follow the independently zoomable transcript font, just like transcript prose.
         button.FontSize = transcriptFontSize;
-        button.SetResourceReference(Control.BackgroundProperty, "QuickReplySurface");
-        button.SetResourceReference(Control.ForegroundProperty, "QuickReplyText");
-        button.SetResourceReference(Control.BorderBrushProperty, "QuickReplyBorder");
+        var resourcePrefix = tone switch
+        {
+            QuickReplyTone.Warning => "QuickReplyWarning",
+            QuickReplyTone.Destructive => "QuickReplyDestructive",
+            _ => "QuickReply",
+        };
+        button.SetResourceReference(Control.BackgroundProperty, resourcePrefix + "Surface");
+        button.SetResourceReference(Control.ForegroundProperty, resourcePrefix + "Text");
+        button.SetResourceReference(Control.BorderBrushProperty, resourcePrefix + "Border");
         return button;
     }
+
+    internal static QuickReplyTone ParseTone(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "warning" => QuickReplyTone.Warning,
+        "destructive" => QuickReplyTone.Destructive,
+        _ => QuickReplyTone.Default,
+    };
 
     internal static BlockUIContainer CreateContainer(UIElement child, object? tag = null) =>
         new(child)

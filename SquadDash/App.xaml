@@ -433,6 +433,76 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="QuickReplyWarningButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource QuickReplyButtonStyle}">
+                <Setter Property="Background" Value="{DynamicResource QuickReplyWarningSurface}"/>
+                <Setter Property="Foreground" Value="{DynamicResource QuickReplyWarningText}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource QuickReplyWarningBorder}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="3"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="{DynamicResource QuickReplyWarningHoverSurface}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.8"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="QuickReplyDestructiveButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource QuickReplyButtonStyle}">
+                <Setter Property="Background" Value="{DynamicResource QuickReplyDestructiveSurface}"/>
+                <Setter Property="Foreground" Value="{DynamicResource QuickReplyDestructiveText}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource QuickReplyDestructiveBorder}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="3"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="{DynamicResource QuickReplyDestructiveHoverSurface}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.8"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="border" Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Issue 5: Themed sub-menu MenuItem -->
             <Style x:Key="ThemedMenuItemStyle" TargetType="MenuItem">
                 <Setter Property="Background" Value="{DynamicResource ChromeSurface}"/>
