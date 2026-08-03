@@ -101,7 +101,40 @@ internal static class PlanStoreUpdater
             Tasks    = updated,
             Progress = progress,
         };
+
+        // Detect tasks that transitioned to Complete in this acceptance and invalidate
+        // any passed validations whose afterTaskIds reference them (output change scenario).
+        var changedIds = DetectNewlyCompletedTaskIds(existing.Tasks, plan.Tasks);
+        plan = InvalidateCoveredValidations(plan, changedIds);
+
         return ApplyReadyValidations(plan);
+    }
+
+    /// <summary>
+    /// Returns the set of task IDs that were already Complete before but now have a different
+    /// commit (re-accepted with new work), indicating their outputs may have changed.
+    /// </summary>
+    private static IReadOnlySet<string>? DetectNewlyCompletedTaskIds(
+        IReadOnlyList<PlanTask> before,
+        IReadOnlyList<PlanTask> after)
+    {
+        HashSet<string>? changed = null;
+        var beforeByTaskId = before
+            .Where(t => t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
+            .ToDictionary(t => t.TaskId, t => t.Commit, StringComparer.Ordinal);
+
+        foreach (var task in after)
+        {
+            if (task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded))
+                continue;
+            if (!beforeByTaskId.TryGetValue(task.TaskId, out var previousCommit))
+                continue; // newly completed, not a re-acceptance
+            if (string.Equals(previousCommit, task.Commit, StringComparison.Ordinal))
+                continue; // same commit, no change
+            changed ??= new HashSet<string>(StringComparer.Ordinal);
+            changed.Add(task.TaskId);
+        }
+        return changed;
     }
 
     /// <summary>
@@ -369,6 +402,69 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Transitions a failed validation back to <see cref="PlanValidationStatus.Ready"/> for retry.
+    /// Distinguishes evidence repair (missing envelope, parse failure) from a genuinely failed
+    /// contract. The commit produced by the prerequisite tasks is preserved; only the validation
+    /// evidence is cleared for a fresh attempt.
+    /// </summary>
+    internal static Plan ApplyValidationRetry(Plan existing, string validationId)
+    {
+        var validations = existing.Validations ?? [];
+        if (!validations.Any(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
+                validation.Status == PlanValidationStatus.Failed))
+            return existing;
+
+        var updated = existing with
+        {
+            Validations = validations.Select(validation =>
+                string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
+                    ? validation with
+                    {
+                        Status = PlanValidationStatus.Ready,
+                        StartedAt = null,
+                        CompletedAt = null,
+                        Summary = null,
+                        Evidence = null,
+                    }
+                    : validation).ToArray(),
+        };
+
+        // Unblock the plan if it was blocked solely due to this failed validation.
+        if (updated.LifecycleStatus == PlanLifecycleStatus.Blocked)
+            updated = updated with { LifecycleStatus = PlanLifecycleStatus.Executing };
+
+        return updated;
+    }
+
+    /// <summary>
+    /// Detects passed validations whose covered outputs have changed (i.e., the task producing
+    /// the output was re-accepted with new work) and marks them <see cref="PlanValidationStatus.Stale"/>.
+    /// Called internally after task acceptance to maintain validation freshness.
+    /// </summary>
+    internal static Plan InvalidateCoveredValidations(Plan plan, IReadOnlySet<string>? changedTaskIds = null)
+    {
+        if (plan.Validations is not { Count: > 0 } || changedTaskIds is not { Count: > 0 })
+            return plan;
+
+        var anyStale = false;
+        var updated = plan.Validations.Select(validation =>
+        {
+            if (validation.Status != PlanValidationStatus.Passed) return validation;
+            var covered = validation.AfterTaskIds.Any(changedTaskIds.Contains);
+            if (!covered) return validation;
+            anyStale = true;
+            return validation with
+            {
+                Status = PlanValidationStatus.Stale,
+                Summary = "Covered output changed after validation passed.",
+            };
+        }).ToArray();
+
+        return anyStale ? plan with { Validations = updated } : plan;
+    }
+
+    /// <summary>
     /// Sends one or more completed tasks at an awaiting approval boundary back for another
     /// host-owned attempt. Previous accepted-result provenance is appended to the immutable
     /// attempt history; the current result fields are cleared so normal scheduling can select
@@ -572,7 +668,10 @@ internal static class PlanStoreUpdater
         {
             if (plan.Tasks.Any(t => t.Status is PlanTaskStatus.Failed or PlanTaskStatus.Partial))
                 return ApplyBlocked(plan, blockedTaskId: null);
-            return ApplyCompleted(plan);
+            // Only complete if all mandatory validations have passed; otherwise stay Executing.
+            return PlanValidationReadinessEvaluator.AllRequiredPassed(plan)
+                ? ApplyCompleted(plan)
+                : plan with { Progress = plan.Progress with { ExecutingTaskId = null } };
         }
 
         // Case C — Progress count does not match actual task statuses.
