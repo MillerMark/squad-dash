@@ -229,11 +229,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedPlan = durablePlan;
                 var capturedAction = onAdoptVerifiedCommitRange;
+                var resumableValidation = PlanExecutionBoundaryPolicy.SelectValidation(capturedPlan);
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Assess & Continue",
+                    resumableValidation is null ? "Assess & Continue" : "Resume Validation",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."));
+                        resumableValidation is null
+                            ? "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."
+                            : $"Continue with the ready validation “{resumableValidation.Title}.” Completed implementation steps will not be repeated."));
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>
                 {

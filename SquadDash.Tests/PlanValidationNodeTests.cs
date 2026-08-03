@@ -75,6 +75,37 @@ internal sealed class PlanValidationNodeTests
     }
 
     [Test]
+    public void StoreUpdater_FinalValidationCompletesPlanOnlyAfterEveryTaskIsComplete()
+    {
+        var plan = MakePlan(PlanValidationStatus.Ready) with
+        {
+            Tasks = MakePlan().Tasks.Select(task =>
+                task with { Status = PlanTaskStatus.Complete }).ToArray(),
+        };
+
+        var updated = PlanStoreUpdater.ApplyValidationResult(
+            plan, "PLAN-VAL-001", true, "Connected", ["contract passed"], "abc1234");
+
+        Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+    }
+
+    [Test]
+    public void StoreUpdater_FailedValidationBlocksPlanWithoutConvertingItToInterruption()
+    {
+        var plan = MakePlan(PlanValidationStatus.Validating);
+
+        var updated = PlanStoreUpdater.ApplyValidationResult(
+            plan, "PLAN-VAL-001", false, "Disconnected", ["contract failed"], "abc1234");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Blocked));
+            Assert.That(updated.InterruptionData, Is.Null);
+            Assert.That(updated.Validations!.Single().Status, Is.EqualTo(PlanValidationStatus.Failed));
+        });
+    }
+
+    [Test]
     public void TasksJsonParser_AcceptsFirstClassValidationNode()
     {
         const string response = """

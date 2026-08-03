@@ -325,7 +325,7 @@ internal static class PlanStoreUpdater
                 string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
                 validation.Status is PlanValidationStatus.Ready or PlanValidationStatus.Validating))
             return existing;
-        return existing with
+        var updated = existing with
         {
             Validations = validations.Select(validation =>
                 string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal)
@@ -339,6 +339,13 @@ internal static class PlanStoreUpdater
                     }
                     : validation).ToArray(),
         };
+        if (!passed)
+            return ApplyBlocked(updated, blockedTaskId: null);
+        return updated.Tasks.All(task =>
+                   task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded) &&
+               PlanValidationReadinessEvaluator.AllRequiredPassed(updated)
+            ? ApplyCompleted(updated)
+            : updated;
     }
 
     internal static Plan ApplyValidationStale(Plan existing, string validationId, string reason)

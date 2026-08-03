@@ -252,7 +252,8 @@ internal sealed class PlanValidationSchedulingTests
             DecomposeGroupId: "P1",
             DecomposeRevision: "rev1",
             ActiveValidationId: "V1",
-            ValidationRepairCount: 1);
+            ValidationRepairCount: 1,
+            ValidationRepairReason: " missing envelope ");
 
         var normalized = ActiveLoopExecutionState.Normalize(state);
 
@@ -261,6 +262,7 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(normalized, Is.Not.Null);
             Assert.That(normalized!.ActiveValidationId, Is.EqualTo("V1"));
             Assert.That(normalized.ValidationRepairCount, Is.EqualTo(1));
+            Assert.That(normalized.ValidationRepairReason, Is.EqualTo("missing envelope"));
         });
     }
 
@@ -291,7 +293,8 @@ internal sealed class PlanValidationSchedulingTests
             DecomposeGroupId: "P1",
             DecomposeRevision: "rev1",
             ActiveValidationId: "V1",
-            ValidationRepairCount: 0);
+            ValidationRepairCount: 1,
+            ValidationRepairReason: "missing envelope");
 
         var json = JsonSerializer.Serialize(state);
         var deserialized = JsonSerializer.Deserialize<ActiveLoopExecutionState>(json, ReadOptions);
@@ -300,7 +303,8 @@ internal sealed class PlanValidationSchedulingTests
         Assert.Multiple(() =>
         {
             Assert.That(normalized!.ActiveValidationId, Is.EqualTo("V1"));
-            Assert.That(normalized.ValidationRepairCount, Is.EqualTo(0));
+            Assert.That(normalized.ValidationRepairCount, Is.EqualTo(1));
+            Assert.That(normalized.ValidationRepairReason, Is.EqualTo("missing envelope"));
             Assert.That(normalized.DecomposeGroupId, Is.EqualTo("P1"));
         });
     }

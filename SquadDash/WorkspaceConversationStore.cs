@@ -894,7 +894,8 @@ internal sealed record ActiveLoopExecutionState(
     string? TaskBaselineCommit = null,
     PendingRepairResult? PendingRepairResult = null,
     string? ActiveValidationId = null,
-    int ValidationRepairCount = 0)
+    int ValidationRepairCount = 0,
+    string? ValidationRepairReason = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -949,6 +950,9 @@ internal sealed record ActiveLoopExecutionState(
         var activeValidationId = string.IsNullOrWhiteSpace(state.ActiveValidationId)
             ? null
             : state.ActiveValidationId.Trim();
+        var validationRepairReason = string.IsNullOrWhiteSpace(state.ValidationRepairReason)
+            ? null
+            : state.ValidationRepairReason.Trim();
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -965,7 +969,8 @@ internal sealed record ActiveLoopExecutionState(
             taskBaselineCommit,
             pendingResult,
             activeValidationId,
-            Math.Max(0, state.ValidationRepairCount));
+            Math.Max(0, state.ValidationRepairCount),
+            validationRepairReason);
     }
 }
 
