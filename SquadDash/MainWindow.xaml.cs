@@ -10604,7 +10604,7 @@ public partial class MainWindow : Window
         var reason = plan.InterruptionData?.Reason ?? "Plan execution was interrupted and needs your attention.";
         SaveDecomposeRecoveryInboxReminder(plan.PlanId, plan.Revision, taskId, reason);
 
-        var marker = $"Plan recovery available · {plan.PlanId}";
+        const string marker = "Plan recovery available.";
         if (_conversationManager.ConversationState.Turns.Any(turn =>
                 turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
             return;
@@ -10616,8 +10616,10 @@ public partial class MainWindow : Window
             if (_conversationManager.ConversationState.Turns.Any(turn =>
                     turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
                 return;
+            var taskTitle = plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Title ?? taskId;
             ScheduleDecomposeSystemEntry(
-                $"{marker}. The plan is preserved at {taskId}. Review the completed work before retrying because retrying may repeat an existing commit.",
+                $"{marker} The plan is preserved at “{taskTitle}.” Review the completed work before retrying because retrying may repeat an existing commit.",
                 plan.PlanId,
                 plan.Revision,
                 taskId);
@@ -10632,7 +10634,11 @@ public partial class MainWindow : Window
     {
         var blocks = targetBlocks ?? CoordinatorThread.Document.Blocks;
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-        var planLink = new Hyperlink(new Run("View task plan and dependencies")) { Cursor = Cursors.Hand };
+        var planLink = new Hyperlink(new Run(plan.Group.GroupTitle))
+        {
+            Cursor = Cursors.Hand,
+            ToolTip = "View plan and task dependencies",
+        };
         planLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
         planLink.Click += (_, _) => OpenDecomposePlanViewer(plan);
         planLinkParagraph.Inlines.Add(planLink);
