@@ -9036,12 +9036,25 @@ public partial class MainWindow : Window
                 $"Plan {_activeDecomposeGroupId} has no dependency-eligible step to execute.");
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        var durablePlan = _planStore?.Load(_activeDecomposeGroupId);
+        if (durablePlan is not null)
+        {
+            var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durablePlan);
+            if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                throw new InvalidDataException("The managed plan projection could not be repaired: " + repair.Error);
+        }
+        var persisted = durablePlan is not null
+            ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, durablePlan.PlanId)
+              ?? throw new InvalidDataException($"Plan {durablePlan.PlanId} has no readable managed projection.")
+            : TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
         if (persisted.Errors.Count > 0)
             throw new InvalidDataException(
                 "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors));
-        if (!persisted.DecomposeGroups.TryGetValue(_activeDecomposeGroupId, out var group))
-            throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing from tasks.md.");
+        var group = durablePlan is not null
+            ? PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with { HostRevision = durablePlan.Revision }
+            : persisted.DecomposeGroups.TryGetValue(_activeDecomposeGroupId, out var projectedGroup)
+                ? projectedGroup
+                : throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing from tasks.md.");
         var activeBranch = ReadGitBranch(_currentWorkspace.FolderPath);
         if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
             throw new InvalidOperationException(
@@ -9306,7 +9319,22 @@ public partial class MainWindow : Window
         string? assignmentEvidenceError = null;
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (File.Exists(tasksPath))
+        var canonicalPlan = _planStore?.Load(groupId);
+        if (canonicalPlan is not null)
+        {
+            var projectionRepair = PlanTaskProjectionRepair.Ensure(tasksPath, canonicalPlan);
+            if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                error = "The host-owned tasks.md projection could not be repaired: " + projectionRepair.Error;
+            else if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
+                SquadDashTrace.Write("PlanProjection", $"Recreated missing projection for plan={groupId} before finalization.");
+        }
+        if (canonicalPlan is not null)
+        {
+            persistedTask = PendingDecomposePlanAdapter.FromPlan(canonicalPlan).Group.Tasks
+                .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal));
+            expectedAssignments = persistedTask?.AgentAssignments;
+        }
+        else if (File.Exists(tasksPath))
         {
             var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
             if (persisted.Errors.Count > 0)
@@ -9684,6 +9712,7 @@ public partial class MainWindow : Window
 
         await _planApprovalRuntime.RestoreAsync(_planStore.LoadAll());
         ReconcileDecomposeRecoveryInboxMessages();
+        RestoreInterruptedPlanRecoverySurfaces();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
         ReconcileOpenInboxWindows(messages);
@@ -10512,13 +10541,10 @@ public partial class MainWindow : Window
         string reason)
     {
         if (_currentWorkspace is null || _inboxStore is null) return;
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) return;
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (!parsed.DecomposeGroups.TryGetValue(groupId, out var group)) return;
-        var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
+        var plan = ResolveRecoveryPendingPlan(groupId, revision);
+        if (plan is null) return;
         var message = DecomposePlanInbox.BuildRecoveryMessage(plan, taskId, reason, DateTimeOffset.Now);
-        if (_inboxStore.Exists(message.Id, includeArchive: true)) return;
+        if (_inboxStore.GetById(message.Id) is not null) return;
         _inboxStore.Save(message);
         _inboxPanel?.Refresh(_inboxStore.LoadAll());
         AppendInboxReceivedEntry(message.Subject, message.Id);
@@ -10530,19 +10556,72 @@ public partial class MainWindow : Window
         string? revision = null,
         string? taskId = null)
     {
-        Dispatcher.BeginInvoke(() =>
+        void Publish()
         {
             ShowSystemTranscriptEntry(message);
             if (groupId is null || revision is null || taskId is null || _currentWorkspace is null)
                 return;
-
-            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-            if (!File.Exists(tasksPath)) return;
-            var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-            if (!parsed.DecomposeGroups.TryGetValue(groupId, out var group)) return;
-            var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
+            var plan = ResolveRecoveryPendingPlan(groupId, revision);
+            if (plan is null) return;
             AppendDecomposeRecoveryActions(plan, taskId);
-        }, System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        if (Dispatcher.CheckAccess())
+            Publish();
+        else
+            Dispatcher.BeginInvoke(Publish, System.Windows.Threading.DispatcherPriority.Send);
+    }
+
+    private PendingDecomposePlan? ResolveRecoveryPendingPlan(string groupId, string revision)
+    {
+        var durable = _planStore?.Load(groupId);
+        if (durable is not null && string.Equals(durable.Revision, revision, StringComparison.Ordinal))
+            return PendingDecomposePlanAdapter.FromPlan(durable);
+        if (_currentWorkspace is null) return null;
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        if (!File.Exists(tasksPath)) return null;
+        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        return parsed.DecomposeGroups.TryGetValue(groupId, out var group)
+            ? new PendingDecomposePlan(revision, group with { HostRevision = revision })
+            : null;
+    }
+
+    private void RestoreInterruptedPlanRecoverySurfaces()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+        var plan = _planStore.LoadAll()
+            .Where(candidate =>
+                (candidate.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) &&
+                string.Equals(candidate.Branch, branch, StringComparison.Ordinal))
+            .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
+            .FirstOrDefault();
+        if (plan is null) return;
+        var taskId = plan.InterruptionData?.InterruptedTaskId
+            ?? plan.Progress.ExecutingTaskId
+            ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+        if (taskId is null) return;
+        var reason = plan.InterruptionData?.Reason ?? "Plan execution was interrupted and needs your attention.";
+        SaveDecomposeRecoveryInboxReminder(plan.PlanId, plan.Revision, taskId, reason);
+
+        var marker = $"Plan recovery available · {plan.PlanId}";
+        if (_conversationManager.ConversationState.Turns.Any(turn =>
+                turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
+            return;
+        // Workspace initialization precedes transcript hydration. Defer only this startup
+        // replay until hydration is idle; runtime interruption messages are still emitted
+        // synchronously so an imminent restart cannot discard them.
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_conversationManager.ConversationState.Turns.Any(turn =>
+                    turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true))
+                return;
+            ScheduleDecomposeSystemEntry(
+                $"{marker}. The plan is preserved at {taskId}. Review the completed work before retrying because retrying may repeat an existing commit.",
+                plan.PlanId,
+                plan.Revision,
+                taskId);
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void AppendDecomposeRecoveryActions(
@@ -25863,6 +25942,7 @@ public partial class MainWindow : Window
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
+        RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
@@ -42109,6 +42189,42 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General, $"RepairStalePlanExecutingState: {ex.Message}");
         }
     }
+
+    private void RepairActivePlanTaskProjections()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+            foreach (var plan in _planStore.LoadAll().Where(plan =>
+                         (plan.LifecycleStatus is PlanLifecycleStatus.Executing or
+                             PlanLifecycleStatus.AwaitingApproval or
+                             PlanLifecycleStatus.Interrupted or
+                             PlanLifecycleStatus.Blocked) &&
+                         string.Equals(plan.Branch, branch, StringComparison.Ordinal)))
+            {
+                var result = PlanTaskProjectionRepair.Ensure(tasksPath, plan);
+                if (result.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
+                {
+                    SquadDashTrace.Write(
+                        "PlanProjection",
+                        $"Restored missing tasks.md projection from durable plan plan={plan.PlanId} revision={plan.Revision}.");
+                }
+                else if (result.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                {
+                    SquadDashTrace.Write(
+                        "PlanProjection",
+                        $"Did not overwrite conflicting tasks.md projection plan={plan.PlanId}: {result.Error}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanProjection", $"Active plan projection repair failed: {ex.Message}");
+        }
+    }
+
     private bool TryPublishPlanProgress(Plan plan, out string? error)
     {
         error = null;
@@ -42165,11 +42281,24 @@ public partial class MainWindow : Window
         try
         {
             var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-            var parsed    = File.Exists(tasksPath)
+            var existing = _planStore.Load(groupId);
+            if (existing is not null)
+            {
+                var repair = PlanTaskProjectionRepair.Ensure(tasksPath, existing);
+                if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                {
+                    error = $"Plan {groupId} could not restore its tasks.md projection: {repair.Error}";
+                    return false;
+                }
+            }
+            var parsed    = existing is not null
+                ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId)
+                : File.Exists(tasksPath)
                 ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
                 : null;
-            var resolvedGroup = group
-                ?? (parsed?.DecomposeGroups.TryGetValue(groupId, out var g) == true ? g : null);
+            var resolvedGroup = existing is not null
+                ? PendingDecomposePlanAdapter.FromPlan(existing).Group with { HostRevision = existing.Revision }
+                : group ?? (parsed?.DecomposeGroups.TryGetValue(groupId, out var g) == true ? g : null);
             if (resolvedGroup is null)
             {
                 error = $"Plan {groupId} is missing from tasks.md.";
@@ -42177,11 +42306,10 @@ public partial class MainWindow : Window
             }
 
             var items    = GetGroupTaskItems(parsed, groupId);
-            var existing = _planStore.Load(groupId);
             var updated  = PlanStoreUpdater.ApplyExecutionStarted(
                 existing, resolvedGroup, revision, items,
                 _CodeHealthGroupRunner?.CurrentStepId);
-            if (!PendingDecomposePlanAdapter.RevisionIsValid(updated))
+            if (existing is null && !PendingDecomposePlanAdapter.RevisionIsValid(updated))
             {
                 error =
                     $"Plan {groupId} did not start because its durable task and approval-gate " +
@@ -42299,9 +42427,13 @@ public partial class MainWindow : Window
             }
 
             var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-            var parsed = File.Exists(tasksPath)
-                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                : null;
+            var repair = PlanTaskProjectionRepair.Ensure(tasksPath, existing);
+            if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+            {
+                error = "The managed plan projection could not be repaired: " + repair.Error;
+                return false;
+            }
+            var parsed = PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId);
             if (!PlanTaskProjectionValidator.TryGetValidatedItems(
                     existing,
                     parsed,

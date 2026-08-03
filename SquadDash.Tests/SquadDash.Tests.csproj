@@ -373,6 +373,7 @@
     <Compile Include="..\SquadDash\PlanProgressPublisher.cs" Link="Source\PlanProgressPublisher.cs" />
     <Compile Include="..\SquadDash\PlanViewerLiveSyncHandler.cs" Link="Source\PlanViewerLiveSyncHandler.cs" />
     <Compile Include="..\SquadDash\PlanTaskProjectionValidator.cs" Link="Source\PlanTaskProjectionValidator.cs" />
+    <Compile Include="..\SquadDash\PlanTaskProjectionRepair.cs" Link="Source\PlanTaskProjectionRepair.cs" />
     <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
     <Compile Include="..\SquadDash\PlanGateApprovalParser.cs" Link="Source\PlanGateApprovalParser.cs" />
     <Compile Include="..\SquadDash\PlanGateResponse.cs" Link="Source\PlanGateResponse.cs" />
