@@ -119,6 +119,35 @@ internal static class TranscriptQuickReplyFactory
         }
     }
 
+    internal static bool ContainsDecomposeRecoveryContainer(
+        BlockCollection blocks,
+        string groupId,
+        string revision,
+        string taskId)
+    {
+        foreach (var block in blocks)
+        {
+            if (block is BlockUIContainer
+                {
+                    Tag: DecomposeRecoveryTag tag,
+                } &&
+                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(tag.Revision, revision, StringComparison.Ordinal) &&
+                string.Equals(tag.TaskId, taskId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (block is Section section &&
+                ContainsDecomposeRecoveryContainer(section.Blocks, groupId, revision, taskId))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     internal static IEnumerable<Button> EnumerateButtons(DependencyObject root)
     {
         if (root is Button button)

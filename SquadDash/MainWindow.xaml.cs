@@ -10743,7 +10743,6 @@ public partial class MainWindow : Window
 
         await _planApprovalRuntime.RestoreAsync(approvalPlans);
         ReconcileDecomposeRecoveryInboxMessages();
-        RestoreInterruptedPlanRecoverySurfaces();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
         ReconcileOpenInboxWindows(messages);
@@ -11665,21 +11664,32 @@ public partial class MainWindow : Window
         bool HasCurrentRecoveryEntry() => _conversationManager.ConversationState.Turns.Any(turn =>
             turn.Timestamp >= interruptionStarted.AddSeconds(-1) &&
             turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true);
-        if (HasCurrentRecoveryEntry())
-            return;
-        // Workspace initialization precedes transcript hydration. Defer only this startup
-        // replay until hydration is idle; runtime interruption messages are still emitted
-        // synchronously so an imminent restart cannot discard them.
-        Dispatcher.BeginInvoke(() =>
-        {
-            if (HasCurrentRecoveryEntry())
-                return;
-            ScheduleDecomposeSystemEntry(
-                marker,
+
+        if (TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
+                CoordinatorThread.Document.Blocks,
                 plan.PlanId,
                 plan.Revision,
-                taskId);
-        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+                taskId))
+        {
+            return;
+        }
+
+        if (HasCurrentRecoveryEntry())
+        {
+            // Quick-reply controls are live WPF elements rather than serialized narrative.
+            // Hydration restores the persisted marker but not those controls, so reconstruct
+            // the actions without adding another copy of the marker to conversation history.
+            var pendingPlan = ResolveRecoveryPendingPlan(plan.PlanId, plan.Revision);
+            if (pendingPlan is not null)
+                AppendDecomposeRecoveryActions(pendingPlan, taskId);
+            return;
+        }
+
+        ScheduleDecomposeSystemEntry(
+            marker,
+            plan.PlanId,
+            plan.Revision,
+            taskId);
     }
 
     private void AppendDecomposeRecoveryActions(
@@ -27813,6 +27823,10 @@ public partial class MainWindow : Window
         // loaded. Running it earlier turns a legitimately resumable plan into an
         // interruption before SquadDash has read the state that owns the restart.
         RepairStalePlanExecutingState();
+        // Interrupted-plan actions are live WPF controls and are not serialized with the
+        // narrative. Reconstruct them only after hydration (and stale-state repair), or the
+        // document replacement above will silently erase them during every restart.
+        RestoreInterruptedPlanRecoverySurfaces();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(

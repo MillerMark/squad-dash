@@ -108,4 +108,23 @@ internal sealed class TranscriptQuickReplyFactoryTests
                 Is.EqualTo("View task plan and dependencies"));
         });
     }
+
+    [Test]
+    public void ContainsDecomposeRecoveryContainer_FindsMatchingActionsRecursively()
+    {
+        var document = new FlowDocument();
+        var section = new Section();
+        section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new DecomposeRecoveryTag("PLAN-RECOVERY", "revision-2", "TASK-005")));
+        document.Blocks.Add(section);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
+                document.Blocks, "PLAN-RECOVERY", "revision-2", "TASK-005"), Is.True);
+            Assert.That(TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
+                document.Blocks, "PLAN-RECOVERY", "revision-2", "TASK-006"), Is.False);
+        });
+    }
 }
