@@ -1328,9 +1328,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 approvalControlsByAnchor[joinAnchor] = joinStop;
             }
 
+            var hasApprovalControl = joinVisual != PlanApprovalControlVisualState.Hidden;
+            var badgeWidth = hasApprovalControl ? 66 * _scaleFactor : 46 * _scaleFactor;
+            var badgeHalf = badgeWidth / 2;
+            if (!hasApprovalControl)
+                badgeText.Margin = new Thickness(0);
+
             var badge = new Border
             {
-                Width           = 66 * _scaleFactor,
+                Width           = badgeWidth,
                 Height          = 34 * _scaleFactor,
                 CornerRadius    = new CornerRadius(17 * _scaleFactor),
                 BorderThickness = new Thickness(1.5),
@@ -1339,7 +1345,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            Canvas.SetLeft(badge, gate.Center.X - 33 * _scaleFactor);
+            Canvas.SetLeft(badge, gate.Center.X - badgeHalf);
             Canvas.SetTop(badge, gate.Center.Y - 17 * _scaleFactor);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
@@ -1452,6 +1458,49 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 titleRow.Children.Add(spinner);
                 spinner.Pulse(SpinnerActivityKind.Thinking);
             }
+            else if (statusChipText is "✓ " && statusChipFgKey is not null)
+            {
+                var squareSize = 14 * _scaleFactor;
+                var inset = 2 * _scaleFactor;
+                var canvas2 = new Canvas { Width = squareSize, Height = squareSize };
+
+                var square = new Rectangle
+                {
+                    Width = squareSize,
+                    Height = squareSize,
+                    StrokeThickness = 1.5,
+                    Fill = Brushes.Transparent,
+                };
+                square.SetResourceReference(Shape.StrokeProperty, "SubtleBorder");
+                canvas2.Children.Add(square);
+
+                var line1 = new Line
+                {
+                    X1 = inset, Y1 = inset,
+                    X2 = squareSize - inset, Y2 = squareSize - inset,
+                    StrokeThickness = 2 * _scaleFactor,
+                };
+                line1.SetResourceReference(Shape.StrokeProperty, "ImportantText");
+                canvas2.Children.Add(line1);
+
+                var line2 = new Line
+                {
+                    X1 = squareSize - inset, Y1 = inset,
+                    X2 = inset, Y2 = squareSize - inset,
+                    StrokeThickness = 2 * _scaleFactor,
+                };
+                line2.SetResourceReference(Shape.StrokeProperty, "ImportantText");
+                canvas2.Children.Add(line2);
+
+                var chipWrapper = new Border
+                {
+                    Child = canvas2,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 4, 0),
+                };
+                Grid.SetColumn(chipWrapper, 0);
+                titleRow.Children.Add(chipWrapper);
+            }
             else if (statusChipText is not null && statusChipFgKey is not null)
             {
                 var chip = new TextBlock
@@ -1463,7 +1512,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
                 chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                if (statusChipText is "✓ " or "! ")
+                if (statusChipText is "! ")
                     chip.LayoutTransform = new ScaleTransform(1.5, 1.5);
                 Grid.SetColumn(chip, 0);
                 titleRow.Children.Add(chip);
