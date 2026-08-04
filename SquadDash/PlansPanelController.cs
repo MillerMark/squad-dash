@@ -410,14 +410,12 @@ internal sealed class PlansPanelController
                 var summary = ValidationShieldPresenter.Summarize(plan)!;
                 var validationBlock = new TextBlock
                 {
-                    Text = "🛡 " + validationLabel,
+                    Text = validationLabel,
                     Margin = new Thickness(20, 1, 0, 0),
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 };
                 validationBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                validationBlock.SetResourceReference(TextBlock.ForegroundProperty,
-                    summary.Failed > 0 ? "PriorityCritical" :
-                    summary.Passed == summary.Total ? "PriorityLow" : "SubtleText");
+                validationBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
                 rowStack.Children.Add(validationBlock);
             }
         }

@@ -2513,17 +2513,21 @@
                             </DockPanel>
 
                             <!-- Row 1: History toggles -->
-                            <StackPanel Grid.Row="1" Margin="0,6,0,0">
+                            <StackPanel Grid.Row="1" Margin="0,6,0,0" Orientation="Horizontal">
+                                <TextBlock Text="Show: "
+                                           VerticalAlignment="Center"
+                                           FontSize="{DynamicResource FontSizeSmall}"
+                                           Foreground="{DynamicResource SubtleText}" />
                                 <CheckBox x:Name="PlansShowCompletedCheckBox"
-                                          Content="Show completed"
+                                          Content="Completed"
                                           VerticalAlignment="Center"
                                           FontSize="{DynamicResource FontSizeSmall}"
                                           Style="{StaticResource ThemedCheckBoxStyle}"
                                           Checked="PlansShowCompletedCheckBox_Checked"
                                           Unchecked="PlansShowCompletedCheckBox_Unchecked" />
                                 <CheckBox x:Name="PlansShowArchivedCheckBox"
-                                          Content="Show archived"
-                                          Margin="0,2,0,0"
+                                          Content="Archived"
+                                          Margin="8,0,0,0"
                                           VerticalAlignment="Center"
                                           FontSize="{DynamicResource FontSizeSmall}"
                                           Style="{StaticResource ThemedCheckBoxStyle}"
