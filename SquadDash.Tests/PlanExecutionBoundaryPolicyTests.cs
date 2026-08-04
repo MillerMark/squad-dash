@@ -42,6 +42,42 @@ internal sealed class PlanExecutionBoundaryPolicyTests
         Assert.That(PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(plan), Is.True);
     }
 
+    [Test]
+    public void InterruptedAfterPassedValidation_AtReadyApprovalBoundary_IsRecoverable()
+    {
+        var plan = MakePlan(PlanValidationStatus.Passed, includeApprovalGate: true) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "Plan execution stopped before the current task was accepted.",
+                "pending-recovery",
+                0),
+        };
+
+        Assert.That(
+            PlanExecutionBoundaryPolicy.ShouldRecoverInterruptedApprovalBoundary(plan),
+            Is.True);
+    }
+
+    [Test]
+    public void InterruptedWithActiveTask_IsNotReclassifiedAsApprovalBoundary()
+    {
+        var plan = MakePlan(PlanValidationStatus.Passed, includeApprovalGate: true) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Progress = new PlanProgress(1, 2, "B"),
+            InterruptionData = new PlanInterruptionData(
+                "Plan execution stopped before the current task was accepted.",
+                "pending-recovery",
+                0,
+                InterruptedTaskId: "B"),
+        };
+
+        Assert.That(
+            PlanExecutionBoundaryPolicy.ShouldRecoverInterruptedApprovalBoundary(plan),
+            Is.False);
+    }
+
     private static Plan MakePlan(string validationStatus, bool includeApprovalGate = false)
     {
         var tasks = new[]

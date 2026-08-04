@@ -32,4 +32,21 @@ internal static class PlanExecutionBoundaryPolicy
     internal static bool HasFailedValidation(Plan plan) =>
         (plan.Validations ?? []).Any(validation =>
             validation.Status == PlanValidationStatus.Failed);
+
+    /// <summary>
+    /// Identifies plans written by the pre-fix validation boundary path: the validation passed,
+    /// a pending human gate became the only remaining frontier, and shutdown recorded a generic
+    /// interruption before the approval runtime could activate that gate.
+    /// </summary>
+    internal static bool ShouldRecoverInterruptedApprovalBoundary(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+        plan.Progress.ExecutingTaskId is null &&
+        plan.InterruptionData is
+        {
+            InterruptedTaskId: null,
+            Reason: "Plan execution stopped before the current task was accepted."
+        } &&
+        SelectValidation(plan) is null &&
+        plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.Pending) &&
+        ApprovalGateReadinessEvaluator.ShouldStopForApproval(plan);
 }

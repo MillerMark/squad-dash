@@ -81,6 +81,35 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task Advance_RecoveredValidationBoundary_OpensApprovalWithoutRerunningCompletedWork()
+    {
+        var interrupted = MakePlan(taskBStatus: PlanTaskStatus.Complete) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "Plan execution stopped before the current task was accepted.",
+                "pending-recovery",
+                0),
+        };
+
+        var recovered = PlanStoreUpdater.ApplyApprovalBoundaryRecovery(interrupted);
+        var result = await _runtime.AdvanceAsync(recovered);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.MustStop, Is.True);
+            Assert.That(result.UpdatedPlan.LifecycleStatus,
+                Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+            Assert.That(result.UpdatedPlan.InterruptionData, Is.Null);
+            Assert.That(result.UpdatedPlan.Tasks.Count(task =>
+                task.Status == PlanTaskStatus.Complete), Is.EqualTo(2));
+            Assert.That(result.UpdatedPlan.ApprovalGates.Single().Status,
+                Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(result.ClickToken, Is.Not.Null);
+        });
+    }
+
+    [Test]
     public async Task Approve_VersionedAggregateAction_PersistsThenDisablesInboxAction()
     {
         var stopped = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Complete));

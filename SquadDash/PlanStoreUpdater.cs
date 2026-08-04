@@ -615,6 +615,18 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Clears a generic interruption that occurred while handing a passed validation off to a
+    /// ready human-approval boundary. The approval runtime immediately follows this transition
+    /// and owns activation of the gate itself.
+    /// </summary>
+    internal static Plan ApplyApprovalBoundaryRecovery(Plan existing) => existing with
+    {
+        LifecycleStatus = PlanLifecycleStatus.Executing,
+        InterruptionData = null,
+        Progress = existing.Progress with { ExecutingTaskId = null },
+    };
+
+    /// <summary>
     /// Resolves all provided ready gate IDs at once and transitions to
     /// <see cref="PlanLifecycleStatus.AwaitingApproval"/> only when used as a full-stop boundary.
     /// Each gate in <paramref name="readyGateIds"/> that is in
@@ -643,6 +655,7 @@ internal static class PlanStoreUpdater
             LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
             ApprovalGates = updatedGates,
             Progress = existing.Progress with { ExecutingTaskId = null },
+            InterruptionData = null,
         };
     }
 

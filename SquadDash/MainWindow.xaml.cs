@@ -9526,7 +9526,7 @@ public partial class MainWindow : Window
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         if (activeExecution?.ActiveValidationId is { } activeValId)
         {
-            FinalizeValidationTurn(groupId, activeValId);
+            await FinalizeValidationTurnAsync(groupId, activeValId);
             return;
         }
 
@@ -9991,7 +9991,7 @@ public partial class MainWindow : Window
     /// Finalizes a validation turn by applying the captured validation result to durable plan state.
     /// Handles missing envelope repair (once), tolerant result acceptance, and state cleanup.
     /// </summary>
-    private void FinalizeValidationTurn(
+    private async Task FinalizeValidationTurnAsync(
         string groupId,
         string validationId)
     {
@@ -10051,11 +10051,10 @@ public partial class MainWindow : Window
             var evidence = valResult.AssertionEvidence
                 .Select(e => $"[{(e.Passed ? "PASS" : "FAIL")}] {e.Assertion}: {e.Evidence}")
                 .ToArray();
-            ApplyAndPublishValidationResult(groupId, validationId, valResult.Passed,
+            var resultingPlan = ApplyAndPublishValidationResult(groupId, validationId, valResult.Passed,
                 valResult.Summary, evidence, valResult.ValidatedCommit);
             ClearActiveValidation(activeExecution);
 
-            var resultingPlan = _planStore?.Load(groupId);
             if (resultingPlan?.LifecycleStatus == PlanLifecycleStatus.Completed)
             {
                 SuppressLoopResume("plan-complete");
@@ -10065,8 +10064,30 @@ public partial class MainWindow : Window
                     $"Plan {groupId} completed. SquadDash verified every required task and contract validation.");
             }
             else if (valResult.Passed)
+            {
                 ScheduleDecomposeSystemEntry(
                     $"✅ Validation passed: {validationId} — {valResult.Summary}");
+                if (resultingPlan is not null)
+                {
+                    var groupState = TrackFirstEligiblePlanStep(groupId);
+                    var validation = resultingPlan.Validations?.FirstOrDefault(candidate =>
+                        string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+                    var evidenceTaskId = validation?.AfterTaskIds.LastOrDefault()
+                        ?? resultingPlan.Tasks.LastOrDefault(task =>
+                            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)?.TaskId
+                        ?? validationId;
+                    if (groupState is DecomposeGroupExecutionState.Eligible or
+                                      DecomposeGroupExecutionState.AwaitingApproval)
+                    {
+                        await ProcessPlanApprovalsAfterStepAsync(
+                            groupId,
+                            resultingPlan.Revision,
+                            evidenceTaskId,
+                            groupState,
+                            resultingPlan);
+                    }
+                }
+            }
             else
                 ScheduleDecomposeSystemEntry(
                     $"❌ Validation failed: {validationId} — {valResult.Summary}");
@@ -10092,7 +10113,7 @@ public partial class MainWindow : Window
         ClearActiveValidation(activeExecution);
     }
 
-    private void ApplyAndPublishValidationResult(
+    private Plan? ApplyAndPublishValidationResult(
         string groupId,
         string validationId,
         bool passed,
@@ -10103,15 +10124,16 @@ public partial class MainWindow : Window
         try
         {
             var plan = _planStore?.Load(groupId);
-            if (plan is null) return;
+            if (plan is null) return null;
             var updated = PlanStoreUpdater.ApplyValidationResult(
                 plan, validationId, passed, summary, evidence, validatedCommit);
-            TryPublishPlanProgress(updated, out _);
+            return TryPublishPlanProgress(updated, out _) ? updated : null;
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("PlanValidation",
                 $"Failed to persist validation result for {validationId}: {ex.Message}");
+            return null;
         }
     }
 
@@ -10247,7 +10269,40 @@ public partial class MainWindow : Window
             SoundNotifications,
             _pushNotificationService);
 
-        await _planApprovalRuntime.RestoreAsync(_planStore.LoadAll());
+        var approvalPlans = _planStore.LoadAll().ToList();
+        for (var index = 0; index < approvalPlans.Count; index++)
+        {
+            var plan = approvalPlans[index];
+            if (!PlanExecutionBoundaryPolicy.ShouldRecoverInterruptedApprovalBoundary(plan))
+                continue;
+
+            try
+            {
+                var recovered = PlanStoreUpdater.ApplyApprovalBoundaryRecovery(plan);
+                var advance = await _planApprovalRuntime.AdvanceAsync(recovered);
+                if (TryPublishPlanProgress(advance.UpdatedPlan, out var recoveryError))
+                {
+                    approvalPlans[index] = advance.UpdatedPlan;
+                    SquadDashTrace.Write(
+                        "Approval",
+                        $"Recovered interrupted approval boundary plan={plan.PlanId} gates={advance.NewlyReadyGates.Count}.");
+                }
+                else
+                {
+                    SquadDashTrace.Write(
+                        "Approval",
+                        $"Could not persist recovered approval boundary plan={plan.PlanId}: {recoveryError}");
+                }
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Could not recover interrupted approval boundary plan={plan.PlanId}: {ex.Message}");
+            }
+        }
+
+        await _planApprovalRuntime.RestoreAsync(approvalPlans);
         ReconcileDecomposeRecoveryInboxMessages();
         RestoreInterruptedPlanRecoverySurfaces();
         var messages = _inboxStore.LoadAll();
