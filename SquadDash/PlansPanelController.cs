@@ -621,7 +621,7 @@ internal sealed class PlansPanelController
         if (plan.LifecycleStatus == PlanLifecycleStatus.Completed)
         {
             const double size = 14;
-            const double inset = 2;
+            const double inset = 3.25;
             var canvas = new Canvas { Width = size, Height = size };
 
             var square = new Rectangle

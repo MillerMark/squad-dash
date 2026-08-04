@@ -1461,7 +1461,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             else if (statusChipText is "✓ " && statusChipFgKey is not null)
             {
                 var squareSize = 14 * _scaleFactor;
-                var inset = 2 * _scaleFactor;
+                var inset = 3.25 * _scaleFactor;
                 var canvas2 = new Canvas { Width = squareSize, Height = squareSize };
 
                 var square = new Rectangle
