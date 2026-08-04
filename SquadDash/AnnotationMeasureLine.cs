@@ -41,4 +41,22 @@ internal sealed class AnnotationMeasureLine {
 
     /// <summary>Drag handle at <see cref="EndPt"/> (right end for H, bottom end for V). Hidden unless selected.</summary>
     public Ellipse Handle2 { get; set; } = null!;
+
+    // ── Asymmetric cap extensions ─────────────────────────────────────────────
+    // Each cap tick can extend independently on its positive and negative sides.
+    // For horizontal lines: positive = below, negative = above.
+    // For vertical lines: positive = right, negative = left.
+    // Default value (9.0) matches the original symmetric capHalf.
+
+    /// <summary>Positive-side extension of Cap1 (below for H, right for V).</summary>
+    public double Cap1PosExt { get; set; } = 9.0;
+
+    /// <summary>Negative-side extension of Cap1 (above for H, left for V).</summary>
+    public double Cap1NegExt { get; set; } = 9.0;
+
+    /// <summary>Positive-side extension of Cap2 (below for H, right for V).</summary>
+    public double Cap2PosExt { get; set; } = 9.0;
+
+    /// <summary>Negative-side extension of Cap2 (above for H, left for V).</summary>
+    public double Cap2NegExt { get; set; } = 9.0;
 }

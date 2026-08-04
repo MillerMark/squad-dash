@@ -232,6 +232,18 @@ internal sealed class ClipboardAnnotationMeasureLineState
     /// <summary>Line colour as <c>#RRGGBB</c>.</summary>
     [JsonPropertyName("color")]
     public string Color { get; set; } = "#FF7814";
+
+    [JsonPropertyName("cap1PosExt")]
+    public double? Cap1PosExt { get; set; }
+
+    [JsonPropertyName("cap1NegExt")]
+    public double? Cap1NegExt { get; set; }
+
+    [JsonPropertyName("cap2PosExt")]
+    public double? Cap2PosExt { get; set; }
+
+    [JsonPropertyName("cap2NegExt")]
+    public double? Cap2NegExt { get; set; }
 }
 
 /// <summary>Serialisable state for a single X annotation.</summary>

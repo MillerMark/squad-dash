@@ -241,6 +241,16 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     private TextBlock? _mlPreviewBadgeText;
     private bool _mlPreviewIsHorizontal;
 
+    // Shift-drag cap extension state during creation
+    private bool _mlShiftCapMode;
+    private bool _mlCapExtIsEnd2;          // true = extending Cap2, false = Cap1
+    private Point _mlFrozenP1;
+    private Point _mlFrozenP2;
+    private double _mlCap1PosExt = 9.0;
+    private double _mlCap1NegExt = 9.0;
+    private double _mlCap2PosExt = 9.0;
+    private double _mlCap2NegExt = 9.0;
+
     // ── Annotation — X shapes ─────────────────────────────────────────────────
 
     private readonly List<AnnotationX> _annotXShapes = new();
@@ -2060,6 +2070,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_inMeasureLineMode) {
             _creatingMeasureLine = true;
             _measureLineAnchor = pt;
+            _mlCap1PosExt = _mlCap2PosExt = _mlCap1NegExt = _mlCap2NegExt = 9.0;
+            _mlShiftCapMode = false;
             _preDragSnapshot = CaptureSnapshot();
             _canvas.CaptureMouse();
             EnsureMlPreview(isHorizontal: true);
@@ -2227,19 +2239,75 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             var dx = cur.X - _measureLineAnchor.X;
             var dy = cur.Y - _measureLineAnchor.Y;
             bool isH = Math.Abs(dx) >= Math.Abs(dy);
+
+            bool shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+
             Point p1, p2;
-            if (isH) {
-                double y = _measureLineAnchor.Y;
-                p1 = new Point(Math.Min(_measureLineAnchor.X, cur.X), y);
-                p2 = new Point(Math.Max(_measureLineAnchor.X, cur.X), y);
+            if (!shiftHeld) {
+                _mlShiftCapMode = false;
+                if (isH) {
+                    double y = _measureLineAnchor.Y;
+                    p1 = new Point(Math.Min(_measureLineAnchor.X, cur.X), y);
+                    p2 = new Point(Math.Max(_measureLineAnchor.X, cur.X), y);
+                }
+                else {
+                    double x = _measureLineAnchor.X;
+                    p1 = new Point(x, Math.Min(_measureLineAnchor.Y, cur.Y));
+                    p2 = new Point(x, Math.Max(_measureLineAnchor.Y, cur.Y));
+                }
+                _mlPreviewIsHorizontal = isH;
+                _mlFrozenP1 = p1;
+                _mlFrozenP2 = p2;
             }
             else {
-                double x = _measureLineAnchor.X;
-                p1 = new Point(x, Math.Min(_measureLineAnchor.Y, cur.Y));
-                p2 = new Point(x, Math.Max(_measureLineAnchor.Y, cur.Y));
+                // Shift mode: freeze dimension length, adjust cap extension
+                isH = _mlPreviewIsHorizontal;
+                p1 = _mlFrozenP1;
+                p2 = _mlFrozenP2;
+
+                if (!_mlShiftCapMode) {
+                    _mlShiftCapMode = true;
+                    // Determine which end is closer to mouse
+                    if (isH)
+                        _mlCapExtIsEnd2 = Math.Abs(cur.X - p2.X) < Math.Abs(cur.X - p1.X);
+                    else
+                        _mlCapExtIsEnd2 = Math.Abs(cur.Y - p2.Y) < Math.Abs(cur.Y - p1.Y);
+                }
+
+                // Compute perpendicular offset from the line
+                if (isH) {
+                    double perpOffset = cur.Y - p1.Y;
+                    if (_mlCapExtIsEnd2) {
+                        if (perpOffset >= 0)
+                            _mlCap2PosExt = Math.Max(0, perpOffset);
+                        else
+                            _mlCap2NegExt = Math.Max(0, -perpOffset);
+                    }
+                    else {
+                        if (perpOffset >= 0)
+                            _mlCap1PosExt = Math.Max(0, perpOffset);
+                        else
+                            _mlCap1NegExt = Math.Max(0, -perpOffset);
+                    }
+                }
+                else {
+                    double perpOffset = cur.X - p1.X;
+                    if (_mlCapExtIsEnd2) {
+                        if (perpOffset >= 0)
+                            _mlCap2PosExt = Math.Max(0, perpOffset);
+                        else
+                            _mlCap2NegExt = Math.Max(0, -perpOffset);
+                    }
+                    else {
+                        if (perpOffset >= 0)
+                            _mlCap1PosExt = Math.Max(0, perpOffset);
+                        else
+                            _mlCap1NegExt = Math.Max(0, -perpOffset);
+                    }
+                }
             }
             EnsureMlPreview(isH);
-            UpdateMlPreview(p1, p2, isH);
+            UpdateMlPreview(p1, p2, isH, _mlCap1NegExt, _mlCap1PosExt, _mlCap2NegExt, _mlCap2PosExt);
             e.Handled = true;
             return;
         }
@@ -2625,13 +2693,18 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             RemoveMlPreview();
 
             var upPt = e.GetPosition(_canvas);
-            var dx2 = upPt.X - _measureLineAnchor.X;
-            var dy2 = upPt.Y - _measureLineAnchor.Y;
-            bool isH2 = Math.Abs(dx2) >= Math.Abs(dy2);
-            double span = isH2 ? Math.Abs(dx2) : Math.Abs(dy2);
-
-            if (span >= 2.0) {
-                Point p1, p2;
+            // Use frozen endpoints if Shift was used, otherwise compute from mouse
+            bool isH2;
+            Point p1, p2;
+            if (_mlShiftCapMode) {
+                isH2 = _mlPreviewIsHorizontal;
+                p1 = _mlFrozenP1;
+                p2 = _mlFrozenP2;
+            }
+            else {
+                var dx2 = upPt.X - _measureLineAnchor.X;
+                var dy2 = upPt.Y - _measureLineAnchor.Y;
+                isH2 = Math.Abs(dx2) >= Math.Abs(dy2);
                 if (isH2) {
                     double y = _measureLineAnchor.Y;
                     p1 = new Point(Math.Min(_measureLineAnchor.X, upPt.X), y);
@@ -2642,13 +2715,23 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                     p1 = new Point(x, Math.Min(_measureLineAnchor.Y, upPt.Y));
                     p2 = new Point(x, Math.Max(_measureLineAnchor.Y, upPt.Y));
                 }
+            }
+            double span = isH2 ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
+
+            if (span >= 2.0) {
                 _preDragSnapshot = null; // let CreateMeasureLine push its own undo entry
                 var newLine = CreateMeasureLine(p1, p2, isH2);
+                newLine.Cap1PosExt = _mlCap1PosExt;
+                newLine.Cap1NegExt = _mlCap1NegExt;
+                newLine.Cap2PosExt = _mlCap2PosExt;
+                newLine.Cap2NegExt = _mlCap2NegExt;
+                UpdateMeasureLineGeometry(newLine);
                 SelectMeasureLine(newLine);
             }
             else {
                 _preDragSnapshot = null;
             }
+            _mlShiftCapMode = false;
             CommitDragUndo();
             if (_inMeasureLineMultiDropMode) {
                 // Multi-drop: stay in measure-line mode; reset canvas cursor for next drag
@@ -3118,8 +3201,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         if (_mlPreviewBadge != null) { _canvas.Children.Remove(_mlPreviewBadge); _mlPreviewBadge = null; _mlPreviewBadgeText = null; }
     }
 
-    private void UpdateMlPreview(Point p1, Point p2, bool isH) {
-        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
+    private void UpdateMlPreview(Point p1, Point p2, bool isH,
+        double cap1NegExt = 9.0, double cap1PosExt = 9.0,
+        double cap2NegExt = 9.0, double cap2PosExt = 9.0) {
+        const double aLen = 14.0, aHalf = 6.0, arrowGap = 1.0;
         const double minShaftGap = 6.0;
 
         double span = isH ? Math.Abs(p2.X - p1.X) : Math.Abs(p2.Y - p1.Y);
@@ -3145,8 +3230,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _mlPreviewHead2?.Points.Add(new Point(tip2X, p2.Y));
             _mlPreviewHead2?.Points.Add(new Point(tip2X - scaledLen, p2.Y - scaledHalf));
             _mlPreviewHead2?.Points.Add(new Point(tip2X - scaledLen, p2.Y + scaledHalf));
-            if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X; _mlPreviewCap1.Y1 = p1.Y - capHalf; _mlPreviewCap1.X2 = p1.X; _mlPreviewCap1.Y2 = p1.Y + capHalf; }
-            if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X; _mlPreviewCap2.Y1 = p2.Y - capHalf; _mlPreviewCap2.X2 = p2.X; _mlPreviewCap2.Y2 = p2.Y + capHalf; }
+            if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X; _mlPreviewCap1.Y1 = p1.Y - cap1NegExt; _mlPreviewCap1.X2 = p1.X; _mlPreviewCap1.Y2 = p1.Y + cap1PosExt; }
+            if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X; _mlPreviewCap2.Y1 = p2.Y - cap2NegExt; _mlPreviewCap2.X2 = p2.X; _mlPreviewCap2.Y2 = p2.Y + cap2PosExt; }
         }
         else {
             double tip1Y = p1.Y + arrowGap;
@@ -3164,8 +3249,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             _mlPreviewHead2?.Points.Add(new Point(p2.X, tip2Y));
             _mlPreviewHead2?.Points.Add(new Point(p2.X - scaledHalf, tip2Y - scaledLen));
             _mlPreviewHead2?.Points.Add(new Point(p2.X + scaledHalf, tip2Y - scaledLen));
-            if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X - capHalf; _mlPreviewCap1.Y1 = p1.Y; _mlPreviewCap1.X2 = p1.X + capHalf; _mlPreviewCap1.Y2 = p1.Y; }
-            if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X - capHalf; _mlPreviewCap2.Y1 = p2.Y; _mlPreviewCap2.X2 = p2.X + capHalf; _mlPreviewCap2.Y2 = p2.Y; }
+            if (_mlPreviewCap1 != null) { _mlPreviewCap1.X1 = p1.X - cap1NegExt; _mlPreviewCap1.Y1 = p1.Y; _mlPreviewCap1.X2 = p1.X + cap1PosExt; _mlPreviewCap1.Y2 = p1.Y; }
+            if (_mlPreviewCap2 != null) { _mlPreviewCap2.X1 = p2.X - cap2NegExt; _mlPreviewCap2.Y1 = p2.Y; _mlPreviewCap2.X2 = p2.X + cap2PosExt; _mlPreviewCap2.Y2 = p2.Y; }
         }
 
         if (_mlPreviewBadge != null && _mlPreviewBadgeText != null) {
@@ -3420,7 +3505,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
     }
 
     private void UpdateMeasureLineGeometry(AnnotationMeasureLine ml) {
-        const double aLen = 14.0, aHalf = 6.0, capHalf = 9.0, arrowGap = 1.0;
+        const double aLen = 14.0, aHalf = 6.0, arrowGap = 1.0;
         // Ensure arrowhead bases always leave at least this many pixels of shaft visible between them.
         const double minShaftGap = 6.0;
 
@@ -3451,8 +3536,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
             SetArrowHeadPoints(ml.Head1,        tip1X,             p1.Y,             scaledLen, scaledHalf, goingLeft: true);
             SetArrowHeadPoints(ml.Head2,        tip2X,             p2.Y,             scaledLen, scaledHalf, goingLeft: false);
-            ml.Cap1.X1 = p1.X; ml.Cap1.Y1 = p1.Y - capHalf; ml.Cap1.X2 = p1.X; ml.Cap1.Y2 = p1.Y + capHalf;
-            ml.Cap2.X1 = p2.X; ml.Cap2.Y1 = p2.Y - capHalf; ml.Cap2.X2 = p2.X; ml.Cap2.Y2 = p2.Y + capHalf;
+            ml.Cap1.X1 = p1.X; ml.Cap1.Y1 = p1.Y - ml.Cap1NegExt; ml.Cap1.X2 = p1.X; ml.Cap1.Y2 = p1.Y + ml.Cap1PosExt;
+            ml.Cap2.X1 = p2.X; ml.Cap2.Y1 = p2.Y - ml.Cap2NegExt; ml.Cap2.X2 = p2.X; ml.Cap2.Y2 = p2.Y + ml.Cap2PosExt;
         }
         else {
             double tip1Y = p1.Y + arrowGap;
@@ -3464,8 +3549,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             ml.HitLine.X2 = p2.X; ml.HitLine.Y2 = p2.Y;
             SetArrowHeadPoints(ml.Head1,        p1.X,             tip1Y,             scaledLen, scaledHalf, goingLeft: true,  vertical: true);
             SetArrowHeadPoints(ml.Head2,        p2.X,             tip2Y,             scaledLen, scaledHalf, goingLeft: false, vertical: true);
-            ml.Cap1.X1 = p1.X - capHalf; ml.Cap1.Y1 = p1.Y; ml.Cap1.X2 = p1.X + capHalf; ml.Cap1.Y2 = p1.Y;
-            ml.Cap2.X1 = p2.X - capHalf; ml.Cap2.Y1 = p2.Y; ml.Cap2.X2 = p2.X + capHalf; ml.Cap2.Y2 = p2.Y;
+            ml.Cap1.X1 = p1.X - ml.Cap1NegExt; ml.Cap1.Y1 = p1.Y; ml.Cap1.X2 = p1.X + ml.Cap1PosExt; ml.Cap1.Y2 = p1.Y;
+            ml.Cap2.X1 = p2.X - ml.Cap2NegExt; ml.Cap2.Y1 = p2.Y; ml.Cap2.X2 = p2.X + ml.Cap2PosExt; ml.Cap2.Y2 = p2.Y;
         }
 
         // Label text
@@ -6551,6 +6636,10 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 Y2           = Safe(ml.EndPt.Y),
                 IsHorizontal = ml.IsHorizontal,
                 Color        = $"#{ml.LineColor.R:X2}{ml.LineColor.G:X2}{ml.LineColor.B:X2}",
+                Cap1PosExt   = ml.Cap1PosExt != 9.0 ? ml.Cap1PosExt : null,
+                Cap1NegExt   = ml.Cap1NegExt != 9.0 ? ml.Cap1NegExt : null,
+                Cap2PosExt   = ml.Cap2PosExt != 9.0 ? ml.Cap2PosExt : null,
+                Cap2NegExt   = ml.Cap2NegExt != 9.0 ? ml.Cap2NegExt : null,
             });
         }
 
@@ -6623,11 +6712,17 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
                 UpdateTextDisplay(at);
             }
 
-            foreach (var ml in state.MeasureLines)
-                CreateMeasureLine(
+            foreach (var ml in state.MeasureLines) {
+                var newMl = CreateMeasureLine(
                     new Point(ml.X1 + ox, ml.Y1 + oy), new Point(ml.X2 + ox, ml.Y2 + oy),
                     ml.IsHorizontal,
                     ParseHexColor(ml.Color, Color.FromRgb(255, 120, 20)));
+                if (ml.Cap1PosExt.HasValue) newMl.Cap1PosExt = ml.Cap1PosExt.Value;
+                if (ml.Cap1NegExt.HasValue) newMl.Cap1NegExt = ml.Cap1NegExt.Value;
+                if (ml.Cap2PosExt.HasValue) newMl.Cap2PosExt = ml.Cap2PosExt.Value;
+                if (ml.Cap2NegExt.HasValue) newMl.Cap2NegExt = ml.Cap2NegExt.Value;
+                UpdateMeasureLineGeometry(newMl);
+            }
             SelectMeasureLine(null);
 
             _cursorEnabled = state.CursorEnabled;
@@ -6916,7 +7011,7 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         CanvasH: _canvas.Height,
         CanvasScaleX: _canvasScaleX,
         CanvasScaleY: _canvasScaleY,
-        MeasureLines: _measureLines.Select(ml => new MeasureLineSnap(ml.StartPt, ml.EndPt, ml.IsHorizontal, ml.LineColor)).ToList(),
+        MeasureLines: _measureLines.Select(ml => new MeasureLineSnap(ml.StartPt, ml.EndPt, ml.IsHorizontal, ml.LineColor, ml.Cap1PosExt, ml.Cap1NegExt, ml.Cap2PosExt, ml.Cap2NegExt)).ToList(),
         Xs: _annotXShapes.Select(x => new XSnap(x.Bounds, x.XColor)).ToList());
 
     private void PushUndo() {
@@ -6993,8 +7088,14 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
             SelectAnnotationX(null);
             foreach (var t in _texts.ToList()) RemoveTextAnnotation(t);
 
-            foreach (var ms in snap.MeasureLines)
-                CreateMeasureLine(ms.StartPt, ms.EndPt, ms.IsHorizontal, ms.LineColor);
+            foreach (var ms in snap.MeasureLines) {
+                var newMl = CreateMeasureLine(ms.StartPt, ms.EndPt, ms.IsHorizontal, ms.LineColor);
+                newMl.Cap1PosExt = ms.Cap1PosExt;
+                newMl.Cap1NegExt = ms.Cap1NegExt;
+                newMl.Cap2PosExt = ms.Cap2PosExt;
+                newMl.Cap2NegExt = ms.Cap2NegExt;
+                UpdateMeasureLineGeometry(newMl);
+            }
             SelectMeasureLine(null);
 
             _sel = snap.Sel;
@@ -7511,7 +7612,8 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
 
     private sealed record TextSnap(Rect Bounds, string Text, double FontSize, Color TextColor, Color BackgroundColor);
 
-    private sealed record MeasureLineSnap(Point StartPt, Point EndPt, bool IsHorizontal, Color LineColor);
+    private sealed record MeasureLineSnap(Point StartPt, Point EndPt, bool IsHorizontal, Color LineColor,
+        double Cap1PosExt = 9.0, double Cap1NegExt = 9.0, double Cap2PosExt = 9.0, double Cap2NegExt = 9.0);
 
     private sealed record XSnap(Rect Bounds, Color XColor);
 
