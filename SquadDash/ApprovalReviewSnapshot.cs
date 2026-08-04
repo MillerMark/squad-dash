@@ -5,8 +5,8 @@ namespace SquadDash;
 // ─── Link models ──────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Describes how to open a commit in the internal diff viewer.
-/// Uses <c>app://</c> scheme links so the UI layer can route without requiring a remote URL.
+/// Describes a commit presented by an approval review. Runtime UI surfaces open its full SHA
+/// through the same GitHub remote/push-check path used by transcript commit links.
 /// </summary>
 internal sealed record CommitLink(
     /// <summary>Short (7-char) SHA displayed in the UI.</summary>
@@ -16,7 +16,7 @@ internal sealed record CommitLink(
     /// <summary>First line of the commit message (subject).</summary>
     string Subject)
 {
-    /// <summary>Internal URI that opens the commit in the built-in diff viewer.</summary>
+    /// <summary>Legacy routing token retained for persisted/test compatibility; it is not an external URL.</summary>
     internal string InternalUri => $"app://commit-diff:{FullSha}";
 }
 
@@ -67,7 +67,8 @@ internal sealed record ReviewTaskEntry(
     string TaskId,
     string Title,
     string? CompletionSummary,
-    IReadOnlyList<ReviewCommitEntry> Commits);
+    IReadOnlyList<ReviewCommitEntry> Commits,
+    string? ScrutinySummary = null);
 
 // ─── Downstream released work ─────────────────────────────────────────────────
 

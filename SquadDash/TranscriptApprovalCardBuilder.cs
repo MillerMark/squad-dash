@@ -154,6 +154,28 @@ internal static class TranscriptApprovalCardBuilder
                 var taskTitle = CreateStyledTextBlock($"• {task.Title}", fontSize - 1, "LabelText");
                 taskPanel.Children.Add(taskTitle);
 
+                if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
+                {
+                    var handoff = CreateStyledTextBlock(
+                        task.CompletionSummary,
+                        fontSize - 2,
+                        "BodyText");
+                    handoff.Margin = new Thickness(12, 1, 0, 1);
+                    handoff.TextWrapping = TextWrapping.Wrap;
+                    taskPanel.Children.Add(handoff);
+                }
+
+                if (!string.IsNullOrWhiteSpace(task.ScrutinySummary))
+                {
+                    var scrutiny = CreateStyledTextBlock(
+                        "Scrutiny: " + task.ScrutinySummary,
+                        fontSize - 2,
+                        "SubtleText");
+                    scrutiny.Margin = new Thickness(12, 1, 0, 2);
+                    scrutiny.TextWrapping = TextWrapping.Wrap;
+                    taskPanel.Children.Add(scrutiny);
+                }
+
                 foreach (var commit in task.Commits)
                 {
                     var commitLine = new StackPanel
@@ -170,7 +192,7 @@ internal static class TranscriptApprovalCardBuilder
                         FontFamily = new FontFamily("Consolas"),
                         ToolTip = onOpenCommit is null
                             ? null
-                            : ToolTipHelper.MakeThemedToolTip("Open this commit in the internal diff viewer"),
+                            : ToolTipHelper.MakeThemedToolTip("Open this commit on GitHub"),
                     };
                     shaLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                     if (onOpenCommit is not null)

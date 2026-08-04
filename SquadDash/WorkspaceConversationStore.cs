@@ -896,7 +896,12 @@ internal sealed record ActiveLoopExecutionState(
     PendingRepairResult? PendingRepairResult = null,
     string? ActiveValidationId = null,
     int ValidationRepairCount = 0,
-    string? ValidationRepairReason = null)
+    string? ValidationRepairReason = null,
+    PendingTaskScrutiny? PendingTaskScrutiny = null,
+    string? ActiveScrutinyTaskId = null,
+    int ScrutinyReworkCount = 0,
+    string? ScrutinyReworkInstructions = null,
+    int ScrutinyEnvelopeRepairCount = 0)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -954,6 +959,14 @@ internal sealed record ActiveLoopExecutionState(
         var validationRepairReason = string.IsNullOrWhiteSpace(state.ValidationRepairReason)
             ? null
             : state.ValidationRepairReason.Trim();
+        var activeScrutinyTaskId = string.IsNullOrWhiteSpace(state.ActiveScrutinyTaskId)
+            ? null
+            : state.ActiveScrutinyTaskId.Trim();
+        var pendingScrutiny = state.PendingTaskScrutiny;
+        if (pendingScrutiny is not null &&
+            (!string.Equals(pendingScrutiny.PlanId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(pendingScrutiny.Revision, revision, StringComparison.Ordinal)))
+            pendingScrutiny = null;
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -971,9 +984,25 @@ internal sealed record ActiveLoopExecutionState(
             pendingResult,
             activeValidationId,
             Math.Max(0, state.ValidationRepairCount),
-            validationRepairReason);
+            validationRepairReason,
+            pendingScrutiny,
+            activeScrutinyTaskId,
+            Math.Max(0, state.ScrutinyReworkCount),
+            string.IsNullOrWhiteSpace(state.ScrutinyReworkInstructions)
+                ? null
+                : state.ScrutinyReworkInstructions.Trim(),
+            Math.Max(0, state.ScrutinyEnvelopeRepairCount));
     }
 }
+
+internal sealed record PendingTaskScrutiny(
+    string PlanId,
+    string TaskId,
+    string Revision,
+    string CandidateResultJson,
+    string BaselineCommit,
+    IReadOnlyList<string> ChangedFiles,
+    DateTimeOffset SubmittedAt);
 
 internal sealed record QueuedPromptEntry(
     string Text,

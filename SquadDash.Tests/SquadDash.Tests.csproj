@@ -34,6 +34,12 @@
     <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />
     <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanTaskScrutinyResult.cs" Link="Source\PlanTaskScrutinyResult.cs" />
+    <Compile Include="..\SquadDash\PlanTaskScrutinyPromptBuilder.cs" Link="Source\PlanTaskScrutinyPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanExecutionProjectionWriter.cs" Link="Source\PlanExecutionProjectionWriter.cs" />
+    <Compile Include="..\SquadDash\PlanCompletionSummaryBuilder.cs" Link="Source\PlanCompletionSummaryBuilder.cs" />
+    <Compile Include="..\SquadDash\InboxRelativeTimePresenter.cs" Link="Source\InboxRelativeTimePresenter.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
     <Compile Include="..\SquadDash\ValidationShieldPresenter.cs" Link="Source\ValidationShieldPresenter.cs" />

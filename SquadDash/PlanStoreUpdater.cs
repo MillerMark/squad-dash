@@ -109,6 +109,73 @@ internal static class PlanStoreUpdater
         };
     }
 
+    internal static Plan ApplyTaskScrutinyStarted(
+        Plan existing,
+        string taskId,
+        DecomposeStepResult candidate,
+        IReadOnlyList<string> changedFiles)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = existing.Tasks.Select(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)
+                    ? task with
+                    {
+                        Status = PlanTaskStatus.Scrutinizing,
+                        Handoff = new PlanTaskHandoff(
+                            candidate.Commit ?? string.Empty,
+                            candidate.Summary,
+                            changedFiles,
+                            candidate.Verification,
+                            now),
+                    }
+                    : task).ToArray(),
+            Progress = existing.Progress with { ExecutingTaskId = taskId },
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+    }
+
+    internal static Plan ApplyTaskScrutinyResult(
+        Plan existing,
+        string taskId,
+        PlanTaskScrutinyResult result,
+        bool automaticReworkAvailable)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var report = new PlanTaskScrutinyReport(
+            result.Verdict,
+            result.Summary,
+            result.ClaimFindings,
+            result.MissingOrOverstatedWork,
+            result.TestAssessment,
+            result.ReworkInstructions,
+            result.EvaluatedCommit,
+            now);
+        var targetStatus = result.Verdict switch
+        {
+            PlanTaskScrutinyVerdict.Accepted => PlanTaskStatus.Executing,
+            PlanTaskScrutinyVerdict.ReworkRequired when automaticReworkAvailable => PlanTaskStatus.Reworking,
+            _ => PlanTaskStatus.HumanReviewRequired,
+        };
+
+        return existing with
+        {
+            LifecycleStatus = result.Verdict == PlanTaskScrutinyVerdict.Accepted || automaticReworkAvailable
+                ? PlanLifecycleStatus.Executing
+                : PlanLifecycleStatus.AwaitingApproval,
+            Tasks = existing.Tasks.Select(task =>
+            {
+                if (!string.Equals(task.TaskId, taskId, StringComparison.Ordinal)) return task;
+                var history = (task.ScrutinyHistory ?? []).Append(report).ToArray();
+                return task with { Status = targetStatus, ScrutinyHistory = history };
+            }).ToArray(),
+            Progress = existing.Progress with { ExecutingTaskId = taskId },
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+    }
+
     /// <summary>
     /// Updates progress and durable result provenance after a single step result is accepted by
     /// SquadDash. Re-reads item statuses from <paramref name="items"/> and points

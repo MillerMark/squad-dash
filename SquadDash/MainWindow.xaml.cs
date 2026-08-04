@@ -363,6 +363,8 @@ public partial class MainWindow : Window
     private string?                 _capturedDecomposeStepResultError;
     private PlanValidationResultPayload? _capturedValidationResult;
     private string?                 _capturedValidationResultError;
+    private PlanTaskScrutinyResult? _capturedTaskScrutinyResult;
+    private string?                 _capturedTaskScrutinyResultError;
     private string?                 _decomposeIterationBaselineCommit;
     private string?                 _decomposeContinuationTaskId;
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
@@ -9147,7 +9149,7 @@ public partial class MainWindow : Window
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
             broker: _broker,
-            onOpenCommit: sha => _ = OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{sha}"))
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -9182,6 +9184,17 @@ public partial class MainWindow : Window
     private void CaptureExecutingPlanStepResult(string? rawResponse)
     {
         if (_activeDecomposeGroupId is null) return;
+
+        if (PlanTaskScrutinyResultParser.TryParse(rawResponse, out var scrutinyResult, out var scrutinyError))
+        {
+            _capturedTaskScrutinyResult = scrutinyResult;
+            _capturedTaskScrutinyResultError = null;
+        }
+        else
+        {
+            _capturedTaskScrutinyResult = null;
+            _capturedTaskScrutinyResultError = scrutinyError;
+        }
 
         // Try to capture a validation result first
         if (PlanValidationResultParser.TryParse(rawResponse, out var valResult, out var valError))
@@ -9258,8 +9271,33 @@ public partial class MainWindow : Window
         _capturedDecomposeStepResultError = null;
         _capturedValidationResult = null;
         _capturedValidationResultError = null;
+        _capturedTaskScrutinyResult = null;
+        _capturedTaskScrutinyResultError = null;
 
         var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExec?.ActiveScrutinyTaskId is { } scrutinyTaskId)
+        {
+            var pending = activeExec.PendingTaskScrutiny
+                ?? throw new InvalidOperationException($"Task {scrutinyTaskId} has no persisted candidate handoff to scrutinize.");
+            var plan = _planStore?.Load(_activeDecomposeGroupId)
+                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} could not be loaded for scrutiny.");
+            var task = plan.Tasks.FirstOrDefault(candidate =>
+                string.Equals(candidate.TaskId, scrutinyTaskId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing scrutiny task {scrutinyTaskId}.");
+            var candidate = JsonSerializer.Deserialize<DecomposeStepResult>(pending.CandidateResultJson)
+                ?? throw new InvalidDataException($"Task {scrutinyTaskId} has an unreadable candidate result.");
+            var diffSummary = await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
+            return PlanTaskScrutinyPromptBuilder.Build(
+                plan,
+                task,
+                candidate,
+                pending.BaselineCommit,
+                pending.ChangedFiles,
+                diffSummary.Trim());
+        }
+
         if (activeExec?.ActiveValidationId is { } activeValidationId)
         {
             var plan = _planStore?.Load(_activeDecomposeGroupId)
@@ -9489,7 +9527,34 @@ public partial class MainWindow : Window
                 JsonSerializer.Serialize(currentTask.ProofRequirements);
         }
 
-        var contexts = new[] { continuationContext, assessedRecoveryContext, routingContext, proofContext }
+        string? planExecutionContext = null;
+        if (durablePlan is not null)
+        {
+            var durableTask = durablePlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, currentTaskId, StringComparison.Ordinal));
+            if (durableTask is not null)
+            {
+                var projectionPath = PlanExecutionProjectionWriter.Write(
+                    _conversationManager.ConversationStore.GetWorkspaceStateDirectory(
+                        _currentWorkspace.FolderPath),
+                    durablePlan);
+                planExecutionContext = PlanExecutionContextBuilder.Build(durablePlan, durableTask) +
+                    $"\n\nGenerated plan projection: `{projectionPath}`. The context above is authoritative for this turn; " +
+                    "the projection is an inspectable plan-only reference and tasks.md is not an execution source.";
+            }
+        }
+
+        string? scrutinyReworkContext = null;
+        if (!string.IsNullOrWhiteSpace(execution.ScrutinyReworkInstructions))
+        {
+            scrutinyReworkContext =
+                "## Bounded scrutiny rework\n\nThe independent scrutiny pass found the following missing or overstated work. " +
+                "Correct only these findings, then return a fresh complete task handoff:\n" +
+                execution.ScrutinyReworkInstructions;
+        }
+
+        var contexts = new[]
+            { planExecutionContext, continuationContext, assessedRecoveryContext, scrutinyReworkContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         return string.Join("\n\n", contexts);
     }
@@ -9544,8 +9609,15 @@ public partial class MainWindow : Window
 
         var groupId = _activeDecomposeGroupId;
 
-        // Handle validation turn finalization if a validation is in progress
+        // Candidate task work is scrutinized before it can become accepted plan progress.
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution?.ActiveScrutinyTaskId is { } activeScrutinyTaskId)
+        {
+            await FinalizeTaskScrutinyTurnAsync(groupId, activeScrutinyTaskId, activeExecution);
+            return;
+        }
+
+        // Handle validation turn finalization if a validation is in progress
         if (activeExecution?.ActiveValidationId is { } activeValId)
         {
             await FinalizeValidationTurnAsync(groupId, activeValId);
@@ -9912,6 +9984,64 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (result.Status == "complete")
+        {
+            var baseline = activeExecution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit;
+            if (string.IsNullOrWhiteSpace(baseline))
+            {
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    "SquadDash could not start independent scrutiny because the task baseline commit is missing.",
+                    taskCommitEvidence);
+                return;
+            }
+
+            var changedOutput = await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                $"diff --name-only \"{baseline}\"..\"{result.Commit}\"");
+            var changedFiles = changedOutput
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var pendingScrutiny = new PendingTaskScrutiny(
+                groupId,
+                taskId,
+                revision,
+                JsonSerializer.Serialize(result),
+                baseline,
+                changedFiles,
+                DateTimeOffset.UtcNow);
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with
+                {
+                    PendingTaskScrutiny = pendingScrutiny,
+                    ActiveScrutinyTaskId = taskId,
+                    ScrutinyReworkInstructions = null,
+                    ScrutinyEnvelopeRepairCount = 0,
+                });
+
+            var scrutinyPlan = _planStore?.Load(groupId);
+            if (scrutinyPlan is not null)
+            {
+                var updated = PlanStoreUpdater.ApplyTaskScrutinyStarted(
+                    scrutinyPlan, taskId, result, changedFiles);
+                if (!TryPublishPlanProgress(updated, out var scrutinyProgressError))
+                {
+                    StopAndOfferDecomposeRecovery(
+                        groupId, taskId, revision,
+                        "The candidate work was committed, but SquadDash could not persist its scrutiny state: " +
+                        scrutinyProgressError,
+                        taskCommitEvidence);
+                    return;
+                }
+            }
+
+            ScheduleDecomposeSystemEntry(
+                $"🔎 Scrutinizing candidate work for \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
+                "The task is not complete until its claims, production wiring, and tests are independently checked.");
+            return;
+        }
+
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out error))
         {
             _CodeHealthGroupRunner.MarkCurrentStepFailed();
@@ -9969,6 +10099,7 @@ public partial class MainWindow : Window
         {
             SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
+            PublishPlanCompletionSummary(durableAfterAcceptance);
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
         }
         else if (state is DecomposeGroupExecutionState.Eligible or
@@ -9980,6 +10111,218 @@ public partial class MainWindow : Window
                 await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, plan);
             }
         }
+    }
+
+    private async Task FinalizeTaskScrutinyTurnAsync(
+        string groupId,
+        string taskId,
+        ActiveLoopExecutionState activeExecution)
+    {
+        if (_planStore is null || _CodeHealthGroupRunner is null || _currentWorkspace is null)
+            return;
+
+        var pending = activeExecution.PendingTaskScrutiny;
+        var candidate = pending is null
+            ? null
+            : JsonSerializer.Deserialize<DecomposeStepResult>(pending.CandidateResultJson);
+        var scrutiny = _capturedTaskScrutinyResult;
+        var scrutinyError = _capturedTaskScrutinyResultError;
+        _capturedTaskScrutinyResult = null;
+        _capturedTaskScrutinyResultError = null;
+
+        if (pending is null || candidate is null)
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId, taskId, activeExecution.DecomposeRevision ?? string.Empty,
+                "SquadDash lost the candidate handoff required for independent scrutiny.");
+            return;
+        }
+
+        if (scrutiny is not null &&
+            (!string.Equals(scrutiny.PlanId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(scrutiny.TaskId, taskId, StringComparison.Ordinal) ||
+             !string.Equals(scrutiny.Revision, pending.Revision, StringComparison.Ordinal) ||
+             !string.Equals(scrutiny.EvaluatedCommit, candidate.Commit, StringComparison.OrdinalIgnoreCase)))
+        {
+            scrutinyError = "The scrutiny response did not match the active plan, task, revision, and candidate commit.";
+            scrutiny = null;
+        }
+
+        if (scrutiny is null)
+        {
+            if (activeExecution.ScrutinyEnvelopeRepairCount < 1)
+            {
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with
+                    {
+                        ScrutinyEnvelopeRepairCount = 1,
+                    });
+                ScheduleDecomposeSystemEntry(
+                    "⚙ The scrutiny response was incomplete. SquadDash will request the structured scrutiny report once more without rerunning task work. " +
+                    $"Technical detail: {scrutinyError ?? "missing result"}");
+                return;
+            }
+
+            scrutiny = new PlanTaskScrutinyResult(
+                groupId,
+                taskId,
+                pending.Revision,
+                candidate.Commit ?? string.Empty,
+                PlanTaskScrutinyVerdict.HumanReviewRequired,
+                "Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair.",
+                [],
+                [scrutinyError ?? "Missing scrutiny result."],
+                "Test adequacy could not be independently classified.",
+                []);
+        }
+
+        var plan = _planStore.Load(groupId);
+        if (plan is null) return;
+        var nextScrutinyAction = PlanTaskScrutinyRecoveryPolicy.Resolve(
+            scrutiny.Verdict,
+            activeExecution.ScrutinyReworkCount);
+        var automaticReworkAvailable =
+            nextScrutinyAction == PlanTaskScrutinyNextAction.AutomaticRework;
+        var reviewedPlan = PlanStoreUpdater.ApplyTaskScrutinyResult(
+            plan,
+            taskId,
+            scrutiny,
+            automaticReworkAvailable);
+        if (!TryPublishPlanProgress(reviewedPlan, out var progressError))
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId, taskId, pending.Revision,
+                "SquadDash could not persist the scrutiny verdict: " + progressError);
+            return;
+        }
+
+        if (nextScrutinyAction == PlanTaskScrutinyNextAction.Accept)
+        {
+            var cleared = activeExecution with
+            {
+                PendingTaskScrutiny = null,
+                ActiveScrutinyTaskId = null,
+                ScrutinyReworkInstructions = null,
+                ScrutinyReworkCount = 0,
+                ScrutinyEnvelopeRepairCount = 0,
+            };
+            _conversationManager.UpdateActiveLoopExecutionState(cleared);
+            ScheduleDecomposeSystemEntry(
+                $"✅ Scrutiny accepted \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". {scrutiny.Summary}");
+            await AcceptScrutinizedTaskAsync(groupId, taskId, pending.Revision, candidate, cleared);
+            return;
+        }
+
+        if (automaticReworkAvailable)
+        {
+            var instructions = scrutiny.ReworkInstructions.Count > 0
+                ? string.Join("\n", scrutiny.ReworkInstructions.Select(item => "- " + item))
+                : string.Join("\n", scrutiny.MissingOrOverstatedWork.Select(item => "- " + item));
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with
+                {
+                    PendingTaskScrutiny = null,
+                    ActiveScrutinyTaskId = null,
+                    ScrutinyReworkCount = activeExecution.ScrutinyReworkCount + 1,
+                    ScrutinyReworkInstructions = instructions,
+                    ScrutinyEnvelopeRepairCount = 0,
+                });
+            ScheduleDecomposeSystemEntry(
+                $"⚠ Scrutiny found missing or overstated work in \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
+                "SquadDash is starting the one permitted automatic rework.\n\n" + instructions);
+            return;
+        }
+
+        _conversationManager.UpdateActiveLoopExecutionState(
+            activeExecution with { ActiveScrutinyTaskId = null });
+        var discrepancies = scrutiny.MissingOrOverstatedWork.Count == 0
+            ? "- The evidence was inconclusive."
+            : string.Join("\n", scrutiny.MissingOrOverstatedWork.Select(item => "- " + item));
+        var humanReviewReason =
+            $"Independent scrutiny requires human review. SquadDash will not start another automatic correction. " +
+            $"Scrutiny summary: {scrutiny.Summary} Missing or overstated work: {discrepancies} " +
+            $"Test assessment: {scrutiny.TestAssessment}";
+        var commitEvidence = new PlanTaskCommitEvidence(
+            taskId,
+            candidate.ExecutionAttemptId,
+            pending.BaselineCommit,
+            candidate.Commit ?? string.Empty,
+            candidate.Summary,
+            candidate.Verification);
+        StopAndOfferDecomposeRecovery(
+            groupId,
+            taskId,
+            pending.Revision,
+            humanReviewReason,
+            commitEvidence);
+    }
+
+    private async Task AcceptScrutinizedTaskAsync(
+        string groupId,
+        string taskId,
+        string revision,
+        DecomposeStepResult result,
+        ActiveLoopExecutionState activeExecution)
+    {
+        if (_CodeHealthGroupRunner is null || _planStore is null) return;
+        if (!_CodeHealthGroupRunner.ApplyStepResult(result, out var error))
+        {
+            StopAndOfferDecomposeRecovery(groupId, taskId, revision,
+                error ?? "The scrutinized result could not be applied.");
+            return;
+        }
+
+        _conversationManager.UpdateActiveLoopExecutionState(
+            activeExecution with
+            {
+                PlanExecutionAttempt = activeExecution.PlanExecutionAttempt is { } attempt
+                    ? attempt with { Status = "accepted" }
+                    : null,
+            });
+        LoadTasksPanel();
+        var state = TrackFirstEligiblePlanStep(groupId);
+        if (!TryPublishPlanStepAccepted(groupId, state, result, out var persistenceError))
+        {
+            StopAndOfferDecomposeRecovery(
+                groupId, taskId, revision,
+                "SquadDash accepted the scrutinized commit but could not durably record plan progress: " +
+                (persistenceError ?? "unknown persistence failure"));
+            return;
+        }
+
+        var durable = _planStore.Load(groupId);
+        var readyValidation = durable is null ? null : PlanValidationScheduler.SelectNextSchedulable(durable);
+        if (readyValidation is not null)
+        {
+            ActivateValidationForNextIteration(groupId, durable!, readyValidation);
+            return;
+        }
+        if (state == DecomposeGroupExecutionState.Complete &&
+            durable?.LifecycleStatus == PlanLifecycleStatus.Completed)
+        {
+            SuppressLoopResume("plan-complete");
+            _loopController.RequestStop();
+            PublishPlanCompletionSummary(durable);
+            ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash scrutinized and accepted every task result.");
+        }
+        else if (state is DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.AwaitingApproval &&
+                 durable is not null)
+        {
+            await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, durable);
+        }
+    }
+
+    private void PublishPlanCompletionSummary(Plan plan)
+    {
+        if (_inboxStore is null) return;
+        var message = PlanCompletionSummaryBuilder.Build(plan);
+        _inboxStore.Save(message);
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        Dispatcher.BeginInvoke(() =>
+        {
+            CoordinatorThread.Document.Blocks.Add(BuildInboxIndicatorParagraph(message.Id));
+            OutputTextBox.ScrollToEnd();
+        }, DispatcherPriority.Background);
     }
 
     private DecomposeGroupExecutionState TrackFirstEligiblePlanStep(string groupId)
@@ -10154,6 +10497,7 @@ public partial class MainWindow : Window
             {
                 SuppressLoopResume("plan-complete");
                 _loopController.RequestStop();
+                PublishPlanCompletionSummary(resultingPlan);
                 ScheduleDecomposeSystemEntry(
                     $"✅ Validation passed: {validationId} — {valResult.Summary}\n\n" +
                     $"Plan {groupId} completed. SquadDash verified every required task and contract validation.");
@@ -10575,7 +10919,7 @@ public partial class MainWindow : Window
             onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
             requestVersion: clickToken.RequestVersion,
             onOpenPlan: () => OpenPlanFromStore(plan),
-            onOpenCommit: sha => _ = OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{sha}"));
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
         {
@@ -11401,11 +11745,11 @@ public partial class MainWindow : Window
                 var commitLink = new Hyperlink(new Run(shortCommit))
                 {
                     Cursor = Cursors.Hand,
-                    ToolTip = "Open this commit in the internal diff viewer",
+                    ToolTip = "Open this commit on GitHub",
                 };
                 commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                 commitLink.Click += async (_, _) =>
-                    await OpenExternalLinkWithCommitCheckAsync($"app://commit-diff:{commitEvidence.Commit}");
+                    await OpenCommitWithRemoteCheckAsync(commitEvidence.Commit);
                 commitParagraph.Inlines.Add(commitLink);
                 commitParagraph.Inlines.Add(new Run($" — {commitEvidence.Summary}"));
                 blocks.Add(commitParagraph);
@@ -41013,7 +41357,8 @@ public partial class MainWindow : Window
                             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
                             initialFontSize:   _inboxFontSize,
                             onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
-                            openDecomposePlan: OpenDecomposePlanAttachment);
+                            openDecomposePlan: OpenDecomposePlanAttachment,
+                            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
                         win.Owner = this;
                         _openInboxWindows.Add(win);
                         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -42594,7 +42939,8 @@ public partial class MainWindow : Window
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
-            openDecomposePlan: OpenDecomposePlanAttachment);
+            openDecomposePlan: OpenDecomposePlanAttachment,
+            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -42639,7 +42985,8 @@ public partial class MainWindow : Window
             onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
-            openDecomposePlan: OpenDecomposePlanAttachment);
+            openDecomposePlan: OpenDecomposePlanAttachment,
+            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -47140,6 +47487,20 @@ public partial class MainWindow : Window
         }
 
         _squadCliAdapter.OpenExternalLink(url);
+    }
+
+    private async Task OpenCommitWithRemoteCheckAsync(string sha)
+    {
+        if (string.IsNullOrWhiteSpace(sha)) return;
+        if (_workspaceGitHubUrl is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Open Commit",
+                "SquadDash could not find a GitHub remote for this workspace, so this commit cannot be opened in the browser.");
+            return;
+        }
+
+        await OpenExternalLinkWithCommitCheckAsync($"{_workspaceGitHubUrl}/commit/{sha}");
     }
 
     private async Task<bool> IsCommitOnRemoteAsync(string sha)

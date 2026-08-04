@@ -41,20 +41,12 @@ Example actions array:
 
 You are Argus Weld executing the single approved plan identified here: [**FILTER**]
 
-Read the `tasks.md` file in the configured Squad folder. Work only on a task belonging to this exact
-decompose group. Never select an unrelated unchecked task, even if this plan is blocked.
-Read the plan revision from the decompose-group header or its adjacent `decompose-revision` metadata.
-SquadDash owns every task status marker:
-do not edit, stage, or commit `tasks.md`.
+SquadDash has already selected the exact dependency-eligible task and supplies its approved contract,
+plan intent, revision, and upstream handoffs in this turn's host context. Do not scan or select work
+from `tasks.md`; it is a compatibility projection, not the execution source. Work only on the exact
+host-assigned task. SquadDash owns every task status marker: do not edit, stage, or commit `tasks.md`.
 
-Find the subtask for this group where:
-- status is `- [ ]` (pending) AND
-- all IDs in `dependsOn` are `[x]` (complete)
-
-**If no eligible step exists:** do not choose another task. Explain the persisted state and emit a
-failed `DECOMPOSE_STEP_RESULT_JSON` for the task ID SquadDash assigned in this prompt context.
-
-**If an eligible step is found:**
+For the assigned task:
 
 1. Implement the step fully and correctly.
 2. Commit only source changes to the branch specified in the group header. Never stage `tasks.md`.
@@ -72,7 +64,7 @@ DECOMPOSE_STEP_RESULT_JSON:
   "executionAttemptId": "host-supplied attempt ID for assigned tasks",
   "status": "complete",
   "commit": "full or short Git commit SHA",
-  "summary": "concise description of the completed work",
+  "summary": "concise first-person handoff explaining what was changed and how it connects to the supplied upstream work and plan intent",
   "remainingWork": [],
   "verification": {
     "status": "passed",

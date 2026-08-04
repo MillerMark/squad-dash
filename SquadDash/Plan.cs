@@ -31,6 +31,9 @@ internal static class PlanTaskStatus
 {
     internal const string Pending    = "pending";
     internal const string Executing  = "executing";
+    internal const string Scrutinizing = "scrutinizing";
+    internal const string Reworking = "reworking";
+    internal const string HumanReviewRequired = "human-review-required";
     internal const string Complete   = "complete";
     internal const string Partial    = "partial";
     internal const string Failed     = "failed";
@@ -116,6 +119,35 @@ internal sealed record PlanTaskProofEvidence(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                 IReadOnlyList<string>? Artifacts = null);
 
+/// <summary>
+/// The worker's durable account of what it changed.  This is candidate evidence until an
+/// independent scrutiny pass accepts it; it is not itself proof that the task is complete.
+/// </summary>
+internal sealed record PlanTaskHandoff(
+    [property: JsonPropertyName("commit")] string Commit,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("changedFiles")] IReadOnlyList<string> ChangedFiles,
+    [property: JsonPropertyName("verification")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                DecomposeStepVerification? Verification,
+    [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt);
+
+internal sealed record PlanTaskScrutinyFinding(
+    [property: JsonPropertyName("claim")] string Claim,
+    [property: JsonPropertyName("disposition")] string Disposition,
+    [property: JsonPropertyName("evidence")] string Evidence);
+
+/// <summary>An immutable independent review of one candidate task handoff.</summary>
+internal sealed record PlanTaskScrutinyReport(
+    [property: JsonPropertyName("verdict")] string Verdict,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("claimFindings")] IReadOnlyList<PlanTaskScrutinyFinding> ClaimFindings,
+    [property: JsonPropertyName("missingOrOverstatedWork")] IReadOnlyList<string> MissingOrOverstatedWork,
+    [property: JsonPropertyName("testAssessment")] string TestAssessment,
+    [property: JsonPropertyName("reworkInstructions")] IReadOnlyList<string> ReworkInstructions,
+    [property: JsonPropertyName("evaluatedCommit")] string EvaluatedCommit,
+    [property: JsonPropertyName("completedAt")] DateTimeOffset CompletedAt);
+
 /// <summary>Immutable task entry inside a Plan.</summary>
 internal sealed record PlanTask(
     [property: JsonPropertyName("taskId")]      string TaskId,
@@ -167,7 +199,13 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null,
     [property: JsonPropertyName("provenanceChain")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                ProofProvenanceChain? ProvenanceChain = null);
+                                                ProofProvenanceChain? ProvenanceChain = null,
+    [property: JsonPropertyName("handoff")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                PlanTaskHandoff? Handoff = null,
+    [property: JsonPropertyName("scrutinyHistory")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskScrutinyReport>? ScrutinyHistory = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

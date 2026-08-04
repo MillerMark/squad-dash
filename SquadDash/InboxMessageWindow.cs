@@ -31,6 +31,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Grid _rootGrid;
     private readonly ContentControl _preflightRecoveryHost;
     private DispatcherTimer? _preflightPollTimer;
+    private DispatcherTimer? _relativeTimeTimer;
     private readonly Action? _onMarkedRead;
     private readonly Action? _onMarkedUnread;
     private readonly Action? _onRepliedInChat;
@@ -49,7 +50,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action? onRepliedInChat = null,
         double initialFontSize = 14,
         Action<double>? onFontSizeChanged = null,
-        Action<InboxAttachment>? openDecomposePlan = null)
+        Action<InboxAttachment>? openDecomposePlan = null,
+        Action<string>? openCommit = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -195,6 +197,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         // ── Body ──────────────────────────────────────────────────────────────
         var doc = MarkdownFlowDocumentBuilder.Build(message.Body ?? string.Empty, _bodyFontSize);
+        _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
+        InboxCommitLinkPresenter.Attach(doc, openCommit);
 
         _bodyViewer = new FlowDocumentScrollViewer
         {
@@ -230,6 +234,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         DataObject.AddCopyingHandler(_bodyViewer, OnFlowDocumentCopying);
 
         _bodyViewer.PreviewMouseWheel += OnBodyViewerPreviewMouseWheel;
+        Closed += (_, _) => _relativeTimeTimer?.Stop();
 
         var bodyBorder = new Border
         {
@@ -504,6 +509,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private void RebuildDocument()
     {
         var doc = MarkdownFlowDocumentBuilder.Build(_message.Body ?? string.Empty, _bodyFontSize);
+        _relativeTimeTimer?.Stop();
+        _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         _bodyViewer.Document = doc;
     }
 
@@ -1048,6 +1055,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
     {
         // Replace body document
         var doc = MarkdownFlowDocumentBuilder.Build(updatedMessage.Body ?? string.Empty, _bodyFontSize);
+        _relativeTimeTimer?.Stop();
+        _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         _bodyViewer.Document = doc;
 
         // Replace action buttons

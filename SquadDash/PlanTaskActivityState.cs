@@ -9,6 +9,12 @@ internal enum PlanTaskActivityState
     /// <summary>Task is actively executing (spinner indicator).</summary>
     Executing,
 
+    /// <summary>Candidate work is being independently checked before acceptance.</summary>
+    Scrutinizing,
+
+    /// <summary>A single bounded automatic correction is in progress.</summary>
+    Reworking,
+
     /// <summary>Task is queued or delayed, waiting to start (non-spinning indicator).</summary>
     Queued,
 

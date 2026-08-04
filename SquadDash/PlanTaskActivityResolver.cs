@@ -63,6 +63,15 @@ internal static class PlanTaskActivityResolver
         if (task.Status is PlanTaskStatus.Failed)
             return PlanTaskActivityState.Blocked;
 
+        if (task.Status is PlanTaskStatus.HumanReviewRequired)
+            return PlanTaskActivityState.AwaitingApproval;
+
+        if (task.Status is PlanTaskStatus.Scrutinizing)
+            return PlanTaskActivityState.Scrutinizing;
+
+        if (task.Status is PlanTaskStatus.Reworking)
+            return PlanTaskActivityState.Reworking;
+
         // The progress projection is the authoritative single-task fallback during
         // restart convergence, when the task row can briefly remain Pending.
         if (task.Status is PlanTaskStatus.Executing ||

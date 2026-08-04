@@ -1370,7 +1370,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var durableTask = durablePlan?.Tasks.FirstOrDefault(t =>
                 string.Equals(t.TaskId, task.Id, StringComparison.Ordinal));
             var isTaskExecuting = taskActivityById.TryGetValue(task.Id, out var activityState) &&
-                                  activityState == PlanTaskActivityState.Executing;
+                                  activityState is PlanTaskActivityState.Executing or
+                                      PlanTaskActivityState.Scrutinizing or
+                                      PlanTaskActivityState.Reworking;
             var prereqLines = task.DependsOn.Count == 0
                 ? ["None — this task can start immediately."]
                 : task.DependsOn.Select(id =>
@@ -1386,6 +1388,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskStatus.Superseded => "✓ ",
                 PlanTaskStatus.Failed     => "✖ ",
                 PlanTaskStatus.Partial    => "~ ",
+                PlanTaskStatus.HumanReviewRequired => "! ",
                 _                        => null,
             };
             string? statusChipFgKey = durableTask?.Status switch
@@ -1395,6 +1398,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskStatus.Executing  => "ActivePanelTitle",
                 PlanTaskStatus.Failed     => "PriorityHigh",
                 PlanTaskStatus.Partial    => "PriorityMid",
+                PlanTaskStatus.HumanReviewRequired => "PriorityHigh",
                 _                        => null,
             };
             string borderColorKey = durableTask?.Status switch
@@ -1402,6 +1406,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "PriorityLow",
                 PlanTaskStatus.Executing  => "ActivePanelBorder",
+                PlanTaskStatus.Scrutinizing => "ActivePanelBorder",
+                PlanTaskStatus.Reworking => "PriorityMid",
+                PlanTaskStatus.HumanReviewRequired => "PriorityHigh",
                 PlanTaskStatus.Failed     => "PriorityHigh",
                 PlanTaskStatus.Partial    => "PriorityMid",
                 _                        => "PanelBorder",
@@ -1427,9 +1434,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 2, 0),
-                    AccentColor = ResolvePlanSpinnerColor(),
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "This task is actively receiving work from one or more agents."),
+                    AccentColor = activityState == PlanTaskActivityState.Reworking
+                        ? ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange)
+                        : ResolvePlanSpinnerColor(),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(activityState switch
+                    {
+                        PlanTaskActivityState.Scrutinizing =>
+                            "SquadDash is independently checking the candidate work and looking for missing or overstated claims.",
+                        PlanTaskActivityState.Reworking =>
+                            "The task is receiving its one bounded automatic correction.",
+                        _ => "This task is actively receiving work from one or more agents.",
+                    }),
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
                 Grid.SetColumn(spinner, 0);
@@ -1488,7 +1503,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     IsEnabled = _onOpenCommit is not null,
                     ToolTip = _onOpenCommit is null
                         ? null
-                        : ToolTipHelper.MakeThemedToolTip("Open this commit in the internal diff viewer"),
+                        : ToolTipHelper.MakeThemedToolTip("Open this commit on GitHub"),
                 };
                 commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                 if (_onOpenCommit is not null)
@@ -2500,6 +2515,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
             spinner.SetContinuousActive(true);
+            spinner.RenderTransform = new TranslateTransform(-1, 0);
             _validationSpinnersById[validationId] = spinner;
             grid.Children.Add(spinner);
         }
@@ -2515,6 +2531,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (Application.Current?.TryFindResource("ActivePanelTitle") is SolidColorBrush brush)
             return brush.Color;
         return Colors.SteelBlue;
+    }
+
+    private static Color ResolvePlanActivityColor(string resourceKey, Color fallback)
+    {
+        if (Application.Current?.TryFindResource(resourceKey) is SolidColorBrush brush)
+            return brush.Color;
+        return fallback;
     }
 
     private static ToolTip BuildValidationToolTip(

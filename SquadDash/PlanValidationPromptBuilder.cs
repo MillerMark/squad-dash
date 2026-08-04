@@ -136,8 +136,9 @@ internal static class PlanValidationPromptBuilder
         foreach (var task in completedTasks)
         {
             sb.Append($"- **{task.TaskId}** ({task.Title ?? task.TaskId})");
-            if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
-                sb.Append($": {Truncate(task.CompletionSummary, 200)}");
+            var handoffSummary = task.Handoff?.Summary ?? task.CompletionSummary;
+            if (!string.IsNullOrWhiteSpace(handoffSummary))
+                sb.Append($": {Truncate(handoffSummary, 200)}");
             sb.AppendLine();
             if (task.Outputs is { Count: > 0 })
             {
@@ -157,6 +158,11 @@ internal static class PlanValidationPromptBuilder
                     foreach (var artifact in evidence?.Artifacts ?? [])
                         sb.AppendLine($"    Artifact: `{artifact}`");
                 }
+            }
+            if (task.ScrutinyHistory is { Count: > 0 })
+            {
+                var latest = task.ScrutinyHistory[^1];
+                sb.AppendLine($"  - Independent scrutiny `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
         sb.AppendLine();
@@ -192,8 +198,9 @@ internal static class PlanValidationPromptBuilder
         foreach (var task in relevantTasks)
         {
             sb.Append($"- **{task.TaskId}** ({task.Title ?? task.TaskId}) — status: {task.Status}");
-            if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
-                sb.Append($"\n  Summary: {Truncate(task.CompletionSummary, 300)}");
+            var handoffSummary = task.Handoff?.Summary ?? task.CompletionSummary;
+            if (!string.IsNullOrWhiteSpace(handoffSummary))
+                sb.Append($"\n  Handoff: {Truncate(handoffSummary, 300)}");
             if (!string.IsNullOrWhiteSpace(task.Commit))
                 sb.Append($"\n  Commit: `{task.Commit}`");
             sb.AppendLine();
@@ -201,6 +208,11 @@ internal static class PlanValidationPromptBuilder
             {
                 foreach (var output in task.Outputs)
                     sb.AppendLine($"  - Output `{output.OutputId}`: {output.Description}");
+            }
+            if (task.ScrutinyHistory is { Count: > 0 })
+            {
+                var latest = task.ScrutinyHistory[^1];
+                sb.AppendLine($"  - Scrutiny `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
         sb.AppendLine();
