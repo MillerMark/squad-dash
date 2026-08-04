@@ -81,14 +81,6 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
                 InterruptedTaskId: taskId));
     }
 
-    private sealed class SpyPromptEnqueuer : IPromptEnqueuer
-    {
-        public List<(string Text, string? SourceTag)> EnqueuedItems { get; } = new();
-
-        public void Enqueue(string text, string? sourceTag = null) =>
-            EnqueuedItems.Add((text, sourceTag));
-    }
-
     // ── Item 1: Inbox message published on applied recovery ──────────────────
 
     [Test]
@@ -157,90 +149,6 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
         var recoveryMsg = messages.FirstOrDefault(m => m.Subject.Contains("Recovery applied"));
         Assert.That(recoveryMsg, Is.Not.Null);
         Assert.That(recoveryMsg!.Body, Does.Contain("fresh-attempt"));
-    }
-
-    // ── Item 4: Blocked decision does NOT enqueue prompts ───────────────────
-
-    [Test]
-    public void HandleRepairDecision_Blocked_DoesNotEnqueuePrompts()
-    {
-        var plan = MakePlanWithTask();
-        _planStore.Save(plan);
-
-        var spy = new SpyPromptEnqueuer();
-        var handler = new PlanRecoveryDecisionHandler(_service, _inboxStore, spy);
-
-        // First repair succeeds — prompt enqueue would happen AFTER handler returns (external)
-        var first = handler.HandleRepairDecision(plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
-        Assert.That(first.Allowed, Is.True);
-
-        // Reset spy to track only subsequent calls
-        spy.EnqueuedItems.Clear();
-
-        // Second repair is blocked
-        var blocked = handler.HandleRepairDecision(
-            plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
-
-        Assert.That(blocked.Allowed, Is.False);
-        Assert.That(spy.EnqueuedItems, Is.Empty,
-            "A blocked recovery decision must never enqueue prompts.");
-    }
-
-    [Test]
-    public void HandleFreshAttemptDecision_Blocked_DoesNotEnqueuePrompts()
-    {
-        var plan = MakePlanWithTask();
-        _planStore.Save(plan);
-
-        var spy = new SpyPromptEnqueuer();
-        var handler = new PlanRecoveryDecisionHandler(_service, _inboxStore, spy);
-
-        // First fresh-attempt succeeds
-        handler.HandleFreshAttemptDecision(plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
-        spy.EnqueuedItems.Clear();
-
-        // Second is blocked
-        var blocked = handler.HandleFreshAttemptDecision(
-            plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
-
-        Assert.That(blocked.Allowed, Is.False);
-        Assert.That(spy.EnqueuedItems, Is.Empty,
-            "A blocked fresh-attempt decision must never enqueue prompts.");
-    }
-
-    [Test]
-    public void HandleRepairDecision_Blocked_NoPromptBuildOrGeneration()
-    {
-        var plan = MakePlanWithTask();
-        _planStore.Save(plan);
-
-        var spy = new SpyPromptEnqueuer();
-        var handler = new PlanRecoveryDecisionHandler(_service, _inboxStore, spy);
-
-        // Exhaust the repair allowance
-        handler.HandleRepairDecision(plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
-        spy.EnqueuedItems.Clear();
-
-        // Attempt blocked repair — simulate what MainWindow would do: check Allowed before prompting
-        var decision = handler.HandleRepairDecision(
-            plan.PlanId, "TASK-001", "anothercommit234567890abcdef12345678901234");
-
-        // The contract: when Allowed == false, the host loop must not create repair prompts.
-        // Verify the handler itself does not enqueue anything:
-        Assert.That(decision.Allowed, Is.False);
-        Assert.That(spy.EnqueuedItems, Is.Empty,
-            "No PlanFreshAttemptPrompt.Build or repair prompt must be generated for a blocked decision.");
-
-        // Verify that calling code can rely on the Allowed flag as the authoritative gate:
-        if (!decision.Allowed)
-        {
-            // Host loop would NOT call EnqueuePrompt here — confirmed by spy being empty
-        }
-        else
-        {
-            spy.Enqueue("This should never execute", "repair");
-        }
-        Assert.That(spy.EnqueuedItems, Is.Empty);
     }
 
     // ── Item 2: Progress correction when reopening a task ───────────────────

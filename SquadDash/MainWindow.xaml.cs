@@ -27344,9 +27344,11 @@ public partial class MainWindow : Window
         _notesPanel?.Refresh(_noteItems);
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
-        _planRecoveryProvenance = new PlanRecoveryProvenanceService(_planStore);
-        _planRecoveryDecision = new PlanRecoveryDecisionHandler(_planRecoveryProvenance);
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
+        _planRecoveryProvenance = new PlanRecoveryProvenanceService(_planStore);
+        _planRecoveryDecision = new PlanRecoveryDecisionHandler(
+            _planRecoveryProvenance,
+            _inboxStore);
         RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
         if (_plansPanelVisible && _plansPanelController is not null)

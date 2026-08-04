@@ -5,15 +5,6 @@ using System.Linq;
 namespace SquadDash;
 
 /// <summary>
-/// Abstraction for the prompt queue, enabling tests to verify that blocked decisions
-/// do not enqueue prompts without depending on the concrete <see cref="PromptQueue"/>.
-/// </summary>
-internal interface IPromptEnqueuer
-{
-    void Enqueue(string text, string? sourceTag = null);
-}
-
-/// <summary>
 /// Testable decision handler that wraps <see cref="PlanRecoveryProvenanceService"/>
 /// and enforces authoritative recovery gating: callers must not advance when recovery
 /// is rejected. Extracted from MainWindow to enable host-orchestration integration testing.
@@ -22,19 +13,16 @@ internal sealed class PlanRecoveryDecisionHandler
 {
     private readonly PlanRecoveryProvenanceService _service;
     private readonly InboxStore? _inboxStore;
-    private readonly IPromptEnqueuer? _promptEnqueuer;
 
     internal PlanRecoveryDecisionHandler(PlanRecoveryProvenanceService service)
-        : this(service, inboxStore: null, promptEnqueuer: null) { }
+        : this(service, inboxStore: null) { }
 
     internal PlanRecoveryDecisionHandler(
         PlanRecoveryProvenanceService service,
-        InboxStore? inboxStore,
-        IPromptEnqueuer? promptEnqueuer = null)
+        InboxStore? inboxStore)
     {
         _service = service;
         _inboxStore = inboxStore;
-        _promptEnqueuer = promptEnqueuer;
     }
 
     /// <summary>
