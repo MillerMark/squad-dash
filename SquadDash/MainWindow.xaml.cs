@@ -348,6 +348,7 @@ public partial class MainWindow : Window
     private string? _pendingApprovalCalloutMessageId;
     private FrmUltimateCallout? _approvalAttentionCallout;
     private DeveloperApprovalSimulator? _developerApprovalSimulator;
+    private ValidationStateSimulator? _validationStateSimulator;
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
@@ -22872,6 +22873,61 @@ public partial class MainWindow : Window
         catch (Exception ex) { HandleUiCallbackException(nameof(ClearPlanApprovalSimulation_Click), ex); }
     }
 
+    private void SimulateValidationStatesStart_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_validationStateSimulator is not null)
+            {
+                // Already running — stop it
+                ClearValidationStatesSimulation();
+                SyncSimulationMenuCheckmarks();
+                return;
+            }
+            StartValidationStateSimulation();
+            SyncSimulationMenuCheckmarks();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulateValidationStatesStart_Click), ex); }
+    }
+
+    private void ClearValidationStatesSimulation_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ClearValidationStatesSimulation();
+            SyncSimulationMenuCheckmarks();
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ClearValidationStatesSimulation_Click), ex); }
+    }
+
+    private void StartValidationStateSimulation()
+    {
+        ClearValidationStatesSimulation();
+
+        var simulator = new ValidationStateSimulator(_broker, _planStore, stepIntervalMs: 2000);
+        _validationStateSimulator = simulator;
+        var plan = simulator.Start();
+
+        // Open a Plan Viewer for the simulated plan so the developer can watch the transitions live.
+        var displayedPlan = PendingDecomposePlanAdapter.FromPlan(plan);
+        OpenDecomposePlanViewer(displayedPlan, durablePlan: plan);
+    }
+
+    private void ClearValidationStatesSimulation()
+    {
+        if (_validationStateSimulator is null) return;
+        _validationStateSimulator.CleanUp();
+        _validationStateSimulator.Dispose();
+        _validationStateSimulator = null;
+
+        // Close any open Plan Viewer for the simulation plan.
+        var simWindows = _openPlanViewerWindows
+            .Where(e => string.Equals(e.GroupId, ValidationStateSimulator.PlanId, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var (_, win) in simWindows)
+            win.Close();
+    }
+
     private async Task StartDeveloperApprovalSimulationAsync(bool inboxVisible)
     {
         if (_currentWorkspace is null)
@@ -23048,6 +23104,10 @@ public partial class MainWindow : Window
                                                _developerApprovalSimulationInboxVisibleScenario == false;
         ClearPlanApprovalSimulation.IsEnabled = approvalSimulationActive ||
                                                 _inboxStore?.GetById(DeveloperApprovalSimulator.MessageId) is not null;
+
+        var validationSimActive = _validationStateSimulator is not null;
+        SimValidationStatesStart.IsChecked = validationSimActive;
+        ClearValidationStatesSimMenuItem.IsEnabled = validationSimActive;
     }
 
 

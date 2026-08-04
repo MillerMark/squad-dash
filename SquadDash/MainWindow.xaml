@@ -902,6 +902,17 @@
                                       Header="_Clear simulation"
                                       Click="ClearPlanApprovalSimulation_Click" />
                         </MenuItem>
+                        <MenuItem Header="_Validation States"
+                                  ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                            <MenuItem x:Name="SimValidationStatesStart"
+                                      Header="_Start simulation"
+                                      IsCheckable="True"
+                                      Click="SimulateValidationStatesStart_Click" />
+                            <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                            <MenuItem x:Name="ClearValidationStatesSimMenuItem"
+                                      Header="_Clear simulation"
+                                      Click="ClearValidationStatesSimulation_Click" />
+                        </MenuItem>
                         <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                         <MenuItem Header="Startup _Issue Preview"
                                   ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
