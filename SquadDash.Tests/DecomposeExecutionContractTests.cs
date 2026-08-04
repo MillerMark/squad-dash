@@ -290,7 +290,29 @@ internal sealed class DecomposeRevisionTests
             new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
             out error), Is.False);
-        Assert.That(error, Does.Contain("not currently failed or partial"));
+        Assert.That(error, Does.Contain("not currently eligible for replanning"));
+    }
+
+    [Test]
+    public void ValidateRevision_RejectsRewritingExistingPendingTaskWithoutReplacement()
+    {
+        var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
+        var rewritten = existing with
+        {
+            Tasks =
+            [
+                existing.Tasks[0],
+                existing.Tasks[1] with { Title = "Silently changed task" },
+            ],
+        };
+
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            rewritten,
+            existing,
+            new HashSet<string>(["PLAN-20260725-002"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            out var error), Is.False);
+        Assert.That(error, Does.Contain("keep existing tasks unchanged"));
     }
 
     [Test]

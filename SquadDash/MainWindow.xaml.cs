@@ -1338,7 +1338,8 @@ public partial class MainWindow : Window
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
                 foreach (var (_, window) in _openPlanViewerWindows.Where(entry =>
-                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal)).ToArray())
+                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal) &&
+                             string.Equals(entry.Window.CurrentRevision, evt.UpdatedPlan.Revision, StringComparison.Ordinal)).ToArray())
                 {
                     window.RefreshPlan(
                         PendingDecomposePlanAdapter.FromPlan(evt.UpdatedPlan),
@@ -8224,52 +8225,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var hasReplacementTasks = group.Tasks.Any(task => !string.IsNullOrWhiteSpace(task.ParentTaskId));
-        if (hasReplacementTasks)
+        if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out _, out var persistedRevisionError))
         {
-            var tasksPath = Path.Combine(_currentWorkspace!.SquadFolderPath, "tasks.md");
-            var persisted = File.Exists(tasksPath)
-                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                : null;
-            if (persisted?.Errors.Count > 0)
-            {
-                AppendLine($"⚠ Could not stage revised plan {group.GroupId}: " +
-                           string.Join("; ", persisted.Errors));
-                QueueDecomposeRepair("The current tasks.md projection is invalid: " +
-                                     string.Join("; ", persisted.Errors));
-                return;
-            }
-            if (persisted is null || !persisted.DecomposeGroups.TryGetValue(group.GroupId, out var existingGroup))
-            {
-                AppendLine($"⚠ Could not stage revised plan {group.GroupId}: its existing approved plan was not found.");
-                QueueDecomposeRepair(
-                    $"The existing approved plan '{group.GroupId}' was not found, so replacement tasks cannot be staged.");
-                return;
-            }
-
-            var groupItems = persisted.OpenGroups.SelectMany(priorityGroup => priorityGroup.Items)
-                .Concat(persisted.CompletedItems)
-                .Where(item => string.Equals(item.DecomposeGroupId, group.GroupId, StringComparison.Ordinal))
-                .ToArray();
-            var blockedIds = groupItems
-                .Where(item => item.TaskId is not null && (item.IsFailed || item.IsPartial))
-                .Select(item => item.TaskId!)
-                .ToHashSet(StringComparer.Ordinal);
-            var completedIds = groupItems
-                .Where(item => item.TaskId is not null && item.IsChecked)
-                .Select(item => item.TaskId!)
-                .ToHashSet(StringComparer.Ordinal);
-            if (!DecomposePlanRevision.TryValidateAgainstPersisted(
-                    group,
-                    existingGroup,
-                    blockedIds,
-                    completedIds,
-                    out var persistedRevisionError))
-            {
-                AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {persistedRevisionError}");
-                QueueDecomposeRepair(persistedRevisionError);
-                return;
-            }
+            AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {persistedRevisionError}");
+            QueueDecomposeRepair(persistedRevisionError);
+            return;
         }
 
         if (!DecomposePlanRevision.TryNormalize(group, out var normalizedGroup, out var revisionError))
@@ -8303,6 +8263,86 @@ public partial class MainWindow : Window
             SaveDecomposePlanInboxReminder(plan, explicitlyRequested: true);
         else
             AppendPendingDecomposeApproval(plan, ownerView);
+    }
+
+    private bool TryValidateDecomposeRevisionAgainstWorkspace(
+        DecomposedTaskGroup proposal,
+        out bool isRevision,
+        out string? error)
+    {
+        isRevision = false;
+        error = null;
+        if (_currentWorkspace is null)
+        {
+            error = "No workspace is open.";
+            return false;
+        }
+
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var hasReplacementTasks = proposal.Tasks.Any(task =>
+            !string.IsNullOrWhiteSpace(task.ParentTaskId));
+        var hasPersistedGroup = File.Exists(tasksPath) && File.ReadAllText(tasksPath).Contains(
+            $"<!-- decompose-group: {proposal.GroupId} |",
+            StringComparison.Ordinal);
+        isRevision = hasPersistedGroup;
+        if (!hasReplacementTasks && !hasPersistedGroup)
+            return true;
+
+        var persisted = File.Exists(tasksPath)
+            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+            : null;
+        if (persisted?.Errors.Count > 0)
+        {
+            error = "The current tasks.md projection is invalid: " + string.Join("; ", persisted.Errors);
+            return false;
+        }
+        if (persisted is null ||
+            !persisted.DecomposeGroups.TryGetValue(proposal.GroupId, out var existingGroup))
+        {
+            error = $"The existing approved plan '{proposal.GroupId}' was not found, so its revision cannot be staged.";
+            return false;
+        }
+
+        var groupItems = persisted.OpenGroups.SelectMany(priorityGroup => priorityGroup.Items)
+            .Concat(persisted.CompletedItems)
+            .Where(item => string.Equals(item.DecomposeGroupId, proposal.GroupId, StringComparison.Ordinal))
+            .ToArray();
+        var supersedableIds = groupItems
+            .Where(item => item.TaskId is not null && (item.IsFailed || item.IsPartial))
+            .Select(item => item.TaskId!)
+            .ToHashSet(StringComparer.Ordinal);
+        var completedIds = groupItems
+            .Where(item => item.TaskId is not null && item.IsChecked)
+            .Select(item => item.TaskId!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // tasks.md intentionally remains a projection. Durable execution state supplies
+        // statuses such as human-review-required and the exact interrupted task, both of
+        // which are legitimate replan boundaries but cannot be represented by markdown
+        // check-box syntax alone.
+        var durablePlan = _planStore?.Load(proposal.GroupId);
+        if (durablePlan is not null)
+        {
+            foreach (var task in durablePlan.Tasks)
+            {
+                if (task.Status is PlanTaskStatus.Failed or
+                                   PlanTaskStatus.Partial or
+                                   PlanTaskStatus.HumanReviewRequired)
+                    supersedableIds.Add(task.TaskId);
+                if (task.Status == PlanTaskStatus.Complete)
+                    completedIds.Add(task.TaskId);
+            }
+            if (durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+                !string.IsNullOrWhiteSpace(durablePlan.InterruptionData?.InterruptedTaskId))
+                supersedableIds.Add(durablePlan.InterruptionData.InterruptedTaskId!);
+        }
+
+        return DecomposePlanRevision.TryValidateAgainstPersisted(
+            proposal,
+            existingGroup,
+            supersedableIds,
+            completedIds,
+            out error);
     }
 
     private void QueueDecomposeRepair(string? validationError)
@@ -8884,11 +8924,9 @@ public partial class MainWindow : Window
         var workspace = _currentWorkspace.FolderPath;
         var effective = group with { HostRevision = plan.Revision };
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var isRevision = effective.Tasks.Any(task => !string.IsNullOrWhiteSpace(task.ParentTaskId)) &&
-                         File.Exists(tasksPath) &&
-                         File.ReadAllText(tasksPath).Contains(
-                             $"<!-- decompose-group: {group.GroupId} |",
-                             StringComparison.Ordinal);
+        if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out var isRevision, out var revisionError))
+            throw new InvalidOperationException(
+                "This revised plan no longer matches the accepted plan state. " + revisionError);
         if (action == "collect")
         {
             var collectionService = new PlanCollectionService(_planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath));
@@ -9026,7 +9064,8 @@ public partial class MainWindow : Window
 
         // If a viewer for this plan is already open, bring it to the front instead of opening another.
         var existing = _openPlanViewerWindows.FirstOrDefault(e =>
-            string.Equals(e.GroupId, groupId, StringComparison.Ordinal));
+            string.Equals(e.GroupId, groupId, StringComparison.Ordinal) &&
+            string.Equals(e.Window.CurrentRevision, plan.Revision, StringComparison.Ordinal));
         if (existing.Window is not null)
         {
             if (existing.Window.WindowState == WindowState.Minimized)
@@ -9169,7 +9208,7 @@ public partial class MainWindow : Window
         };
         _openPlanViewerWindows.Add((groupId, win));
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
-            string.Equals(e.GroupId, groupId, StringComparison.Ordinal));
+            ReferenceEquals(e.Window, win));
         win.Show();
 
         async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
@@ -11809,12 +11848,8 @@ public partial class MainWindow : Window
         if (review is not null)
         {
             AddAsyncAction(
-                "Review Completed Work",
-                "Review the committed work, changed files, test results, and downstream effects before accepting.",
-                async () => await AdoptVerifiedCommitRangeForReviewAsync(durablePlan!));
-            AddAsyncAction(
-                "Accept Commit and Continue",
-                "Accept the committed work as the task result and continue the plan.",
+                "Review & Accept Completed Work",
+                "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task.",
                 async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
         }
 
@@ -11963,18 +11998,6 @@ public partial class MainWindow : Window
             warningRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             warningParagraph.Inlines.Add(warningRun);
             blocks.Add(warningParagraph);
-        }
-    }
-
-    private async Task AdoptVerifiedCommitRangeForReviewAsync(Plan plan)
-    {
-        try
-        {
-            await AdoptVerifiedCommitRangeAsync(plan);
-        }
-        catch (Exception ex)
-        {
-            SquadDashTrace.Write("RecoveryReview", $"Review completed work failed: {ex.Message}");
         }
     }
 

@@ -24,6 +24,13 @@ internal static class DecomposePlanRevision
                 error = $"Revised plan changed completed task {existingTask.Id}.";
                 return false;
             }
+
+            if (!SameTaskContract(existingTask, proposedTask))
+            {
+                error = $"Revised plan changed existing task {existingTask.Id}; keep existing tasks unchanged " +
+                        "and add smaller replacement tasks with parentTaskId.";
+                return false;
+            }
         }
 
         foreach (var parentId in proposal.Tasks
@@ -33,7 +40,7 @@ internal static class DecomposePlanRevision
         {
             if (!blockedTaskIds.Contains(parentId))
             {
-                error = $"Task {parentId} is not currently failed or partial and cannot be superseded.";
+                error = $"Task {parentId} is not currently eligible for replanning and cannot be superseded.";
                 return false;
             }
             var existingParent = existing.Tasks.First(task => string.Equals(task.Id, parentId, StringComparison.Ordinal));

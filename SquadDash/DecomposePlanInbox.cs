@@ -117,13 +117,9 @@ internal static class DecomposePlanInbox
         if (hasCommitEvidence)
         {
             actions.Add(BuildAction(
-                "Review Completed Work",
+                "Review & Accept Completed Work",
                 "review-completed-work",
-                "Review the committed work, changed files, test results, and downstream effects before accepting."));
-            actions.Add(BuildAction(
-                "Accept Commit and Continue",
-                "review-completed-work",
-                "Accept the committed work as the task result and continue the plan."));
+                "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task."));
         }
 
         actions.Add(BuildAction(
@@ -143,8 +139,7 @@ internal static class DecomposePlanInbox
                 ? taskCommitEvidence.Commit[..7]
                 : taskCommitEvidence.Commit;
             body += $"**Committed work detected.** Commit `{shortCommit}` — {taskCommitEvidence.Summary}\n\n" +
-                    "**Review Completed Work** — inspect the commit, changed files, and test results before accepting.\n" +
-                    "**Accept Commit and Continue** — mark the task complete based on the committed evidence.\n";
+                    "**Review & Accept Completed Work** — inspect the commit, changed files, and test results, then accept it and continue if it satisfies the task.\n";
         }
 
         body += "**Assess & Continue** — AI classifies the current task as complete, partial, or not started. SquadDash validates the evidence before accepting or continuing anything.\n" +

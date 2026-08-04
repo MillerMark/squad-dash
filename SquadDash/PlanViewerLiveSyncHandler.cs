@@ -154,6 +154,8 @@ internal sealed class PlanViewerLiveSyncHandler
     private bool IsStale(Plan incoming)
     {
         if (_currentPlan is null) return false;
+        if (!string.Equals(incoming.Revision, _currentPlan.Revision, StringComparison.Ordinal))
+            return true;
         return incoming.Progress.CompletedCount < _currentPlan.Progress.CompletedCount;
     }
 

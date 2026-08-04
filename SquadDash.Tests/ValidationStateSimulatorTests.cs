@@ -167,19 +167,16 @@ internal sealed class ValidationStateSimulatorTests
     {
         var broker = CreateBroker();
         Plan? lastReceived = null;
+        using var simulator = new ValidationStateSimulator(broker, planStore: null, stepIntervalMs: 100_000);
+        var initial = simulator.Start();
         var syncHandler = new PlanViewerLiveSyncHandler(
             ValidationStateSimulator.PlanId,
-            BuildMinimalPlan(),
+            initial,
             broker,
             plan => lastReceived = plan);
 
-        using var simulator = new ValidationStateSimulator(broker, planStore: null, stepIntervalMs: 100_000);
-        simulator.Start();
-
-        Assert.That(lastReceived, Is.Not.Null);
-        Assert.That(lastReceived!.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Ready));
-
         simulator.AdvanceState(); // Ready → Validating
+        Assert.That(lastReceived, Is.Not.Null);
         Assert.That(lastReceived!.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Validating));
 
         simulator.NextResultIsFailed = false;

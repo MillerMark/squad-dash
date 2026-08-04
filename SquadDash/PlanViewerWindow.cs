@@ -49,6 +49,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
 
+    internal string? CurrentRevision => _plan?.Revision;
+
     internal PlanViewerWindow(
         PendingDecomposePlan plan,
         string? activeBranch,

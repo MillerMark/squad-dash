@@ -6,9 +6,9 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PlanViewerLiveSyncTests
 {
-    private static Plan MakePlan(string planId, int completedCount, int totalCount = 5) => new(
+    private static Plan MakePlan(string planId, int completedCount, int totalCount = 5, string revision = "rev1") => new(
         PlanId:          planId,
-        Revision:        "rev1",
+        Revision:        revision,
         Source:          PlanSource.DecomposeDecision,
         LifecycleStatus: PlanLifecycleStatus.Executing,
         Title:           "Test Plan",
@@ -175,6 +175,28 @@ internal sealed class PlanViewerLiveSyncTests
         Assert.That(received, Is.SameAs(updated),
             "Events with equal CompletedCount should apply (lifecycle may have changed).");
 
+        handler.Detach();
+    }
+
+    [Test]
+    public void RevisionFiltering_SamePlanIdDifferentRevision_IsRejected()
+    {
+        var broker = new WeakEventBroker();
+        var initial = MakePlan("PLAN-001", completedCount: 1, revision: "old-revision");
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", initial, broker,
+            plan => received = plan);
+
+        var proposedRevision = MakePlan("PLAN-001", completedCount: 0, revision: "new-revision");
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", proposedRevision));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.Null);
+            Assert.That(handler.CurrentPlan, Is.SameAs(initial));
+            Assert.That(handler.RejectedCount, Is.EqualTo(1));
+        });
         handler.Detach();
     }
 
