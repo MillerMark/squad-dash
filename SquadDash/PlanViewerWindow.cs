@@ -3134,11 +3134,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return HslToRgb(hue, ConnectorSaturation, ConnectorLightness);
     }
 
-    // Very light variant of the connector color — the glow halo shown on hover.
+    // Theme-polarity variant of the connector color — the glow halo shown on hover.
+    // Light theme: brighten toward white. Dark theme: darken toward black.
     private static Color ConnectorGlowColor(int skipCount)
     {
         var hue = (ConnectorBaseHue + skipCount * 45.0) % 360.0;
-        return HslToRgb(hue, 0.95, 0.88);
+        return AgentStatusCard.IsDarkTheme
+            ? HslToRgb(hue, 0.95, 0.20)
+            : HslToRgb(hue, 0.95, 0.88);
     }
 
     // Drop-shadow glow applied to a task node Border on hover.
