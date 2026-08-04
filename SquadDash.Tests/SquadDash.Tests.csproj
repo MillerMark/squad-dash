@@ -41,6 +41,7 @@
     <Compile Include="..\SquadDash\PlanExecutionProjectionWriter.cs" Link="Source\PlanExecutionProjectionWriter.cs" />
     <Compile Include="..\SquadDash\PlanExecutionJournal.cs" Link="Source\PlanExecutionJournal.cs" />
     <Compile Include="..\SquadDash\PlanCompletionSummaryBuilder.cs" Link="Source\PlanCompletionSummaryBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanFamilyArtifactArchiver.cs" Link="Source\PlanFamilyArtifactArchiver.cs" />
     <Compile Include="..\SquadDash\InboxRelativeTimePresenter.cs" Link="Source\InboxRelativeTimePresenter.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />

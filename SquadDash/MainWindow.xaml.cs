@@ -8261,6 +8261,13 @@ public partial class MainWindow : Window
             return;
         }
         _decomposeRepairPending = false;
+        if (IsDurablePlanArchived(group.GroupId))
+        {
+            new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).Archive(group.GroupId);
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Discarded late task-plan proposal for archived plan '{group.GroupId}'.");
+            return;
+        }
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
         var previousPlan = store.Load(group.GroupId);
         var plan = store.Save(group);
@@ -9018,6 +9025,13 @@ public partial class MainWindow : Window
         var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
         foreach (var plan in captured)
         {
+            if (IsDurablePlanArchived(plan.Group.GroupId))
+            {
+                store.Archive(plan.Group.GroupId);
+                SquadDashTrace.Write(TraceCategory.Inbox,
+                    $"Discarded bypassed proposal for archived plan '{plan.Group.GroupId}'.");
+                continue;
+            }
             if (DecomposePlanInbox.ResponseAddressesPlan(plan, rawResponse))
                 continue;
 
@@ -9031,6 +9045,14 @@ public partial class MainWindow : Window
     {
         if (_inboxStore is null)
             return;
+        if (IsDurablePlanArchived(plan.Group.GroupId))
+        {
+            if (_currentWorkspace is not null)
+                new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Archive(plan.Group.GroupId);
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"Suppressed Inbox delivery for archived plan '{plan.Group.GroupId}'.");
+            return;
+        }
         var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
         var message = DecomposePlanInbox.BuildMessage(
             plan,
@@ -10912,6 +10934,7 @@ public partial class MainWindow : Window
         }
 
         await _planApprovalRuntime.RestoreAsync(approvalPlans);
+        PruneArchivedPlanFamilyArtifacts(approvalPlans);
         ReconcileDecomposeRecoveryInboxMessages();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
@@ -44191,8 +44214,57 @@ public partial class MainWindow : Window
             AppendLine($"⚠ Plan could not be archived: {error}");
             return;
         }
+        ArchivePlanFamilyArtifacts(archived.PlanId);
         if (PlansShowArchivedCheckBox is not null)
             PlansShowArchivedCheckBox.IsChecked = true;
+    }
+
+    private bool IsDurablePlanArchived(string planId)
+    {
+        if (_currentWorkspace is null || string.IsNullOrWhiteSpace(planId))
+            return false;
+
+        _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+        return _planStore.Load(planId)?.LifecycleStatus == PlanLifecycleStatus.Archived;
+    }
+
+    private void PruneArchivedPlanFamilyArtifacts(IEnumerable<Plan> plans)
+    {
+        ArchivePlanFamilyArtifacts(plans
+            .Where(candidate => candidate.LifecycleStatus == PlanLifecycleStatus.Archived)
+            .Select(candidate => candidate.PlanId));
+    }
+
+    private void ArchivePlanFamilyArtifacts(string planId) =>
+        ArchivePlanFamilyArtifacts([planId]);
+
+    private void ArchivePlanFamilyArtifacts(IEnumerable<string> planIds)
+    {
+        if (_currentWorkspace is null || _inboxStore is null)
+            return;
+
+        var archivedPlanIds = planIds.ToHashSet(StringComparer.Ordinal);
+        if (archivedPlanIds.Count == 0)
+            return;
+
+        var archivedMessageIds = PlanFamilyArtifactArchiver.ArchiveMany(
+            archivedPlanIds,
+            new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath),
+            _inboxStore);
+        _pendingPlansAtCoordinatorTurnStart = _pendingPlansAtCoordinatorTurnStart
+            .Where(candidate => !archivedPlanIds.Contains(candidate.Group.GroupId))
+            .ToArray();
+
+        foreach (var window in _openInboxWindows
+                     .Where(window => archivedMessageIds.Contains(window.MessageId, StringComparer.Ordinal))
+                     .ToArray())
+            window.Close();
+
+        var messages = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(messages);
+        ReconcileOpenInboxWindows(messages);
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"Archived {archivedPlanIds.Count} plan family/families: retired {archivedMessageIds.Count} active Inbox artifact(s) and all pending revisions.");
     }
 
     private void RequestPlanPauseAfterCurrentStep(Plan plan)

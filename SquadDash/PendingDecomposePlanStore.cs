@@ -66,6 +66,26 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         if (File.Exists(path)) File.Delete(path);
     }
 
+    /// <summary>
+    /// Moves the current unaccepted revision out of the active pending-plan namespace.
+    /// Archived revisions remain available for diagnosis but can never be promoted or executed.
+    /// </summary>
+    internal bool Archive(string groupId)
+    {
+        var path = Path.Combine(_folder, groupId + ".json");
+        if (!File.Exists(path)) return false;
+
+        var revision = Load(groupId)?.Revision;
+        var archiveFolder = Path.Combine(_folder, "archive");
+        Directory.CreateDirectory(archiveFolder);
+        var suffix = string.IsNullOrWhiteSpace(revision)
+            ? $"unreadable-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}"
+            : revision;
+        var archivePath = Path.Combine(archiveFolder, $"{groupId}-{suffix}.json");
+        File.Move(path, archivePath, overwrite: true);
+        return true;
+    }
+
     internal IReadOnlyList<PendingDecomposePlan> LoadAll()
     {
         if (!Directory.Exists(_folder)) return [];
