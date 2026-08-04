@@ -38,6 +38,18 @@ internal static class PlanValidationPromptBuilder
         sb.AppendLine($"**Mode:** {validation.Mode}");
         sb.AppendLine();
 
+        if (string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
+        {
+            sb.AppendLine("## Completion Audit Rules");
+            sb.AppendLine();
+            sb.AppendLine("This is the plan's independent completion audit. Compare every approved task requirement " +
+                          "with the actual commit, diff, transcript evidence, and structured proof evidence. " +
+                          "Do not treat a helper, documentation, mock, or headless test as a live UI observation. " +
+                          "Do not accept a claimed proof type when its referenced artifacts demonstrate a different kind of proof. " +
+                          "Fail any assertion whose observable outcome was not genuinely exercised.");
+            sb.AppendLine();
+        }
+
         // Assertions
         sb.AppendLine("## Assertions to Evaluate");
         sb.AppendLine();
@@ -45,8 +57,12 @@ internal static class PlanValidationPromptBuilder
             sb.AppendLine($"- {assertion}");
         sb.AppendLine();
 
-        // Task outputs (compact plan-wide context)
-        AppendTaskOutputs(sb, plan, validation);
+        // Completion audits receive the full accepted plan contract; ordinary validations keep
+        // the smaller boundary-scoped context.
+        if (string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
+            sb.Append(BuildCompactPlanContext(plan));
+        else
+            AppendTaskOutputs(sb, plan, validation);
 
         // Verification commands
         if (validation.Commands is { Count: > 0 })
@@ -127,6 +143,20 @@ internal static class PlanValidationPromptBuilder
             {
                 foreach (var output in task.Outputs)
                     sb.AppendLine($"  - Output `{output.OutputId}`: {output.Description}");
+            }
+            if (task.ProofRequirements is { Count: > 0 })
+            {
+                foreach (var requirement in task.ProofRequirements)
+                {
+                    var evidence = task.ProofEvidence?.FirstOrDefault(candidate =>
+                        string.Equals(candidate.RequirementId, requirement.RequirementId, StringComparison.Ordinal));
+                    sb.AppendLine($"  - Required proof `{requirement.RequirementId}` ({requirement.ProofType}): {requirement.Description}");
+                    sb.AppendLine(evidence is null
+                        ? "    Returned evidence: MISSING"
+                        : $"    Returned evidence ({evidence.ProofType}): {evidence.Summary}");
+                    foreach (var artifact in evidence?.Artifacts ?? [])
+                        sb.AppendLine($"    Artifact: `{artifact}`");
+                }
             }
         }
         sb.AppendLine();

@@ -59,6 +59,7 @@ internal static class PlanStoreUpdater
                 Timestamps       = existing.Timestamps with
                 {
                     StartedAt = existing.Timestamps.StartedAt ?? now,
+                    LastRunAt = now,
                 },
             };
         }
@@ -76,7 +77,8 @@ internal static class PlanStoreUpdater
             Progress:        progress,
             Timestamps:      new PlanTimestamps(
                 CreatedAt: now,
-                StartedAt: now),
+                StartedAt: now,
+                LastRunAt: now),
             HostRevision:    group.HostRevision ?? revision,
             Validations:     projectedValidations);
     }
@@ -93,6 +95,7 @@ internal static class PlanStoreUpdater
                 task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)))
             return existing;
 
+        var now = DateTimeOffset.UtcNow;
         return existing with
         {
             LifecycleStatus = PlanLifecycleStatus.Executing,
@@ -102,6 +105,7 @@ internal static class PlanStoreUpdater
                     ? task with { Status = PlanTaskStatus.Executing }
                     : task).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -124,6 +128,7 @@ internal static class PlanStoreUpdater
         {
             Tasks    = updated,
             Progress = progress,
+            Timestamps = existing.Timestamps with { LastRunAt = DateTimeOffset.UtcNow },
         };
 
         // Detect tasks that transitioned to Complete in this acceptance and invalidate
@@ -167,13 +172,15 @@ internal static class PlanStoreUpdater
     /// </summary>
     internal static Plan ApplyBlocked(Plan existing, string? blockedTaskId)
     {
+        var now = DateTimeOffset.UtcNow;
         return existing with
         {
             LifecycleStatus = PlanLifecycleStatus.Blocked,
             Progress        = existing.Progress with { ExecutingTaskId = null },
             Timestamps      = existing.Timestamps with
             {
-                InterruptedAt = DateTimeOffset.UtcNow,
+                InterruptedAt = now,
+                LastRunAt = now,
             },
         };
     }
@@ -209,7 +216,7 @@ internal static class PlanStoreUpdater
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,
             InterruptionData = interruptionData,
             Progress         = existing.Progress with { ExecutingTaskId = null },
-            Timestamps       = existing.Timestamps with { InterruptedAt = now },
+            Timestamps       = existing.Timestamps with { InterruptedAt = now, LastRunAt = now },
         };
     }
 
@@ -220,13 +227,14 @@ internal static class PlanStoreUpdater
     /// </summary>
     internal static Plan ApplyStopped(Plan existing)
     {
+        var now = DateTimeOffset.UtcNow;
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Stopped,
             InterruptionData = existing.InterruptionData is null ? null
                 : existing.InterruptionData with { RecoveryState = PlanRecoveryState.Ended },
             Progress         = existing.Progress with { ExecutingTaskId = null },
-            Timestamps       = existing.Timestamps with { StoppedAt = DateTimeOffset.UtcNow },
+            Timestamps       = existing.Timestamps with { StoppedAt = now, LastRunAt = now },
         };
     }
 
@@ -236,13 +244,15 @@ internal static class PlanStoreUpdater
     /// </summary>
     internal static Plan ApplyCompleted(Plan existing)
     {
+        var now = DateTimeOffset.UtcNow;
         return existing with
         {
             LifecycleStatus = PlanLifecycleStatus.Completed,
             Progress        = existing.Progress with { ExecutingTaskId = null },
             Timestamps      = existing.Timestamps with
             {
-                CompletedAt = DateTimeOffset.UtcNow,
+                CompletedAt = now,
+                LastRunAt = now,
             },
         };
     }
@@ -288,6 +298,7 @@ internal static class PlanStoreUpdater
             LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
             ApprovalGates   = updatedGates,
             Progress        = existing.Progress with { ExecutingTaskId = null },
+            Timestamps      = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -309,10 +320,11 @@ internal static class PlanStoreUpdater
         if (gate is null || gate.Status != PlanGateStatus.AwaitingApproval)
             return existing;
 
+        var now = DateTimeOffset.UtcNow;
         var updatedGate  = gate with
         {
             Status = PlanGateStatus.Approved,
-            ResolvedAt = DateTimeOffset.UtcNow,
+            ResolvedAt = now,
             ResolutionNote = note,
             ResolvedBy = resolvedBy,
         };
@@ -324,6 +336,7 @@ internal static class PlanStoreUpdater
         {
             LifecycleStatus = anyStillAwaiting ? PlanLifecycleStatus.AwaitingApproval : PlanLifecycleStatus.Executing,
             ApprovalGates   = updatedGates,
+            Timestamps      = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -377,6 +390,7 @@ internal static class PlanStoreUpdater
                 string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
                 validation.Status == PlanValidationStatus.Ready))
             return existing;
+        var now = DateTimeOffset.UtcNow;
         return existing with
         {
             Validations = validations.Select(validation =>
@@ -384,12 +398,13 @@ internal static class PlanStoreUpdater
                     ? validation with
                     {
                         Status = PlanValidationStatus.Validating,
-                        StartedAt = DateTimeOffset.UtcNow,
+                        StartedAt = now,
                         CompletedAt = null,
                         Summary = null,
                         Evidence = null,
                     }
                     : validation).ToArray(),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -406,6 +421,7 @@ internal static class PlanStoreUpdater
                 string.Equals(validation.ValidationId, validationId, StringComparison.Ordinal) &&
                 validation.Status is PlanValidationStatus.Ready or PlanValidationStatus.Validating))
             return existing;
+        var now = DateTimeOffset.UtcNow;
         var updated = existing with
         {
             Validations = validations.Select(validation =>
@@ -413,12 +429,13 @@ internal static class PlanStoreUpdater
                     ? validation with
                     {
                         Status = passed ? PlanValidationStatus.Passed : PlanValidationStatus.Failed,
-                        CompletedAt = DateTimeOffset.UtcNow,
+                        CompletedAt = now,
                         ValidatedCommit = validatedCommit,
                         Summary = summary,
                         Evidence = evidence,
                     }
                     : validation).ToArray(),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
         if (!passed)
             return ApplyBlocked(updated, blockedTaskId: null);
@@ -463,6 +480,7 @@ internal static class PlanStoreUpdater
                 validation.Status == PlanValidationStatus.Failed))
             return existing;
 
+        var now = DateTimeOffset.UtcNow;
         var updated = existing with
         {
             Validations = validations.Select(validation =>
@@ -476,6 +494,7 @@ internal static class PlanStoreUpdater
                         Evidence = null,
                     }
                     : validation).ToArray(),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
 
         // Unblock the plan if it was blocked solely due to this failed validation.
@@ -584,6 +603,7 @@ internal static class PlanStoreUpdater
             Tasks = updatedTasks,
             ApprovalGates = updatedGates,
             Progress = new PlanProgress(completedCount, updatedTasks.Length),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -611,7 +631,11 @@ internal static class PlanStoreUpdater
             .ToList<PlanApprovalGate>();
 
         // Keep lifecycle as Executing — the loop continues with ungated work
-        return existing with { ApprovalGates = updatedGates };
+        return existing with
+        {
+            ApprovalGates = updatedGates,
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
     }
 
     /// <summary>
@@ -656,6 +680,7 @@ internal static class PlanStoreUpdater
             ApprovalGates = updatedGates,
             Progress = existing.Progress with { ExecutingTaskId = null },
             InterruptionData = null,
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
     }
 
@@ -785,7 +810,8 @@ internal static class PlanStoreUpdater
                 AgentRoutingMode: sub.AgentRoutingMode,
                 GenericAgentReason: sub.GenericAgentReason,
                 Outputs: MapOutputs(sub.Outputs),
-                Inputs: sub.Inputs);
+                Inputs: sub.Inputs,
+                ProofRequirements: MapProofRequirements(sub.ProofRequirements));
         }).ToList();
     }
 
@@ -823,6 +849,7 @@ internal static class PlanStoreUpdater
                 GenericAgentReason = sub.GenericAgentReason,
                 Outputs            = MapOutputs(sub.Outputs),
                 Inputs             = sub.Inputs,
+                ProofRequirements  = MapProofRequirements(sub.ProofRequirements),
             };
         }).ToList();
     }
@@ -863,6 +890,11 @@ internal static class PlanStoreUpdater
                     ? task.CompletedAt ?? completedAt
                     : task.CompletedAt,
                 CompletionSummary = result.Summary,
+                ProofEvidence = result.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
+                    evidence.RequirementId,
+                    evidence.ProofType,
+                    evidence.Summary,
+                    evidence.Artifacts)).ToArray(),
             };
         }).ToList();
     }
@@ -881,11 +913,19 @@ internal static class PlanStoreUpdater
             AgentRoutingMode:   sub.AgentRoutingMode,
             GenericAgentReason: sub.GenericAgentReason,
             Outputs:            MapOutputs(sub.Outputs),
-            Inputs:             sub.Inputs);
+            Inputs:             sub.Inputs,
+            ProofRequirements:  MapProofRequirements(sub.ProofRequirements));
 
     private static IReadOnlyList<PlanTaskOutput>? MapOutputs(
         IReadOnlyList<DecomposedTaskOutput>? outputs) =>
         outputs?.Select(output => new PlanTaskOutput(output.OutputId, output.Description)).ToArray();
+
+    private static IReadOnlyList<PlanTaskProofRequirement>? MapProofRequirements(
+        IReadOnlyList<DecomposedTaskProofRequirement>? requirements) =>
+        requirements?.Select(requirement => new PlanTaskProofRequirement(
+            requirement.RequirementId,
+            requirement.ProofType,
+            requirement.Description)).ToArray();
 
     private static IReadOnlyList<PlanAgentAssignment>? MapAgentAssignments(
         IReadOnlyList<DecomposedAgentAssignment>? assignments) =>

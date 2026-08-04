@@ -103,6 +103,19 @@ internal sealed record PlanTaskOutput(
     [property: JsonPropertyName("outputId")] string OutputId,
     [property: JsonPropertyName("description")] string Description);
 
+internal sealed record PlanTaskProofRequirement(
+    [property: JsonPropertyName("requirementId")] string RequirementId,
+    [property: JsonPropertyName("proofType")] string ProofType,
+    [property: JsonPropertyName("description")] string Description);
+
+internal sealed record PlanTaskProofEvidence(
+    [property: JsonPropertyName("requirementId")] string RequirementId,
+    [property: JsonPropertyName("proofType")] string ProofType,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("artifacts")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? Artifacts = null);
+
 /// <summary>Immutable task entry inside a Plan.</summary>
 internal sealed record PlanTask(
     [property: JsonPropertyName("taskId")]      string TaskId,
@@ -145,7 +158,13 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskOutput>? Outputs = null,
     [property: JsonPropertyName("inputs")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<string>? Inputs = null);
+                                                IReadOnlyList<string>? Inputs = null,
+    [property: JsonPropertyName("proofRequirements")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskProofRequirement>? ProofRequirements = null,
+    [property: JsonPropertyName("proofEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -252,7 +271,10 @@ internal sealed record PlanTimestamps(
                                                   DateTimeOffset? StoppedAt     = null,
     [property: JsonPropertyName("archivedAt")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  DateTimeOffset? ArchivedAt    = null);
+                                                  DateTimeOffset? ArchivedAt    = null,
+    [property: JsonPropertyName("lastRunAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  DateTimeOffset? LastRunAt     = null);
 
 /// <summary>
 /// Durable interruption record persisted when execution stops unexpectedly.

@@ -5,6 +5,14 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class ValidationShieldPresenterTests
 {
+    [TestCase(PlanValidationStatus.Validating, true)]
+    [TestCase(PlanValidationStatus.Ready, false)]
+    [TestCase(PlanValidationStatus.Passed, false)]
+    public void ShowsActivitySpinner_OnlyWhileValidationIsRunning(string status, bool expected)
+    {
+        Assert.That(ValidationShieldPresenter.ShowsActivitySpinner(status), Is.EqualTo(expected));
+    }
+
     // ── Shield state derivation ───────────────────────────────────────────────
 
     [TestCase(null, ValidationShieldPresenter.ShieldVisualState.Pending)]

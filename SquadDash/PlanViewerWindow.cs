@@ -41,7 +41,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
+    private Action<PlanValidationActivityPulseEvent>? _validationActivityPulseHandler;
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ActivitySpinner> _validationSpinnersById =
         new(StringComparer.Ordinal);
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
@@ -127,6 +130,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             broker.Subscribe(_taskActivityPulseHandler);
             Closed += (_, _) => broker.Unsubscribe(_taskActivityPulseHandler);
+
+            _validationActivityPulseHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyPulse()
+                {
+                    if (_validationSpinnersById.TryGetValue(activity.ValidationId, out var spinner))
+                        spinner.Pulse(activity.Kind);
+                }
+                if (Dispatcher.CheckAccess()) ApplyPulse();
+                else Dispatcher.BeginInvoke(ApplyPulse);
+            };
+            broker.Subscribe(_validationActivityPulseHandler);
+            Closed += (_, _) => broker.Unsubscribe(_validationActivityPulseHandler);
         }
     }
 
@@ -512,6 +530,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         _taskSpinnersById.Clear();
+        _validationSpinnersById.Clear();
         var levels = CalculateLevels(group.Tasks, tasksById);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
@@ -581,15 +600,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 : ("rail", null, -1, null);
         }
 
-        var topStackCount = validationAnchors.Values
-            .Where(anchor => anchor.Kind is "stage" or "rail")
-            .GroupBy(anchor => anchor.Kind == "stage" ? $"stage:{anchor.StageIndex}" : "rail")
-            .Select(grouping => grouping.Count())
-            .DefaultIfEmpty(0)
-            .Max();
-        var validationRailHeight = topStackCount == 0
-            ? 0
-            : (42 + topStackCount * 66) * _scaleFactor;
+        ValidationShieldPresenter.ShieldAnchor PresenterAnchor(
+            (string Kind, string? TaskId, int StageIndex, string? AllKey) anchor) =>
+            new(anchor.Kind switch
+            {
+                "stage" => ValidationShieldPresenter.AnchorKind.Stage,
+                "all" => ValidationShieldPresenter.AnchorKind.All,
+                "before" => ValidationShieldPresenter.AnchorKind.Before,
+                "after" => ValidationShieldPresenter.AnchorKind.After,
+                _ => ValidationShieldPresenter.AnchorKind.Rail,
+            }, anchor.TaskId, anchor.StageIndex, anchor.AllKey);
+
+        var validationRailHeight = ValidationShieldPresenter.ComputeValidationRailHeight(
+            validationAnchors.Values.Select(PresenterAnchor).ToArray(), _scaleFactor);
         var graphTop = 68 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
@@ -688,8 +711,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var attachedCount = validationAnchors.Values.Count(anchor =>
                     anchor.TaskId is not null &&
                     string.Equals(anchor.TaskId, tasks[row].Id, StringComparison.Ordinal));
-                nextY += Math.Max(RowSpacing,
-                    NodeHeight + (attachedCount == 0 ? 40 : 18 + attachedCount * 66) * _scaleFactor);
+                nextY += ValidationShieldPresenter.ComputeAttachedTaskSpacing(
+                    attachedCount, NodeHeight, RowSpacing, _scaleFactor);
             }
         }
 
@@ -711,7 +734,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var targetLeft   = targets.Min(task => positions[task.Id].X);
             var centers      = dependencies.Where(positions.ContainsKey).Select(id => positions[id].Y + NodeHeight / 2.0)
                                    .Concat(targets.Select(task => positions[task.Id].Y + NodeHeight / 2.0));
-            var gateCenter       = new Point((sourceRight + targetLeft) / 2, centers.Average());
+            var gateCenterX = (sourceRight + targetLeft) / 2;
+            var gateCenterY = centers.Average();
+            var allKey = string.Join("\u001f", dependencies);
+            var attachedValidationCount = validationAnchors.Values.Count(anchor =>
+                anchor.Kind == "all" && string.Equals(anchor.AllKey, allKey, StringComparison.Ordinal));
+            if (attachedValidationCount > 0)
+            {
+                var foreignConnectorYs = new List<double>();
+                foreach (var directTarget in group.Tasks.Where(task => task.DependsOn.Count == 1))
+                {
+                    var dependency = directTarget.DependsOn[0];
+                    if (!positions.TryGetValue(dependency, out var sourcePosition) ||
+                        !positions.TryGetValue(directTarget.Id, out var targetPosition))
+                        continue;
+                    var fromX = sourcePosition.X + NodeWidth;
+                    var toX = targetPosition.X;
+                    if (gateCenterX < fromX || gateCenterX > toX)
+                        continue;
+                    var ratio = Math.Clamp((gateCenterX - fromX) / Math.Max(1, toX - fromX), 0, 1);
+                    var fromY = sourcePosition.Y + NodeHeight / 2.0;
+                    var toY = targetPosition.Y + NodeHeight / 2.0;
+                    foreignConnectorYs.Add(fromY + (toY - fromY) * ratio);
+                }
+                gateCenterY = ValidationShieldPresenter.AvoidConnectorOverlapForAllCluster(
+                    gateCenterY, attachedValidationCount, foreignConnectorYs, _scaleFactor);
+            }
+            var gateCenter       = new Point(gateCenterX, gateCenterY);
             var minTargetLevel   = targets.Min(t => levels[t.Id]);
             var maxDepLevel      = dependencies.Where(positions.ContainsKey).Max(id => levels[id]);
             gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
@@ -852,18 +901,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var validationBottom = 0.0;
         if (displayedValidations.Count > 0)
         {
-            var railLabel = new TextBlock
-            {
-                Text = "VALIDATIONS",
-                FontWeight = FontWeights.SemiBold,
-                ToolTip = "Cross-task contracts run when their declared prerequisites are complete.",
-            };
-            railLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            railLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            Canvas.SetLeft(railLabel, 8 * _scaleFactor);
-            Canvas.SetTop(railLabel, 6 * _scaleFactor);
-            canvas.Children.Add(railLabel);
-
             var stackIndexes = new Dictionary<string, int>(StringComparer.Ordinal);
             var fallbackNextLeft = 100 * _scaleFactor;
             foreach (var validation in displayedValidations
@@ -904,7 +941,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 System.Windows.Automation.AutomationProperties.SetHelpText(
                     visual,
                     validation.Description);
-                var shield = CreateValidationShield(validationStatus);
+                var shield = CreateValidationShield(validation.ValidationId, validationStatus);
                 shield.HorizontalAlignment = HorizontalAlignment.Center;
                 visual.Children.Add(shield);
                 var displayTitle = ValidationShieldPresenter.TruncateTitle(validation.Title);
@@ -926,37 +963,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
                 visual.Children.Add(title);
 
-                double left;
-                double top;
-                if (anchor.Kind == "stage" && anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count)
-                {
-                    left = stageBoundaryXs[anchor.StageIndex] - 72 * _scaleFactor;
-                    top = graphTop - (112 + stackIndex * 66) * _scaleFactor;
-                }
-                else if (anchor.Kind is "before" or "after" &&
-                         anchor.TaskId is not null && positions.TryGetValue(anchor.TaskId, out var taskPosition))
-                {
-                    left = anchor.Kind == "before"
-                        ? taskPosition.X - 72 * _scaleFactor
-                        : taskPosition.X + NodeWidth - 72 * _scaleFactor;
-                    top = taskPosition.Y + NodeHeight + (8 + stackIndex * 66) * _scaleFactor;
-                }
-                else if (anchor.Kind == "all" && anchor.AllKey is not null)
-                {
-                    var matchingGate = gates.FirstOrDefault(candidate =>
-                        string.Equals(
-                            string.Join("\u001f", candidate.Dependencies.OrderBy(id => id, StringComparer.Ordinal)),
-                            anchor.AllKey,
-                            StringComparison.Ordinal));
-                    left = matchingGate.Center.X - 72 * _scaleFactor;
-                    top = matchingGate.Center.Y + (24 + stackIndex * 66) * _scaleFactor;
-                }
-                else
-                {
-                    left = fallbackNextLeft;
-                    top = 28 * _scaleFactor;
-                    fallbackNextLeft += 156 * _scaleFactor;
-                }
+                var taskPositionMap = positions.ToDictionary(
+                    entry => entry.Key,
+                    entry => (entry.Value.X, entry.Value.Y),
+                    StringComparer.Ordinal);
+                var gateCenterMap = gates.Select(candidate => (
+                    candidate.Center.X,
+                    candidate.Center.Y,
+                    string.Join("\u001f", candidate.Dependencies.OrderBy(id => id, StringComparer.Ordinal)))).ToArray();
+                var layout = ValidationShieldPresenter.ComputeShieldPosition(
+                    PresenterAnchor(anchor),
+                    stackIndex,
+                    _scaleFactor,
+                    stageBoundaryXs,
+                    taskPositionMap,
+                    NodeWidth,
+                    NodeHeight,
+                    graphTop,
+                    gateCenterMap,
+                    ref fallbackNextLeft);
+                var left = layout.Left;
+                var top = layout.Top;
 
                 Canvas.SetLeft(visual, left);
                 Canvas.SetTop(visual, top);
@@ -2291,7 +2318,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    private FrameworkElement CreateValidationShield(string status)
+    private FrameworkElement CreateValidationShield(string validationId, string status)
     {
         var s = _scaleFactor;
         var shield = new Path
@@ -2304,7 +2331,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             StrokeLineJoin = PenLineJoin.Round,
         };
 
-        // Failed uses an X mark; all other states use a check mark.
+        // Failed uses an X mark; non-running states use a check mark. Validating replaces the
+        // check with the same continuously active spinner used by task and agent activity.
         var isFailed = status == PlanValidationStatus.Failed;
         var innerIcon = new Path
         {
@@ -2330,9 +2358,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
                 break;
             case PlanValidationStatus.Validating:
-                shield.SetResourceReference(Shape.FillProperty, "PriorityMid");
-                shield.SetResourceReference(Shape.StrokeProperty, "PriorityMid");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                shield.Fill = Brushes.Transparent;
+                shield.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
                 break;
             case PlanValidationStatus.Failed:
                 shield.SetResourceReference(Shape.FillProperty, "PriorityCritical");
@@ -2366,7 +2393,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Background = Brushes.Transparent,
         };
         grid.Children.Add(shield);
-        grid.Children.Add(innerIcon);
+        if (ValidationShieldPresenter.ShowsActivitySpinner(status))
+        {
+            var spinner = new ActivitySpinner
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                AccentColor = ResolvePlanSpinnerColor(),
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Validation is actively evaluating its contract."),
+            };
+            spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+            spinner.SetContinuousActive(true);
+            _validationSpinnersById[validationId] = spinner;
+            grid.Children.Add(spinner);
+        }
+        else
+        {
+            grid.Children.Add(innerIcon);
+        }
         return grid;
     }
 
@@ -2451,9 +2495,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durableValidation?.Evidence is { Count: > 0 })
         {
-            AddText("Recorded evidence:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+            AddText("AI-assessed evidence:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
             foreach (var evidence in durableValidation.Evidence)
                 AddText("• " + evidence, "SubtleText");
+            if (!string.IsNullOrWhiteSpace(durableValidation.ValidatedCommit))
+                AddText($"Evaluated at commit {durableValidation.ValidatedCommit}.", "SubtleText", margin: new Thickness(0, 4, 0, 0));
         }
 
         return new ToolTip { Content = panel };

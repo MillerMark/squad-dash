@@ -1,5 +1,5 @@
 ---
-schema-version: 4
+schema-version: 5
 host-owned: true
 ---
 
@@ -62,6 +62,9 @@ acceptance criteria, not a generic documentation or test reminder. It must:
 - Restate the user-facing acceptance criteria.
 - Describe the exact verification scenario (which user action, which observable outcome).
 - Name the build, test, or demonstration command that proves the feature is live.
+- Declare at least one `proofRequirements` entry whose `proofType` accurately distinguishes an
+  automated check from a live UI, restart, or human observation. This makes the final completion
+  audit mandatory for every newly generated plan while legacy stored plans remain readable.
 
 Bad final steps: "Update documentation", "Run the test suite", "Clean up".
 Good final step: "Verify that clicking 'Export' in the Reports panel produces a downloadable CSV
@@ -96,6 +99,11 @@ fence around the object is accepted but not required.
   provisional class names.
 - `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
   A consumer may name several outputs, and one output may have several consumers.
+- `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description" }`
+  contracts. Use these whenever a task claims an observable proof whose kind matters, especially
+  `live-ui-observation`, `restart-observation`, `automated-test`, or `build`. Do not describe a live
+  observation as an automated test. A complete step result must return a matching `proofEvidence`
+  object for every declared requirement.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.
@@ -114,8 +122,11 @@ fence around the object is accepted but not required.
 - `validations[].assertions`: non-empty list of observable, falsifiable contractual claims. Do not use
   vague assertions such as "components work together."
 - `validations[].outputIds`: optional list of stable task output IDs whose relationship is covered.
-- `validations[].mode`: `command`, `evidence`, or `hybrid`. `command` executes deterministic commands;
-  `evidence` requests evidence-backed assessment; `hybrid` requires both.
+- `validations[].mode`: `command`, `evidence`, `hybrid`, or `audit`. `command` executes deterministic commands;
+  `evidence` requests evidence-backed assessment; `hybrid` requires both. A proof-bearing plan must
+  contain exactly one final `audit` validation whose `afterTaskIds` are every leaf task and whose
+  `beforeTaskIds` is empty. The audit compares approved requirements, commits, and returned proof
+  evidence; it must reject test-only work offered in place of a live observation.
 - `validations[].commands`: required for `command` and `hybrid`; omit for `evidence`. Commands must be
   non-mutating and scoped to the workspace.
 - `validations[].revalidateAtCompletion`: normally `true` when later work could invalidate the result.
@@ -169,6 +180,13 @@ TASKS_JSON:
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
       "inputs": ["search-index-contract", "indexed-document-path"],
+      "proofRequirements": [
+        {
+          "requirementId": "search-integration-test",
+          "proofType": "automated-test",
+          "description": "Run the SearchIntegration scenario through SearchPanel, ISearchIndex, and rendered results."
+        }
+      ],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers this UI integration."
     }
@@ -178,7 +196,7 @@ TASKS_JSON:
       "validationId": "SEARCH-20260725-VAL-001",
       "title": "Verify the UI uses the migrated search path",
       "description": "Confirm the search UI reaches document indexing through ISearchIndex and the superseded direct path is no longer active.",
-      "afterTaskIds": ["SEARCH-20260725-002", "SEARCH-20260725-003"],
+      "afterTaskIds": ["SEARCH-20260725-003"],
       "beforeTaskIds": [],
       "assertions": [
         "The search UI calls the ISearchIndex-backed path.",
@@ -186,7 +204,7 @@ TASKS_JSON:
         "The user-visible search scenario still returns indexed documents."
       ],
       "outputIds": ["search-index-contract", "indexed-document-path"],
-      "mode": "evidence",
+      "mode": "audit",
       "revalidateAtCompletion": true
     }
   ]
@@ -262,6 +280,14 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
     {
       "requestedAgent": "host-assigned roster handle",
       "actualPrimaryAgent": "same roster handle"
+    }
+  ],
+  "proofEvidence": [
+    {
+      "requirementId": "stable requirement ID from the approved task",
+      "proofType": "exact proof type from the approved task",
+      "summary": "what was actually observed",
+      "artifacts": ["optional command, report, screenshot, or trace reference"]
     }
   ]
 }

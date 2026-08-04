@@ -16,6 +16,14 @@ internal sealed record DecomposeAgentExecution(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         string? PrimaryToolCallId = null);
 
+internal sealed record DecomposeStepProofEvidence(
+    [property: JsonPropertyName("requirementId")] string RequirementId,
+    [property: JsonPropertyName("proofType")] string ProofType,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("artifacts")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<string>? Artifacts = null);
+
 internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("groupId")] string GroupId,
     [property: JsonPropertyName("taskId")] string TaskId,
@@ -30,7 +38,10 @@ internal sealed record DecomposeStepResult(
         IReadOnlyList<DecomposeAgentExecution>? AgentExecutions = null,
     [property: JsonPropertyName("executionAttemptId")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        string? ExecutionAttemptId = null);
+        string? ExecutionAttemptId = null,
+    [property: JsonPropertyName("proofEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<DecomposeStepProofEvidence>? ProofEvidence = null);
 
 internal static class DecomposeStepResultParser
 {
@@ -79,6 +90,15 @@ internal static class DecomposeStepResultParser
             result.Verification?.Status != "passed")
         {
             error = "A committed partial result requires passed verification evidence.";
+            return false;
+        }
+
+        if ((result.ProofEvidence ?? []).Any(evidence =>
+                string.IsNullOrWhiteSpace(evidence.RequirementId) ||
+                string.IsNullOrWhiteSpace(evidence.ProofType) ||
+                string.IsNullOrWhiteSpace(evidence.Summary)))
+        {
+            error = "Proof evidence requires requirementId, proofType, and summary.";
             return false;
         }
 

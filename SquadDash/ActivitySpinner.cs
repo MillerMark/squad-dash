@@ -89,6 +89,11 @@ public sealed class ActivitySpinner : FrameworkElement
     /// (e.g. 7.0) for guided-tour demo spinners that should spin more gently.
     /// </summary>
     public double MaxAngularVelocityCap { get; set; } = MaxAngularVelocity;
+    /// <summary>
+    /// Optional baseline velocity for work that is durably active even when no new stream/tool
+    /// pulse has arrived. Validation shields use a gentle value so they never look stalled.
+    /// </summary>
+    public double MinimumAngularVelocity { get; private set; }
     private const double FrictionK = 0.11;           // exp(-k*t) → ~6% at 25s
     private const double ThinkingImpulse = 3.5;
     private const double WritingImpulse = 6.0;
@@ -255,6 +260,17 @@ public sealed class ActivitySpinner : FrameworkElement
     /// </summary>
     public void Pulse(SpinnerActivityKind kind) => OnActivityPulsed(this, kind);
 
+    public void SetContinuousActive(bool active, double minimumAngularVelocity = 0.65)
+    {
+        MinimumAngularVelocity = active ? Math.Max(FadeOutThreshold, minimumAngularVelocity) : 0.0;
+        if (active)
+        {
+            Pulse(SpinnerActivityKind.Thinking);
+            _targetOpacity = ThinkingTargetOpacity;
+            _scaleTarget = 1.0;
+        }
+    }
+
     // ── Physics tick (≈60 Hz) ───────────────────────────────────────────────
 
     private void OnPhysicsTick(object? sender, EventArgs e)
@@ -288,6 +304,13 @@ public sealed class ActivitySpinner : FrameworkElement
 
         // Friction: exponential decay (always applied so spinner coasts to stop when idle)
         _angularVelocity *= Math.Exp(-FrictionK * dt);
+        if (!_forcedFadeOutActive && MinimumAngularVelocity > 0)
+        {
+            _angularVelocity = Math.Max(_angularVelocity, MinimumAngularVelocity);
+            _velocityTarget = Math.Max(_velocityTarget, MinimumAngularVelocity);
+            _targetOpacity = Math.Max(_targetOpacity, ThinkingTargetOpacity);
+            _scaleTarget = 1.0;
+        }
         if (_angularVelocity < 1e-4) _angularVelocity = 0;
         if (_angularVelocity == 0) { _velocityTarget = 0; _velocityAccelPhase = 0; }
 
@@ -296,7 +319,7 @@ public sealed class ActivitySpinner : FrameworkElement
         if (_angle >= Math.PI * 2) _angle -= Math.PI * 2;
 
         // Opacity: drive target toward 0 when coasting to a stop
-        if (_angularVelocity < FadeOutThreshold)
+        if (_angularVelocity < FadeOutThreshold && MinimumAngularVelocity <= 0)
             _targetOpacity = 0.0;
 
         // Lerp opacity toward target at OpacityLerpRate units/sec
@@ -331,7 +354,7 @@ public sealed class ActivitySpinner : FrameworkElement
             _dotGlowPhase += 2.0 * Math.PI * DotGlowHz * dt;
 
         // ── Scale animation (ease-out lerp, ~400 ms) ────────────────────────
-        if (_angularVelocity < FadeOutThreshold)
+        if (_angularVelocity < FadeOutThreshold && MinimumAngularVelocity <= 0)
             _scaleTarget = 0.0;
 
         _currentScale += (_scaleTarget - _currentScale) * Math.Min(1.0, dt / 0.4);

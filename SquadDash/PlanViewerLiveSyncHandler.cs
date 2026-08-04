@@ -16,6 +16,7 @@ internal sealed class PlanViewerLiveSyncHandler
     private readonly string _planId;
     private readonly WeakEventBroker _broker;
     private readonly Action<Plan> _applyUpdate;
+    private readonly Dispatcher? _dispatcher;
     private readonly DispatcherTimer? _coalesceTimer;
 
     private Plan? _currentPlan;
@@ -36,6 +37,7 @@ internal sealed class PlanViewerLiveSyncHandler
         _currentPlan = initialPlan;
         _broker = broker;
         _applyUpdate = applyUpdate;
+        _dispatcher = dispatcher;
         _handler = OnPlanProgressEvent;
 
         if (dispatcher is not null)
@@ -81,7 +83,16 @@ internal sealed class PlanViewerLiveSyncHandler
             return;
         }
 
-        if (_coalesceTimer is not null)
+        // Validation/task/lifecycle transitions are user-visible state, not noisy activity
+        // pulses. Apply them immediately so an application restart requested directly after a
+        // transition cannot strand an open viewer on the preceding blue/executing state.
+        if (HasVisibleStateTransition(_currentPlan, evt.UpdatedPlan))
+        {
+            _coalesceTimer?.Stop();
+            _pendingUpdate = null;
+            ApplyOnDispatcher(evt.UpdatedPlan);
+        }
+        else if (_coalesceTimer is not null)
         {
             _pendingUpdate = evt.UpdatedPlan;
             _coalesceTimer.Stop();
@@ -91,6 +102,35 @@ internal sealed class PlanViewerLiveSyncHandler
         {
             ApplyNow(evt.UpdatedPlan);
         }
+    }
+
+    private void ApplyOnDispatcher(Plan plan)
+    {
+        if (_dispatcher is not null && !_dispatcher.CheckAccess())
+            _dispatcher.Invoke(() => ApplyNow(plan));
+        else
+            ApplyNow(plan);
+    }
+
+    private static bool HasVisibleStateTransition(Plan? current, Plan incoming)
+    {
+        if (current is null ||
+            !string.Equals(current.LifecycleStatus, incoming.LifecycleStatus, StringComparison.Ordinal) ||
+            !string.Equals(current.Progress.ExecutingTaskId, incoming.Progress.ExecutingTaskId, StringComparison.Ordinal) ||
+            current.Progress.CompletedCount != incoming.Progress.CompletedCount)
+            return true;
+
+        var currentTasks = current.Tasks.ToDictionary(task => task.TaskId, task => task.Status, StringComparer.Ordinal);
+        if (incoming.Tasks.Any(task => !currentTasks.TryGetValue(task.TaskId, out var status) || status != task.Status))
+            return true;
+
+        var currentValidations = (current.Validations ?? []).ToDictionary(
+            validation => validation.ValidationId,
+            validation => validation.Status,
+            StringComparer.Ordinal);
+        return (incoming.Validations ?? []).Any(validation =>
+            !currentValidations.TryGetValue(validation.ValidationId, out var status) ||
+            status != validation.Status);
     }
 
     private void OnCoalesceTimerTick(object? sender, EventArgs e)

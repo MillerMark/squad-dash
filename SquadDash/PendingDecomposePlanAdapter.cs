@@ -41,7 +41,12 @@ internal static class PendingDecomposePlanAdapter
                 GenericAgentReason: t.GenericAgentReason,
                 Outputs: t.Outputs?.Select(output => new PlanTaskOutput(
                     output.OutputId, output.Description)).ToArray(),
-                Inputs: t.Inputs))
+                Inputs: t.Inputs,
+                ProofRequirements: t.ProofRequirements?.Select(requirement =>
+                    new PlanTaskProofRequirement(
+                        requirement.RequirementId,
+                        requirement.ProofType,
+                        requirement.Description)).ToArray()))
             .ToArray();
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
@@ -123,7 +128,12 @@ internal static class PendingDecomposePlanAdapter
                 GenericAgentReason: t.GenericAgentReason,
                 Outputs: t.Outputs?.Select(output => new DecomposedTaskOutput(
                     output.OutputId, output.Description)).ToArray(),
-                Inputs: t.Inputs))
+                Inputs: t.Inputs,
+                ProofRequirements: t.ProofRequirements?.Select(requirement =>
+                    new DecomposedTaskProofRequirement(
+                        requirement.RequirementId,
+                        requirement.ProofType,
+                        requirement.Description)).ToArray()))
             .ToArray();
 
         var gates = plan.ApprovalGates is { Count: > 0 }

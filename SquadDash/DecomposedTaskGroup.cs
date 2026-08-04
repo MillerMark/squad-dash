@@ -38,6 +38,15 @@ internal sealed record DecomposedTaskOutput(
     [property: JsonPropertyName("outputId")] string OutputId,
     [property: JsonPropertyName("description")] string Description);
 
+/// <summary>
+/// Declarative evidence contract for a plan task. The host matches returned evidence by stable
+/// identifier and proof type; it never infers a live demonstration from filenames or test names.
+/// </summary>
+internal sealed record DecomposedTaskProofRequirement(
+    [property: JsonPropertyName("requirementId")] string RequirementId,
+    [property: JsonPropertyName("proofType")] string ProofType,
+    [property: JsonPropertyName("description")] string Description);
+
 internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("groupId")]    string GroupId,
     [property: JsonPropertyName("groupTitle")] string GroupTitle,
@@ -85,4 +94,7 @@ internal sealed record DecomposedSubTask(
                                                 IReadOnlyList<DecomposedTaskOutput>? Outputs = null,
     [property: JsonPropertyName("inputs")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<string>? Inputs = null);
+                                                IReadOnlyList<string>? Inputs = null,
+    [property: JsonPropertyName("proofRequirements")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<DecomposedTaskProofRequirement>? ProofRequirements = null);

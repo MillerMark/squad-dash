@@ -179,6 +179,33 @@ internal sealed class PlanViewerLiveSyncTests
     }
 
     [Test]
+    [Apartment(System.Threading.ApartmentState.STA)]
+    public void ValidationCompletion_WithEqualTaskCount_AppliesImmediatelyWithoutDispatcherTick()
+    {
+        var broker = new WeakEventBroker();
+        var validation = new PlanValidationNode(
+            "PLAN-001-VAL-001", "Live behavior", "Observe the running UI.",
+            [], [], ["The open viewer refreshes."], null, "evidence", null, true,
+            Status: PlanValidationStatus.Validating);
+        var initial = MakePlan("PLAN-001", completedCount: 5) with { Validations = [validation] };
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", initial, broker,
+            plan => received = plan,
+            System.Windows.Threading.Dispatcher.CurrentDispatcher);
+
+        var updated = initial with
+        {
+            Validations = [validation with { Status = PlanValidationStatus.Passed }],
+        };
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", updated));
+
+        Assert.That(received, Is.SameAs(updated),
+            "A blue-to-green validation transition must not wait for the coalescing timer or a restart.");
+        handler.Detach();
+    }
+
+    [Test]
     public void BrokerSubscription_PublishRoutesToHandler()
     {
         var broker = new WeakEventBroker();

@@ -1328,7 +1328,8 @@ public partial class MainWindow : Window
         _onPowerModeChanged = msg => OnPowerModeChanged(msg.Sender, msg.Args);
         _broker.Subscribe(_onPowerModeChanged);
         _onPlanProgressEvent = evt =>
-            Dispatcher.BeginInvoke(() =>
+        {
+            void ApplyPlanProgress()
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
                 foreach (var (_, window) in _openPlanViewerWindows.Where(entry =>
@@ -1338,7 +1339,13 @@ public partial class MainWindow : Window
                         PendingDecomposePlanAdapter.FromPlan(evt.UpdatedPlan),
                         evt.UpdatedPlan);
                 }
-            });
+            }
+
+            if (Dispatcher.CheckAccess())
+                ApplyPlanProgress();
+            else
+                Dispatcher.Invoke(ApplyPlanProgress);
+        };
         _broker.Subscribe(_onPlanProgressEvent);
         {
             var localBrokerRef = new WeakReference<WeakEventBroker>(_broker);
@@ -9467,7 +9474,17 @@ public partial class MainWindow : Window
             _assessedRecoveryContinuation = null;
         }
 
-        var contexts = new[] { continuationContext, assessedRecoveryContext, routingContext }
+        string? proofContext = null;
+        if (currentTask.ProofRequirements is { Count: > 0 })
+        {
+            proofContext =
+                "## Required Task Proofs (approved plan contract)\n\n" +
+                "A complete DECOMPOSE_STEP_RESULT_JSON must include `proofEvidence`, with one exact " +
+                "requirementId/proofType match for every item below. Do not substitute automated tests for a live observation.\n" +
+                JsonSerializer.Serialize(currentTask.ProofRequirements);
+        }
+
+        var contexts = new[] { continuationContext, assessedRecoveryContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         return string.Join("\n\n", contexts);
     }
@@ -9654,6 +9671,9 @@ public partial class MainWindow : Window
         if (result is not null && !string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
             error = $"The result was for group {result.GroupId}, but SquadDash is executing {groupId}.";
 
+        if (error is null && result is not null && persistedTask is not null)
+            error = PlanStepProofPolicy.Validate(persistedTask, result);
+
         PlanTaskCommitEvidence? taskCommitEvidence = null;
         if (result is not null &&
             !string.IsNullOrWhiteSpace(result.Commit) &&
@@ -9754,6 +9774,12 @@ public partial class MainWindow : Window
                         RepairRequestCount = activeExecution.RepairRequestCount + 1
                     });
                 var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
+                if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
+                {
+                    repairPrompt += "\n\nThe approved task also requires this exact `proofEvidence` contract. " +
+                                    "Return one evidence object per requirement and do not change proofType:\n" +
+                                    JsonSerializer.Serialize(proofRequirements);
+                }
                 if (assignmentEvidenceError is not null && expectedAssignments is { Count: > 0 })
                 {
                     var stepTitle = _CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId;
@@ -10044,6 +10070,32 @@ public partial class MainWindow : Window
                     $"got {valResult.PlanId}/{valResult.ValidationId}.");
                 ApplyAndPublishValidationResult(groupId, validationId, false,
                     "Validation result scope mismatch.", [], null);
+                ClearActiveValidation(activeExecution);
+                return;
+            }
+
+            var contractValidation = _planStore?.Load(groupId)?.Validations?.FirstOrDefault(candidate =>
+                string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+            var evidenceContractError = contractValidation is null
+                ? $"Plan {groupId} is missing validation {validationId}."
+                : PlanValidationEvidencePolicy.Validate(contractValidation, valResult);
+            if (evidenceContractError is not null)
+            {
+                if (activeExecution.ValidationRepairCount < 1)
+                {
+                    _conversationManager.UpdateActiveLoopExecutionState(
+                        activeExecution with
+                        {
+                            ValidationRepairCount = activeExecution.ValidationRepairCount + 1,
+                            ValidationRepairReason = evidenceContractError,
+                        });
+                    ScheduleDecomposeSystemEntry(
+                        $"⚙ Requesting corrected validation evidence for {validationId}.");
+                    return;
+                }
+
+                ApplyAndPublishValidationResult(groupId, validationId, false,
+                    $"Validation failed after one evidence repair: {evidenceContractError}", [], valResult.ValidatedCommit);
                 ClearActiveValidation(activeExecution);
                 return;
             }
@@ -38498,9 +38550,14 @@ public partial class MainWindow : Window
         card?.FireActivityPulse(kind);
 
         var execution = _conversationManager.ConversationState.ActiveLoopExecution;
-        if (execution?.DecomposeGroupId is not { } planId ||
-            execution.ActiveValidationId is not null)
+        if (execution?.DecomposeGroupId is not { } planId)
             return;
+
+        if (execution.ActiveValidationId is { } validationId)
+        {
+            _broker.Publish(new PlanValidationActivityPulseEvent(planId, validationId, kind));
+            return;
+        }
 
         var taskId = thread?.AssignedPlanTaskId
             ?? execution.PlanExecutionAttempt?.TaskId
@@ -43399,6 +43456,10 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Transcript and Inbox actions capture immutable snapshots. Always replace that
+            // snapshot with the current durable plan before opening so a validation that turned
+            // green moments earlier never remains blue until the next restart/event.
+            plan = _planStore?.Load(plan.PlanId) ?? plan;
             PendingDecomposePlan? pending = null;
             if (_currentWorkspace is not null)
             {
@@ -43764,6 +43825,15 @@ public partial class MainWindow : Window
             if (existing is null)
             {
                 error = $"Durable plan {groupId} could not be loaded.";
+                return false;
+            }
+
+            var proofTask = PendingDecomposePlanAdapter.FromPlan(existing).Group.Tasks.FirstOrDefault(task =>
+                string.Equals(task.Id, acceptedResult.TaskId, StringComparison.Ordinal));
+            var proofError = PlanStepProofPolicy.Validate(proofTask, acceptedResult);
+            if (proofError is not null)
+            {
+                error = proofError;
                 return false;
             }
 

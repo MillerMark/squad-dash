@@ -284,4 +284,34 @@ internal sealed class PlansPanelControllerTests
                 Assert.That(archived.Children.OfType<Border>().Single().Tag, Is.EqualTo(plan.PlanId));
             });
         });
+
+    [Test]
+    public void Refresh_OrdersPlansByMostRecentRunAcrossCompletionStates() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, completedPanel, _) = BuildController();
+            var now = DateTimeOffset.UtcNow;
+            var olderActive = MakePlan("older-active", "Older Active") with
+            {
+                Timestamps = new PlanTimestamps(now.AddDays(-4), LastRunAt: now.AddDays(-2)),
+            };
+            var newerActive = MakePlan("newer-active", "Newer Active") with
+            {
+                Timestamps = new PlanTimestamps(now.AddDays(-5), LastRunAt: now),
+            };
+            var completed = MakePlan("completed", "Completed", PlanLifecycleStatus.Completed) with
+            {
+                Timestamps = new PlanTimestamps(now.AddDays(-3), CompletedAt: now.AddDays(-1), LastRunAt: now.AddDays(-1)),
+            };
+
+            ctrl.Refresh([olderActive, completed, newerActive]);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(activePanel.Children.OfType<Border>().Select(row => row.Tag),
+                    Is.EqualTo(new object[] { "newer-active", "older-active" }));
+                Assert.That(completedPanel.Children.OfType<Border>().Select(row => row.Tag),
+                    Is.EqualTo(new object[] { "completed" }));
+            });
+        });
 }

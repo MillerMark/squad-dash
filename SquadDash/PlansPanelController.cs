@@ -222,12 +222,21 @@ internal sealed class PlansPanelController
         _completedPanel.Children.Clear();
         _archivedPanel.Children.Clear();
 
-        var active = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus)).ToList();
+        var active = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus))
+            .OrderByDescending(GetLastRunAt)
+            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
         var completed = _currentPlans.Where(p =>
             PlanLifecycleStatus.IsTerminal(p.LifecycleStatus) &&
-            p.LifecycleStatus != PlanLifecycleStatus.Archived).ToList();
+            p.LifecycleStatus != PlanLifecycleStatus.Archived)
+            .OrderByDescending(GetLastRunAt)
+            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
         var archived = _currentPlans.Where(p =>
-            p.LifecycleStatus == PlanLifecycleStatus.Archived).ToList();
+            p.LifecycleStatus == PlanLifecycleStatus.Archived)
+            .OrderByDescending(GetLastRunAt)
+            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
 
         if (active.Count == 0 && completed.Count == 0)
         {
@@ -255,6 +264,44 @@ internal sealed class PlansPanelController
             _viewModel.ShowArchived && archived.Count > 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Returns the most recent execution touch. LastRunAt is authoritative for current plans;
+    /// older plans fall back to their durable task, validation, gate, and lifecycle timestamps.
+    /// Archiving is intentionally excluded because it is organization, not execution.
+    /// </summary>
+    internal static DateTimeOffset GetLastRunAt(Plan plan)
+    {
+        if (plan.Timestamps.LastRunAt is { } lastRunAt)
+            return lastRunAt;
+
+        var candidates = new List<DateTimeOffset>
+        {
+            plan.Timestamps.CreatedAt,
+        };
+        Add(plan.Timestamps.AcceptedAt);
+        Add(plan.Timestamps.StartedAt);
+        Add(plan.Timestamps.CompletedAt);
+        Add(plan.Timestamps.InterruptedAt);
+        Add(plan.Timestamps.StoppedAt);
+        foreach (var task in plan.Tasks) Add(task.CompletedAt);
+        foreach (var validation in plan.Validations ?? [])
+        {
+            Add(validation.StartedAt);
+            Add(validation.CompletedAt);
+        }
+        foreach (var gate in plan.ApprovalGates)
+        {
+            Add(gate.RequestedAt);
+            Add(gate.ResolvedAt);
+        }
+        return candidates.Max();
+
+        void Add(DateTimeOffset? value)
+        {
+            if (value is { } timestamp) candidates.Add(timestamp);
+        }
     }
 
     private Border BuildRow(Plan plan)

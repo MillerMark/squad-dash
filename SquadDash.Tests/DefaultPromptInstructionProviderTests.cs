@@ -26,7 +26,9 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("DECOMPOSE_RECOVERY_JSON:"));
         Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON"));
         Assert.That(instruction, Does.Contain("SEARCH-20260725-003"));
-        Assert.That(instruction, Does.Contain("schema-version: 4"));
+        Assert.That(instruction, Does.Contain("schema-version: 5"));
+        Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
+        Assert.That(instruction, Does.Contain("final `audit` validation"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
     }
@@ -41,7 +43,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
             Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
-            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 4"));
+            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 5"));
             Assert.That(DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path), Does.Contain(path));
         }
         finally

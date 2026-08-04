@@ -59,3 +59,41 @@ internal static class PlanValidationResultParser
         return true;
     }
 }
+
+/// <summary>
+/// Validates the structured result against the approved validation contract. This is exact
+/// contract matching rather than a heuristic judgment about filenames or implementation shape.
+/// </summary>
+internal static class PlanValidationEvidencePolicy
+{
+    internal static string? Validate(
+        PlanValidationNode validation,
+        PlanValidationResultPayload result)
+    {
+        var expected = validation.Assertions.ToHashSet(StringComparer.Ordinal);
+        var returned = result.AssertionEvidence ?? [];
+        var duplicate = returned
+            .GroupBy(item => item.Assertion, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+            return $"Validation {validation.ValidationId} returned duplicate evidence for assertion '{duplicate.Key}'.";
+
+        if (returned.Count != expected.Count ||
+            returned.Any(item => !expected.Contains(item.Assertion)) ||
+            expected.Any(assertion => !returned.Any(item =>
+                string.Equals(item.Assertion, assertion, StringComparison.Ordinal))))
+            return $"Validation {validation.ValidationId} must return exactly one evidence item for every approved assertion.";
+
+        if (returned.Any(item => string.IsNullOrWhiteSpace(item.Evidence)))
+            return $"Validation {validation.ValidationId} returned empty assertion evidence.";
+
+        var allAssertionsPassed = returned.All(item => item.Passed);
+        if (result.Passed != allAssertionsPassed)
+            return $"Validation {validation.ValidationId} overall status does not match its assertion results.";
+
+        if (string.IsNullOrWhiteSpace(result.ValidatedCommit))
+            return $"Validation {validation.ValidationId} did not identify the commit it evaluated.";
+
+        return null;
+    }
+}

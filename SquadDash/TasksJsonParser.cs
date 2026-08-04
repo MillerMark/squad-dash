@@ -210,6 +210,21 @@ internal static class TasksJsonParser
                     $"TasksJsonParser: task '{task.Id}' must explain its explicit generic routing and omit assignments");
                 return false;
             }
+
+            var proofIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var requirement in task.ProofRequirements ?? [])
+            {
+                var requirementId = requirement.RequirementId ?? string.Empty;
+                if (!OutputIdPattern.IsMatch(requirementId) ||
+                    !OutputIdPattern.IsMatch(requirement.ProofType ?? string.Empty) ||
+                    string.IsNullOrWhiteSpace(requirement.Description) ||
+                    !proofIds.Add(requirementId))
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate proof requirement");
+                    return false;
+                }
+            }
         }
 
         var outputOwners = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -373,6 +388,7 @@ internal static class TasksJsonParser
                     string.IsNullOrWhiteSpace(validation.Description) ||
                     validation.Assertions is not { Count: > 0 } ||
                     validation.Assertions.Any(string.IsNullOrWhiteSpace) ||
+                    validation.Assertions.Distinct(StringComparer.Ordinal).Count() != validation.Assertions.Count ||
                     validation.AfterTaskIds is not { Count: > 0 })
                 {
                     SquadDashTrace.Write(TraceCategory.General,
@@ -396,7 +412,7 @@ internal static class TasksJsonParser
                         $"TasksJsonParser: validation '{validation.ValidationId}' references an unknown output");
                     return false;
                 }
-                if (validation.Mode is not ("command" or "evidence" or "hybrid") ||
+                if (validation.Mode is not ("command" or "evidence" or "hybrid" or "audit") ||
                     (validation.Mode is "command" or "hybrid") && validation.Commands is not { Count: > 0 })
                 {
                     SquadDashTrace.Write(TraceCategory.General,
@@ -410,6 +426,29 @@ internal static class TasksJsonParser
                         $"TasksJsonParser: validation '{validation.ValidationId}' creates a dependency cycle");
                     return false;
                 }
+            }
+        }
+
+
+        // Structured proof contracts opt a plan into a mandatory completion audit. This is a
+        // declarative contract, not a filename/description heuristic: legacy plans remain valid,
+        // while new proof-bearing plans cannot silently substitute tests for a live observation.
+        if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }))
+        {
+            var dependedUpon = parsed.Tasks
+                .SelectMany(task => task.DependsOn ?? [])
+                .ToHashSet(StringComparer.Ordinal);
+            var leafIds = validIds.Where(id => !dependedUpon.Contains(id)).ToHashSet(StringComparer.Ordinal);
+            var completionAudits = (parsed.Validations ?? [])
+                .Where(validation => string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
+                .ToArray();
+            if (completionAudits.Length != 1 ||
+                (completionAudits[0].BeforeTaskIds?.Count ?? 0) != 0 ||
+                !leafIds.SetEquals(completionAudits[0].AfterTaskIds ?? []))
+            {
+                SquadDashTrace.Write(TraceCategory.General,
+                    "TasksJsonParser: proof-bearing plans require exactly one final audit validation covering every leaf task");
+                return false;
             }
         }
 

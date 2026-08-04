@@ -13,7 +13,7 @@ internal static class PlanValidationRepairPrompt
         string reason)
     {
         return $$"""
-            SquadDash detected that your previous response completed normally but was missing the required PLAN_VALIDATION_RESULT_JSON envelope.
+            SquadDash detected that your previous response completed normally but its required PLAN_VALIDATION_RESULT_JSON envelope was missing or did not match the approved validation contract.
             Reason: {{reason}}
 
             Please provide ONLY the validation result envelope now, based on the assessment you just performed. Do not re-run tools, re-examine files, or repeat previous work.

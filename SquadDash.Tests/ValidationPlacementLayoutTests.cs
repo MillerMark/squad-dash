@@ -269,6 +269,34 @@ internal sealed class ValidationPlacementLayoutTests
         Assert.That(spacing, Is.GreaterThan(BaseRowSpacing));
     }
 
+    [Test]
+    public void AllCluster_ForeignConnectorThroughValidationStack_MovesWholeClusterAboveIt()
+    {
+        var adjusted = ValidationShieldPresenter.AvoidConnectorOverlapForAllCluster(
+            initialCenterY: 276,
+            attachedValidationCount: 1,
+            foreignConnectorYs: [324],
+            scaleFactor: 1.0);
+
+        var clusterBottom = adjusted +
+            ValidationShieldPresenter.BaseAllValidationTopOffset +
+            ValidationShieldPresenter.BaseShieldStackSpacing;
+        Assert.That(clusterBottom, Is.LessThanOrEqualTo(
+            324 - ValidationShieldPresenter.BaseClusterConnectorClearance));
+    }
+
+    [Test]
+    public void AllCluster_NoCrossingConnector_PreservesNaturalCenter()
+    {
+        var adjusted = ValidationShieldPresenter.AvoidConnectorOverlapForAllCluster(
+            initialCenterY: 276,
+            attachedValidationCount: 2,
+            foreignConnectorYs: [520],
+            scaleFactor: 1.0);
+
+        Assert.That(adjusted, Is.EqualTo(276));
+    }
+
     // ── Title truncation ──────────────────────────────────────────────────────
 
     [Test]

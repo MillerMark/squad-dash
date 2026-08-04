@@ -43,6 +43,9 @@ internal static class ValidationShieldPresenter
         _ => ShieldVisualState.Pending,
     };
 
+    internal static bool ShowsActivitySpinner(string? status) =>
+        string.Equals(status, PlanValidationStatus.Validating, StringComparison.Ordinal);
+
     // ── Tooltip content ───────────────────────────────────────────────────────
 
     /// <summary>Structured tooltip content for a validation shield.</summary>
@@ -213,6 +216,9 @@ internal static class ValidationShieldPresenter
     internal const double BaseShieldStackSpacing = 66;
     internal const double BaseShieldVisualHeight = 64;
     internal const double BaseRailTopPadding = 42;
+    internal const double BaseAllValidationTopOffset = 24;
+    internal const double BaseAllBadgeHalfHeight = 17;
+    internal const double BaseClusterConnectorClearance = 14;
 
     /// <summary>
     /// Computes the layout position for a single validation shield given its anchor,
@@ -304,6 +310,34 @@ internal static class ValidationShieldPresenter
             return Math.Max(baseRowSpacing, nodeHeight + 40 * scaleFactor);
         return Math.Max(baseRowSpacing,
             nodeHeight + (18 + attachedValidationCount * BaseShieldStackSpacing) * scaleFactor);
+    }
+
+    /// <summary>
+    /// Moves an ALL badge and its attached validation stack as one cluster when an unrelated
+    /// connector would cross the cluster's badge/shield/title footprint. The preferred escape
+    /// lane is above the connector, matching the plan's top-to-bottom reading order.
+    /// </summary>
+    internal static double AvoidConnectorOverlapForAllCluster(
+        double initialCenterY,
+        int attachedValidationCount,
+        IReadOnlyList<double> foreignConnectorYs,
+        double scaleFactor)
+    {
+        if (attachedValidationCount <= 0 || foreignConnectorYs.Count == 0)
+            return initialCenterY;
+
+        var clusterTopOffset = BaseAllBadgeHalfHeight * scaleFactor;
+        var clusterBottomOffset =
+            (BaseAllValidationTopOffset + attachedValidationCount * BaseShieldStackSpacing) * scaleFactor;
+        var clearance = BaseClusterConnectorClearance * scaleFactor;
+        var crossings = foreignConnectorYs
+            .Where(y => y >= initialCenterY - clusterTopOffset - clearance &&
+                        y <= initialCenterY + clusterBottomOffset + clearance)
+            .ToArray();
+        if (crossings.Length == 0)
+            return initialCenterY;
+
+        return crossings.Min() - clearance - clusterBottomOffset;
     }
 
     // ── Title truncation ─────────────────────────────────────────────────────
