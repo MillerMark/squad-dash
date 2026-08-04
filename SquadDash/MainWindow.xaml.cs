@@ -41287,44 +41287,51 @@ public partial class MainWindow : Window
         }
 
         // Restore any inbox viewer windows that were open at last shutdown.
+        // Deferred to ApplicationIdle so the main window finishes loading first —
+        // each InboxMessageWindow builds a FlowDocument from markdown and triggers
+        // WPF layout, which can block the UI thread for 2+ seconds per window.
         if (_docsPanelState.OpenInboxMessageIds is { Count: > 0 } openIds)
         {
-            _inboxStore ??= _currentWorkspace?.FolderPath is string wPath2
-                ? new InboxStore(System.IO.Path.Combine(wPath2, ".squad"))
-                : null;
-            if (_inboxStore is not null)
+            var capturedIds = openIds.ToList();
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
             {
-                foreach (var id in openIds)
+                _inboxStore ??= _currentWorkspace?.FolderPath is string wPath2
+                    ? new InboxStore(System.IO.Path.Combine(wPath2, ".squad"))
+                    : null;
+                if (_inboxStore is not null)
                 {
-                    var msg = _inboxStore.GetById(id);
-                    if (msg is not null)
+                    foreach (var id in capturedIds)
                     {
-                        // Opening the window is equivalent to reading the message — mark it
-                        // read now so it doesn't re-surface as unread after this session.
-                        if (!msg.Read)
-                            _inboxStore.MarkRead(id);
+                        var msg = _inboxStore.GetById(id);
+                        if (msg is not null)
+                        {
+                            // Opening the window is equivalent to reading the message — mark it
+                            // read now so it doesn't re-surface as unread after this session.
+                            if (!msg.Read)
+                                _inboxStore.MarkRead(id);
 
-                        var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById,
-                            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
-                            attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
-                            onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
-                            onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
-                            initialFontSize:   _inboxFontSize,
-                            onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
-                            openDecomposePlan: OpenDecomposePlanAttachment,
-                            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
-                        win.Owner = this;
-                        _openInboxWindows.Add(win);
-                        win.Closed += (_, _) => _openInboxWindows.Remove(win);
-                        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
-                        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{msg.Id}", win);
-                        win.Show();
+                            var win = new InboxMessageWindow(msg, DispatchInboxAction, LookupTaskById,
+                                attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
+                                attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
+                                onMarkedUnread: () => { _inboxStore?.MarkUnread(id); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
+                                onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
+                                initialFontSize:   _inboxFontSize,
+                                onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
+                                openDecomposePlan: OpenDecomposePlanAttachment,
+                                openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
+                            win.Owner = this;
+                            _openInboxWindows.Add(win);
+                            win.Closed += (_, _) => _openInboxWindows.Remove(win);
+                            win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+                            FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{msg.Id}", win);
+                            win.Show();
+                        }
                     }
-                }
 
-                // Refresh the panel so any newly-read messages are rendered at lower opacity.
-                _inboxPanel?.Refresh(_inboxStore.LoadAll());
-            }
+                    // Refresh the panel so any newly-read messages are rendered at lower opacity.
+                    _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                }
+            });
         }
 
         // Start idle detection so maintenance can fire automatically.
