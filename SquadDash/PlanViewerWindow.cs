@@ -520,6 +520,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var scroll = new ScrollViewer
         {
             Content = canvas,
+            Margin  = new Thickness(22, 0, 22, 0),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
