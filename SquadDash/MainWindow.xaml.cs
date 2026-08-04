@@ -27794,6 +27794,16 @@ public partial class MainWindow : Window
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
+        // ── Yield to transcript render ─────────────────────────────────────────
+        // The transcript render was fire-and-forget queued at Normal priority inside
+        // LoadWorkspaceConversationAsync.  Everything below this point is panel init
+        // that does not need to complete before the transcript is visible.  Yield the
+        // UI thread so the dispatcher can process the Normal-priority transcript
+        // render before continuing with panel work.  This eliminates the multi-second
+        // DISPATCH_WAIT that was blocking the transcript from appearing.
+        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
+        SquadDashTrace.Write(TraceCategory.Performance, "PANEL_INIT_RESUME: transcript render yielded, resuming panel init");
+
         // Prune agent reports older than 2 weeks on each workspace load.
         var reportStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace?.FolderPath ?? string.Empty);
         var reportsDir = AgentReportStore.GetReportsDir(reportStateDir);

@@ -628,13 +628,13 @@ internal sealed class TranscriptConversationManager {
         // Normal (9) — so every turn render waited for a full layout/render pass, meaning
         // ~one-frame delay per turn × N turns (e.g. 142 turns × ~50 ms = ~7 s).
         //
-        // New implementation: batch all turns into a SINGLE InvokeAsync at Normal priority,
+        // Current implementation: batch all turns into a SINGLE InvokeAsync at Send priority,
         // wrapped in FlowDocument.BeginChange()/EndChange(). BeginChange defers all TextChanged
         // notifications so WPF does not attempt to layout the document after every Blocks.Add
         // call — instead it fires exactly one layout pass when EndChange() is called.
         // This collapses N=142 layout invalidations into one and eliminates 141 dispatcher
-        // round-trips, attacking both the data-insertion wall and the post-EndLoad scroll
-        // instability (layout is stable before the scroll fires).
+        // round-trips.  Send priority (highest) ensures the transcript appears before any
+        // panel initialization work queued at lower priorities.
         var uiSw = Stopwatch.StartNew();
         var beginBulkMs   = 0L;
         var turnLoopMs    = 0L;
@@ -668,7 +668,7 @@ internal sealed class TranscriptConversationManager {
                 _endBulkDocumentLoad(thread);
                 endBulkMs = phaseSw.ElapsedMilliseconds;
             }
-        }, System.Windows.Threading.DispatcherPriority.Normal);
+        }, System.Windows.Threading.DispatcherPriority.Send);
         uiSw.Stop();
 
         var uiMs    = uiSw.ElapsedMilliseconds;
