@@ -79,7 +79,10 @@ internal sealed class ValidationPlacementLayoutTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(pos.Left, Is.EqualTo(300 - 72).Within(0.01));
+            Assert.That(pos.Left,
+                Is.EqualTo(300 -
+                    (ValidationShieldPresenter.BaseShieldVisualWidth -
+                     ValidationShieldPresenter.BaseShieldIconWidth) / 2).Within(0.01));
             Assert.That(pos.Top, Is.EqualTo(200 + NodeHeight + 8).Within(0.01));
         });
     }
@@ -103,7 +106,10 @@ internal sealed class ValidationPlacementLayoutTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(pos.Left, Is.EqualTo(300 + NodeWidth - 72).Within(0.01));
+            Assert.That(pos.Left,
+                Is.EqualTo(300 + NodeWidth -
+                    (ValidationShieldPresenter.BaseShieldVisualWidth +
+                     ValidationShieldPresenter.BaseShieldIconWidth) / 2).Within(0.01));
             Assert.That(pos.Top, Is.EqualTo(200 + NodeHeight + 8).Within(0.01));
         });
     }
@@ -267,6 +273,55 @@ internal sealed class ValidationPlacementLayoutTests
         Assert.That(spacing, Is.EqualTo(expected).Within(0.01));
         // Should be well above base row spacing
         Assert.That(spacing, Is.GreaterThan(BaseRowSpacing));
+    }
+
+    [Test]
+    public void ComputeShieldPosition_RailWithStageIndex_StacksAboveMilestone()
+    {
+        var anchor = new ValidationShieldPresenter.ShieldAnchor(
+            ValidationShieldPresenter.AnchorKind.Rail, StageIndex: 0);
+        var stageBoundaryXs = new[] { 400.0 };
+        var fallback = 100.0;
+
+        var lower = ValidationShieldPresenter.ComputeShieldPosition(
+            anchor, stackIndex: 0, Scale, stageBoundaryXs,
+            new Dictionary<string, (double X, double Y)>(), NodeWidth, NodeHeight,
+            graphTop: 240, gateCenters: null, ref fallback);
+        var upper = ValidationShieldPresenter.ComputeShieldPosition(
+            anchor, stackIndex: 1, Scale, stageBoundaryXs,
+            new Dictionary<string, (double X, double Y)>(), NodeWidth, NodeHeight,
+            graphTop: 240, gateCenters: null, ref fallback);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(lower.Left, Is.EqualTo(400 - 72).Within(0.01));
+            Assert.That(upper.Left, Is.EqualTo(lower.Left).Within(0.01));
+            Assert.That(lower.Top - upper.Top,
+                Is.EqualTo(ValidationShieldPresenter.BaseShieldStackSpacing).Within(0.01));
+            Assert.That(fallback, Is.EqualTo(100).Within(0.01));
+        });
+    }
+
+    [Test]
+    public void InferComplexValidationStageIndex_UsesLatestPrerequisiteStage()
+    {
+        var stageIndex = ValidationShieldPresenter.InferComplexValidationStageIndex(
+            afterLevels: [0, 1],
+            beforeLevels: [2],
+            stageCount: 3);
+
+        Assert.That(stageIndex, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void InferComplexValidationStageIndex_ParallelEarlierTasks_UsesTheirSharedBoundary()
+    {
+        var stageIndex = ValidationShieldPresenter.InferComplexValidationStageIndex(
+            afterLevels: [0, 0],
+            beforeLevels: [2],
+            stageCount: 3);
+
+        Assert.That(stageIndex, Is.EqualTo(0));
     }
 
     [Test]

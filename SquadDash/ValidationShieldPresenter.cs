@@ -213,6 +213,7 @@ internal static class ValidationShieldPresenter
 
     /// <summary>Per-shield width and height constants (before scale).</summary>
     internal const double BaseShieldVisualWidth = 144;
+    internal const double BaseShieldIconWidth = 24;
     internal const double BaseShieldStackSpacing = 66;
     internal const double BaseShieldVisualHeight = 64;
     internal const double BaseRailTopPadding = 42;
@@ -242,17 +243,25 @@ internal static class ValidationShieldPresenter
         switch (anchor.Kind)
         {
             case AnchorKind.Stage when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
+            case AnchorKind.Rail when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
                 left = stageBoundaryXs[anchor.StageIndex] - 72 * s;
                 top = graphTop - (112 + stackIndex * BaseShieldStackSpacing) * s;
                 break;
 
             case AnchorKind.Before when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var beforePos):
-                left = beforePos.X - 72 * s;
+                // The 24px shield is centered inside a 144px title container. Offset the
+                // container so the visible shield—not its invisible container—aligns with
+                // the task's entry edge.
+                left = beforePos.X -
+                       (BaseShieldVisualWidth - BaseShieldIconWidth) / 2 * s;
                 top = beforePos.Y + nodeHeight + (8 + stackIndex * BaseShieldStackSpacing) * s;
                 break;
 
             case AnchorKind.After when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var afterPos):
-                left = afterPos.X + nodeWidth - 72 * s;
+                // Mirror the entry calculation so the visible shield's right edge aligns
+                // exactly with the task's exit edge.
+                left = afterPos.X + nodeWidth -
+                       (BaseShieldVisualWidth + BaseShieldIconWidth) / 2 * s;
                 top = afterPos.Y + nodeHeight + (8 + stackIndex * BaseShieldStackSpacing) * s;
                 break;
 
@@ -291,13 +300,34 @@ internal static class ValidationShieldPresenter
     {
         var topStackCount = anchors
             .Where(a => a.Kind is AnchorKind.Stage or AnchorKind.Rail)
-            .GroupBy(a => a.Kind == AnchorKind.Stage ? $"stage:{a.StageIndex}" : "rail")
+            .GroupBy(a => a.StageIndex >= 0 ? $"stage:{a.StageIndex}" : "rail")
             .Select(g => g.Count())
             .DefaultIfEmpty(0)
             .Max();
         return topStackCount == 0
             ? 0
             : (BaseRailTopPadding + topStackCount * BaseShieldStackSpacing) * scaleFactor;
+    }
+
+    /// <summary>
+    /// Infers the milestone where a complex validation becomes runnable. A validation waits
+    /// for every prerequisite, so its visual boundary follows the latest prerequisite stage,
+    /// not the earliest stage mentioned in its contract.
+    /// </summary>
+    internal static int InferComplexValidationStageIndex(
+        IReadOnlyList<int> afterLevels,
+        IReadOnlyList<int> beforeLevels,
+        int stageCount)
+    {
+        if (afterLevels.Count == 0 || beforeLevels.Count == 0 || stageCount < 2)
+            return -1;
+
+        var latestPrerequisiteStage = afterLevels.Max();
+        return latestPrerequisiteStage >= 0 &&
+               latestPrerequisiteStage < stageCount - 1 &&
+               beforeLevels.All(level => level > latestPrerequisiteStage)
+            ? latestPrerequisiteStage
+            : -1;
     }
 
     /// <summary>

@@ -411,8 +411,8 @@ internal sealed class DenseValidationFixtureRenderingTests
         anchor.Kind switch
         {
             ValidationShieldPresenter.AnchorKind.Stage => $"Stage:{anchor.StageIndex}",
-            ValidationShieldPresenter.AnchorKind.Before => $"Before:{anchor.TaskId}",
-            ValidationShieldPresenter.AnchorKind.After => $"After:{anchor.TaskId}",
+            ValidationShieldPresenter.AnchorKind.Before => $"Task:{anchor.TaskId}",
+            ValidationShieldPresenter.AnchorKind.After => $"Task:{anchor.TaskId}",
             ValidationShieldPresenter.AnchorKind.All => $"All:{anchor.AllKey}",
             _ => "Rail",
         };

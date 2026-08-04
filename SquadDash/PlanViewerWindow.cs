@@ -595,9 +595,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     return SameIds(dependents, validation.BeforeTaskIds);
                 })
                 : null;
-            validationAnchors[validation.ValidationId] = afterTask is not null
-                ? ("after", afterTask.Id, -1, null)
-                : ("rail", null, -1, null);
+            if (afterTask is not null)
+            {
+                validationAnchors[validation.ValidationId] = ("after", afterTask.Id, -1, null);
+                continue;
+            }
+
+            // A validation may span a proper subset of several stages and therefore not be
+            // equivalent to a whole stage, task, or ALL boundary. Keep its semantic rail
+            // anchor, but place rail validations over the latest prerequisite milestone—the
+            // point where all of their required work can actually be complete—instead of
+            // scattering them horizontally.
+            var afterLevels = validation.AfterTaskIds
+                .Where(levels.ContainsKey)
+                .Select(id => levels[id])
+                .ToArray();
+            var beforeLevels = validation.BeforeTaskIds
+                .Where(levels.ContainsKey)
+                .Select(id => levels[id])
+                .ToArray();
+            var inferredStageIndex = ValidationShieldPresenter.InferComplexValidationStageIndex(
+                afterLevels,
+                beforeLevels,
+                columns.Length);
+            validationAnchors[validation.ValidationId] = ("rail", null, inferredStageIndex, null);
         }
 
         ValidationShieldPresenter.ShieldAnchor PresenterAnchor(
@@ -919,9 +940,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     "stage" => $"stage:{anchor.StageIndex}",
                     "all" => $"all:{anchor.AllKey}",
-                    "before" => $"before:{anchor.TaskId}",
-                    "after" => $"after:{anchor.TaskId}",
-                    _ => "rail",
+                    // Entry and exit validations share the task's vertical stack. Their
+                    // horizontal edges differ, but a narrow task can make the two 144px
+                    // validation visuals overlap if each side starts again at index zero.
+                    "before" => $"task:{anchor.TaskId}",
+                    "after" => $"task:{anchor.TaskId}",
+                    _ => anchor.StageIndex >= 0 ? $"rail:{anchor.StageIndex}" : "rail",
                 };
                 var stackIndex = stackIndexes.GetValueOrDefault(stackKey);
                 stackIndexes[stackKey] = stackIndex + 1;
