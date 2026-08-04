@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using System.Windows.Shell;
+using System.Windows.Input;
 using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using SquadDash.Screenshots;
@@ -19,6 +20,8 @@ namespace SquadDash {
             DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+            InputManager.Current.PreProcessInput += App_PreProcessInput;
+            InputManager.Current.PostProcessInput += App_PostProcessInput;
             base.OnStartup(e);
 
             try {
@@ -166,6 +169,11 @@ namespace SquadDash {
             try {
                 SquadDashTrace.Write("Unhandled", $"Dispatcher exception: {e.Exception}");
 
+                // Capture input and native-window state before emergency save or error UI
+                // changes focus, activation, presentation sources, or the visual tree.
+                var inputDiagnosticContext = UiInputFailureDiagnostics.BuildSnapshot(e.Exception, Current);
+                SquadDashTrace.Write("Unhandled", inputDiagnosticContext);
+
                 if (MainWindow is null) {
                     ShowStartupFailureDialog(e.Exception);
                     e.Handled = true;
@@ -176,7 +184,7 @@ namespace SquadDash {
                 TryEmergencySave();
 
                 if (MainWindow is MainWindow window)
-                    window.ReportUnhandledUiException("Dispatcher", e.Exception);
+                    window.ReportUnhandledUiException("Dispatcher", e.Exception, diagnosticContext: inputDiagnosticContext);
 
                 if (ShouldSuppressDuringShutdown(e.Exception)) {
                     e.Handled = true;
@@ -191,6 +199,14 @@ namespace SquadDash {
                 SquadDashTrace.Write("Unhandled", $"App_DispatcherUnhandledException handler failed: {handlerEx.Message}");
                 e.Handled = true;
             }
+        }
+
+        private static void App_PreProcessInput(object sender, PreProcessInputEventArgs e) {
+            UiInputFailureDiagnostics.RecordPreProcessInput(e);
+        }
+
+        private static void App_PostProcessInput(object sender, ProcessInputEventArgs e) {
+            UiInputFailureDiagnostics.RecordPostProcessInput(e);
         }
 
         private void ShowStartupFailureDialog(Exception exception) {

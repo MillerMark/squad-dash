@@ -37577,20 +37577,28 @@ public partial class MainWindow : Window
         }
     }
 
-    internal void ReportUnhandledUiException(string operation, Exception ex, bool showPanel = true)
+    internal void ReportUnhandledUiException(
+        string operation,
+        Exception ex,
+        bool showPanel = true,
+        string? diagnosticContext = null)
     {
         if (Dispatcher.CheckAccess())
         {
-            HandleUiCallbackException(operation, ex, showDialog: showPanel);
+            HandleUiCallbackException(operation, ex, showDialog: showPanel, diagnosticContext: diagnosticContext);
             return;
         }
 
         TryPostToUi(
-            () => HandleUiCallbackException(operation, ex, showDialog: showPanel),
+            () => HandleUiCallbackException(operation, ex, showDialog: showPanel, diagnosticContext: diagnosticContext),
             $"Unhandled.{operation}");
     }
 
-    private void HandleUiCallbackException(string operation, Exception ex, bool showDialog = true)
+    private void HandleUiCallbackException(
+        string operation,
+        Exception ex,
+        bool showDialog = true,
+        string? diagnosticContext = null)
     {
         SquadDashTrace.Write("UI", $"{operation} callback failed: {ex}");
 
@@ -37599,7 +37607,7 @@ public partial class MainWindow : Window
 
         try
         {
-            ShowExceptionPanel(operation, ex);
+            ShowExceptionPanel(operation, ex, diagnosticContext);
         }
         catch (Exception panelEx)
         {
@@ -37618,13 +37626,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowExceptionPanel(string operation, Exception ex)
+    private void ShowExceptionPanel(string operation, Exception ex, string? diagnosticContext = null)
     {
         var title = $"{operation} failed";
         var summary = string.IsNullOrWhiteSpace(ex.Message)
             ? "An unexpected error occurred."
             : ex.Message.Trim();
-        var details = BuildExceptionPanelDetails(operation, ex);
+        var details = BuildExceptionPanelDetails(operation, ex, diagnosticContext);
 
         _activeUiException = new UiExceptionPanelState(title, summary, details);
         ExceptionPanelTitleTextBlock.Text = title;
@@ -37637,13 +37645,21 @@ public partial class MainWindow : Window
         UpdateSessionState("Error");
     }
 
-    private static string BuildExceptionPanelDetails(string operation, Exception ex)
+    private static string BuildExceptionPanelDetails(
+        string operation,
+        Exception ex,
+        string? diagnosticContext = null)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"Operation: {operation}");
         builder.AppendLine($"Occurred: {DateTimeOffset.Now:O}");
         builder.AppendLine();
         builder.AppendLine(ex.ToString());
+        if (!string.IsNullOrWhiteSpace(diagnosticContext))
+        {
+            builder.AppendLine();
+            builder.AppendLine(diagnosticContext.Trim());
+        }
         return builder.ToString().TrimEnd();
     }
 
