@@ -285,6 +285,7 @@ internal static class TranscriptTextUtilities
                  {
                      DecomposeStepResultParser.Marker,
                      DecomposeRecoveryDecisionParser.Marker,
+                     PlanGateResponseParser.Marker,
                      PlanValidationResultParser.Marker,
                      "DECOMPOSE_DECISION_JSON:",
                  })

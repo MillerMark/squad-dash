@@ -217,6 +217,29 @@ internal sealed class PlanValidationBarrierTests
     }
 
     [Test]
+    public void Staleness_OutputChange_InvalidatesFailedValidationVerdict()
+    {
+        var plan = MakePlanWithPassedValidation();
+        plan = plan with
+        {
+            Validations =
+            [
+                plan.Validations![0] with
+                {
+                    Status = PlanValidationStatus.Failed,
+                    Summary = "The old output failed validation.",
+                },
+            ],
+        };
+
+        plan = PlanStoreUpdater.InvalidateCoveredValidations(
+            plan,
+            new HashSet<string>(StringComparer.Ordinal) { "T1" });
+
+        Assert.That(plan.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Stale));
+    }
+
+    [Test]
     public void Staleness_UnrelatedTaskChange_DoesNotInvalidate()
     {
         var plan = MakePlanWithPassedValidation();

@@ -148,6 +148,67 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task RequestRework_FromAiCompatibilityResponse_ReopensTaskAndInvalidatesValidationAtomically()
+    {
+        var validation = new PlanValidationNode(
+            "VAL-A",
+            "Validate A",
+            "Validate A before C.",
+            ["A"],
+            ["C"],
+            ["A is integrated."],
+            null,
+            "ai",
+            null,
+            false,
+            PlanValidationStatus.Passed,
+            CompletedAt: DateTimeOffset.UtcNow,
+            ValidatedCommit: "abc1234",
+            Summary: "A was integrated.",
+            Evidence: ["Integration test passed."]);
+        var stopped = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Complete) with
+        {
+            Validations = [validation],
+        });
+        var rawResponse = $$"""
+            PLAN_GATE_RESPONSE_JSON:
+            {
+              "planId": "{{stopped.UpdatedPlan.PlanId}}",
+              "gateId": "GATE-AC",
+              "revision": "{{stopped.UpdatedPlan.Revision}}",
+              "requestVersion": {{stopped.ClickToken!.RequestVersion}},
+              "disposition": "request-rework",
+              "reworkTasks": [
+                { "taskId": "A", "instructions": "Correct the integration." }
+              ]
+            }
+            """;
+        Assert.That(PlanGateResponseParser.TryParse(rawResponse, out var response), Is.True);
+        Plan? persisted = null;
+
+        var result = await _runtime.RequestReworkAsync(
+            stopped.ClickToken!,
+            stopped.UpdatedPlan,
+            "GATE-AC",
+            response!.TaskIds!,
+            response.Instructions!,
+            plan => { persisted = plan; return true; });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(persisted, Is.Not.Null);
+            Assert.That(persisted!.Tasks.Single(task => task.TaskId == "A").Status,
+                Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(persisted.Validations!.Single().Status,
+                Is.EqualTo(PlanValidationStatus.Stale));
+            Assert.That(persisted.ApprovalGates.Single().Status,
+                Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(persisted.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        });
+    }
+
+    [Test]
     public async Task Approve_OneGateFromViewer_LeavesOtherGateVersionedAndActive()
     {
         var basePlan = MakePlan(taskBStatus: PlanTaskStatus.Complete);

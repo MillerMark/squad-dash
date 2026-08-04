@@ -778,6 +778,25 @@ internal sealed class PlanStoreUpdaterTests
             ],
             LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
             Progress = new PlanProgress(1, 4),
+            Validations =
+            [
+                new PlanValidationNode(
+                    "GROUP-001-VAL-001",
+                    "Reviewed output is coherent",
+                    "Validate the reviewed task output.",
+                    ["GROUP-001-001"],
+                    ["GROUP-001-002"],
+                    ["The output is coherent."],
+                    null,
+                    "ai",
+                    null,
+                    false,
+                    PlanValidationStatus.Passed,
+                    CompletedAt: DateTimeOffset.UtcNow,
+                    ValidatedCommit: "abc1234",
+                    Summary: "Previously passed.",
+                    Evidence: ["Old output passed."]),
+            ],
         };
 
         var updated = PlanStoreUpdater.ApplyGateReworkRequested(
@@ -795,6 +814,8 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(updated.ApprovalGates[0].ReworkCount, Is.EqualTo(1));
             Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
             Assert.That(updated.Progress.CompletedCount, Is.Zero);
+            Assert.That(updated.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Stale));
+            Assert.That(updated.Validations[0].Summary, Does.Contain("Covered output changed"));
         });
     }
 

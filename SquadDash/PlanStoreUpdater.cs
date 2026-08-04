@@ -576,9 +576,10 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
-    /// Detects passed validations whose covered outputs have changed (i.e., the task producing
-    /// the output was re-accepted with new work) and marks them <see cref="PlanValidationStatus.Stale"/>.
-    /// Called internally after task acceptance to maintain validation freshness.
+    /// Detects completed validation verdicts whose covered outputs have changed (i.e., the task
+    /// producing the output was reopened or re-accepted with new work) and marks them
+    /// <see cref="PlanValidationStatus.Stale"/>. Called at both transitions so stale verdicts
+    /// disappear immediately and remain restart-safe.
     /// </summary>
     internal static Plan InvalidateCoveredValidations(Plan plan, IReadOnlySet<string>? changedTaskIds = null)
     {
@@ -588,7 +589,8 @@ internal static class PlanStoreUpdater
         var anyStale = false;
         var updated = plan.Validations.Select(validation =>
         {
-            if (validation.Status != PlanValidationStatus.Passed) return validation;
+            if (validation.Status is not (PlanValidationStatus.Passed or PlanValidationStatus.Failed))
+                return validation;
             var covered = validation.AfterTaskIds.Any(changedTaskIds.Contains);
             if (!covered) return validation;
             anyStale = true;
@@ -668,7 +670,7 @@ internal static class PlanStoreUpdater
         var completedCount = updatedTasks.Count(task =>
             task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
 
-        return existing with
+        var updated = existing with
         {
             LifecycleStatus = PlanLifecycleStatus.Executing,
             Tasks = updatedTasks,
@@ -676,6 +678,11 @@ internal static class PlanStoreUpdater
             Progress = new PlanProgress(completedCount, updatedTasks.Length),
             Timestamps = existing.Timestamps with { LastRunAt = now },
         };
+
+        // Reopening an accepted task immediately invalidates every verdict that was based on
+        // that task's previous output. Do this in the same immutable transition so live viewers
+        // can never observe a pending task beside a still-passed dependent validation.
+        return InvalidateCoveredValidations(updated, targetIds);
     }
 
     /// <summary>

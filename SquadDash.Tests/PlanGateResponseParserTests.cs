@@ -25,6 +25,54 @@ internal sealed class PlanGateResponseParserTests
         Assert.That(response!.TaskIds, Is.EqualTo(new[] { "TASK-1" }));
     }
 
+    [Test]
+    public void TryParse_RequestReworkTasksCompatibilityShape_NormalizesToCanonicalResponse()
+    {
+        const string text = """
+            PLAN_GATE_RESPONSE_JSON:
+            {
+              "planId": "PLAN-1",
+              "gateId": "GATE-1",
+              "revision": "rev",
+              "requestVersion": 3,
+              "disposition": "request-rework",
+              "reworkTasks": [
+                { "taskId": "TASK-1", "instructions": "Wire the presenter into the live viewer." }
+              ]
+            }
+            """;
+
+        Assert.That(PlanGateResponseParser.TryParse(text, out var response), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.TaskIds, Is.EqualTo(new[] { "TASK-1" }));
+            Assert.That(response.Instructions, Is.EqualTo("Wire the presenter into the live viewer."));
+        });
+    }
+
+    [Test]
+    public void BuildClassificationInstruction_IncludesExactCanonicalReworkSchema()
+    {
+        var plan = new Plan(
+            "PLAN-1", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary",
+            [new PlanTask("TASK-1", "Task", "Work", [], "high", PlanTaskStatus.Complete)],
+            [new PlanApprovalGate("GATE-1", "Review", ["TASK-1"], [], PlanGateStatus.AwaitingApproval)],
+            new PlanProgress(1, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+        var token = new ApprovalClickToken("PLAN-1", "rev", 3, ["GATE-1"]);
+
+        var instruction = PlanGateResponseParser.BuildClassificationInstruction(
+            plan, plan.ApprovalGates[0], token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("\"taskIds\":[\"TASK-1\"]"));
+            Assert.That(instruction, Does.Contain("\"instructions\":"));
+            Assert.That(instruction, Does.Contain("Never emit `reworkTasks`"));
+        });
+    }
+
     [TestCase("unrelated")]
     [TestCase("clarification")]
     public void TryParse_NonRework_DoesNotRequireTasks(string disposition)

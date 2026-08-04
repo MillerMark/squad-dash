@@ -204,6 +204,32 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_PlanGateResponse_StripsPayloadAndPreservesVisibleText()
+    {
+        const string text = """
+            The requested correction is understood.
+
+            PLAN_GATE_RESPONSE_JSON:
+            {"planId":"PLAN-1","gateId":"GATE-1","revision":"rev","requestVersion":2,
+             "disposition":"request-rework","taskIds":["TASK-1"],"instructions":"Wire the runtime."}
+            """;
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("The requested correction is understood."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_PartialPlanGateResponse_HidesStreamingPayload()
+    {
+        const string text = "Classifying the requested correction.\n\nPLAN_GATE_RESPONSE_JSON:\n{\n  \"planId\": \"PLAN-1\",";
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("Classifying the requested correction."));
+    }
+
+    [Test]
     public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
     {
         const string text = """
