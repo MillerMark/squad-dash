@@ -359,6 +359,8 @@ public partial class MainWindow : Window
     private SimulationSessionManager? _simulationSessionManager;
     private PlanSimulationSurfaceAdapter? _planSimulationSurfaceAdapter;
     private string? _simulatedPlanSessionId;
+    private NotesSimulationSurfaceAdapter? _notesSimulationSurfaceAdapter;
+    private string? _simulatedNotesSessionId;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -20972,6 +20974,13 @@ public partial class MainWindow : Window
                 _plansPanelController, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_planSimulationSurfaceAdapter);
         }
+
+        if (_notesPanel is not null)
+        {
+            _notesSimulationSurfaceAdapter = new NotesSimulationSurfaceAdapter(
+                _notesPanel, Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_notesSimulationSurfaceAdapter);
+        }
     }
 
     private void CleanUpAllNamedDemoAgents()
@@ -22258,6 +22267,51 @@ public partial class MainWindow : Window
 
             var sessionId = _simulatedPlanSessionId;
             _simulatedPlanSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Simulated Notes tour commands ─────────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedNotes", async () =>
+        {
+            EnsureSimulationSessionManager();
+
+            if (_simulatedNotesSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Notes", "guided-tour");
+            _simulatedNotesSessionId = session.SessionId;
+
+            var welcomeNote = SimulationNotesFixtureBuilder.BuildWelcomeNote();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Notes,
+                "sim-note-artifact-001",
+                welcomeNote.Title,
+                welcomeNote);
+
+            var archNote = SimulationNotesFixtureBuilder.BuildArchitectureNote();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Notes,
+                "sim-note-artifact-002",
+                archNote.Title,
+                archNote);
+
+            Dispatcher.Invoke(() =>
+            {
+                _notesPanelVisible = true;
+                SyncNotesPanel();
+            });
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedNotes", async () =>
+        {
+            if (_simulatedNotesSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedNotesSessionId;
+            _simulatedNotesSessionId = null;
             await _simulationSessionManager.EndSessionAsync(sessionId);
         });
 

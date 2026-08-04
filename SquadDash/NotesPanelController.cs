@@ -95,6 +95,28 @@ internal sealed class NotesPanelController {
         _listPanel.Children.Insert(idx, row);
     }
 
+    /// <summary>Removes a single note by ID without affecting persisted storage.</summary>
+    public void RemoveNote(Guid noteId) {
+        int idx = _sortedNotes.FindIndex(n => n.Id == noteId);
+        if (idx < 0) return;
+
+        _sortedNotes.RemoveAt(idx);
+        _viewModel.Notes.RemoveAll(n => n.Id == noteId);
+        _listPanel.Children.RemoveAt(idx);
+
+        if (_sortedNotes.Count == 0) {
+            var empty = new TextBlock {
+                Text         = "No notes yet",
+                FontStyle    = FontStyles.Italic,
+                Margin       = new Thickness(4, 6, 4, 4),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            empty.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            empty.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            _listPanel.Children.Add(empty);
+        }
+    }
+
     public void SetFilter(string text) {
         _viewModel.FilterText = text.Trim();
         ApplyFilterToList();
