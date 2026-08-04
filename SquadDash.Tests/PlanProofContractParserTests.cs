@@ -69,4 +69,77 @@ internal sealed class PlanProofContractParserTests
             Assert.That(diagnostic?.Message, Does.Contain("actual afterTaskIds: [PROOF-20260803-001]"));
         });
     }
+
+    [Test]
+    public void ProofBearingRevision_FinalAuditCoversReplacementLeaf_NotSupersededParent()
+    {
+        var original = MakeGroup(true);
+        var parent = original.Tasks[0];
+        var firstReplacement = new DecomposedSubTask(
+            "PROOF-20260803-002",
+            "Capture the live observation using the approved production path.",
+            [], "high", "Capture observation",
+            ParentTaskId: parent.Id,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "Test fixture.");
+        var terminalReplacement = new DecomposedSubTask(
+            "PROOF-20260803-003",
+            "Package the observation evidence for the final independent audit.",
+            [firstReplacement.Id], "high", "Package evidence",
+            ParentTaskId: parent.Id,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "Test fixture.");
+        var audit = original.Validations!.Single() with
+        {
+            AfterTaskIds = [terminalReplacement.Id],
+        };
+        var revision = original with
+        {
+            Tasks = [parent, firstReplacement, terminalReplacement],
+            Validations = [audit],
+        };
+        var text = "TASKS_JSON:\n" + JsonSerializer.Serialize(revision);
+
+        var parsed = TasksJsonParser.TryParse(text, out var accepted, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, diagnostic?.Message);
+            Assert.That(accepted?.Validations?.Single().AfterTaskIds,
+                Is.EqualTo(new[] { terminalReplacement.Id }));
+        });
+    }
+
+    [Test]
+    public void ProofBearingRevision_AuditIncludingSupersededParent_IsRejectedWithEffectiveLeaf()
+    {
+        var original = MakeGroup(true);
+        var parent = original.Tasks[0];
+        var firstReplacement = new DecomposedSubTask(
+            "PROOF-20260803-002", "Capture the observation.", [], "high", "Capture observation",
+            ParentTaskId: parent.Id, AgentRoutingMode: "generic", GenericAgentReason: "Test fixture.");
+        var terminalReplacement = new DecomposedSubTask(
+            "PROOF-20260803-003", "Package the evidence.", [firstReplacement.Id], "high", "Package evidence",
+            ParentTaskId: parent.Id, AgentRoutingMode: "generic", GenericAgentReason: "Test fixture.");
+        var audit = original.Validations!.Single() with
+        {
+            AfterTaskIds = [parent.Id, terminalReplacement.Id],
+        };
+        var revision = original with
+        {
+            Tasks = [parent, firstReplacement, terminalReplacement],
+            Validations = [audit],
+        };
+
+        var parsed = TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(revision), out _, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Code, Is.EqualTo("invalid-proof-completion-audit"));
+            Assert.That(diagnostic?.Message,
+                Does.Contain("Expected leaf task IDs: [PROOF-20260803-003]"));
+        });
+    }
 }

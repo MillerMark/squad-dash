@@ -416,10 +416,28 @@ internal static class TasksJsonParser
         // while new proof-bearing plans cannot silently substitute tests for a live observation.
         if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }))
         {
-            var dependedUpon = parsed.Tasks
-                .SelectMany(task => task.DependsOn ?? [])
+            // A revision keeps its blocked parent task in the proposal and identifies the
+            // smaller replacements with parentTaskId.  The parent is therefore not a live
+            // completion leaf.  Normalize the replacement graph before calculating leaves
+            // so downstream dependencies on the parent are redirected to replacement
+            // terminals exactly as they will be when the revision is staged.
+            var completionGraph = DecomposePlanRevision.TryNormalize(parsed, out var normalizedCompletionGraph, out _)
+                ? normalizedCompletionGraph
+                : parsed;
+            var supersededParentIds = parsed.Tasks
+                .Where(task => !string.IsNullOrWhiteSpace(task.ParentTaskId))
+                .Select(task => task.ParentTaskId!)
                 .ToHashSet(StringComparer.Ordinal);
-            var leafIds = validIds.Where(id => !dependedUpon.Contains(id)).ToHashSet(StringComparer.Ordinal);
+            var effectiveTaskIds = validIds
+                .Where(id => !supersededParentIds.Contains(id))
+                .ToHashSet(StringComparer.Ordinal);
+            var dependedUpon = completionGraph.Tasks
+                .SelectMany(task => task.DependsOn ?? [])
+                .Where(effectiveTaskIds.Contains)
+                .ToHashSet(StringComparer.Ordinal);
+            var leafIds = effectiveTaskIds
+                .Where(id => !dependedUpon.Contains(id))
+                .ToHashSet(StringComparer.Ordinal);
             var completionAudits = (parsed.Validations ?? [])
                 .Where(validation => string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
                 .ToArray();
