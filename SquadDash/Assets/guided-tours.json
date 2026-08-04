@@ -1519,5 +1519,170 @@
         "targetOffsetY": 0.5
       }
     ]
+  },
+  {
+    "id": "a7c3e1f4",
+    "name": "Notes Panel",
+    "description": "Learn how to create, view, and edit notes using the Notes panel.",
+    "steps": [
+      {
+        "title": "Welcome",
+        "markdownText": "##Notes Panel\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot1.png)[lines:2][valign:top][size:1.2] Learn how to use the **Notes** panel to capture ideas, instructions, and reference material.\r\n[size:1.1][right] Press **Enter** or click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Show Notes Panel",
+        "markdownText": "If the **Notes** panel isn\u0027t visible, find it in the **Tools** menu.\r\nWe\u0027ll open it for you now.",
+        "targetControlId": "ViewNotesMenuItem",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: PanelsMenuItem",
+          "HighlightMenuItem: ViewNotesMenuItem",
+          "ShowNotesPanel"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Notes Panel",
+        "markdownText": "This is the **Notes** panel.\r\nIt holds all your personal and shared notes in one place.",
+        "targetControlId": "NotesPanelBorder",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "UnhighlightMenuItems"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Creating a New Note",
+        "markdownText": "**Right-click** inside the panel to create a new note.\r\nWe\u0027ll create a sample note for you now.",
+        "targetControlId": "NotesListPanel",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CreateTourNote"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Sample Note",
+        "markdownText": "Here\u0027s the note we just created — **Tour Sample Note**.\r\nNotes appear in the list with their title and a brief preview.",
+        "targetControlId": "NotesListPanel",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.2
+      },
+      {
+        "title": "Opening in the Editor",
+        "markdownText": "Double-click a note to open it in the **editor**.\r\nThe rendered **Markdown** appears here.",
+        "targetControlId": "DocMarkdownViewer",
+        "calloutPlacement": "West",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenTourNoteInDocsPanel"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Show Source Button",
+        "markdownText": "Click **View Source** to reveal the raw **Markdown** behind the note.\r\nThis lets you edit the source directly.",
+        "targetControlId": "ViewSourceButton",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "The Source Editor",
+        "markdownText": "This is the **source editor**.\r\nEdit the Markdown here and see changes reflected in the preview.",
+        "targetControlId": "DocSourceTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "ShowNoteSource"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Notes Panel**\r\n[lines:2][vspace:0]You just learned how to create, view, and edit notes.\r\nRight-click in the panel anytime to add more!\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [
+          "CleanUpTourNote"
+        ],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
   }
 ]

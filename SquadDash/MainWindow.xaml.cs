@@ -627,6 +627,7 @@ public partial class MainWindow : Window
     private bool _tasksPanelVisible = false;
     private bool _approvalPanelVisible = false;
     private bool _notesPanelVisible = false;
+    private NoteItem? _tourNoteItem;
     private bool _plansPanelVisible = false;
     private bool _codeHealthPanelVisible = false;
     private string? _watchCycleId;
@@ -22327,6 +22328,72 @@ public partial class MainWindow : Window
             var sessionId = _simulatedNotesSessionId;
             _simulatedNotesSessionId = null;
             await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Notes Panel tour commands ──────────────────────────────────────
+        _guidedTourCoordinator.CommandRegistry.Register("ShowNotesPanel", () =>
+        {
+            _notesPanelVisible = true;
+            SyncNotesPanel();
+            if (ViewNotesMenuItem is not null)
+                ViewNotesMenuItem.IsChecked = true;
+        });
+
+        _guidedTourCoordinator.CommandRegistry.Register("CreateTourNote", () =>
+        {
+            if (_notesStore is null) return;
+            var note = new NoteItem(Guid.NewGuid(), "Tour Sample Note", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            _notesStore.WriteContent(note.Id, "# Welcome to Notes\n\nThis is a **sample note** created for the guided tour.\n\n## Features\n\n- Markdown formatting\n- Quick access from the panel\n- Source editing mode");
+            _noteItems.Insert(0, note);
+            _notesStore.SaveAll(_noteItems);
+            _tourNoteItem = note;
+
+            if (!_notesPanelVisible)
+            {
+                _notesPanelVisible = true;
+                SyncNotesPanel();
+            }
+            else
+            {
+                _notesPanel?.Refresh(_noteItems);
+            }
+        });
+
+        _guidedTourCoordinator.CommandRegistry.Register("OpenTourNoteInDocsPanel", () =>
+        {
+            if (_tourNoteItem is null || _notesStore is null) return;
+            var path = _notesStore.GetNotePath(_tourNoteItem.Id);
+            if (!File.Exists(path)) return;
+
+            if (!_documentationModeEnabled)
+                SetDocumentationMode(true, persistChange: false);
+
+            _currentDocPath = path;
+            var rawMarkdown = File.ReadAllText(path);
+            var markdown = StripDocFrontMatter(rawMarkdown, out _);
+            var html = MarkdownHtmlBuilder.Build(markdown, _tourNoteItem.Title,
+                filePath: path, isDark: AgentStatusCard.IsDarkTheme);
+            DocMarkdownViewer?.NavigateToString(html);
+        });
+
+        _guidedTourCoordinator.CommandRegistry.Register("ShowNoteSource", () =>
+        {
+            if (!IsDocSourceVisible())
+                ShowDocSourcePanel();
+        });
+
+        _guidedTourCoordinator.CommandRegistry.Register("CleanUpTourNote", () =>
+        {
+            if (_tourNoteItem is null || _notesStore is null) return;
+            var note = _tourNoteItem;
+            _tourNoteItem = null;
+            _noteItems.RemoveAll(n => n.Id == note.Id);
+            _notesStore.DeleteContent(note.Id);
+            _notesStore.SaveAll(_noteItems);
+            _notesPanel?.Refresh(_noteItems);
+
+            if (_documentationModeEnabled)
+                SetDocumentationMode(false, persistChange: false);
         });
 
         _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("CreateDemoAgent", async arg =>
