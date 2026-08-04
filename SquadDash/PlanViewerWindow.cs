@@ -65,7 +65,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
         WeakEventBroker? broker = null,
         Action<string>? onOpenCommit = null)
-        : base(captionHeight: CloseButtonHeight)
+        : base(
+            captionHeight: CloseButtonHeight,
+            resizeMode: ResizeMode.CanResize,
+            resizeBorderThickness: 8)
     {
         const double baseFontSize = 12.0;
         var currentFontSize = Application.Current?.Resources["FontSizeBody"] is double fs ? fs : baseFontSize;
@@ -189,6 +192,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
@@ -364,17 +368,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Margin       = new Thickness(0, 0, 0, 6),
         };
         summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+        summaryBlock.FontSize = quickReplyFontSize;
         header.Children.Add(summaryBlock);
 
         var hintBlock = new TextBlock
         {
             Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
             TextWrapping = TextWrapping.Wrap,
+            FontSize     = quickReplyFontSize,
+            Margin       = new Thickness(22, 6, 22, 8),
         };
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        hintBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-        header.Children.Add(hintBlock);
 
         if (durablePlan is not null)
         {
@@ -524,6 +528,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
         Grid.SetRow(scroll, 1);
         root.Children.Add(scroll);
+
+        // Reading guidance belongs with the graph it explains, not in the plan's proposal
+        // header. Keep it visible immediately below the graph and above approval details.
+        Grid.SetRow(hintBlock, 2);
+        root.Children.Add(hintBlock);
 
         _contentHolder ??= ApplyOuterBorder(titleText: group.GroupTitle);
         _contentHolder.Child = root;
@@ -1915,8 +1924,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null)
         {
-            var approvalSummary = BuildApprovalSummaryPanel(durablePlan, levels);
-            Grid.SetRow(approvalSummary, 2);
+            var approvalSummary = BuildApprovalSummaryPanel(
+                durablePlan,
+                levels,
+                quickReplyFontSize);
+            Grid.SetRow(approvalSummary, 3);
             approvalSummary.Visibility = Visibility.Collapsed;
             root.Children.Add(approvalSummary);
 
@@ -2122,7 +2134,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private static FrameworkElement BuildApprovalSummaryPanel(
-        Plan plan, IReadOnlyDictionary<string, int> levels)
+        Plan plan,
+        IReadOnlyDictionary<string, int> levels,
+        double contentFontSize)
     {
         var title = new TextBlock
         {
@@ -2131,7 +2145,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Margin = new Thickness(10, 7, 10, 3),
         };
         title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        title.FontSize = contentFontSize;
 
         var document = new FlowDocument
         {
@@ -2141,7 +2155,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
         document.SetResourceReference(FlowDocument.BackgroundProperty, "CardSurface");
-        document.SetResourceReference(FlowDocument.FontSizeProperty, "FontSizeBody");
+        document.FontSize = contentFontSize;
 
         string TaskName(string id) => plan.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, id, StringComparison.Ordinal)) is { } task
@@ -2237,7 +2251,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
         viewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "LabelText");
-        viewer.SetResourceReference(FlowDocumentScrollViewer.FontSizeProperty, "FontSizeBody");
+        viewer.FontSize = contentFontSize;
 
         var stack = new DockPanel();
         DockPanel.SetDock(title, Dock.Top);
@@ -2247,8 +2261,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var border = new Border
         {
             Child = stack,
-            BorderThickness = new Thickness(1, 1, 0, 0),
-            Margin = new Thickness(0),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(8, 0, 8, 8),
         };
         border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");

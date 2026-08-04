@@ -9137,7 +9137,9 @@ public partial class MainWindow : Window
               }
             : null;
         win = new PlanViewerWindow(
-            displayedPlan, activeBranch, _transcriptFontSize, applyAction, durablePlan,
+            // Plan proposal actions and prose mirror their Inbox presentation rather than
+            // inheriting the independently zoomable coordinator transcript size.
+            displayedPlan, activeBranch, _inboxFontSize, applyAction, durablePlan,
             onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
