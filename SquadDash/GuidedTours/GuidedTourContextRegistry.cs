@@ -57,5 +57,7 @@ internal sealed class GuidedTourContextRegistry
 
     /// <summary>All registered context names, sorted alphabetically.</summary>
     public IReadOnlyList<string> ContextNames =>
-        [.. _contexts.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)];
+        [.. _contexts.Keys
+            .Concat(_parameterizedContexts.Keys.Select(k => k + ":"))
+            .OrderBy(k => k, StringComparer.OrdinalIgnoreCase)];
 }

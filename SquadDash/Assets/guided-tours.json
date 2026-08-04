@@ -1556,8 +1556,8 @@
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
-        "requiredContext": "IsPanelVisible:Notes",
-        "requiredContextValue": false,
+        "requiredContext": "TargetIsVisible",
+        "requiredContextValue": true,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
