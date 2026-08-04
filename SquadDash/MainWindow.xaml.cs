@@ -10579,7 +10579,7 @@ public partial class MainWindow : Window
             foreach (var card in cards)
                 TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
 
-        AppendLine($"What would you like changed in **{gate.Message}**? Describe it in the prompt box. " +
+        AppendLine($"What would you like changed in “**{gate.Message}**”? Describe it in the prompt box. " +
                    "The plan will remain awaiting approval until SquadDash receives a valid rework decision.");
         PromptTextBox.Focus();
     }
