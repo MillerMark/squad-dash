@@ -95,6 +95,19 @@ internal sealed class NotesPanelController {
         _listPanel.Children.Insert(idx, row);
     }
 
+    /// <summary>Returns the visual row element for the note with the given title, or null.</summary>
+    public FrameworkElement? FindRowByTitle(string title)
+    {
+        int idx = _sortedNotes.FindIndex(n =>
+            string.Equals(n.Title, title, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0 || idx >= _listPanel.Children.Count) return null;
+        return _listPanel.Children[idx] as FrameworkElement;
+    }
+
+    /// <summary>Returns true if a note with the given title exists in the sorted list.</summary>
+    public bool ContainsNoteWithTitle(string title) =>
+        _sortedNotes.Any(n => string.Equals(n.Title, title, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Removes a single note by ID without affecting persisted storage.</summary>
     public void RemoveNote(Guid noteId) {
         int idx = _sortedNotes.FindIndex(n => n.Id == noteId);

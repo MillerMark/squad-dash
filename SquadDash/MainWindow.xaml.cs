@@ -20858,6 +20858,21 @@ public partial class MainWindow : Window
                     }
                 }
 
+                // Lazy-resolve NoteEntry_{title} — finds the visual row for a note by title.
+                if (name.StartsWith("NoteEntry_", StringComparison.Ordinal))
+                {
+                    var noteTitle = name.Substring("NoteEntry_".Length);
+                    if (_notesPanel is not null)
+                    {
+                        var row = _notesPanel.FindRowByTitle(noteTitle);
+                        if (row is not null)
+                        {
+                            _guidedTourCoordinator.NamedElements[name] = row;
+                            return row;
+                        }
+                    }
+                }
+
                 var inMain = VisualTreeSearch.FindByName(this, name);
                 if (inMain is not null) return inMain;
                 if (_preferencesWindow is { IsVisible: true })
@@ -21272,6 +21287,16 @@ public partial class MainWindow : Window
         _guidedTourCoordinator.ContextRegistry.Register("AzureSpeechProviderSelected", () =>
             _preferencesWindow is { IsVisible: true } &&
             _preferencesWindow.IsAzureSpeechProviderSelected);
+
+        _guidedTourCoordinator.ContextRegistry.RegisterParameterized("IsPanelVisible", panelName =>
+        {
+            return panelName.ToLowerInvariant() switch
+            {
+                "notes" => _notesPanelVisible,
+                // Add other panels as needed in the future
+                _ => false
+            };
+        });
     }
 
     private const string TourDummyTag = "guided-tour-dummy";
@@ -22342,6 +22367,11 @@ public partial class MainWindow : Window
         _guidedTourCoordinator.CommandRegistry.Register("CreateTourNote", () =>
         {
             if (_notesStore is null) return;
+
+            // Idempotent: skip creation if a note with this title already exists.
+            if (_notesPanel is not null && _notesPanel.ContainsNoteWithTitle("Tour Sample Note"))
+                return;
+
             var note = new NoteItem(Guid.NewGuid(), "Tour Sample Note", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             _notesStore.WriteContent(note.Id, "# Welcome to Notes\n\nThis is a **sample note** created for the guided tour.\n\n## Features\n\n- Markdown formatting\n- Quick access from the panel\n- Source editing mode");
             _noteItems.Insert(0, note);
