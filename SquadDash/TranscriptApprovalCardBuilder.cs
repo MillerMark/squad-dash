@@ -59,6 +59,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Link that opens the plan represented by this approval request.</summary>
         internal Hyperlink PlanLink { get; init; } = null!;
 
+        /// <summary>Link that opens the durable Inbox request containing full review evidence.</summary>
+        internal Hyperlink? InboxLink { get; init; }
+
         /// <summary>Commit-evidence links rendered in the card.</summary>
         internal IReadOnlyList<Hyperlink> CommitLinks { get; init; } = [];
     }
@@ -77,11 +80,13 @@ internal static class TranscriptApprovalCardBuilder
         int requestVersion = 1,
         Action? onOpenPlan = null,
         Action<string>? onOpenCommit = null,
+        Action? onOpenInbox = null,
         bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
         var commitLinks = new List<Hyperlink>();
+        Hyperlink? inboxLink = null;
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -146,9 +151,22 @@ internal static class TranscriptApprovalCardBuilder
                 .GroupBy(commit => commit.Link.FullSha, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToArray();
-            var summary = CreateStyledTextBlock(
-                $"{snapshot.CompletedTasks.Count} completed task(s) ready for review. Full evidence is in Inbox.",
-                fontSize - 1, "SubtleText");
+            var summary = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
+            summary.Inlines.Add(new Run(
+                $"{snapshot.CompletedTasks.Count} completed task(s) ready for review. Full evidence is "));
+            inboxLink = new Hyperlink(new Run("here"))
+            {
+                Cursor = onOpenInbox is null ? Cursors.Arrow : Cursors.Hand,
+                IsEnabled = onOpenInbox is not null,
+                ToolTip = onOpenInbox is null
+                    ? null
+                    : ToolTipHelper.MakeThemedToolTip("Open the approval request in Inbox"),
+            };
+            inboxLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            if (onOpenInbox is not null)
+                inboxLink.Click += (_, _) => onOpenInbox();
+            summary.Inlines.Add(inboxLink);
+            summary.Inlines.Add(new Run("."));
             summary.Margin = new Thickness(0, 0, 0, commits.Length > 0 ? 2 : 6);
             stack.Children.Add(summary);
 
@@ -496,6 +514,7 @@ internal static class TranscriptApprovalCardBuilder
             ReworkIndicator = reworkIndicator,
             ContentStack = stack,
             PlanLink = planTitleLink,
+            InboxLink = inboxLink,
             CommitLinks = commitLinks,
         };
     }

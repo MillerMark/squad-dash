@@ -11086,7 +11086,9 @@ public partial class MainWindow : Window
             onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
             requestVersion: clickToken.RequestVersion,
             onOpenPlan: () => OpenPlanFromStore(plan),
-            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            onOpenInbox: () => OpenOrFocusInboxMessage(
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId)));
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
         {

@@ -144,23 +144,27 @@ public class TranscriptApprovalCardBuilderTests
     public void Build_DefaultCardIsCompactAndPointsToInboxForFullEvidence()
     {
         var plan = BuildTestPlan();
+        var openedInbox = false;
         var card = TranscriptApprovalCardBuilder.Build(
             BuildTestSnapshot(changedFileCount: 5, downstreamTaskCount: 2),
             plan,
             plan.ApprovalGates[0],
             14,
-            _ => { });
+            _ => { },
+            onOpenInbox: () => openedInbox = true);
+        card.InboxLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
         var directText = card.ContentStack.Children
             .OfType<TextBlock>()
-            .Select(block => block.Text)
+            .Select(block => new TextRange(block.ContentStart, block.ContentEnd).Text)
             .ToArray();
 
         Assert.Multiple(() =>
         {
-            Assert.That(directText, Has.Some.Contains("Full evidence is in Inbox"));
+            Assert.That(directText, Has.Some.Contains("Full evidence is here."));
             Assert.That(directText, Has.None.Contains("unblocked by approval"));
             Assert.That(card.ContentStack.Children.OfType<Expander>(), Is.Empty);
             Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
+            Assert.That(openedInbox, Is.True);
         });
     }
 
