@@ -370,6 +370,144 @@ internal static class ValidationShieldPresenter
         return crossings.Min() - clearance - clusterBottomOffset;
     }
 
+    // ── ALL cluster footprint & connector collision ────────────────────────────
+
+    /// <summary>Axis-aligned bounding rectangle.</summary>
+    internal readonly record struct LayoutRect(double Left, double Top, double Width, double Height)
+    {
+        internal double Right => Left + Width;
+        internal double Bottom => Top + Height;
+    }
+
+    /// <summary>
+    /// Computes the bounding rectangle for an ALL badge and its attached shield stack,
+    /// including title labels. The footprint is used for connector collision avoidance.
+    /// </summary>
+    internal static LayoutRect ComputeAllClusterFootprint(
+        double gateCenterX, double gateCenterY, int shieldCount, double scaleFactor)
+    {
+        var s = scaleFactor;
+        // Badge width ≈ 58px centered on gate
+        var badgeHalfWidth = 29.0 * s;
+        // Shields are 144px wide, centered on gate
+        var shieldHalfWidth = BaseShieldVisualWidth / 2.0 * s;
+        var halfWidth = Math.Max(badgeHalfWidth, shieldHalfWidth);
+
+        var left = gateCenterX - halfWidth;
+        var width = halfWidth * 2;
+
+        // Top: badge extends BaseAllBadgeHalfHeight above gate center
+        var top = gateCenterY - BaseAllBadgeHalfHeight * s;
+
+        // Bottom: badge (2 * BaseAllBadgeHalfHeight) + shield stack below gate center
+        double height;
+        if (shieldCount <= 0)
+        {
+            height = BaseAllBadgeHalfHeight * 2 * s;
+        }
+        else
+        {
+            // Shields start at gateCenterY + BaseAllValidationTopOffset and each occupies BaseShieldStackSpacing
+            var shieldBottom = (BaseAllValidationTopOffset + shieldCount * BaseShieldStackSpacing) * s;
+            height = (gateCenterY + shieldBottom) - top;
+        }
+
+        return new LayoutRect(left, top, width, height);
+    }
+
+    /// <summary>
+    /// Checks whether a straight connector line between two points intersects any ALL cluster footprint.
+    /// Returns true if the path is clear (no intersections).
+    /// </summary>
+    internal static bool IsConnectorPathClear(
+        (double X, double Y) connectorStart,
+        (double X, double Y) connectorEnd,
+        IReadOnlyList<LayoutRect> allClusterFootprints)
+    {
+        if (allClusterFootprints.Count == 0) return true;
+
+        foreach (var rect in allClusterFootprints)
+        {
+            if (LineIntersectsRect(connectorStart.X, connectorStart.Y,
+                                   connectorEnd.X, connectorEnd.Y, rect))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Computes waypoints that route a connector around ALL cluster footprints.
+    /// Returns null if no detour is needed (path is clear).
+    /// The returned list includes the start, any intermediate waypoints, and the end.
+    /// </summary>
+    internal static IReadOnlyList<(double X, double Y)>? ComputeConnectorDetour(
+        (double X, double Y) connectorStart,
+        (double X, double Y) connectorEnd,
+        IReadOnlyList<LayoutRect> allClusterFootprints,
+        double scaleFactor)
+    {
+        if (IsConnectorPathClear(connectorStart, connectorEnd, allClusterFootprints))
+            return null;
+
+        var clearance = BaseClusterConnectorClearance * scaleFactor;
+
+        // Collect all intersecting footprints and route above the highest one
+        var intersecting = allClusterFootprints
+            .Where(r => LineIntersectsRect(connectorStart.X, connectorStart.Y,
+                                           connectorEnd.X, connectorEnd.Y, r))
+            .OrderBy(r => r.Left)
+            .ToArray();
+
+        // Use a single detour Y above all intersecting clusters
+        var detourY = intersecting.Min(r => r.Top) - clearance;
+        var entryX = Math.Max(connectorStart.X, intersecting[0].Left - clearance);
+        var exitX = Math.Min(connectorEnd.X, intersecting[^1].Right + clearance);
+
+        return new List<(double X, double Y)>
+        {
+            connectorStart,
+            (entryX, detourY),
+            (exitX, detourY),
+            connectorEnd
+        };
+    }
+
+    /// <summary>
+    /// Tests whether a line segment from (x1,y1)→(x2,y2) intersects an axis-aligned rectangle.
+    /// Uses Liang-Barsky clipping algorithm.
+    /// </summary>
+    private static bool LineIntersectsRect(double x1, double y1, double x2, double y2, LayoutRect rect)
+    {
+        var dx = x2 - x1;
+        var dy = y2 - y1;
+
+        double tMin = 0, tMax = 1;
+
+        // Check each edge
+        double[] p = { -dx, dx, -dy, dy };
+        double[] q = { x1 - rect.Left, rect.Right - x1, y1 - rect.Top, rect.Bottom - y1 };
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (Math.Abs(p[i]) < 1e-10)
+            {
+                // Line parallel to edge — if outside, no intersection
+                if (q[i] < 0) return false;
+            }
+            else
+            {
+                var t = q[i] / p[i];
+                if (p[i] < 0)
+                    tMin = Math.Max(tMin, t);
+                else
+                    tMax = Math.Min(tMax, t);
+                if (tMin > tMax) return false;
+            }
+        }
+
+        return true;
+    }
+
     // ── Title truncation ─────────────────────────────────────────────────────
 
     /// <summary>Maximum character length for shield titles before truncation.</summary>

@@ -1066,6 +1066,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
             visualizationGates,
             requireEveryIncomingAtConvergence: true);
 
+        // Compute ALL cluster footprints for connector collision avoidance.
+        var allClusterFootprints = new List<ValidationShieldPresenter.LayoutRect>();
+        foreach (var (gateCenter, _, dependencies, _, _) in gates)
+        {
+            var allKey = string.Join("\u001f", dependencies);
+            var attachedCount = validationAnchors.Values.Count(anchor =>
+                anchor.Kind == "all" && string.Equals(anchor.AllKey, allKey, StringComparison.Ordinal));
+            if (attachedCount > 0)
+            {
+                allClusterFootprints.Add(
+                    ValidationShieldPresenter.ComputeAllClusterFootprint(
+                        gateCenter.X, gateCenter.Y, attachedCount, _scaleFactor));
+            }
+        }
+
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
         // NodeHeight * k/(N+1) for k = 1..N (sorted top-to-bottom by destination Y).
@@ -1162,7 +1177,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gateConnectorGroups.Add(cgsForGate);
         }
 
-        // Draw non-gated direct connectors.
+        // Draw non-gated direct connectors with collision avoidance for ALL clusters.
         foreach (var task in group.Tasks.Where(task => !gatedTaskIds.Contains(task.Id)))
         {
             foreach (var dependency in task.DependsOn.Where(positions.ContainsKey))
@@ -1172,14 +1187,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var skipCount = Math.Max(0, levels[task.Id] - levels[dependency] - 1);
                 var fromPt    = new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0));
                 var toPt      = new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0));
-                var cg = AddConnector(canvas,
-                    fromPt, toPt,
-                    arrowHead: true,
-                    skipCount: skipCount,
-                    dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                    splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(dependency, cg);
-                RegisterConnector(task.Id,   cg);
+
+                var detour = allClusterFootprints.Count > 0
+                    ? ValidationShieldPresenter.ComputeConnectorDetour(
+                        (fromPt.X, fromPt.Y), (toPt.X, toPt.Y), allClusterFootprints, _scaleFactor)
+                    : null;
+
+                if (detour is null || detour.Count <= 2)
+                {
+                    var cg = AddConnector(canvas,
+                        fromPt, toPt,
+                        arrowHead: true,
+                        skipCount: skipCount,
+                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
+                        splitAtX: FindSplitX(fromPt.X, toPt.X));
+                    RegisterConnector(dependency, cg);
+                    RegisterConnector(task.Id,   cg);
+                }
+                else
+                {
+                    // Draw segmented connector along detour waypoints
+                    ConnectorGroup? firstCg = null;
+                    for (int wi = 0; wi < detour.Count - 1; wi++)
+                    {
+                        var segFrom = new Point(detour[wi].X, detour[wi].Y);
+                        var segTo   = new Point(detour[wi + 1].X, detour[wi + 1].Y);
+                        var isLast  = wi == detour.Count - 2;
+                        var cg = AddConnector(canvas,
+                            segFrom, segTo,
+                            arrowHead: isLast,
+                            skipCount: wi == 0 ? skipCount : 0,
+                            dashed: dashedTaskEdges.Contains((dependency, task.Id)),
+                            splitAtX: wi == 0 ? FindSplitX(segFrom.X, segTo.X) : double.NaN);
+                        firstCg ??= cg;
+                        RegisterConnector(dependency, cg);
+                        RegisterConnector(task.Id,   cg);
+                    }
+                }
             }
         }
 
