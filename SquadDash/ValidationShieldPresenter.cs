@@ -245,7 +245,7 @@ internal static class ValidationShieldPresenter
             case AnchorKind.Stage when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
             case AnchorKind.Rail when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
                 left = stageBoundaryXs[anchor.StageIndex] - 72 * s;
-                top = graphTop - (88 + stackIndex * BaseShieldStackSpacing) * s;
+                top = graphTop - (90 + stackIndex * BaseShieldStackSpacing) * s;
                 break;
 
             case AnchorKind.Before when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var beforePos):

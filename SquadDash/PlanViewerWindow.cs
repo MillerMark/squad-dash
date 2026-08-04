@@ -643,7 +643,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var validationRailHeight = ValidationShieldPresenter.ComputeValidationRailHeight(
             validationAnchors.Values.Select(PresenterAnchor).ToArray(), _scaleFactor);
-        var graphTop = 68 * _scaleFactor + validationRailHeight;
+        var graphTop = 40 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
@@ -924,7 +924,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
                     approved: milestoneApproved);
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved ? 10 : 8) * _scaleFactor);
-                Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 6 * _scaleFactor);
+                Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
                 canvas.Children.Add(milestoneStop);
                 approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
@@ -1432,8 +1432,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var spinner = new ActivitySpinner
                 {
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 2, 0),
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 2, 0),
                     AccentColor = activityState == PlanTaskActivityState.Reworking
                         ? ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange)
                         : ResolvePlanSpinnerColor(),
@@ -1457,8 +1457,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var chip = new TextBlock
                 {
                     Text              = statusChipText,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin            = new Thickness(0, 0, 2, 0),
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin            = new Thickness(0, 1, 2, 0),
                     FontWeight        = FontWeights.SemiBold,
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
@@ -1528,7 +1528,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 Text = $"Step {taskOrdinalById[task.Id]}",
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(20 * _scaleFactor, 2, 20 * _scaleFactor, 0),
+                Margin = new Thickness(20 * _scaleFactor, 5, 20 * _scaleFactor, 0),
             };
             stepLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             stepLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
@@ -2651,6 +2651,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Polygon? stop = null;
         if (approved)
         {
+            var circleSize = 16 * s;
+            var circle = new Ellipse
+            {
+                Width = circleSize,
+                Height = circleSize,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var isDark = AgentStatusCard.IsDarkTheme;
+            circle.Fill = isDark
+                ? new SolidColorBrush(Color.FromRgb(0x1A, 0x30, 0x50))
+                : new SolidColorBrush(Color.FromRgb(0xD0, 0xE8, 0xFF));
+
             var approvedCheck = new TextBlock
             {
                 Text = "✓",
@@ -2661,7 +2674,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 LineHeight = 20 * s,
             };
             approvedCheck.SetResourceReference(TextBlock.ForegroundProperty, "PlanApprovalResolved");
-            indicator = approvedCheck;
+
+            var approvedContainer = new Grid();
+            approvedContainer.Children.Add(circle);
+            approvedContainer.Children.Add(approvedCheck);
+            indicator = approvedContainer;
         }
         else
         {
