@@ -2524,35 +2524,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
         switch (status)
         {
             case PlanValidationStatus.Passed:
-                shield.SetResourceReference(Shape.FillProperty, "PriorityLow");
-                shield.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationPassedFill");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationPassedIcon");
                 break;
             case PlanValidationStatus.Validating:
-                shield.Fill = Brushes.Transparent;
-                shield.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationValidatingFill");
                 break;
             case PlanValidationStatus.Failed:
-                shield.SetResourceReference(Shape.FillProperty, "PriorityCritical");
-                shield.SetResourceReference(Shape.StrokeProperty, "PriorityCritical");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationFailedFill");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationFailedIcon");
                 break;
             case PlanValidationStatus.Stale:
-                shield.Fill = Brushes.Transparent;
-                shield.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationStaleFill");
                 shield.StrokeDashArray = [3, 2];
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationStaleIcon");
                 innerIcon.Opacity = 0.65;
                 break;
             case PlanValidationStatus.Ready:
-                shield.Fill = Brushes.Transparent;
-                shield.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ActivePanelTitle");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationReadyFill");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationReadyIcon");
                 break;
             default:
-                shield.Fill = Brushes.Transparent;
-                shield.SetResourceReference(Shape.StrokeProperty, "SubtleText");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "SubtleText");
+                shield.SetResourceReference(Shape.FillProperty, "ValidationPendingFill");
+                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationPendingIcon");
                 innerIcon.Opacity = 0.45;
                 break;
         }
