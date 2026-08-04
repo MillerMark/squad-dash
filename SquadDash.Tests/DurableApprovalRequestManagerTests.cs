@@ -357,11 +357,58 @@ public class DurableApprovalRequestManagerTests
         };
         var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], resolved);
 
-        Assert.That(body, Does.Contain("GATE-001"));
+        Assert.That(body, Does.Contain("Review after T1"));
+        Assert.That(body, Does.Not.Contain("`GATE-001`"));
         Assert.That(body, Does.Contain("GATE-000"));
         Assert.That(body, Does.Contain("LGTM"));
         Assert.That(body, Does.Contain("1 checkpoint(s) awaiting approval"));
         Assert.That(body, Does.Contain("1 resolved checkpoint(s)"));
+    }
+
+    [Test]
+    public void BuildBody_WithReviewSnapshot_PutsDetailedEvidenceInInboxMessage()
+    {
+        var plan = MakePlan();
+        var changedFile = new ChangedFileEntry(
+            "src/SimulationSessionManager.cs",
+            FileChangeStatus.Modified,
+            42,
+            3,
+            "abc1234567890",
+            new FileLink("src/SimulationSessionManager.cs", "abc1234567890"));
+        var commit = new ReviewCommitEntry(
+            new CommitLink("abc1234", "abc1234567890", "Implement simulation session runtime"),
+            VerificationPassed: true,
+            ChangedFiles: [changedFile]);
+        var snapshot = MakeSnapshot() with
+        {
+            CompletedTasks =
+            [
+                new ReviewTaskEntry(
+                    "T1",
+                    "Implement session runtime",
+                    "Added exact artifact ownership and cleanup.",
+                    [commit],
+                    "Claims and focused tests matched the changed files."),
+            ],
+            DownstreamTasks = [new DownstreamTaskEntry("T2", "Add Plan fixtures", "pending")],
+            AllChangedFiles = [changedFile],
+        };
+
+        var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], [], snapshot);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body, Does.Contain("Completed work ready for review"));
+            Assert.That(body, Does.Contain("Added exact artifact ownership and cleanup."));
+            Assert.That(body, Does.Contain("Claims and focused tests matched the changed files."));
+            Assert.That(body, Does.Contain("abc1234"));
+            Assert.That(body, Does.Contain("Changed files (1)"));
+            Assert.That(body, Does.Contain("src/SimulationSessionManager.cs"));
+            Assert.That(body, Does.Contain("Approval allows this work to continue"));
+            Assert.That(body, Does.Contain("Add Plan fixtures"));
+            Assert.That(body, Does.Not.Contain("GATE-001`:"));
+        });
     }
 
     [Test]

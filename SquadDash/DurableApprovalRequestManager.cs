@@ -104,6 +104,7 @@ internal sealed class DurableApprovalRequestManager
                         Archived = false,
                         Version = (state?.Version ?? 0) + 1,
                     };
+                var reviewSnapshot = MergeSnapshots(DeserializeSnapshot(existing), snapshot);
 
                 var updated = existing with
                 {
@@ -112,9 +113,9 @@ internal sealed class DurableApprovalRequestManager
                     // leaving it buried at the time of the first checkpoint.
                     Timestamp = DateTimeOffset.UtcNow,
                     Read = false,
-                    Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints),
+                    Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints, reviewSnapshot),
                     Actions = BuildActions(plan, newState),
-                    Attachments = BuildAttachments(newState, snapshot, plan: plan),
+                    Attachments = BuildAttachments(newState, reviewSnapshot, plan: plan),
                     Priority = "high",
                 };
                 _inbox.Save(updated);
@@ -137,7 +138,7 @@ internal sealed class DurableApprovalRequestManager
                     Timestamp = DateTimeOffset.UtcNow,
                     Read = false,
                     Priority = "high",
-                    Body = BuildBody(plan, [gate.GateId], []),
+                    Body = BuildBody(plan, [gate.GateId], [], snapshot),
                     Attachments = BuildAttachments(state, snapshot, plan: plan),
                     Actions = BuildActions(plan, state),
                 };
@@ -171,12 +172,13 @@ internal sealed class DurableApprovalRequestManager
 
             var state = DeserializeState(existing);
             if (state is null) return;
+            var reviewSnapshot = MergeSnapshots(DeserializeSnapshot(existing), snapshot);
 
             var updated = existing with
             {
-                Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints),
+                Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, reviewSnapshot),
                 Actions = BuildActions(plan, state),
-                Attachments = BuildAttachments(state, snapshot, plan: plan),
+                Attachments = BuildAttachments(state, reviewSnapshot, plan: plan),
             };
             _inbox.Save(updated);
         }
@@ -206,6 +208,7 @@ internal sealed class DurableApprovalRequestManager
 
             var state = DeserializeState(existing);
             if (state is null) return;
+            var reviewSnapshot = DeserializeSnapshot(existing);
 
             var remainingGates = state.ActiveGateIds
                 .Where(id => !string.Equals(id, gateId, StringComparison.Ordinal))
@@ -241,7 +244,7 @@ internal sealed class DurableApprovalRequestManager
             {
                 var updated = existing with
                 {
-                    Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints),
+                    Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints, reviewSnapshot),
                     Actions = BuildActions(plan, newState),
                     Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
                 };
@@ -272,6 +275,7 @@ internal sealed class DurableApprovalRequestManager
             if (existing is null) return;
             var state = DeserializeState(existing);
             if (state is null || !state.ActiveGateIds.Contains(gateId, StringComparer.Ordinal)) return;
+            var reviewSnapshot = DeserializeSnapshot(existing);
 
             var remaining = state.ActiveGateIds
                 .Where(id => !string.Equals(id, gateId, StringComparison.Ordinal))
@@ -292,7 +296,7 @@ internal sealed class DurableApprovalRequestManager
             _inbox.Save(existing with
             {
                 Read = remaining.Length == 0,
-                Body = BuildBody(plan, remaining, history),
+                Body = BuildBody(plan, remaining, history, reviewSnapshot),
                 Actions = BuildActions(plan, updatedState),
                 Attachments = BuildAttachments(
                     updatedState,
@@ -410,6 +414,52 @@ internal sealed class DurableApprovalRequestManager
     private static string SerializeState(DurableApprovalState state) =>
         JsonSerializer.Serialize(state, StateSerializerOptions);
 
+    private static ApprovalReviewSnapshot? DeserializeSnapshot(InboxMessage message)
+    {
+        var attachment = message.Attachments.FirstOrDefault(
+            item => string.Equals(item.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase));
+        if (attachment is null || string.IsNullOrWhiteSpace(attachment.Content))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<ApprovalReviewSnapshot>(attachment.Content, StateSerializerOptions);
+        }
+        catch (JsonException ex)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"Approval review snapshot could not be parsed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static ApprovalReviewSnapshot MergeSnapshots(
+        ApprovalReviewSnapshot? existing,
+        ApprovalReviewSnapshot current)
+    {
+        if (existing is null)
+            return current;
+
+        return current with
+        {
+            CompletedTasks = existing.CompletedTasks.Concat(current.CompletedTasks)
+                .GroupBy(item => item.TaskId, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .ToArray(),
+            DownstreamTasks = existing.DownstreamTasks.Concat(current.DownstreamTasks)
+                .GroupBy(item => item.TaskId, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .ToArray(),
+            AllChangedFiles = existing.AllChangedFiles.Concat(current.AllChangedFiles)
+                .GroupBy(item => $"{item.CommitSha}\0{item.FilePath}", StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Last())
+                .ToArray(),
+            IndependentWork = existing.IndependentWork.Concat(current.IndependentWork)
+                .GroupBy(item => item.TaskId, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .ToArray(),
+        };
+    }
+
     private static IReadOnlyList<InboxAttachment> BuildAttachments(
         DurableApprovalState state,
         ApprovalReviewSnapshot? snapshot,
@@ -476,7 +526,8 @@ internal sealed class DurableApprovalRequestManager
     internal static string BuildBody(
         Plan plan,
         IReadOnlyList<string> activeGateIds,
-        IReadOnlyList<ResolvedCheckpointEntry> resolvedCheckpoints)
+        IReadOnlyList<ResolvedCheckpointEntry> resolvedCheckpoints,
+        ApprovalReviewSnapshot? snapshot = null)
     {
         var parts = new List<string>();
 
@@ -492,8 +543,10 @@ internal sealed class DurableApprovalRequestManager
                 var gate = plan.ApprovalGates.FirstOrDefault(
                     g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
                 var reason = gate?.Message ?? gateId;
-                parts.Add($"- 🔒 `{gateId}`: {reason}");
+                parts.Add($"- {reason}");
             }
+
+            AppendReviewEvidence(parts, snapshot);
         }
 
         if (resolvedCheckpoints.Count > 0)
@@ -519,6 +572,52 @@ internal sealed class DurableApprovalRequestManager
         }
 
         return string.Join("\n", parts);
+    }
+
+    private static void AppendReviewEvidence(List<string> parts, ApprovalReviewSnapshot? snapshot)
+    {
+        if (snapshot is null)
+            return;
+
+        if (snapshot.CompletedTasks.Count > 0)
+        {
+            parts.Add("");
+            parts.Add("**Completed work ready for review**");
+            foreach (var task in snapshot.CompletedTasks)
+            {
+                parts.Add($"- **{task.Title}**");
+                if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
+                    parts.Add($"  - Handoff: {task.CompletionSummary}");
+                if (!string.IsNullOrWhiteSpace(task.ScrutinySummary))
+                    parts.Add($"  - Scrutiny: {task.ScrutinySummary}");
+                foreach (var commit in task.Commits)
+                {
+                    var verification = commit.VerificationPassed switch
+                    {
+                        true => " · verification passed",
+                        false => " · verification failed",
+                        _ => string.Empty,
+                    };
+                    parts.Add($"  - Commit `{commit.Link.ShortSha}` — {commit.Link.Subject}{verification}");
+                }
+            }
+        }
+
+        if (snapshot.AllChangedFiles.Count > 0)
+        {
+            parts.Add("");
+            parts.Add($"**Changed files ({snapshot.AllChangedFiles.Count})**");
+            foreach (var file in snapshot.AllChangedFiles)
+                parts.Add($"- `{file.FilePath}` · {file.Status} · +{file.Insertions}/-{file.Deletions}");
+        }
+
+        if (snapshot.DownstreamTasks.Count > 0)
+        {
+            parts.Add("");
+            parts.Add("**Approval allows this work to continue**");
+            foreach (var task in snapshot.DownstreamTasks)
+                parts.Add($"- {task.Title}");
+        }
     }
 
     internal static IReadOnlyList<InboxAction> BuildActions(

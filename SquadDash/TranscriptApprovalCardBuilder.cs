@@ -76,7 +76,8 @@ internal static class TranscriptApprovalCardBuilder
         Action? onRequestChanges = null,
         int requestVersion = 1,
         Action? onOpenPlan = null,
-        Action<string>? onOpenCommit = null)
+        Action<string>? onOpenCommit = null,
+        bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
@@ -138,7 +139,52 @@ internal static class TranscriptApprovalCardBuilder
         stack.Children.Add(reasonBlock);
 
         // ── Completed tasks with commit evidence ─────────────────────────
-        if (snapshot.CompletedTasks.Count > 0)
+        if (!includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
+        {
+            var commits = snapshot.CompletedTasks
+                .SelectMany(task => task.Commits)
+                .GroupBy(commit => commit.Link.FullSha, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToArray();
+            var summary = CreateStyledTextBlock(
+                $"{snapshot.CompletedTasks.Count} completed task(s) ready for review. Full evidence is in Inbox.",
+                fontSize - 1, "SubtleText");
+            summary.Margin = new Thickness(0, 0, 0, commits.Length > 0 ? 2 : 6);
+            stack.Children.Add(summary);
+
+            if (commits.Length > 0)
+            {
+                var commitLine = CreateStyledTextBlock("Commits: ", fontSize - 1, "SubtleText");
+                for (var index = 0; index < commits.Length; index++)
+                {
+                    var commit = commits[index];
+                    if (index > 0)
+                        commitLine.Inlines.Add(new Run(", "));
+                    var shaLink = new Hyperlink(new Run(commit.Link.ShortSha))
+                    {
+                        Cursor = onOpenCommit is null ? Cursors.Arrow : Cursors.Hand,
+                        IsEnabled = onOpenCommit is not null,
+                        FontFamily = new FontFamily("Consolas"),
+                        ToolTip = onOpenCommit is null
+                            ? null
+                            : ToolTipHelper.MakeThemedToolTip("Open this commit on GitHub"),
+                    };
+                    shaLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                    if (onOpenCommit is not null)
+                    {
+                        var capturedSha = commit.Link.FullSha;
+                        shaLink.Click += (_, _) => onOpenCommit(capturedSha);
+                    }
+                    commitLinks.Add(shaLink);
+                    commitLine.Inlines.Add(shaLink);
+                }
+                commitLine.Margin = new Thickness(0, 0, 0, 6);
+                stack.Children.Add(commitLine);
+            }
+        }
+
+        // Full handoff, scrutiny, file, and downstream evidence belongs in Inbox.
+        if (includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
             var taskHeader = CreateStyledTextBlock(
                 $"✅ {snapshot.CompletedTasks.Count} completed task(s) under review:",
@@ -228,14 +274,14 @@ internal static class TranscriptApprovalCardBuilder
         }
 
         // ── Expandable changed-files section ─────────────────────────────
-        if (snapshot.AllChangedFiles.Count > 0)
+        if (includeDetailedEvidence && snapshot.AllChangedFiles.Count > 0)
         {
             var filesExpander = BuildChangedFilesExpander(snapshot.AllChangedFiles, fontSize);
             stack.Children.Add(filesExpander);
         }
 
         // ── Downstream tasks ─────────────────────────────────────────────
-        if (snapshot.DownstreamTasks.Count > 0)
+        if (includeDetailedEvidence && snapshot.DownstreamTasks.Count > 0)
         {
             var downstreamHeader = CreateStyledTextBlock(
                 $"⏭ {snapshot.DownstreamTasks.Count} task(s) unblocked by approval:",

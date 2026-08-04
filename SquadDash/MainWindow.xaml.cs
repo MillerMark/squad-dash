@@ -9659,19 +9659,13 @@ public partial class MainWindow : Window
         var taskContext = string.Join("\n\n", contexts);
         if (durablePlan is not null)
         {
-            var upstreamCount = durablePlan.Tasks.FirstOrDefault(task =>
-                    string.Equals(task.TaskId, currentTaskId, StringComparison.Ordinal)) is { } durableTask
-                ? PlanExecutionContextBuilder.GetAncestors(durablePlan, durableTask).Count
-                : 0;
             AppendPlanExecutionJournal(
                 durablePlan.PlanId,
                 currentTaskId,
                 string.IsNullOrWhiteSpace(scrutinyReworkContext)
                     ? "task-context-sent"
                     : "bounded-rework-context-sent",
-                taskContext,
-                announce: true,
-                announcement: $"🧭 Prepared Step context with {upstreamCount} accepted upstream handoff{(upstreamCount == 1 ? string.Empty : "s")}.");
+                taskContext);
         }
         return taskContext;
     }
@@ -9680,9 +9674,7 @@ public partial class MainWindow : Window
         string planId,
         string taskId,
         string phase,
-        string content,
-        bool announce = false,
-        string? announcement = null)
+        string content)
     {
         if (_currentWorkspace is null) return null;
         try
@@ -9690,9 +9682,6 @@ public partial class MainWindow : Window
             var stateDirectory = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(
                 _currentWorkspace.FolderPath);
             var path = PlanExecutionJournal.Append(stateDirectory, planId, taskId, phase, content);
-            if (announce)
-                ScheduleDecomposeSystemEntry(
-                    $"{announcement ?? $"Recorded {phase} for task {taskId}."} Inspectable execution journal: `{path}`");
             return path;
         }
         catch (Exception ex)

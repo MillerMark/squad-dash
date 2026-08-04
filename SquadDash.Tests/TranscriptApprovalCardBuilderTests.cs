@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using NUnit.Framework;
 
@@ -135,6 +136,30 @@ public class TranscriptApprovalCardBuilderTests
         {
             Assert.That(openedPlan, Is.True);
             Assert.That(openedCommit, Is.EqualTo("abc1234567890"));
+            Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_DefaultCardIsCompactAndPointsToInboxForFullEvidence()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(changedFileCount: 5, downstreamTaskCount: 2),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { });
+        var directText = card.ContentStack.Children
+            .OfType<TextBlock>()
+            .Select(block => block.Text)
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(directText, Has.Some.Contains("Full evidence is in Inbox"));
+            Assert.That(directText, Has.None.Contains("unblocked by approval"));
+            Assert.That(card.ContentStack.Children.OfType<Expander>(), Is.Empty);
             Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
         });
     }

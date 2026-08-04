@@ -650,7 +650,8 @@ internal sealed class ApprovalWorkflowProbeTests
 
         var msg = _inbox.GetById(id);
         Assert.That(msg, Is.Not.Null);
-        Assert.That(msg!.Body, Does.Contain("GATE-1"));
+        Assert.That(msg!.Body, Does.Contain("Review lanes A+B before post-gate work"));
+        Assert.That(msg.Body, Does.Not.Contain("`GATE-1`"));
         Assert.That(msg.Body, Does.Contain("Probe Plan"));
         Assert.That(msg.Body, Does.Contain("checkpoint(s) awaiting approval"));
         Assert.That(msg.Priority, Is.EqualTo("high"));

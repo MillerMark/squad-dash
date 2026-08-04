@@ -964,7 +964,8 @@ internal sealed class ApprovalIntegrationTests
 
         var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-A"], resolved);
 
-        Assert.That(body, Does.Contain("GATE-A"));
+        Assert.That(body, Does.Contain("Review T1+T2 before T3"));
+        Assert.That(body, Does.Not.Contain("`GATE-A`"));
         Assert.That(body, Does.Contain("GATE-OLD"));
         Assert.That(body, Does.Contain("Previously approved"));
         Assert.That(body, Does.Contain("1 checkpoint(s) awaiting approval"));
