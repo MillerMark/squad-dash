@@ -45,6 +45,7 @@ internal sealed class GuidedTourController
     private readonly Action<int>?                         _saveLastEditorStepIndex;
     private CancellationTokenSource?                      _readingNudgeCts;
     private readonly GuidedTourContextRegistry?           _contextRegistry;
+    private readonly GuidedTourDismissalDeferral          _dismissalDeferral;
     private bool                                          _suppressRestartHint;
 
     /// <summary>
@@ -99,6 +100,7 @@ internal sealed class GuidedTourController
         _getLastEditorStepIndex  = getLastEditorStepIndex;
         _saveLastEditorStepIndex = saveLastEditorStepIndex;
         _contextRegistry         = contextRegistry;
+        _dismissalDeferral       = new GuidedTourDismissalDeferral(ownerWindow.Dispatcher);
     }
 
     // ── Public API ───────────────────────────────────────────────────────────
@@ -747,8 +749,8 @@ internal sealed class GuidedTourController
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
-            _activeCallout.UserDismissStarting       += (_, _) => StopTour();
-            _activeCallout.UserDismissed             += (_, _) => StopTour();
+            _activeCallout.UserDismissStarting       += (_, _) => RequestStopTourAfterCurrentInput();
+            _activeCallout.UserDismissed             += (_, _) => RequestStopTourAfterCurrentInput();
             _onCalloutShown?.Invoke();
         }
     }
@@ -788,9 +790,17 @@ internal sealed class GuidedTourController
             _activeCallout.TourDeleteRequested       += (_, _) => HandleDeleteStep();
             _activeCallout.TourNextTourRequested     += (_, _) => NextTour();
             _activeCallout.TourMoreToursRequested    += (_, _) => ShowTourSelector();
-            _activeCallout.UserDismissStarting       += (_, _) => StopTour();
-            _activeCallout.UserDismissed             += (_, _) => StopTour();
+            _activeCallout.UserDismissStarting       += (_, _) => RequestStopTourAfterCurrentInput();
+            _activeCallout.UserDismissed             += (_, _) => RequestStopTourAfterCurrentInput();
         }
+    }
+
+    private void RequestStopTourAfterCurrentInput()
+    {
+        // The close button raises UserDismissStarting during PreviewMouseLeftButtonDown.
+        // Closing its HWND synchronously there leaves WPF routing the same mouse event to
+        // a destroyed Button and can fail in HwndKeyboardInputProvider.AcquireFocus.
+        _dismissalDeferral.Request(() => IsActive, StopTour);
     }
 
     private void RunPreAction(GuidedTourStep step)

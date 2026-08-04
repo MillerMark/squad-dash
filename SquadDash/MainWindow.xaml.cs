@@ -37787,13 +37787,14 @@ public partial class MainWindow : Window
                 BuildClipboardAttachDescription(_activeUiException.Details),
                 BuildTypedAttachmentBlock("clipboard", _activeUiException.Title, _activeUiException.Details));
             
-            // Pre-fill the prompt box with error context and select all text
-            const string ErrorPromptText = "Just saw this error inside SquadDash.";
+            // Pre-fill an evidence-first diagnostic request. A framework-only stack can
+            // still be triggered by application teardown during WPF input routing.
+            var errorPromptText = UiExceptionChatPromptBuilder.Build();
             SetPromptTextBoxLogicalBuffer(
-                text: ErrorPromptText,
+                text: errorPromptText,
                 caretIndex: 0,
                 selectionStart: 0,
-                selectionLength: ErrorPromptText.Length,
+                selectionLength: errorPromptText.Length,
                 reason: "error-add-to-chat");
             
             // Focus the prompt box so the user can immediately start typing

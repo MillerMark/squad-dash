@@ -14,8 +14,10 @@
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourCommandRegistry.cs" Link="Source\GuidedTourCommandRegistry.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourAdvanceTriggerRegistry.cs" Link="Source\GuidedTourAdvanceTriggerRegistry.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourContextRegistry.cs" Link="Source\GuidedTourContextRegistry.cs" />
+    <Compile Include="..\SquadDash\GuidedTours\GuidedTourDismissalDeferral.cs" Link="Source\GuidedTourDismissalDeferral.cs" />
     <Compile Include="..\SquadDash\UiTimingConstants.cs" Link="Source\UiTimingConstants.cs" />
     <Compile Include="..\SquadDash\UiInputFailureDiagnostics.cs" Link="Source\UiInputFailureDiagnostics.cs" />
+    <Compile Include="..\SquadDash\UiExceptionChatPromptBuilder.cs" Link="Source\UiExceptionChatPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PromptQueueCoordinator.cs" Link="Source\PromptQueueCoordinator.cs" />
     <Compile Include="..\SquadDash\WeakEventBroker.cs" Link="Source\WeakEventBroker.cs" />
     <Compile Include="..\SquadDash\ReadAgentSatelliteCoalescer.cs" Link="Source\ReadAgentSatelliteCoalescer.cs" />
