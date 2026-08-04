@@ -45,4 +45,28 @@ internal sealed class PlanProofContractParserTests
         Assert.That(TasksJsonParser.TryParse(text, out var parsed), Is.True);
         Assert.That(parsed?.Validations?.Single().Mode, Is.EqualTo("audit"));
     }
+
+    [Test]
+    public void ProofBearingPlan_WithWrongAuditBoundary_ReturnsExpectedAndActualLeafIds()
+    {
+        var original = MakeGroup(true);
+        var finalTask = new DecomposedSubTask(
+            "PROOF-20260803-002",
+            "Consume the live observation and finish the proof.",
+            [original.Tasks[0].Id], "high", "Finish proof",
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "Test fixture.");
+        var invalid = original with { Tasks = [original.Tasks[0], finalTask] };
+        var text = "TASKS_JSON:\n" + JsonSerializer.Serialize(invalid);
+
+        var parsed = TasksJsonParser.TryParse(text, out _, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Code, Is.EqualTo("invalid-proof-completion-audit"));
+            Assert.That(diagnostic?.Message, Does.Contain("Expected leaf task IDs: [PROOF-20260803-002]"));
+            Assert.That(diagnostic?.Message, Does.Contain("actual afterTaskIds: [PROOF-20260803-001]"));
+        });
+    }
 }

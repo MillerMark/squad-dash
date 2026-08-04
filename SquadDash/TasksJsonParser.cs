@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
+internal sealed record TasksJsonParseDiagnostic(string Code, string Message);
+
 /// <summary>
 /// Parses a <c>TASKS_JSON:</c> block from AI response text into a <see cref="DecomposedTaskGroup"/>.
 /// Uses the same brace-balanced JSON extraction technique as <see cref="InboxMessageParser"/>.
@@ -38,23 +40,48 @@ internal static class TasksJsonParser
     /// Returns <c>true</c> when a valid, well-formed group is found; <c>false</c> otherwise.
     /// Validation errors are written to trace.
     /// </summary>
-    internal static bool TryParse(string text, out DecomposedTaskGroup? group)
+    internal static bool TryParse(string text, out DecomposedTaskGroup? group) =>
+        TryParseCore(text, out group, reportDiagnostic: null);
+
+    internal static bool TryParse(
+        string text,
+        out DecomposedTaskGroup? group,
+        out TasksJsonParseDiagnostic? diagnostic)
+    {
+        TasksJsonParseDiagnostic? captured = null;
+        var parsed = TryParseCore(text, out group, value => captured ??= value);
+        diagnostic = captured;
+        return parsed;
+    }
+
+    private static bool TryParseCore(
+        string text,
+        out DecomposedTaskGroup? group,
+        Action<TasksJsonParseDiagnostic>? reportDiagnostic)
     {
         group = null;
 
-        if (string.IsNullOrWhiteSpace(text))
+        bool Fail(string code, string message)
+        {
+            var diagnostic = new TasksJsonParseDiagnostic(code, message);
+            reportDiagnostic?.Invoke(diagnostic);
+            SquadDashTrace.Write(TraceCategory.General, $"TasksJsonParser: {message}");
             return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return Fail("empty-response", "response is empty");
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
 
         // Use the last occurrence so that multiple blocks resolve to the final one.
         int markerIdx = normalized.LastIndexOf(Marker, StringComparison.Ordinal);
         if (markerIdx < 0)
-            return false;
+            return Fail("missing-marker", "TASKS_JSON marker is missing");
 
         int braceStart = normalized.IndexOf('{', markerIdx + Marker.Length);
         if (braceStart < 0)
-            return false;
+            return Fail("missing-json-object", "TASKS_JSON marker is not followed by a JSON object");
 
         // Walk brace depth to find the closing brace, ignoring braces inside strings.
         int  depth    = 0;
@@ -78,7 +105,7 @@ internal static class TasksJsonParser
         }
 
         if (braceEnd < 0)
-            return false;
+            return Fail("unbalanced-json", "TASKS_JSON object has unbalanced braces");
 
         var jsonText = normalized[braceStart..(braceEnd + 1)];
 
@@ -89,44 +116,35 @@ internal static class TasksJsonParser
         }
         catch (JsonException ex)
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                $"TasksJsonParser: JSON parse error — {ex.Message}");
-            return false;
+            return Fail("json-parse-error", $"JSON parse error — {ex.Message}");
         }
 
         if (parsed is null)
-            return false;
+            return Fail("null-plan", "TASKS_JSON deserialized to null");
 
         if (string.IsNullOrWhiteSpace(parsed.GroupTitle) ||
             string.IsNullOrWhiteSpace(parsed.Branch) ||
             string.IsNullOrWhiteSpace(parsed.Summary))
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                "TasksJsonParser: groupTitle, branch, and summary must be non-empty");
-            return false;
+            return Fail("missing-plan-metadata", "groupTitle, branch, and summary must be non-empty");
         }
 
         // Validate groupId format.
         if (!GroupIdPattern.IsMatch(parsed.GroupId ?? string.Empty))
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                $"TasksJsonParser: invalid groupId '{parsed.GroupId}' — must match [A-Z]+-\\d{{8}}");
-            return false;
+            return Fail("invalid-group-id",
+                $"invalid groupId '{parsed.GroupId}' — must match [A-Z]+-\\d{{8}}");
         }
 
         // Validate task count.
         if (parsed.Tasks is null || parsed.Tasks.Count == 0)
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                "TasksJsonParser: tasks array is null or empty");
-            return false;
+            return Fail("missing-tasks", "tasks array is null or empty");
         }
 
         if (parsed.Tasks.Count > 25)
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                $"TasksJsonParser: {parsed.Tasks.Count} tasks exceeds maximum of 25");
-            return false;
+            return Fail("too-many-tasks", $"{parsed.Tasks.Count} tasks exceeds maximum of 25");
         }
 
         // Build a set of valid task IDs and validate each ID format.
@@ -135,45 +153,35 @@ internal static class TasksJsonParser
         {
             if (string.IsNullOrWhiteSpace(task.Id))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    "TasksJsonParser: a task has a null or empty id");
-                return false;
+                return Fail("missing-task-id", "a task has a null or empty id");
             }
 
             var m = TaskIdPattern.Match(task.Id);
             if (!m.Success || m.Groups[1].Value != parsed.GroupId)
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task id '{task.Id}' does not match {{groupId}}-NNN pattern");
-                return false;
+                return Fail("invalid-task-id",
+                    $"task id '{task.Id}' does not match {{groupId}}-NNN pattern");
             }
 
             if (!validIds.Add(task.Id))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: duplicate task id '{task.Id}'");
-                return false;
+                return Fail("duplicate-task-id", $"duplicate task id '{task.Id}'");
             }
 
             if (string.IsNullOrWhiteSpace(task.Title))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' has an empty title");
-                return false;
+                return Fail("missing-task-title", $"task '{task.Id}' has an empty title");
             }
 
             if (string.IsNullOrWhiteSpace(task.Description))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' has an empty description");
-                return false;
+                return Fail("missing-task-description", $"task '{task.Id}' has an empty description");
             }
 
             if (task.AgentAssignments is { Count: > 4 })
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' has more than four primary agent assignments");
-                return false;
+                return Fail("too-many-agent-assignments",
+                    $"task '{task.Id}' has more than four primary agent assignments");
             }
 
             var assignedHandles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -184,31 +192,27 @@ internal static class TasksJsonParser
                     string.IsNullOrWhiteSpace(assignment.Role) ||
                     !assignedHandles.Add(handle))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate agent assignment");
-                    return false;
+                    return Fail("invalid-agent-assignment",
+                        $"task '{task.Id}' has an invalid or duplicate agent assignment");
                 }
             }
 
             var routingMode = task.AgentRoutingMode?.Trim();
             if (routingMode is not null && routingMode is not ("assigned" or "generic"))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' has invalid agentRoutingMode '{routingMode}'");
-                return false;
+                return Fail("invalid-agent-routing-mode",
+                    $"task '{task.Id}' has invalid agentRoutingMode '{routingMode}'");
             }
             if (routingMode == "assigned" && task.AgentAssignments is not { Count: > 0 })
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' selects assigned routing without an assignment");
-                return false;
+                return Fail("missing-assigned-agent",
+                    $"task '{task.Id}' selects assigned routing without an assignment");
             }
             if (routingMode == "generic" &&
                 (task.AgentAssignments is { Count: > 0 } || string.IsNullOrWhiteSpace(task.GenericAgentReason)))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' must explain its explicit generic routing and omit assignments");
-                return false;
+                return Fail("invalid-generic-routing",
+                    $"task '{task.Id}' must explain its explicit generic routing and omit assignments");
             }
 
             var proofIds = new HashSet<string>(StringComparer.Ordinal);
@@ -220,9 +224,8 @@ internal static class TasksJsonParser
                     string.IsNullOrWhiteSpace(requirement.Description) ||
                     !proofIds.Add(requirementId))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate proof requirement");
-                    return false;
+                    return Fail("invalid-proof-requirement",
+                        $"task '{task.Id}' has an invalid or duplicate proof requirement");
                 }
             }
         }
@@ -238,9 +241,8 @@ internal static class TasksJsonParser
                     string.IsNullOrWhiteSpace(output.Description) ||
                     !outputOwners.TryAdd(outputId, task.Id))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: task '{task.Id}' has an invalid or duplicate output id '{output.OutputId}'");
-                    return false;
+                    return Fail("invalid-task-output",
+                        $"task '{task.Id}' has an invalid or duplicate output id '{output.OutputId}'");
                 }
             }
         }
@@ -254,9 +256,8 @@ internal static class TasksJsonParser
                 {
                     if (!validIds.Contains(dep))
                     {
-                        SquadDashTrace.Write(TraceCategory.General,
-                            $"TasksJsonParser: task '{task.Id}' depends on unknown id '{dep}'");
-                        return false;
+                        return Fail("unknown-task-dependency",
+                            $"task '{task.Id}' depends on unknown id '{dep}'");
                     }
                 }
             }
@@ -265,9 +266,8 @@ internal static class TasksJsonParser
                 (!validIds.Contains(task.ParentTaskId) ||
                  string.Equals(task.ParentTaskId, task.Id, StringComparison.Ordinal)))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    $"TasksJsonParser: task '{task.Id}' has invalid parentTaskId '{task.ParentTaskId}'");
-                return false;
+                return Fail("invalid-parent-task",
+                    $"task '{task.Id}' has invalid parentTaskId '{task.ParentTaskId}'");
             }
 
             foreach (var input in task.Inputs ?? [])
@@ -276,9 +276,8 @@ internal static class TasksJsonParser
                     string.Equals(ownerId, task.Id, StringComparison.Ordinal) ||
                     !DependsTransitivelyOn(tasksById, task.Id, ownerId))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: task '{task.Id}' references input '{input}' without depending on its producer");
-                    return false;
+                    return Fail("invalid-task-input",
+                        $"task '{task.Id}' references input '{input}' without depending on its producer");
                 }
             }
         }
@@ -304,32 +303,25 @@ internal static class TasksJsonParser
             {
                 if (string.IsNullOrWhiteSpace(gate.GateId))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        "TasksJsonParser: a gate has a null or empty gateId");
-                    return false;
+                    return Fail("missing-gate-id", "a gate has a null or empty gateId");
                 }
 
                 if (string.IsNullOrWhiteSpace(gate.Message))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: gate '{gate.GateId}' has an empty message");
-                    return false;
+                    return Fail("missing-gate-message", $"gate '{gate.GateId}' has an empty message");
                 }
 
                 if (!gateIds.Add(gate.GateId))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: duplicate gate id '{gate.GateId}'");
-                    return false;
+                    return Fail("duplicate-gate-id", $"duplicate gate id '{gate.GateId}'");
                 }
 
                 foreach (var id in gate.AfterTaskIds ?? [])
                 {
                     if (!validIds.Contains(id))
                     {
-                        SquadDashTrace.Write(TraceCategory.General,
-                            $"TasksJsonParser: gate '{gate.GateId}' afterTaskIds references unknown task '{id}'");
-                        return false;
+                        return Fail("unknown-gate-after-task",
+                            $"gate '{gate.GateId}' afterTaskIds references unknown task '{id}'");
                     }
                 }
 
@@ -337,9 +329,8 @@ internal static class TasksJsonParser
                 {
                     if (!validIds.Contains(id))
                     {
-                        SquadDashTrace.Write(TraceCategory.General,
-                            $"TasksJsonParser: gate '{gate.GateId}' beforeTaskIds references unknown task '{id}'");
-                        return false;
+                        return Fail("unknown-gate-before-task",
+                            $"gate '{gate.GateId}' beforeTaskIds references unknown task '{id}'");
                     }
                 }
 
@@ -348,17 +339,15 @@ internal static class TasksJsonParser
                 var hasBefore = gate.BeforeTaskIds is { Count: > 0 };
                 if (!hasAfter && hasBefore && gate.BeforeTaskIds!.All(id => rootIds.Contains(id)))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: gate '{gate.GateId}' is a before-first-step gate; use plan-level execution approval instead");
-                    return false;
+                    return Fail("gate-before-first-task",
+                        $"gate '{gate.GateId}' is a before-first-step gate; use plan-level execution approval instead");
                 }
 
                 // Reject after-final-step: BeforeTaskIds empty/null AND AfterTaskIds contain only leaf tasks.
                 if (!hasBefore && hasAfter && gate.AfterTaskIds!.All(id => leafIds.Contains(id)))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: gate '{gate.GateId}' is an after-final-step gate; it would never block any task");
-                    return false;
+                    return Fail("gate-after-final-task",
+                        $"gate '{gate.GateId}' is an after-final-step gate; it would never block any task");
                 }
             }
         }
@@ -367,9 +356,7 @@ internal static class TasksJsonParser
         {
             if (parsed.Validations.Count > 16)
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    "TasksJsonParser: validations exceeds maximum of 16");
-                return false;
+                return Fail("too-many-validations", "validations exceeds maximum of 16");
             }
 
             var validationIds = new HashSet<string>(StringComparer.Ordinal);
@@ -380,9 +367,8 @@ internal static class TasksJsonParser
                 if (!match.Success || match.Groups[1].Value != parsed.GroupId ||
                     !validationIds.Add(validationId))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: invalid or duplicate validation id '{validation.ValidationId}'");
-                    return false;
+                    return Fail("invalid-validation-id",
+                        $"invalid or duplicate validation id '{validation.ValidationId}'");
                 }
                 if (string.IsNullOrWhiteSpace(validation.Title) ||
                     string.IsNullOrWhiteSpace(validation.Description) ||
@@ -391,16 +377,14 @@ internal static class TasksJsonParser
                     validation.Assertions.Distinct(StringComparer.Ordinal).Count() != validation.Assertions.Count ||
                     validation.AfterTaskIds is not { Count: > 0 })
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
-                    return false;
+                    return Fail("incomplete-validation",
+                        $"validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
                 }
                 if (validation.AfterTaskIds.Concat(validation.BeforeTaskIds).Any(id => !validIds.Contains(id)) ||
                     validation.AfterTaskIds.Intersect(validation.BeforeTaskIds, StringComparer.Ordinal).Any())
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: validation '{validation.ValidationId}' has an unknown or overlapping task boundary");
-                    return false;
+                    return Fail("invalid-validation-boundary",
+                        $"validation '{validation.ValidationId}' has an unknown or overlapping task boundary");
                 }
                 if ((validation.OutputIds ?? []).Any(outputId =>
                         !outputOwners.TryGetValue(outputId, out var ownerId) ||
@@ -408,23 +392,20 @@ internal static class TasksJsonParser
                             string.Equals(afterId, ownerId, StringComparison.Ordinal) ||
                             DependsTransitivelyOn(tasksById, afterId, ownerId))))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: validation '{validation.ValidationId}' references an unknown output");
-                    return false;
+                    return Fail("unknown-validation-output",
+                        $"validation '{validation.ValidationId}' references an unknown output");
                 }
                 if (validation.Mode is not ("command" or "evidence" or "hybrid" or "audit") ||
                     (validation.Mode is "command" or "hybrid") && validation.Commands is not { Count: > 0 })
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: validation '{validation.ValidationId}' has an invalid mode or no command");
-                    return false;
+                    return Fail("invalid-validation-mode",
+                        $"validation '{validation.ValidationId}' has an invalid mode or no command");
                 }
                 if (validation.BeforeTaskIds.Any(beforeId => validation.AfterTaskIds.Any(afterId =>
                         DependsTransitivelyOn(tasksById, afterId, beforeId))))
                 {
-                    SquadDashTrace.Write(TraceCategory.General,
-                        $"TasksJsonParser: validation '{validation.ValidationId}' creates a dependency cycle");
-                    return false;
+                    return Fail("validation-dependency-cycle",
+                        $"validation '{validation.ValidationId}' creates a dependency cycle");
                 }
             }
         }
@@ -446,9 +427,19 @@ internal static class TasksJsonParser
                 (completionAudits[0].BeforeTaskIds?.Count ?? 0) != 0 ||
                 !leafIds.SetEquals(completionAudits[0].AfterTaskIds ?? []))
             {
-                SquadDashTrace.Write(TraceCategory.General,
-                    "TasksJsonParser: proof-bearing plans require exactly one final audit validation covering every leaf task");
-                return false;
+                var auditIds = completionAudits.Select(audit => audit.ValidationId).ToArray();
+                var actualAfterIds = completionAudits.Length == 1
+                    ? completionAudits[0].AfterTaskIds ?? []
+                    : [];
+                var actualBeforeIds = completionAudits.Length == 1
+                    ? completionAudits[0].BeforeTaskIds ?? []
+                    : [];
+                return Fail(
+                    "invalid-proof-completion-audit",
+                    "proof-bearing plans require exactly one final audit validation with beforeTaskIds=[] and " +
+                    $"afterTaskIds equal to every leaf task. Expected leaf task IDs: [{string.Join(", ", leafIds.Order())}]. " +
+                    $"Found audit IDs: [{string.Join(", ", auditIds)}]; actual afterTaskIds: " +
+                    $"[{string.Join(", ", actualAfterIds)}]; actual beforeTaskIds: [{string.Join(", ", actualBeforeIds)}]");
             }
         }
 

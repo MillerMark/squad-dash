@@ -3045,9 +3045,8 @@ public partial class MainWindow : Window
 
         return string.Equals(item.SourceTag, "decompose-repair", StringComparison.Ordinal)
             ? SystemTranscriptStatusPrefix +
-              "SquadDash could not accept the task plan because its TASKS_JSON was malformed, " +
-              "failed schema validation, or contained invalid dependencies. The complete schema " +
-              "was sent back to AI automatically; waiting for one corrected plan now…"
+              "SquadDash could not accept the task plan. The exact validation failure and complete schema " +
+              "were sent back to AI automatically; waiting for one corrected plan now…"
             : string.Equals(item.SourceTag, "decompose-replan", StringComparison.Ordinal)
                 ? SystemTranscriptStatusPrefix +
                   "SquadDash asked AI to replace the blocked plan step with smaller dependency-aware steps; waiting for the revised plan now…"
@@ -8201,11 +8200,12 @@ public partial class MainWindow : Window
             !rawResponse.Contains("TASKS_JSON:", StringComparison.Ordinal))
             return;
 
-        if (!TasksJsonParser.TryParse(rawResponse, out var group) || group is null)
+        if (!TasksJsonParser.TryParse(rawResponse, out var group, out var parseDiagnostic) || group is null)
         {
             SquadDashTrace.Write(TraceCategory.General,
-                "TASKS_JSON detected in completed response but parsing or validation failed.");
-            QueueDecomposeRepair();
+                "TASKS_JSON detected in completed response but parsing or validation failed: " +
+                (parseDiagnostic?.Message ?? "unknown parser failure"));
+            QueueDecomposeRepair(parseDiagnostic?.Message);
             return;
         }
 
@@ -8220,7 +8220,7 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("PlanRouting", assignmentCatalogError ?? "Invalid plan agent assignment.");
             AppendLine($"⚠ Could not stage plan {group.GroupId}: {assignmentCatalogError}");
-            QueueDecomposeRepair();
+            QueueDecomposeRepair(assignmentCatalogError);
             return;
         }
 
@@ -8235,13 +8235,15 @@ public partial class MainWindow : Window
             {
                 AppendLine($"⚠ Could not stage revised plan {group.GroupId}: " +
                            string.Join("; ", persisted.Errors));
-                QueueDecomposeRepair();
+                QueueDecomposeRepair("The current tasks.md projection is invalid: " +
+                                     string.Join("; ", persisted.Errors));
                 return;
             }
             if (persisted is null || !persisted.DecomposeGroups.TryGetValue(group.GroupId, out var existingGroup))
             {
                 AppendLine($"⚠ Could not stage revised plan {group.GroupId}: its existing approved plan was not found.");
-                QueueDecomposeRepair();
+                QueueDecomposeRepair(
+                    $"The existing approved plan '{group.GroupId}' was not found, so replacement tasks cannot be staged.");
                 return;
             }
 
@@ -8265,7 +8267,7 @@ public partial class MainWindow : Window
                     out var persistedRevisionError))
             {
                 AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {persistedRevisionError}");
-                QueueDecomposeRepair();
+                QueueDecomposeRepair(persistedRevisionError);
                 return;
             }
         }
@@ -8275,7 +8277,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected as an invalid revision: {revisionError}");
             AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {revisionError}");
-            QueueDecomposeRepair();
+            QueueDecomposeRepair(revisionError);
             return;
         }
         group = normalizedGroup;
@@ -8287,7 +8289,8 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected before staging due to dependency cycle: {string.Join(", ", cycleIds!)}");
             AppendLine($"⚠ Could not stage decompose group {group.GroupId}: its dependency graph contains a cycle.");
-            QueueDecomposeRepair();
+            QueueDecomposeRepair(
+                $"The task dependency graph contains a cycle involving: {string.Join(", ", cycleIds!)}");
             return;
         }
         _decomposeRepairPending = false;
@@ -8302,18 +8305,29 @@ public partial class MainWindow : Window
             AppendPendingDecomposeApproval(plan, ownerView);
     }
 
-    private void QueueDecomposeRepair()
+    private void QueueDecomposeRepair(string? validationError)
     {
         if (_decomposeRepairPending)
         {
             _decomposeRepairPending = false;
             AppendLine("⚠ The automatic task-plan repair attempt was still invalid. " +
-                       "SquadDash stopped retrying; the plan was not staged.");
+                       "SquadDash stopped retrying; the plan was not staged." +
+                       (string.IsNullOrWhiteSpace(validationError)
+                           ? string.Empty
+                           : $" Reason: {validationError}"));
+            // Starting the repair turn removes the previous live recovery controls. If the
+            // one allowed repair also fails, put the still-current recovery surface back at
+            // the true transcript end so the user is never forced to hunt through history.
+            RestoreInterruptedPlanRecoverySurfaces();
             return;
         }
 
         _decomposeRepairPending = true;
-        var prompt = "Your previous TASKS_JSON proposal failed validation. " +
+        var diagnostic = string.IsNullOrWhiteSpace(validationError)
+            ? "The parser did not provide a more specific diagnostic."
+            : validationError.Trim();
+        var prompt = "Your previous TASKS_JSON proposal failed validation.\n\n" +
+                     "Specific validation failure:\n" + diagnostic + "\n\n" +
                      "Correct the proposal and respond with the complete corrected TASKS_JSON block. " +
                      "Do not execute any work and do not emit DECOMPOSE_DECISION_JSON. Follow this specification exactly:\n\n" +
                      DecomposePlanningInstructions.LoadSpecification();

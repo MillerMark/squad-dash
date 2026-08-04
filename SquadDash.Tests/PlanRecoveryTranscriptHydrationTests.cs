@@ -33,6 +33,27 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             "Current recovery actions must be owned by post-hydration restoration, not by a batch's last persisted turn.");
     }
 
+    [Test]
+    public void ExhaustedTaskPlanRepair_RestoresRecoverySurfaceAndReportsSpecificFailure()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private void QueueDecomposeRepair(string? validationError)",
+            StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private void AppendPendingDecomposeApproval(",
+            methodStart,
+            StringComparison.Ordinal);
+        var method = source[methodStart..methodEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("Specific validation failure:"));
+            Assert.That(method, Does.Contain("RestoreInterruptedPlanRecoverySurfaces();"));
+            Assert.That(method, Does.Contain("Reason: {validationError}"));
+        });
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
