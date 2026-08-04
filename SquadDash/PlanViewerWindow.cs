@@ -195,7 +195,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var header = new StackPanel { Margin = new Thickness(22, 16, 22, 10) };
+        var header = new StackPanel { Margin = new Thickness(22, 16, 22, 2) };
 
         if (applyAction is not null)
         {
@@ -513,7 +513,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var canvas = new Canvas
         {
             Background          = Brushes.Transparent,
-            Margin              = new Thickness(18),
+            Margin              = new Thickness(18, 4, 18, 18),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment   = VerticalAlignment.Top,
         };
@@ -643,7 +643,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var validationRailHeight = ValidationShieldPresenter.ComputeValidationRailHeight(
             validationAnchors.Values.Select(PresenterAnchor).ToArray(), _scaleFactor);
-        var graphTop = 40 * _scaleFactor + validationRailHeight;
+        var graphTop = 12 * _scaleFactor + validationRailHeight;
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
