@@ -2700,18 +2700,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Polygon? stop = null;
         if (approved)
         {
-            var circleSize = 16 * s;
-            var circle = new Ellipse
+            var bgSize = 16 * s;
+            var bg = new Border
             {
-                Width = circleSize,
-                Height = circleSize,
+                Width = bgSize,
+                Height = bgSize,
+                CornerRadius = new CornerRadius(2),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            var isDark = AgentStatusCard.IsDarkTheme;
-            circle.Fill = isDark
-                ? new SolidColorBrush(Color.FromRgb(0x1A, 0x30, 0x50))
-                : new SolidColorBrush(Color.FromRgb(0xD0, 0xE8, 0xFF));
+            bg.SetResourceReference(Border.BackgroundProperty, "PlanApprovalResolvedBg");
 
             var approvedCheck = new TextBlock
             {
@@ -2725,7 +2723,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             approvedCheck.SetResourceReference(TextBlock.ForegroundProperty, "PlanApprovalResolved");
 
             var approvedContainer = new Grid();
-            approvedContainer.Children.Add(circle);
+            approvedContainer.Children.Add(bg);
             approvedContainer.Children.Add(approvedCheck);
             indicator = approvedContainer;
         }

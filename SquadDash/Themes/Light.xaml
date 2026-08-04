@@ -29,6 +29,7 @@
     <SolidColorBrush x:Key="PriorityLow"      Color="#50BA55"/>
     <SolidColorBrush x:Key="PriorityMid"      Color="#2586E5"/>
     <SolidColorBrush x:Key="PlanApprovalResolved" Color="#1359A0"/>
+    <SolidColorBrush x:Key="PlanApprovalResolvedBg" Color="#D0E8FF"/>
     <SolidColorBrush x:Key="PriorityHigh"     Color="#C37F00"/>
     <SolidColorBrush x:Key="PriorityCritical" Color="#D82323"/>
 
