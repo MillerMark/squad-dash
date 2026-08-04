@@ -355,6 +355,11 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
 
+    // ── Static simulation runtime ──────────────────────────────────────────────
+    private SimulationSessionManager? _simulationSessionManager;
+    private PlanSimulationSurfaceAdapter? _planSimulationSurfaceAdapter;
+    private string? _simulatedPlanSessionId;
+
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
     private PlanExecutionLog?        _planExecutionLog;
@@ -20954,6 +20959,21 @@ public partial class MainWindow : Window
         SyncAgentCardsWithThreads();
     }
 
+    private void EnsureSimulationSessionManager()
+    {
+        if (_simulationSessionManager is not null)
+            return;
+
+        _simulationSessionManager = new SimulationSessionManager();
+
+        if (_plansPanelController is not null)
+        {
+            _planSimulationSurfaceAdapter = new PlanSimulationSurfaceAdapter(
+                _plansPanelController, Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_planSimulationSurfaceAdapter);
+        }
+    }
+
     private void CleanUpAllNamedDemoAgents()
     {
         if (_guidedTourCoordinator.NamedDemoAgents.Count == 0) return;
@@ -22207,6 +22227,39 @@ public partial class MainWindow : Window
         });
 
         // ── Named demo agent tour commands ────────────────────────────────
+
+        // ── Simulated Plan tour commands ──────────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedPlan", async () =>
+        {
+            EnsureSimulationSessionManager();
+
+            if (_simulatedPlanSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Plan", "guided-tour");
+            _simulatedPlanSessionId = session.SessionId;
+
+            var plan = SimulationPlanFixtureBuilder.BuildDemoPlan();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Plan,
+                "sim-plan-artifact-001",
+                plan.Title,
+                plan);
+
+            Dispatcher.Invoke(() => _plansPanelController?.Show());
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedPlan", async () =>
+        {
+            if (_simulatedPlanSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedPlanSessionId;
+            _simulatedPlanSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
 
         _guidedTourCoordinator.CommandRegistry.RegisterParameterizedAsync("CreateDemoAgent", async arg =>
         {

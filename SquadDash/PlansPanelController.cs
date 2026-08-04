@@ -112,6 +112,21 @@ internal sealed class PlansPanelController
         RebuildPanels();
     }
 
+    /// <summary>
+    /// Removes a plan by ID from the cached list and rebuilds the panels.
+    /// Used by simulation cleanup to retract overlaid plans without a full store reload.
+    /// </summary>
+    internal void OnPlanRemoved(string planId)
+    {
+        var idx = _currentPlans.FindIndex(p =>
+            string.Equals(p.PlanId, planId, StringComparison.Ordinal));
+        if (idx >= 0)
+        {
+            _currentPlans.RemoveAt(idx);
+            RebuildPanels();
+        }
+    }
+
     internal void SetShowCompleted(bool show)
     {
         _viewModel.ShowCompleted = show;

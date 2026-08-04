@@ -485,6 +485,8 @@
     <Compile Include="..\SquadDash\ISimulationSurfaceAdapter.cs" Link="Source\ISimulationSurfaceAdapter.cs" />
     <Compile Include="..\SquadDash\SimulationSideEffectBarrier.cs" Link="Source\SimulationSideEffectBarrier.cs" />
     <Compile Include="..\SquadDash\SimulationSessionManager.cs" Link="Source\SimulationSessionManager.cs" />
+    <Compile Include="..\SquadDash\PlanSimulationSurfaceAdapter.cs" Link="Source\PlanSimulationSurfaceAdapter.cs" />
+    <Compile Include="..\SquadDash\SimulationPlanFixtureBuilder.cs" Link="Source\SimulationPlanFixtureBuilder.cs" />
   </ItemGroup>
 
   <!-- Callouts -->
