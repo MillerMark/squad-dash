@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 
 /// <summary>Manages content in the inline Plans panel.</summary>
 internal sealed class PlansPanelController
@@ -615,6 +616,48 @@ internal sealed class PlansPanelController
                 _startPlan(plan);
             };
             return resume;
+        }
+
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Completed)
+        {
+            const double size = 14;
+            const double inset = 2;
+            var canvas = new Canvas { Width = size, Height = size };
+
+            var square = new Rectangle
+            {
+                Width = size,
+                Height = size,
+                StrokeThickness = 1.5,
+                Fill = Brushes.Transparent,
+            };
+            square.SetResourceReference(Shape.StrokeProperty, "SubtleBorder");
+            canvas.Children.Add(square);
+
+            var line1 = new Line
+            {
+                X1 = inset, Y1 = inset,
+                X2 = size - inset, Y2 = size - inset,
+                StrokeThickness = 2,
+            };
+            line1.SetResourceReference(Shape.StrokeProperty, "ImportantText");
+            canvas.Children.Add(line1);
+
+            var line2 = new Line
+            {
+                X1 = size - inset, Y1 = inset,
+                X2 = inset, Y2 = size - inset,
+                StrokeThickness = 2,
+            };
+            line2.SetResourceReference(Shape.StrokeProperty, "ImportantText");
+            canvas.Children.Add(line2);
+
+            return new Border
+            {
+                Child = canvas,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+            };
         }
 
         var iconBlock = new TextBlock
