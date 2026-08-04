@@ -1259,7 +1259,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 FontWeight          = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment   = VerticalAlignment.Center,
-                Margin              = new Thickness(0, 0, 10, 0),
+                Margin              = new Thickness(0, 0, 14, 0),
             };
             badgeText.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
             badgeText.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
@@ -1330,7 +1330,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var badge = new Border
             {
-                Width           = 58 * _scaleFactor,
+                Width           = 66 * _scaleFactor,
                 Height          = 34 * _scaleFactor,
                 CornerRadius    = new CornerRadius(17 * _scaleFactor),
                 BorderThickness = new Thickness(1.5),
@@ -1339,7 +1339,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            Canvas.SetLeft(badge, gate.Center.X - 29 * _scaleFactor);
+            Canvas.SetLeft(badge, gate.Center.X - 33 * _scaleFactor);
             Canvas.SetTop(badge, gate.Center.Y - 17 * _scaleFactor);
             Panel.SetZIndex(badge, 10);
             canvas.Children.Add(badge);
@@ -1463,6 +1463,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
                 chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                if (statusChipText is "✓ " or "! ")
+                    chip.LayoutTransform = new ScaleTransform(1.5, 1.5);
                 Grid.SetColumn(chip, 0);
                 titleRow.Children.Add(chip);
             }

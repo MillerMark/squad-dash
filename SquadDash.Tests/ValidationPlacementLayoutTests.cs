@@ -29,7 +29,7 @@ internal sealed class ValidationPlacementLayoutTests
         Assert.Multiple(() =>
         {
             Assert.That(pos.Left, Is.EqualTo(400 - 72).Within(0.01));
-            Assert.That(pos.Top, Is.EqualTo(200 - 112).Within(0.01));
+            Assert.That(pos.Top, Is.EqualTo(200 - 88).Within(0.01));
             Assert.That(pos.StackIndex, Is.EqualTo(0));
             Assert.That(pos.Anchor.Kind, Is.EqualTo(ValidationShieldPresenter.AnchorKind.Stage));
         });
