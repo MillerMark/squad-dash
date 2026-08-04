@@ -161,6 +161,8 @@ public class TranscriptApprovalCardBuilderTests
         Assert.Multiple(() =>
         {
             Assert.That(directText, Has.Some.Contains("Full evidence is here."));
+            Assert.That(directText, Has.None.Contains("Gate:"));
+            Assert.That(directText, Has.None.Contains("Review completed tasks before continuing"));
             Assert.That(directText, Has.None.Contains("unblocked by approval"));
             Assert.That(card.ContentStack.Children.OfType<Expander>(), Is.Empty);
             Assert.That(card.CommitLinks, Has.Count.EqualTo(2));

@@ -212,6 +212,21 @@ internal sealed class PlanApprovalRuntime
 
             if (state is not null)
             {
+                // Rebuild the human-facing evidence on every restore. Older releases may
+                // have persisted only a terse body even though their snapshot attachment
+                // contains the complete review evidence.
+                var restoredSnapshots = new List<ApprovalReviewSnapshot>();
+                foreach (var gate in activeGates)
+                {
+                    restoredSnapshots.Add(await _buildSnapshot(plan, gate, cancellationToken)
+                        .ConfigureAwait(false));
+                }
+                var restoredSnapshot = restoredSnapshots.Count == 1
+                    ? restoredSnapshots[0]
+                    : CombineSnapshots(restoredSnapshots);
+                await _requests.RefreshEvidenceAsync(plan, restoredSnapshot, cancellationToken)
+                    .ConfigureAwait(false);
+
                 await _actions.RestoreAsync(
                     plan.PlanId,
                     plan.Revision,

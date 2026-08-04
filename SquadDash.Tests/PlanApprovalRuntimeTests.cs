@@ -268,6 +268,50 @@ public sealed class PlanApprovalRuntimeTests
             Is.EqualTo(ApprovalClickResult.StaleRejected));
     }
 
+    [Test]
+    public async Task Restore_UpgradesLegacyApprovalBodyFromFreshReviewEvidence()
+    {
+        var first = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Pending));
+        var messageId = DurableApprovalRequestManager.BuildMessageId(first.UpdatedPlan.PlanId);
+        var legacy = _inbox.GetById(messageId)!;
+        _inbox.Save(legacy with { Body = "Approval needed. Open the plan for details." });
+
+        static Task<ApprovalReviewSnapshot> BuildDetailedSnapshot(
+            Plan plan,
+            PlanApprovalGate gate,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var commit = new ReviewCommitEntry(
+                new CommitLink("abc1234", "abc1234567890", "Complete Task A"),
+                true,
+                []);
+            return Task.FromResult(new ApprovalReviewSnapshot(
+                plan.PlanId, plan.Title, plan.Progress.CompletedCount, plan.Progress.TotalCount,
+                plan.LifecycleStatus, gate.GateId, gate.Message, gate.AfterTaskIds, gate.BeforeTaskIds,
+                [new ReviewTaskEntry("A", "Task A", "Connected Task A to production.", [commit],
+                    "The claim and focused tests matched.")],
+                [new DownstreamTaskEntry("C", "Task C", "pending")],
+                [], [], DateTimeOffset.UtcNow));
+        }
+
+        var restored = new PlanApprovalRuntime(
+            _requests,
+            new ApprovalActionCoordinator(),
+            BuildDetailedSnapshot);
+        await restored.RestoreAsync([first.UpdatedPlan]);
+
+        var upgraded = _inbox.GetById(messageId)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(upgraded.Body, Does.Contain("Completed work ready for review"));
+            Assert.That(upgraded.Body, Does.Contain("Connected Task A to production."));
+            Assert.That(upgraded.Body, Does.Contain("The claim and focused tests matched."));
+            Assert.That(upgraded.Body, Does.Contain("abc1234"));
+            Assert.That(upgraded.Body, Does.Not.Contain("Open the plan for details"));
+        });
+    }
+
     private static Plan MakePlan(string taskBStatus)
     {
         var tasks = new[]

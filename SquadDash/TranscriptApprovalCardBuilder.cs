@@ -138,11 +138,6 @@ internal static class TranscriptApprovalCardBuilder
         stack.Children.Add(progressBlock);
 
         // ── Gate reason ──────────────────────────────────────────────────
-        var reasonBlock = CreateStyledTextBlock($"Gate: {snapshot.GateReason}", fontSize, "BodyText");
-        reasonBlock.Margin = new Thickness(0, 0, 0, 8);
-        reasonBlock.FontStyle = FontStyles.Italic;
-        stack.Children.Add(reasonBlock);
-
         // ── Completed tasks with commit evidence ─────────────────────────
         if (!includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
