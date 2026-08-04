@@ -9352,22 +9352,30 @@ public partial class MainWindow : Window
                 ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing scrutiny task {scrutinyTaskId}.");
             var candidate = JsonSerializer.Deserialize<DecomposeStepResult>(pending.CandidateResultJson)
                 ?? throw new InvalidDataException($"Task {scrutinyTaskId} has an unreadable candidate result.");
-            var diffSummary = await RunGitAsync(
-                _currentWorkspace.FolderPath,
-                $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
-            var scrutinyPrompt = PlanTaskScrutinyPromptBuilder.Build(
-                plan,
-                task,
-                candidate,
-                pending.BaselineCommit,
-                pending.ChangedFiles,
-                diffSummary.Trim());
+            var isEnvelopeRepair = activeExec.ScrutinyEnvelopeRepairCount > 0;
+            string scrutinyPrompt;
+            if (isEnvelopeRepair)
+            {
+                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(plan, task, candidate);
+            }
+            else
+            {
+                var diffSummary = await RunGitAsync(
+                    _currentWorkspace.FolderPath,
+                    $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
+                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.Build(
+                    plan,
+                    task,
+                    candidate,
+                    pending.BaselineCommit,
+                    pending.ChangedFiles,
+                    diffSummary.Trim());
+            }
             AppendPlanExecutionJournal(
                 plan.PlanId,
                 task.TaskId,
-                "scrutiny-prompt-sent",
-                scrutinyPrompt,
-                announce: true);
+                isEnvelopeRepair ? "scrutiny-envelope-repair-prompt-sent" : "scrutiny-prompt-sent",
+                scrutinyPrompt);
             return scrutinyPrompt;
         }
 
@@ -10314,8 +10322,7 @@ public partial class MainWindow : Window
                         ScrutinyEnvelopeRepairCount = 1,
                     });
                 ScheduleDecomposeSystemEntry(
-                    "⚙ The scrutiny response was incomplete. SquadDash will request the structured scrutiny report once more without rerunning task work. " +
-                    $"Technical detail: {scrutinyError ?? "missing result"}");
+                    "⚙ Scrutiny did not return the required structured result. SquadDash is requesting it once more without rerunning task work.");
                 return;
             }
 
@@ -10394,10 +10401,14 @@ public partial class MainWindow : Window
         var discrepancies = scrutiny.MissingOrOverstatedWork.Count == 0
             ? "- The evidence was inconclusive."
             : string.Join("\n", scrutiny.MissingOrOverstatedWork.Select(item => "- " + item));
-        var humanReviewReason =
-            $"Independent scrutiny requires human review. SquadDash will not start another automatic correction. " +
-            $"Scrutiny summary: {scrutiny.Summary} Missing or overstated work: {discrepancies} " +
-            $"Test assessment: {scrutiny.TestAssessment}";
+        var humanReviewReason = string.Equals(
+            scrutiny.Summary,
+            "Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair.",
+            StringComparison.Ordinal)
+            ? "Independent scrutiny did not return the required structured result after two attempts. " +
+              "Test adequacy could not be independently classified."
+            : $"Independent scrutiny requires human review: {scrutiny.Summary} " +
+              $"Missing or overstated work: {discrepancies} Test assessment: {scrutiny.TestAssessment}";
         var commitEvidence = new PlanTaskCommitEvidence(
             taskId,
             candidate.ExecutionAttemptId,
@@ -10819,7 +10830,7 @@ public partial class MainWindow : Window
         TryPublishPlanBlocked(groupId, taskId);
         TryPublishPlanInterrupted(groupId, taskId, reason, taskCommitEvidence);
         ScheduleDecomposeSystemEntry(
-            "Plan execution stopped unexpectedly. Recovery is available.",
+            PlanRecoveryPresentationBuilder.BuildStatusMessage(taskCommitEvidence is not null),
             groupId,
             revision,
             taskId);
@@ -11779,7 +11790,17 @@ public partial class MainWindow : Window
         var durablePlan = _planStore?.Load(groupId);
         var evidence = durablePlan?.InterruptionData?.TaskCommitEvidence;
         var message = DecomposePlanInbox.BuildRecoveryMessage(plan, taskId, reason, DateTimeOffset.Now, evidence);
-        if (_inboxStore.GetById(message.Id) is not null) return;
+        var existing = _inboxStore.GetById(message.Id);
+        if (existing is not null)
+        {
+            _inboxStore.Save(message with
+            {
+                Read = existing.Read,
+                Timestamp = existing.Timestamp,
+            });
+            _inboxPanel?.Refresh(_inboxStore.LoadAll());
+            return;
+        }
         _inboxStore.Save(message);
         _inboxPanel?.Refresh(_inboxStore.LoadAll());
         AppendInboxReceivedEntry(message.Subject, message.Id);
@@ -11839,11 +11860,12 @@ public partial class MainWindow : Window
         var reason = plan.InterruptionData?.Reason ?? "Plan execution was interrupted and needs your attention.";
         SaveDecomposeRecoveryInboxReminder(plan.PlanId, plan.Revision, taskId, reason);
 
-        const string marker = "Plan execution stopped unexpectedly. Recovery is available.";
+        var statusMessage = PlanRecoveryPresentationBuilder.BuildStatusMessage(
+            plan.InterruptionData?.TaskCommitEvidence is not null);
         var interruptionStarted = plan.Timestamps.InterruptedAt ?? plan.Timestamps.CreatedAt;
         bool HasCurrentRecoveryEntry() => _conversationManager.ConversationState.Turns.Any(turn =>
             turn.Timestamp >= interruptionStarted.AddSeconds(-1) &&
-            turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true);
+            turn.ResponseText?.Contains(statusMessage, StringComparison.Ordinal) == true);
 
         // A virtualized history batch must never own current actions. Remove any recovery
         // surface left by an older build or an earlier restoration pass, then append exactly
@@ -11863,7 +11885,7 @@ public partial class MainWindow : Window
         }
 
         ScheduleDecomposeSystemEntry(
-            marker,
+            statusMessage,
             plan.PlanId,
             plan.Revision,
             taskId);
@@ -11878,6 +11900,17 @@ public partial class MainWindow : Window
         var recoverySurface = new Section { Tag = recoveryTag };
         CoordinatorThread.Document.Blocks.Add(recoverySurface);
         var blocks = recoverySurface.Blocks;
+        var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
+            durablePlan?.InterruptionData?.Reason);
+        var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+        var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
+        var reasonRun = new Run(compactReason) { FontWeight = FontWeights.SemiBold };
+        reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        reasonParagraph.Inlines.Add(reasonLabel);
+        reasonParagraph.Inlines.Add(reasonRun);
+        blocks.Add(reasonParagraph);
+
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
         planLinkParagraph.Inlines.Add(new Run("Plan: "));
         var planLink = new Hyperlink(new Run(plan.Group.GroupTitle))
@@ -11894,12 +11927,10 @@ public partial class MainWindow : Window
             string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
         var taskParagraph = CreateTranscriptParagraph(bottomMargin: 6);
         taskParagraph.Inlines.Add(new Run("Attempted Task: \""));
-        var taskRun = new Run(taskTitle) { FontWeight = FontWeights.SemiBold };
-        taskParagraph.Inlines.Add(taskRun);
+        taskParagraph.Inlines.Add(new Run(taskTitle));
         taskParagraph.Inlines.Add(new Run("\""));
         blocks.Add(taskParagraph);
 
-        var durablePlan = _planStore?.Load(plan.Group.GroupId);
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
                                _decomposeContinuationPaths.Count > 0;
         var presentation = durablePlan is null
@@ -11913,16 +11944,6 @@ public partial class MainWindow : Window
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
-            var heading = CreateTranscriptParagraph(bottomMargin: 3);
-            var headingRun = new Run(presentation!.Heading) { FontWeight = FontWeights.SemiBold };
-            headingRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            heading.Inlines.Add(headingRun);
-            blocks.Add(heading);
-
-            var explanation = CreateTranscriptParagraph(bottomMargin: 3);
-            explanation.Inlines.Add(new Run(presentation.Explanation));
-            blocks.Add(explanation);
-
             if (presentation.CommitEvidence is { } commitEvidence)
             {
                 var commitParagraph = CreateTranscriptParagraph(bottomMargin: 3);
@@ -11930,7 +11951,7 @@ public partial class MainWindow : Window
                 var shortCommit = commitEvidence.Commit.Length > 7
                     ? commitEvidence.Commit[..7]
                     : commitEvidence.Commit;
-                commitParagraph.Inlines.Add(new Run("Commit: "));
+                commitParagraph.Inlines.Add(new Run("Commits: "));
                 var commitLink = new Hyperlink(new Run(shortCommit))
                 {
                     Cursor = Cursors.Hand,
@@ -11940,30 +11961,20 @@ public partial class MainWindow : Window
                 commitLink.Click += async (_, _) =>
                     await OpenCommitWithRemoteCheckAsync(commitEvidence.Commit);
                 commitParagraph.Inlines.Add(commitLink);
-                commitParagraph.Inlines.Add(new Run($" — {commitEvidence.Summary}"));
                 blocks.Add(commitParagraph);
 
-                if (commitEvidence.Verification is { } verification)
+                var compactTests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(
+                    commitEvidence.Verification);
+                if (compactTests is not null)
                 {
-                    var verificationText = string.Join(" · ", new[]
-                    {
-                        string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase)
-                            ? "Verification passed"
-                            : $"Verification: {verification.Status}",
-                        verification.Command,
-                        verification.Summary,
-                    }.Where(value => !string.IsNullOrWhiteSpace(value)));
                     var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 3);
                     verificationParagraph.Margin = new Thickness(12, 0, 0, 3);
-                    var verificationRun = new Run(verificationText);
+                    var verificationRun = new Run(compactTests);
                     verificationRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                     verificationParagraph.Inlines.Add(verificationRun);
                     blocks.Add(verificationParagraph);
                 }
             }
-
-            if (review is not null)
-                AppendCompletedWorkReviewDetails(blocks, review);
 
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
             var recommendationRun = new Run(presentation.Recommendation) { FontWeight = FontWeights.SemiBold };

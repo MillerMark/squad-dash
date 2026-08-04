@@ -14,6 +14,45 @@ internal sealed record PlanRecoveryPresentation(
 /// </summary>
 internal static class PlanRecoveryPresentationBuilder
 {
+    internal static string BuildStatusMessage(bool hasCommittedWork) =>
+        hasCommittedWork
+            ? "Plan execution stopped unexpectedly after producing committed work. Recovery is available."
+            : "Plan execution stopped unexpectedly. Recovery is available.";
+
+    internal static string SummarizeReason(string? reason)
+    {
+        var normalized = string.IsNullOrWhiteSpace(reason)
+            ? "SquadDash could not determine why execution stopped."
+            : reason.Trim();
+
+        if (normalized.Contains("Missing scrutiny result", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("could not produce a trustworthy structured verdict", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Independent scrutiny did not return the required structured result after two attempts. " +
+                   "Test adequacy could not be independently classified.";
+        }
+
+        return normalized;
+    }
+
+    internal static string? BuildCompactTestSummary(DecomposeStepVerification? verification)
+    {
+        if (verification is null) return null;
+
+        var label = verification.Command?.Contains("--filter", StringComparison.OrdinalIgnoreCase) == true
+            ? "Focused tests"
+            : "Tests";
+        var summary = verification.Summary?.Trim().TrimEnd('.');
+        if (string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase))
+            return string.IsNullOrWhiteSpace(summary)
+                ? $"{label} passed."
+                : $"{label}: {summary}.";
+
+        return string.IsNullOrWhiteSpace(summary)
+            ? $"{label}: {verification.Status}."
+            : $"{label}: {summary}.";
+    }
+
     internal static PlanRecoveryPresentation Build(Plan plan, string taskId, bool hasPreservedWork)
     {
         var evidence = plan.InterruptionData?.TaskCommitEvidence;

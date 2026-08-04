@@ -131,20 +131,27 @@ internal static class DecomposePlanInbox
             "replan-failed-task",
             "Replace the blocked task with smaller approved steps."));
 
-        var body = $"Plan **{plan.Group.GroupTitle}** stopped unexpectedly at task `{taskId}`. Recovery is available.\n\n";
+        var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
+        var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(reason);
+        var status = PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommitEvidence);
+        var body = $"**{status}**\n\n" +
+                   $"**Why it stopped:** **{compactReason}**\n\n" +
+                   $"Plan: **{plan.Group.GroupTitle}**  \n" +
+                   $"Attempted task: \"{taskTitle}\"\n";
 
         if (hasCommitEvidence)
         {
             var shortCommit = taskCommitEvidence!.Commit.Length > 7
                 ? taskCommitEvidence.Commit[..7]
                 : taskCommitEvidence.Commit;
-            body += $"**Committed work detected.** Commit `{shortCommit}` — {taskCommitEvidence.Summary}\n\n" +
-                    "**Review & Accept Completed Work** — inspect the commit, changed files, and test results, then accept it and continue if it satisfies the task.\n";
+            body += $"Commits: `{shortCommit}`\n";
+            var tests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
+            if (tests is not null) body += tests + "\n";
+            body += "\nRecommended: review and accept the completed work if it satisfies the task.\n";
         }
 
-        body += "**Assess & Continue** — AI classifies the current task as complete, partial, or not started. SquadDash validates the evidence before accepting or continuing anything.\n" +
-                "**Replan Remaining Work** — replaces this task with smaller, dependency-aware steps.\n\n" +
-                $"Recorded stop detail: {reason}";
+        body += "\nChoose a recovery action below.";
 
         return new InboxMessage
         {

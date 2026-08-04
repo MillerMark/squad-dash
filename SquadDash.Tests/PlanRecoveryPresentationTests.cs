@@ -4,6 +4,40 @@ namespace SquadDash.Tests;
 internal sealed class PlanRecoveryPresentationTests
 {
     [Test]
+    public void BuildStatusMessage_WithCommitEvidence_LeadsWithCommittedWorkState()
+    {
+        Assert.That(
+            PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommittedWork: true),
+            Is.EqualTo("Plan execution stopped unexpectedly after producing committed work. Recovery is available."));
+    }
+
+    [Test]
+    public void SummarizeReason_MissingScrutinyEnvelope_ProducesConcisePrimaryReason()
+    {
+        var reason =
+            "Independent scrutiny requires human review. Scrutiny summary: Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair. " +
+            "Missing or overstated work: - Missing scrutiny result. Test assessment: Test adequacy could not be independently classified.";
+
+        Assert.That(
+            PlanRecoveryPresentationBuilder.SummarizeReason(reason),
+            Is.EqualTo("Independent scrutiny did not return the required structured result after two attempts. " +
+                       "Test adequacy could not be independently classified."));
+    }
+
+    [Test]
+    public void BuildCompactTestSummary_OmitsCommandLine()
+    {
+        var verification = new DecomposeStepVerification(
+            "passed",
+            "dotnet test SquadDash.Tests --filter FullyQualifiedName~SimulationSessionManager",
+            "11 tests passed");
+
+        Assert.That(
+            PlanRecoveryPresentationBuilder.BuildCompactTestSummary(verification),
+            Is.EqualTo("Focused tests: 11 tests passed."));
+    }
+
+    [Test]
     public void Build_WithTaskScopedCommitEvidence_RecommendsReviewAndWarnsOnRetry()
     {
         var evidence = new PlanTaskCommitEvidence(

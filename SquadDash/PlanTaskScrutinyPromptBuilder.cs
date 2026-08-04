@@ -36,6 +36,29 @@ internal static class PlanTaskScrutinyPromptBuilder
         builder.AppendLine("Return exactly one result. `missingOrOverstatedWork` is mandatory even when empty. " +
                            "Use `accepted` only when every material claim is supported. Use `rework-required` for a clear, bounded correction. " +
                            "Use `human-review-required` when evidence or product intent is ambiguous.");
+        AppendSchema(builder, plan, task, candidate);
+        return builder.ToString();
+    }
+
+    internal static string BuildEnvelopeRepair(
+        Plan plan,
+        PlanTask task,
+        DecomposeStepResult candidate)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("Your scrutiny completed, but the response omitted the required structured result.");
+        builder.AppendLine("Do not inspect files again, run tools, modify the repository, or launch workers.");
+        builder.AppendLine("Return only the corrected PLAN_TASK_SCRUTINY_JSON object below. Do not add prose before or after it.");
+        AppendSchema(builder, plan, task, candidate);
+        return builder.ToString();
+    }
+
+    private static void AppendSchema(
+        StringBuilder builder,
+        Plan plan,
+        PlanTask task,
+        DecomposeStepResult candidate)
+    {
         builder.AppendLine(PlanTaskScrutinyResultParser.Marker);
         builder.AppendLine("{");
         builder.AppendLine($"  \"planId\": \"{plan.PlanId}\",");
@@ -49,6 +72,5 @@ internal static class PlanTaskScrutinyPromptBuilder
         builder.AppendLine("  \"testAssessment\": \"...\",");
         builder.AppendLine("  \"reworkInstructions\": []");
         builder.AppendLine("}");
-        return builder.ToString();
     }
 }

@@ -223,6 +223,25 @@ internal sealed class CompletedWorkReviewPresentationTests
         Assert.That(message.Actions, Has.Count.EqualTo(3));
     }
 
+    [Test]
+    public void BuildRecoveryMessage_WithEvidence_UsesCompactReasonFirstPresentation()
+    {
+        var message = DecomposePlanInbox.BuildRecoveryMessage(
+            MakePending(), TaskId, "Worker stopped.", DateTimeOffset.UtcNow, MakeEvidence());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Body, Does.StartWith(
+                "**Plan execution stopped unexpectedly after producing committed work. Recovery is available.**"));
+            Assert.That(message.Body, Does.Contain("**Why it stopped:** **Worker stopped.**"));
+            Assert.That(message.Body, Does.Contain("Commits: `abc1234`"));
+            Assert.That(message.Body, Does.Contain("Tests: 14 tests passed."));
+            Assert.That(message.Body, Does.Not.Contain("dotnet test"));
+            Assert.That(message.Body, Does.Not.Contain("Implemented the feature"));
+            Assert.That(message.Body, Does.Not.Contain("Recorded stop detail"));
+        });
+    }
+
     // --- Stale-action tests ---
 
     [Test]

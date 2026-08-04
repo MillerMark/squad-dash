@@ -115,6 +115,26 @@ internal sealed class PlanTaskScrutinyTests
     }
 
     [Test]
+    public void EnvelopeRepairPrompt_RequestsOnlyStructuredResultWithoutMoreWork()
+    {
+        var plan = MakePlan();
+        var task = plan.Tasks[1];
+        var candidate = new DecomposeStepResult(
+            "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
+            new DecomposeStepVerification("passed", "dotnet test", "green"));
+
+        var prompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(plan, task, candidate);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain(PlanTaskScrutinyResultParser.Marker));
+            Assert.That(prompt, Does.Contain("Do not inspect files again"));
+            Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
+            Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
+        });
+    }
+
+    [Test]
     public void Parser_RejectsAcceptedVerdictWithDiscrepancies()
     {
         var json = """
