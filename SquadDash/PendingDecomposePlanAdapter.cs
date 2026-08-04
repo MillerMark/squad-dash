@@ -89,7 +89,9 @@ internal static class PendingDecomposePlanAdapter
                     new PlanTaskProofRequirement(
                         requirement.RequirementId,
                         requirement.ProofType,
-                        requirement.Description)).ToArray())).ToArray()
+                        requirement.Description)).ToArray(),
+                AfterTaskIdsSpecified: g.AfterTaskIds is not null,
+                BeforeTaskIdsSpecified: g.BeforeTaskIds is not null)).ToArray()
             : [];
 
     internal static IReadOnlyList<PlanValidationNode> MapValidations(DecomposedTaskGroup group) =>
@@ -146,8 +148,8 @@ internal static class PendingDecomposePlanAdapter
                 .Select(g => new DecomposedGate(
                     GateId:       g.GateId,
                     Message:      g.Message,
-                    AfterTaskIds:  g.AfterTaskIds.Count  > 0 ? g.AfterTaskIds  : null,
-                    BeforeTaskIds: g.BeforeTaskIds.Count > 0 ? g.BeforeTaskIds : null,
+                    AfterTaskIds: RestoreOptionalIds(g.AfterTaskIds, g.AfterTaskIdsSpecified),
+                    BeforeTaskIds: RestoreOptionalIds(g.BeforeTaskIds, g.BeforeTaskIdsSpecified),
                     ProofRequirements: g.ProofRequirements?.Select(requirement =>
                         new DecomposedTaskProofRequirement(
                             requirement.RequirementId,
@@ -184,6 +186,13 @@ internal static class PendingDecomposePlanAdapter
 
         return new PendingDecomposePlan(plan.Revision, group);
     }
+
+    private static IReadOnlyList<string>? RestoreOptionalIds(
+        IReadOnlyList<string> ids,
+        bool? wasSpecified) =>
+        ids.Count > 0 || wasSpecified == true
+            ? ids
+            : null;
 
     /// <summary>
     /// Returns <see langword="true"/> when the stored <see cref="Plan.Revision"/> still

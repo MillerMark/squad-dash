@@ -249,7 +249,7 @@ internal sealed class PendingDecomposePlanAdapterTests
                     "PLANS-20260727-HUMAN-PROOF",
                     "Observe the feature after restart.",
                     ["PLANS-20260727-001"],
-                    ["PLANS-20260727-002"],
+                    [],
                     [
                         new DecomposedTaskProofRequirement(
                             "restart-visible",
@@ -270,6 +270,8 @@ internal sealed class PendingDecomposePlanAdapterTests
                 Is.EqualTo("restart-visible"));
             Assert.That(reconstructed.Group.ApprovalGates![0].ProofRequirements![0].ProofType,
                 Is.EqualTo("restart-observation"));
+            Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Not.Null);
+            Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Empty);
             Assert.That(PendingDecomposePlanStore.ComputeRevision(reconstructed.Group),
                 Is.EqualTo(revision));
             Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);

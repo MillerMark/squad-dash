@@ -252,7 +252,13 @@ internal sealed record PlanApprovalGate(
                                                   IReadOnlyList<PlanTaskProofRequirement>? ProofRequirements = null,
     [property: JsonPropertyName("proofEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null);
+                                                  IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null,
+    [property: JsonPropertyName("afterTaskIdsSpecified")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  bool? AfterTaskIdsSpecified = null,
+    [property: JsonPropertyName("beforeTaskIdsSpecified")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  bool? BeforeTaskIdsSpecified = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan
