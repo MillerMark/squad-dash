@@ -375,10 +375,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize     = quickReplyFontSize,
             Margin       = new Thickness(22, 6, 22, 8),
         };
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        hintBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         if (durablePlan is not null)
         {
@@ -722,8 +722,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var titleBlock = new TextBlock
             {
-                Text       = mainTitle,
-                FontWeight = FontWeights.SemiBold,
+                Text                = mainTitle,
+                Width               = NodeWidth,
+                TextAlignment       = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                FontWeight          = FontWeights.SemiBold,
             };
             titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "TitleText");
             titleBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeHeading");
@@ -993,7 +996,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 title.SetResourceReference(TextBlock.ForegroundProperty,
                     validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
-                title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
                 visual.Children.Add(title);
 
                 var taskPositionMap = positions.ToDictionary(
@@ -1371,7 +1374,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             nodeTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
             nodeTitle.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
 
-            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var titleRow = new Grid();
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             if (isTaskExecuting)
             {
                 var spinner = new ActivitySpinner
@@ -1383,6 +1388,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         "This task is actively receiving work from one or more agents."),
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                Grid.SetColumn(spinner, 0);
                 _taskSpinnersById[task.Id] = spinner;
                 titleRow.Children.Add(spinner);
                 spinner.Pulse(SpinnerActivityKind.Thinking);
@@ -1398,8 +1404,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
                 chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+                Grid.SetColumn(chip, 0);
                 titleRow.Children.Add(chip);
             }
+            Grid.SetColumn(nodeTitle, 1);
             titleRow.Children.Add(nodeTitle);
 
             var nodeDescription = new TextBlock
@@ -1407,13 +1415,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Text         = task.Description,
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxHeight    = 34,
                 Margin       = new Thickness(0, 5, 0, 0),
             };
             nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-            var content = new StackPanel { ClipToBounds = true };
+            var content = new Grid { ClipToBounds = true };
+            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             content.Children.Add(titleRow);
+            Grid.SetRow(nodeDescription, 1);
             content.Children.Add(nodeDescription);
 
             if (durableTask?.Commit is { } commitSha && commitSha.Length > 0)
@@ -1443,6 +1454,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 commitBlock.Inlines.Add(new Run("Commit "));
                 commitBlock.Inlines.Add(commitLink);
+                Grid.SetRow(commitBlock, 2);
                 content.Children.Add(commitBlock);
             }
 
