@@ -84,7 +84,12 @@ internal static class PendingDecomposePlanAdapter
                 AfterTaskIds:  g.AfterTaskIds  ?? [],
                 BeforeTaskIds: g.BeforeTaskIds ?? [],
                 Status:       PlanGateStatus.Pending,
-                PlanRevision: revision)).ToArray()
+                PlanRevision: revision,
+                ProofRequirements: g.ProofRequirements?.Select(requirement =>
+                    new PlanTaskProofRequirement(
+                        requirement.RequirementId,
+                        requirement.ProofType,
+                        requirement.Description)).ToArray())).ToArray()
             : [];
 
     internal static IReadOnlyList<PlanValidationNode> MapValidations(DecomposedTaskGroup group) =>
@@ -142,7 +147,12 @@ internal static class PendingDecomposePlanAdapter
                     GateId:       g.GateId,
                     Message:      g.Message,
                     AfterTaskIds:  g.AfterTaskIds.Count  > 0 ? g.AfterTaskIds  : null,
-                    BeforeTaskIds: g.BeforeTaskIds.Count > 0 ? g.BeforeTaskIds : null))
+                    BeforeTaskIds: g.BeforeTaskIds.Count > 0 ? g.BeforeTaskIds : null,
+                    ProofRequirements: g.ProofRequirements?.Select(requirement =>
+                        new DecomposedTaskProofRequirement(
+                            requirement.RequirementId,
+                            requirement.ProofType,
+                            requirement.Description)).ToArray()))
                 .ToArray()
             : null;
 

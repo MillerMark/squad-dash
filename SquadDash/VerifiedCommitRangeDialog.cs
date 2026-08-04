@@ -12,13 +12,16 @@ namespace SquadDash;
 internal sealed class VerifiedCommitRangeDialog : ChromedWindow
 {
     private readonly ListBox _commits;
+    private readonly bool _hostRecordedRange;
 
     private VerifiedCommitRangeDialog(
         string taskId,
         string baselineCommit,
-        IReadOnlyList<RecoveryCommitRangeEntry> entries)
+        IReadOnlyList<RecoveryCommitRangeEntry> entries,
+        bool hostRecordedRange)
         : base(captionHeight: 34, resizeMode: ResizeMode.CanResize, resizeBorderThickness: 6)
     {
+        _hostRecordedRange = hostRecordedRange;
         Title = "Review Completed Work";
         Width = 720;
         Height = 480;
@@ -35,7 +38,9 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
 
         var instructions = new TextBlock
         {
-            Text = $"Select the last commit produced for {taskId}. SquadDash will review every commit after {Short(baselineCommit)} through your selection. No plan state changes until you review the range and accept it.",
+            Text = hostRecordedRange
+                ? $"SquadDash recorded this exact commit range for {taskId}. Review the commits after {Short(baselineCommit)} below, then continue only if the work satisfies the task. Unrelated later commits are excluded."
+                : $"Select the last commit produced for {taskId}. SquadDash will review every commit after {Short(baselineCommit)} through your selection. No plan state changes until you review the range and accept it.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12),
         };
@@ -59,15 +64,16 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
             row.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
             _commits.Items.Add(new ListBoxItem { Content = row, Tag = entry });
         }
-        // Deliberately leave the range unselected. Later unrelated commits may follow the
-        // interrupted task, so defaulting to HEAD could silently attribute too much work.
-        _commits.SelectedIndex = -1;
+        // A host-recorded range has already been scoped to the exact task attempt, so select its
+        // terminal commit. Fallback discovery deliberately remains unselected because later
+        // unrelated commits may follow the interrupted task.
+        _commits.SelectedIndex = hostRecordedRange ? entries.Count - 1 : -1;
         Grid.SetRow(_commits, 1);
         root.Children.Add(_commits);
 
         var adopt = new Button
         {
-            Content = "Review Selected Range",
+            Content = hostRecordedRange ? "Review Recorded Work" : "Review Selected Range",
             MinWidth = 150,
             Height = 28,
             Margin = new Thickness(0, 0, 8, 0),
@@ -104,14 +110,17 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
         Window owner,
         string taskId,
         string baselineCommit,
-        IReadOnlyList<RecoveryCommitRangeEntry> entries)
+        IReadOnlyList<RecoveryCommitRangeEntry> entries,
+        bool hostRecordedRange = false)
     {
-        var dialog = new VerifiedCommitRangeDialog(taskId, baselineCommit, entries) { Owner = owner };
+        var dialog = new VerifiedCommitRangeDialog(taskId, baselineCommit, entries, hostRecordedRange) { Owner = owner };
         return dialog.ShowDialog() == true ? dialog.SelectedEntry : null;
     }
 
     private void AcceptSelection()
     {
+        if (_hostRecordedRange && _commits.Items.Count > 0)
+            _commits.SelectedIndex = _commits.Items.Count - 1;
         if (_commits.SelectedItem is not ListBoxItem { Tag: RecoveryCommitRangeEntry entry })
             return;
         SelectedEntry = entry;

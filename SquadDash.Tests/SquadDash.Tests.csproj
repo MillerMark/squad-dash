@@ -30,6 +30,7 @@
     <Compile Include="..\SquadDash\PlanExecutionBoundaryPolicy.cs" Link="Source\PlanExecutionBoundaryPolicy.cs" />
     <Compile Include="..\SquadDash\PlanTaskActivityPulseEvent.cs" Link="Source\PlanTaskActivityPulseEvent.cs" />
     <Compile Include="..\SquadDash\PlanStepProofPolicy.cs" Link="Source\PlanStepProofPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanProofCapabilityPolicy.cs" Link="Source\PlanProofCapabilityPolicy.cs" />
     <Compile Include="..\SquadDash\HumanApprovalIdentityResolver.cs" Link="Source\HumanApprovalIdentityResolver.cs" />
     <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />
     <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
@@ -38,6 +39,7 @@
     <Compile Include="..\SquadDash\PlanTaskScrutinyPromptBuilder.cs" Link="Source\PlanTaskScrutinyPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />
     <Compile Include="..\SquadDash\PlanExecutionProjectionWriter.cs" Link="Source\PlanExecutionProjectionWriter.cs" />
+    <Compile Include="..\SquadDash\PlanExecutionJournal.cs" Link="Source\PlanExecutionJournal.cs" />
     <Compile Include="..\SquadDash\PlanCompletionSummaryBuilder.cs" Link="Source\PlanCompletionSummaryBuilder.cs" />
     <Compile Include="..\SquadDash\InboxRelativeTimePresenter.cs" Link="Source\InboxRelativeTimePresenter.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />

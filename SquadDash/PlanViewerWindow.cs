@@ -33,6 +33,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan>? _onStartPlan;
     private readonly Action<Plan>? _onResumePlan;
     private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
+    private readonly string? _interruptedPrimaryActionLabel;
+    private readonly string? _interruptedPrimaryActionHint;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
@@ -61,6 +63,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onStartPlan    = null,
         Action<Plan>? onResumePlan   = null,
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange = null,
+        string? interruptedPrimaryActionLabel = null,
+        string? interruptedPrimaryActionHint = null,
         Action<Plan>? onEndPlan      = null,
         Action<Plan, string>? onApproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
@@ -88,6 +92,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onStartPlan        = onStartPlan;
         _onResumePlan       = onResumePlan;
         _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
+        _interruptedPrimaryActionLabel = interruptedPrimaryActionLabel;
+        _interruptedPrimaryActionHint = interruptedPrimaryActionHint;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
         _viewPreflightChanges = viewPreflightChanges;
@@ -273,11 +279,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var capturedAction = onAdoptVerifiedCommitRange;
                 var resumableValidation = PlanExecutionBoundaryPolicy.SelectValidation(capturedPlan);
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
-                    resumableValidation is null ? "Assess & Continue" : "Resume Validation",
+                    resumableValidation is null
+                        ? _interruptedPrimaryActionLabel ?? "Assess & Continue"
+                        : "Resume Validation",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         resumableValidation is null
-                            ? "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."
+                            ? _interruptedPrimaryActionHint ??
+                              "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."
                             : $"Continue with the ready validation “{resumableValidation.Title}.” Completed implementation steps will not be repeated."));
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>

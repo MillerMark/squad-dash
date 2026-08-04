@@ -63,4 +63,31 @@ internal sealed class PlanStepProofPolicyTests
         Assert.That(roundTrip?.ProofEvidence?.Single().Artifacts,
             Is.EqualTo(new[] { "trace:plan-viewer-live-update" }));
     }
+
+    [Test]
+    public void HostRecordedProof_IsNotRequiredFromWorkerResult()
+    {
+        Assert.That(PlanStepProofPolicy.Validate(TaskWithProof("host-recorded"), Result(null)), Is.Null);
+    }
+
+    [Test]
+    public void HostRecordedProof_ReplacesUntrustedWorkerClaimWithHostEvidence()
+    {
+        var task = TaskWithProof("host-recorded");
+        var result = Result([
+            new DecomposeStepProofEvidence("live-ui", "host-recorded", "Worker claimed this."),
+        ]);
+        var evidence = new PlanTaskCommitEvidence(
+            task.Id, "attempt", "1111111", "2222222", "Host validated the commit.",
+            new DecomposeStepVerification("passed", "dotnet test", "All passed."));
+
+        var attached = PlanProofCapabilityPolicy.AttachHostRecordedEvidence(task, result, evidence);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attached.ProofEvidence, Has.Count.EqualTo(1));
+            Assert.That(attached.ProofEvidence![0].Summary, Does.StartWith("SquadDash recorded"));
+            Assert.That(attached.ProofEvidence[0].Artifacts, Is.EqualTo(new[] { "git:2222222" }));
+        });
+    }
 }

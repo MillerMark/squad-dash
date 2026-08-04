@@ -147,6 +147,12 @@ internal static class ApprovalGateReadinessEvaluator
         foreach (var gs in gateStates)
         {
             if (!gs.IsReady) continue;
+            var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, gs.GateId, StringComparison.Ordinal));
+            // A final human-proof checkpoint has no downstream task frontier; it gates plan
+            // completion itself and must still stop for explicit human attestation.
+            if (gate?.ProofRequirements is { Count: > 0 } && gs.DownstreamFrontier.Count == 0)
+                return true;
             // Check if any task in the frontier has all non-gate dependencies satisfied
             foreach (var taskId in gs.DownstreamFrontier)
             {
@@ -220,4 +226,8 @@ internal static class ApprovalGateReadinessEvaluator
             .Where(t => t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
             .Select(t => t.TaskId)
             .ToHashSet(StringComparer.Ordinal);
+
+    internal static bool AllRequiredApproved(Plan plan) =>
+        plan.ApprovalGates.All(gate =>
+            gate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped);
 }

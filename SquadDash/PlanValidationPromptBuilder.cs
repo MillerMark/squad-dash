@@ -165,6 +165,30 @@ internal static class PlanValidationPromptBuilder
                 sb.AppendLine($"  - Independent scrutiny `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
+        var proofGates = plan.ApprovalGates
+            .Where(gate => gate.ProofRequirements is { Count: > 0 })
+            .ToArray();
+        if (proofGates.Length > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Human Proof Checkpoints");
+            sb.AppendLine();
+            foreach (var gate in proofGates)
+            {
+                sb.AppendLine($"- **{gate.GateId}** — status: `{gate.Status}`; reviewer: `{gate.ResolvedBy ?? "not recorded"}`");
+                foreach (var requirement in gate.ProofRequirements!)
+                {
+                    var evidence = gate.ProofEvidence?.FirstOrDefault(candidate =>
+                        string.Equals(candidate.RequirementId, requirement.RequirementId, StringComparison.Ordinal));
+                    sb.AppendLine($"  - Required proof `{requirement.RequirementId}` ({requirement.ProofType}): {requirement.Description}");
+                    sb.AppendLine(evidence is null
+                        ? "    Human evidence: MISSING"
+                        : $"    Human evidence ({evidence.ProofType}): {evidence.Summary}");
+                    foreach (var artifact in evidence?.Artifacts ?? [])
+                        sb.AppendLine($"    Artifact: `{artifact}`");
+                }
+            }
+        }
         sb.AppendLine();
         return sb.ToString();
     }

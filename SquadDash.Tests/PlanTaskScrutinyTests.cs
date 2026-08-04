@@ -39,6 +39,68 @@ internal sealed class PlanTaskScrutinyTests
     }
 
     [Test]
+    public void Context_PreservesFullDistantAncestryWithoutCompression()
+    {
+        var longSummary = "I established the original production contract: " + new string('x', 500);
+        var root = MakePlan().Tasks[0] with
+        {
+            TaskId = "P-0",
+            Handoff = MakePlan().Tasks[0].Handoff! with
+            {
+                Summary = longSummary,
+                ChangedFiles = ["src/RootContract.cs"],
+            },
+        };
+        var middle = MakePlan().Tasks[0] with
+        {
+            TaskId = "P-1",
+            Title = "Middle",
+            DependsOn = ["P-0"],
+        };
+        var current = MakePlan().Tasks[1] with { DependsOn = ["P-1"] };
+        var plan = MakePlan() with { Tasks = [root, middle, current], Progress = new PlanProgress(2, 3, current.TaskId) };
+
+        var text = PlanExecutionContextBuilder.Build(plan, current);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain(longSummary));
+            Assert.That(text, Does.Contain("src/RootContract.cs"));
+            Assert.That(text, Does.Not.Contain("…"));
+            Assert.That(text.IndexOf("P-0", StringComparison.Ordinal),
+                Is.LessThan(text.IndexOf("P-1", StringComparison.Ordinal)));
+        });
+    }
+
+    [Test]
+    public void ExecutionJournal_PersistsExactSentAndReturnedPayloadsOutsidePlanState()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "SquadDashJournalTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var path = PlanExecutionJournal.Append(
+                directory, "P", "P-2", "task-context-sent", "exact upstream context",
+                new DateTimeOffset(2026, 8, 4, 12, 0, 0, TimeSpan.Zero));
+            PlanExecutionJournal.Append(
+                directory, "P", "P-2", "scrutiny-result-returned", "exact scrutiny result",
+                new DateTimeOffset(2026, 8, 4, 12, 1, 0, TimeSpan.Zero));
+
+            var journal = File.ReadAllText(path);
+            Assert.Multiple(() =>
+            {
+                Assert.That(journal, Does.Contain("task-context-sent"));
+                Assert.That(journal, Does.Contain("exact upstream context"));
+                Assert.That(journal, Does.Contain("scrutiny-result-returned"));
+                Assert.That(journal, Does.Contain("exact scrutiny result"));
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public void Parser_RequiresMissingOrOverstatedWorkArray()
     {
         var json = """
@@ -169,7 +231,18 @@ internal sealed class PlanTaskScrutinyTests
             [
                 new PlanApprovalGate(
                     "G", "Review integration", ["P-1"], [], PlanGateStatus.Approved,
-                    ResolvedAt: DateTimeOffset.UtcNow, ResolvedBy: "Mark"),
+                    ResolvedAt: DateTimeOffset.UtcNow, ResolvedBy: "Mark",
+                    ProofRequirements:
+                    [
+                        new PlanTaskProofRequirement(
+                            "visible", "human-observation", "Observe the connected behavior."),
+                    ],
+                    ProofEvidence:
+                    [
+                        new PlanTaskProofEvidence(
+                            "visible", "human-observation", "Mark observed the connected behavior.",
+                            ["squaddash://approval/P/G"]),
+                    ]),
             ],
         };
 
@@ -180,6 +253,8 @@ internal sealed class PlanTaskScrutinyTests
         Assert.That(message.Body, Does.Contain("Claims supported"));
         Assert.That(message.Body, Does.Contain("Integration holds"));
         Assert.That(message.Body, Does.Contain("Approved by: Mark"));
+        Assert.That(message.Body, Does.Contain("Human proof `visible`"));
+        Assert.That(message.Body, Does.Contain("squaddash://approval/P/G"));
         Assert.That(message.Body, Does.Contain("{{utc-time:"));
         Assert.That(message.Attachments.Single().PlanGroupId, Is.EqualTo("P"));
     }

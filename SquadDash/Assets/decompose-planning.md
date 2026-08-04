@@ -1,5 +1,5 @@
 ---
-schema-version: 5
+schema-version: 6
 host-owned: true
 ---
 
@@ -102,10 +102,15 @@ fence around the object is accepted but not required.
 - `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
   A consumer may name several outputs, and one output may have several consumers.
 - `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description" }`
-  contracts. Use these whenever a task claims an observable proof whose kind matters, especially
-  `live-ui-observation`, `restart-observation`, `automated-test`, or `build`. Do not describe a live
-  observation as an automated test. A complete step result must return a matching `proofEvidence`
-  object for every declared requirement.
+  contracts. Supported worker/host types are `ai-assessed`, `automated-test`, `build`, and
+  `host-recorded`. Human-only types are `live-ui-observation`, `restart-observation`, and
+  `human-observation`. Do not describe a live observation as an automated test. SquadDash moves
+  human-only requirements to a generated approval checkpoint after the task; the task worker is
+  never asked to fabricate proof it cannot observe. A complete step result must return matching
+  `proofEvidence` only for the worker/host requirements that remain on the task.
+- `approvalGates[].proofRequirements`: optional human-only proof contracts using the same object
+  shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
+  Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.

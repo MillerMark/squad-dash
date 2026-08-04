@@ -514,6 +514,12 @@ internal static class PlanStoreUpdater
             ResolvedAt = now,
             ResolutionNote = note,
             ResolvedBy = resolvedBy,
+            ProofEvidence = gate.ProofRequirements?.Select(requirement =>
+                new PlanTaskProofEvidence(
+                    requirement.RequirementId,
+                    requirement.ProofType,
+                    BuildHumanProofSummary(requirement, resolvedBy, note),
+                    [$"squaddash://approval/{existing.PlanId}/{gate.GateId}"])).ToArray(),
         };
         var updatedGates = existing.ApprovalGates
             .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
@@ -525,6 +531,18 @@ internal static class PlanStoreUpdater
             ApprovalGates   = updatedGates,
             Timestamps      = existing.Timestamps with { LastRunAt = now },
         };
+    }
+
+    private static string BuildHumanProofSummary(
+        PlanTaskProofRequirement requirement,
+        string? resolvedBy,
+        string? note)
+    {
+        var identity = string.IsNullOrWhiteSpace(resolvedBy) ? "the human reviewer" : resolvedBy;
+        var attestation = string.IsNullOrWhiteSpace(note)
+            ? "The checkpoint was explicitly approved."
+            : note.Trim();
+        return $"{identity} confirmed: {requirement.Description} {attestation}";
     }
 
     /// <summary>
@@ -774,6 +792,7 @@ internal static class PlanStoreUpdater
             ResolvedAt = null,
             ResolutionNote = null,
             ResolvedBy = null,
+            ProofEvidence = null,
             ReworkCount = gate.ReworkCount + 1,
             LastReworkRequestedAt = now,
             LastReworkInstructions = instructions.Trim(),

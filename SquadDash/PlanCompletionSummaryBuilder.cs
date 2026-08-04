@@ -103,6 +103,12 @@ internal static class PlanCompletionSummaryBuilder
                 if (!string.IsNullOrWhiteSpace(gate.ResolvedBy)) builder.AppendLine($"  - Approved by: {gate.ResolvedBy}");
                 if (gate.ResolvedAt is { } resolvedAt) AddTime(builder, "Resolved", resolvedAt);
                 if (!string.IsNullOrWhiteSpace(gate.ResolutionNote)) builder.AppendLine($"  - Note: {gate.ResolutionNote}");
+                foreach (var evidence in gate.ProofEvidence ?? [])
+                {
+                    builder.AppendLine($"  - Human proof `{evidence.RequirementId}` ({evidence.ProofType}): {evidence.Summary}");
+                    foreach (var artifact in evidence.Artifacts ?? [])
+                        builder.AppendLine($"    - Artifact: `{artifact}`");
+                }
             }
         }
 

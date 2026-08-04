@@ -316,6 +316,37 @@ internal sealed class DecomposeRevisionTests
     }
 
     [Test]
+    public void ValidateRevision_RejectsChangingExistingTaskProofContract()
+    {
+        var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
+        var rewritten = existing with
+        {
+            Tasks =
+            [
+                existing.Tasks[0] with
+                {
+                    ProofRequirements =
+                    [
+                        new DecomposedTaskProofRequirement(
+                            "invented-proof",
+                            "automated-test",
+                            "A proof contract added after approval."),
+                    ],
+                },
+                existing.Tasks[1],
+            ],
+        };
+
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            rewritten,
+            existing,
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            out var error), Is.False);
+        Assert.That(error, Does.Contain("keep existing tasks unchanged"));
+    }
+
+    [Test]
     public void ReplaceGroup_MarksParentSupersededAndPersistsRevision()
     {
         var path = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"tasks_{Guid.NewGuid():N}.md");

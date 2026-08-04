@@ -227,6 +227,11 @@ internal static class TasksJsonParser
                     return Fail("invalid-proof-requirement",
                         $"task '{task.Id}' has an invalid or duplicate proof requirement");
                 }
+                if (PlanProofCapabilityPolicy.Classify(requirement.ProofType) == PlanProofExecutorKind.Unsupported)
+                {
+                    return Fail("unsupported-proof-type",
+                        $"task '{task.Id}' uses unsupported proofType '{requirement.ProofType}'");
+                }
             }
         }
 
@@ -316,6 +321,20 @@ internal static class TasksJsonParser
                     return Fail("duplicate-gate-id", $"duplicate gate id '{gate.GateId}'");
                 }
 
+                var gateProofIds = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var requirement in gate.ProofRequirements ?? [])
+                {
+                    var requirementId = requirement.RequirementId ?? string.Empty;
+                    if (!OutputIdPattern.IsMatch(requirementId) ||
+                        string.IsNullOrWhiteSpace(requirement.Description) ||
+                        !gateProofIds.Add(requirementId) ||
+                        !PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))
+                    {
+                        return Fail("invalid-human-proof-checkpoint",
+                            $"gate '{gate.GateId}' must contain unique human-only proof requirements");
+                    }
+                }
+
                 foreach (var id in gate.AfterTaskIds ?? [])
                 {
                     if (!validIds.Contains(id))
@@ -344,7 +363,8 @@ internal static class TasksJsonParser
                 }
 
                 // Reject after-final-step: BeforeTaskIds empty/null AND AfterTaskIds contain only leaf tasks.
-                if (!hasBefore && hasAfter && gate.AfterTaskIds!.All(id => leafIds.Contains(id)))
+                if (!hasBefore && hasAfter && gate.AfterTaskIds!.All(id => leafIds.Contains(id)) &&
+                    gate.ProofRequirements is not { Count: > 0 })
                 {
                     return Fail("gate-after-final-task",
                         $"gate '{gate.GateId}' is an after-final-step gate; it would never block any task");
@@ -414,7 +434,8 @@ internal static class TasksJsonParser
         // Structured proof contracts opt a plan into a mandatory completion audit. This is a
         // declarative contract, not a filename/description heuristic: legacy plans remain valid,
         // while new proof-bearing plans cannot silently substitute tests for a live observation.
-        if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }))
+        if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }) ||
+            (parsed.ApprovalGates ?? []).Any(gate => gate.ProofRequirements is { Count: > 0 }))
         {
             // A revision keeps its blocked parent task in the proposal and identifies the
             // smaller replacements with parentTaskId.  The parent is therefore not a live
@@ -471,7 +492,7 @@ internal static class TasksJsonParser
             // Plans with cohesion issues are accepted but logged for host review.
         }
 
-        group = parsed;
+        group = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(parsed);
         return true;
     }
 

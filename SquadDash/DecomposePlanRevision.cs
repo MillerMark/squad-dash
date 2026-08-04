@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SquadDash;
 
 internal static class DecomposePlanRevision
@@ -53,11 +55,10 @@ internal static class DecomposePlanRevision
         return true;
 
         static bool SameTaskContract(DecomposedSubTask left, DecomposedSubTask right) =>
-            string.Equals(left.Id, right.Id, StringComparison.Ordinal) &&
-            string.Equals(left.Title, right.Title, StringComparison.Ordinal) &&
-            string.Equals(left.Description, right.Description, StringComparison.Ordinal) &&
-            string.Equals(left.Priority, right.Priority, StringComparison.Ordinal) &&
-            (left.DependsOn ?? []).SequenceEqual(right.DependsOn ?? [], StringComparer.Ordinal);
+            string.Equals(
+                JsonSerializer.Serialize(left),
+                JsonSerializer.Serialize(right),
+                StringComparison.Ordinal);
     }
 
     internal static bool TryNormalize(

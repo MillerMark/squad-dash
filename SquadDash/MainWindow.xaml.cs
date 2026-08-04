@@ -9178,10 +9178,22 @@ public partial class MainWindow : Window
             ? p => _ = StartDecomposeLoopAsync(p.PlanId)
             : null;
         Action<Plan>? onResumePlan = null;
+        var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
+        var hasRecordedTaskEvidence = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                                      !string.IsNullOrWhiteSpace(interruptedTaskId) &&
+                                      CompletedWorkReviewPresentationBuilder.Build(durablePlan, interruptedTaskId!) is not null;
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
             durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
-                ? AssessInterruptedPlanFromDurableAsync
+                ? hasRecordedTaskEvidence
+                    ? AdoptVerifiedCommitRangeAsync
+                    : AssessInterruptedPlanFromDurableAsync
                 : null;
+        var interruptedPrimaryActionLabel = hasRecordedTaskEvidence
+            ? "Review & Accept Completed Work"
+            : null;
+        var interruptedPrimaryActionHint = hasRecordedTaskEvidence
+            ? "Review the exact commit range recorded for this task attempt, then accept it and continue if it satisfies the task."
+            : null;
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
@@ -9198,7 +9210,8 @@ public partial class MainWindow : Window
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
             displayedPlan, activeBranch, _inboxFontSize, applyAction, durablePlan,
-            onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange, onEndPlan, onApproveGate,
+            onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange,
+            interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
             broker: _broker,
@@ -9342,13 +9355,20 @@ public partial class MainWindow : Window
             var diffSummary = await RunGitAsync(
                 _currentWorkspace.FolderPath,
                 $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
-            return PlanTaskScrutinyPromptBuilder.Build(
+            var scrutinyPrompt = PlanTaskScrutinyPromptBuilder.Build(
                 plan,
                 task,
                 candidate,
                 pending.BaselineCommit,
                 pending.ChangedFiles,
                 diffSummary.Trim());
+            AppendPlanExecutionJournal(
+                plan.PlanId,
+                task.TaskId,
+                "scrutiny-prompt-sent",
+                scrutinyPrompt,
+                announce: true);
+            return scrutinyPrompt;
         }
 
         if (activeExec?.ActiveValidationId is { } activeValidationId)
@@ -9573,11 +9593,23 @@ public partial class MainWindow : Window
         string? proofContext = null;
         if (currentTask.ProofRequirements is { Count: > 0 })
         {
+            var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(
+                currentTask.ProofRequirements);
+            var hostRequirements = currentTask.ProofRequirements
+                .Where(requirement =>
+                    PlanProofCapabilityPolicy.Classify(requirement.ProofType) == PlanProofExecutorKind.Host)
+                .ToArray();
             proofContext =
                 "## Required Task Proofs (approved plan contract)\n\n" +
-                "A complete DECOMPOSE_STEP_RESULT_JSON must include `proofEvidence`, with one exact " +
-                "requirementId/proofType match for every item below. Do not substitute automated tests for a live observation.\n" +
-                JsonSerializer.Serialize(currentTask.ProofRequirements);
+                (resultRequirements.Count > 0
+                    ? "A complete DECOMPOSE_STEP_RESULT_JSON must include `proofEvidence`, with one exact " +
+                      "requirementId/proofType match for every worker-owned item below.\n" +
+                      JsonSerializer.Serialize(resultRequirements)
+                    : "No worker-owned proof evidence is required in the result envelope.") +
+                (hostRequirements.Length > 0
+                    ? "\n\nSquadDash records these host-owned proofs from validated execution evidence; do not claim or fabricate them:\n" +
+                      JsonSerializer.Serialize(hostRequirements)
+                    : string.Empty);
         }
 
         string? planExecutionContext = null;
@@ -9609,7 +9641,50 @@ public partial class MainWindow : Window
         var contexts = new[]
             { planExecutionContext, continuationContext, assessedRecoveryContext, scrutinyReworkContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
-        return string.Join("\n\n", contexts);
+        var taskContext = string.Join("\n\n", contexts);
+        if (durablePlan is not null)
+        {
+            var upstreamCount = durablePlan.Tasks.FirstOrDefault(task =>
+                    string.Equals(task.TaskId, currentTaskId, StringComparison.Ordinal)) is { } durableTask
+                ? PlanExecutionContextBuilder.GetAncestors(durablePlan, durableTask).Count
+                : 0;
+            AppendPlanExecutionJournal(
+                durablePlan.PlanId,
+                currentTaskId,
+                string.IsNullOrWhiteSpace(scrutinyReworkContext)
+                    ? "task-context-sent"
+                    : "bounded-rework-context-sent",
+                taskContext,
+                announce: true,
+                announcement: $"🧭 Prepared Step context with {upstreamCount} accepted upstream handoff{(upstreamCount == 1 ? string.Empty : "s")}.");
+        }
+        return taskContext;
+    }
+
+    private string? AppendPlanExecutionJournal(
+        string planId,
+        string taskId,
+        string phase,
+        string content,
+        bool announce = false,
+        string? announcement = null)
+    {
+        if (_currentWorkspace is null) return null;
+        try
+        {
+            var stateDirectory = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(
+                _currentWorkspace.FolderPath);
+            var path = PlanExecutionJournal.Append(stateDirectory, planId, taskId, phase, content);
+            if (announce)
+                ScheduleDecomposeSystemEntry(
+                    $"{announcement ?? $"Recorded {phase} for task {taskId}."} Inspectable execution journal: `{path}`");
+            return path;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanJournal", $"Could not append {phase} for {planId}/{taskId}: {ex.Message}");
+            return null;
+        }
     }
 
     private PlanExecutionAttemptState? CreatePlanExecutionAttempt(
@@ -9833,6 +9908,10 @@ public partial class MainWindow : Window
             }
         }
 
+        if (error is null && result is not null && taskCommitEvidence is not null)
+            result = PlanProofCapabilityPolicy.AttachHostRecordedEvidence(
+                persistedTask, result, taskCommitEvidence);
+
         // The persisted pending result has been consumed — clear it regardless of outcome.
         if (activeExecution.PendingRepairResult is not null)
         {
@@ -9943,9 +10022,14 @@ public partial class MainWindow : Window
                 var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
                 if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
                 {
-                    repairPrompt += "\n\nThe approved task also requires this exact `proofEvidence` contract. " +
-                                    "Return one evidence object per requirement and do not change proofType:\n" +
-                                    JsonSerializer.Serialize(proofRequirements);
+                    var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
+                    if (resultRequirements.Count > 0)
+                    {
+                        repairPrompt += "\n\nThe approved task also requires this exact worker-owned " +
+                                        "`proofEvidence` contract. Return one evidence object per requirement and " +
+                                        "do not change proofType:\n" +
+                                        JsonSerializer.Serialize(resultRequirements);
+                    }
                 }
                 if (assignmentEvidenceError is not null && expectedAssignments is { Count: > 0 })
                 {
@@ -10064,6 +10148,16 @@ public partial class MainWindow : Window
                 baseline,
                 changedFiles,
                 DateTimeOffset.UtcNow);
+            AppendPlanExecutionJournal(
+                groupId,
+                taskId,
+                "candidate-handoff-returned",
+                PlanExecutionJournal.Serialize(new
+                {
+                    Candidate = result,
+                    HostRecordedBaseline = baseline,
+                    HostRecordedChangedFiles = changedFiles,
+                }));
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with
                 {
@@ -10155,11 +10249,12 @@ public partial class MainWindow : Window
             PublishPlanCompletionSummary(durableAfterAcceptance);
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
         }
-        else if (state is DecomposeGroupExecutionState.Eligible or
-                          DecomposeGroupExecutionState.AwaitingApproval && _planStore is not null)
+        else if (_planStore is not null)
         {
             var plan = _planStore.Load(groupId);
-            if (plan is not null)
+            if (plan is not null &&
+                (state is DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.AwaitingApproval ||
+                 HasReadyPendingApprovalGate(plan)))
             {
                 await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, plan);
             }
@@ -10200,6 +10295,14 @@ public partial class MainWindow : Window
             scrutinyError = "The scrutiny response did not match the active plan, task, revision, and candidate commit.";
             scrutiny = null;
         }
+
+        AppendPlanExecutionJournal(
+            groupId,
+            taskId,
+            "scrutiny-result-returned",
+            scrutiny is null
+                ? $"Structured scrutiny result unavailable. {scrutinyError ?? "No result was returned."}"
+                : PlanExecutionJournal.Serialize(scrutiny));
 
         if (scrutiny is null)
         {
@@ -10358,8 +10461,9 @@ public partial class MainWindow : Window
             PublishPlanCompletionSummary(durable);
             ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash scrutinized and accepted every task result.");
         }
-        else if (state is DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.AwaitingApproval &&
-                 durable is not null)
+        else if (durable is not null &&
+                 (state is DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.AwaitingApproval ||
+                  HasReadyPendingApprovalGate(durable)))
         {
             await ProcessPlanApprovalsAfterStepAsync(groupId, revision, result.TaskId, state, durable);
         }
@@ -10399,6 +10503,12 @@ public partial class MainWindow : Window
         union.UnionWith(validationBlocked);
         return union;
     }
+
+    private static bool HasReadyPendingApprovalGate(Plan plan) =>
+        ApprovalGateReadinessEvaluator.EvaluateGates(plan).Any(state =>
+            state.IsReady && plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, state.GateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Pending));
 
     /// <summary>
     /// Activates a validation turn for a ready validation node. Transitions the validation to
@@ -10808,9 +10918,10 @@ public partial class MainWindow : Window
         DecomposeGroupExecutionState groupState,
         Plan plan)
     {
+        var hasReadyPendingGate = HasReadyPendingApprovalGate(plan);
         if (_planApprovalRuntime is null)
         {
-            if (groupState == DecomposeGroupExecutionState.AwaitingApproval)
+            if (groupState == DecomposeGroupExecutionState.AwaitingApproval || hasReadyPendingGate)
                 StopAndOfferDecomposeRecovery(
                     groupId, completedTaskId, revision,
                     "The approval runtime is unavailable for a ready plan checkpoint.");
@@ -10819,10 +10930,7 @@ public partial class MainWindow : Window
 
         var approvalMessageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
         var approvalMessageExisted = _inboxStore?.GetById(approvalMessageId) is not null;
-        var pendingReadyGate = ApprovalGateReadinessEvaluator.EvaluateGates(plan)
-            .Any(state => state.IsReady && plan.ApprovalGates.Any(gate =>
-                string.Equals(gate.GateId, state.GateId, StringComparison.Ordinal) &&
-                gate.Status == PlanGateStatus.Pending));
+        var pendingReadyGate = hasReadyPendingGate;
         if (pendingReadyGate)
         {
             foreach (var window in _openInboxWindows.Where(window =>
@@ -11315,7 +11423,26 @@ public partial class MainWindow : Window
                     BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
                     resolution.NextClickToken);
             }
-            if (resolution.ShouldResume)
+            var completedAtApproval = false;
+            if (resolution.UpdatedPlan.Progress.CompletedCount == resolution.UpdatedPlan.Progress.TotalCount &&
+                PlanValidationReadinessEvaluator.AllRequiredPassed(resolution.UpdatedPlan) &&
+                ApprovalGateReadinessEvaluator.AllRequiredApproved(resolution.UpdatedPlan))
+            {
+                var completedPlan = PlanStoreUpdater.ApplyCompleted(resolution.UpdatedPlan);
+                if (TryPublishPlanProgress(completedPlan, out var completionError))
+                {
+                    completedAtApproval = true;
+                    PublishPlanCompletionSummary(completedPlan);
+                    ScheduleDecomposeSystemEntry(
+                        $"Plan {completedPlan.PlanId} completed after its final human proof checkpoint was approved.");
+                }
+                else
+                {
+                    AppendLine("⚠ The checkpoint was approved, but final plan completion could not be saved: " +
+                               (completionError ?? "unknown persistence failure"));
+                }
+            }
+            if (resolution.ShouldResume && !completedAtApproval)
                 await StartDecomposeLoopAsync(clickToken.PlanId);
             return;
         }
@@ -12766,7 +12893,13 @@ public partial class MainWindow : Window
 
         var history = (await RunGitAsync(workspace, "rev-list HEAD"))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var baselineCommit = storedPlan.InterruptionData?.LastCommit;
+        var recordedEvidence = storedPlan.InterruptionData?.TaskCommitEvidence is { } evidence &&
+                               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+                               !string.IsNullOrWhiteSpace(evidence.BaselineCommit) &&
+                               !string.IsNullOrWhiteSpace(evidence.Commit)
+            ? evidence
+            : null;
+        var baselineCommit = recordedEvidence?.BaselineCommit ?? storedPlan.InterruptionData?.LastCommit;
         if (string.IsNullOrWhiteSpace(baselineCommit))
         {
             baselineCommit = RecoveryCommitValidator.FindNewestRecordedCommit(
@@ -12790,11 +12923,19 @@ public partial class MainWindow : Window
         }
 
         IReadOnlyList<RecoveryCommitRangeEntry> candidates;
+        var rangeEnd = recordedEvidence?.Commit ?? "HEAD";
         try
         {
+            if (recordedEvidence is not null)
+            {
+                await RunGitAsync(workspace,
+                    $"merge-base --is-ancestor \"{baselineCommit}\" \"{rangeEnd}\"");
+                await RunGitAsync(workspace,
+                    $"merge-base --is-ancestor \"{rangeEnd}\" HEAD");
+            }
             var log = await RunGitAsync(
                 workspace,
-                $"log --reverse --format=%H%x09%s \"{baselineCommit}..HEAD\"");
+                $"log --reverse --format=%H%x09%s \"{baselineCommit}..{rangeEnd}\"");
             candidates = RecoveryCommitValidator.ParseCommitRange(log);
         }
         catch (Exception ex)
@@ -12811,7 +12952,8 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var selected = VerifiedCommitRangeDialog.Show(this, taskId, baselineCommit, candidates);
+        var selected = VerifiedCommitRangeDialog.Show(
+            this, taskId, baselineCommit, candidates, hostRecordedRange: recordedEvidence is not null);
         if (selected is null) return false;
         var selectedIndex = candidates.ToList().FindIndex(entry =>
             string.Equals(entry.Commit, selected.Commit, StringComparison.OrdinalIgnoreCase));
@@ -44316,7 +44458,8 @@ public partial class MainWindow : Window
                     items,
                     nextExecutingTaskId: null,
                     acceptedResult: acceptedResult);
-                updated = PlanValidationReadinessEvaluator.AllRequiredPassed(withTasks)
+                updated = PlanValidationReadinessEvaluator.AllRequiredPassed(withTasks) &&
+                          ApprovalGateReadinessEvaluator.AllRequiredApproved(withTasks)
                     ? PlanStoreUpdater.ApplyCompleted(withTasks)
                     : withTasks;
             }

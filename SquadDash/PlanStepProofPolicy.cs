@@ -18,7 +18,12 @@ internal static class PlanStepProofPolicy
             return "The task has proof requirements but returned no step result.";
         if (result.Status != "complete")
             return null;
-        if (result.ProofEvidence is not { Count: > 0 } evidence)
+        var resultRequirements = requirements
+            .Where(requirement =>
+                PlanProofCapabilityPolicy.Classify(requirement.ProofType) != PlanProofExecutorKind.Host)
+            .ToArray();
+        var evidence = result.ProofEvidence ?? [];
+        if (resultRequirements.Length > 0 && evidence.Count == 0)
             return $"Task {task.Id} requires structured proof evidence before it can be completed.";
 
         var duplicate = evidence
@@ -27,7 +32,7 @@ internal static class PlanStepProofPolicy
         if (duplicate is not null)
             return $"Task {task.Id} returned duplicate proof evidence for {duplicate.Key}.";
 
-        foreach (var requirement in requirements)
+        foreach (var requirement in resultRequirements)
         {
             var match = evidence.FirstOrDefault(item =>
                 string.Equals(item.RequirementId, requirement.RequirementId, StringComparison.Ordinal));

@@ -24,20 +24,19 @@ internal static class PlanExecutionContextBuilder
             builder.AppendLine("The following first-person record is the connected work already accepted on the direct path to this task:");
             foreach (var ancestor in ancestors)
             {
-                var isDirectParent = currentTask.DependsOn.Contains(ancestor.TaskId, StringComparer.Ordinal);
                 builder.AppendLine();
                 builder.AppendLine($"- **{ancestor.Title ?? ancestor.TaskId}** (`{ancestor.TaskId}`)");
                 if (ancestor.Handoff is { } handoff)
                 {
                     builder.AppendLine($"  - Commit: `{handoff.Commit}`");
-                    builder.AppendLine($"  - I previously completed this by: {Truncate(handoff.Summary, isDirectParent ? 800 : 220)}");
-                    if (isDirectParent && handoff.ChangedFiles.Count > 0)
+                    builder.AppendLine($"  - I previously completed this by: {handoff.Summary}");
+                    if (handoff.ChangedFiles.Count > 0)
                         builder.AppendLine($"  - Changed files: {string.Join(", ", handoff.ChangedFiles.Select(path => $"`{path}`"))}");
-                    if (isDirectParent && !string.IsNullOrWhiteSpace(handoff.Verification?.Summary))
+                    if (!string.IsNullOrWhiteSpace(handoff.Verification?.Summary))
                         builder.AppendLine($"  - Verification: {handoff.Verification.Summary}");
                 }
                 else if (!string.IsNullOrWhiteSpace(ancestor.CompletionSummary))
-                    builder.AppendLine($"  - Earlier accepted summary: {Truncate(ancestor.CompletionSummary, isDirectParent ? 800 : 220)}");
+                    builder.AppendLine($"  - Earlier accepted summary: {ancestor.CompletionSummary}");
             }
         }
 
@@ -70,11 +69,7 @@ internal static class PlanExecutionContextBuilder
             .ToDictionary(item => item.TaskId, item => item.index, StringComparer.Ordinal);
         return plan.Tasks
             .Where(candidate => distance.ContainsKey(candidate.TaskId))
-            .OrderBy(candidate => distance[candidate.TaskId])
-            .ThenBy(candidate => ordinalById[candidate.TaskId])
+            .OrderBy(candidate => ordinalById[candidate.TaskId])
             .ToArray();
     }
-
-    private static string Truncate(string value, int maxLength) =>
-        value.Length <= maxLength ? value : value[..(maxLength - 1)] + "…";
 }

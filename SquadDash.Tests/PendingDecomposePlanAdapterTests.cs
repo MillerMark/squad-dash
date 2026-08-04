@@ -237,6 +237,54 @@ internal sealed class PendingDecomposePlanAdapterTests
         });
     }
 
+    [Test]
+    public void ApprovalGateHumanProofContract_RoundTripsAndRemainsRevisionSealed()
+    {
+        var basePending = MakePending("PLANS-20260727");
+        var group = basePending.Group with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "PLANS-20260727-HUMAN-PROOF",
+                    "Observe the feature after restart.",
+                    ["PLANS-20260727-001"],
+                    ["PLANS-20260727-002"],
+                    [
+                        new DecomposedTaskProofRequirement(
+                            "restart-visible",
+                            "restart-observation",
+                            "The feature remains visible after a real restart."),
+                    ]),
+            ],
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group),
+            DateTimeOffset.UtcNow);
+        var reconstructed = PendingDecomposePlanAdapter.FromPlan(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.ApprovalGates[0].ProofRequirements![0].RequirementId,
+                Is.EqualTo("restart-visible"));
+            Assert.That(reconstructed.Group.ApprovalGates![0].ProofRequirements![0].ProofType,
+                Is.EqualTo("restart-observation"));
+            Assert.That(PendingDecomposePlanStore.ComputeRevision(reconstructed.Group),
+                Is.EqualTo(revision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+            Assert.That(
+                PendingDecomposePlanAdapter.RevisionIsValid(plan with
+                {
+                    ApprovalGates =
+                    [
+                        plan.ApprovalGates[0] with { ProofRequirements = null },
+                    ],
+                }),
+                Is.False);
+        });
+    }
+
     [TestCase(true)]
     [TestCase(false)]
     public void RevisionIsValid_PreservesExplicitlyEmptyAndOmittedValidationCollections(
