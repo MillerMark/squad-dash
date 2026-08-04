@@ -38,6 +38,7 @@
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />
     <Compile Include="..\SquadDash\ValidationShieldPresenter.cs" Link="Source\ValidationShieldPresenter.cs" />
     <Compile Include="..\SquadDash\ProofProvenancePresenter.cs" Link="Source\ProofProvenancePresenter.cs" />
+    <Compile Include="..\SquadDash\ProofProvenanceChain.cs" Link="Source\ProofProvenanceChain.cs" />
     <Compile Include="..\SquadDash\PlanValidationActivityPulseEvent.cs" Link="Source\PlanValidationActivityPulseEvent.cs" />
     <Compile Include="..\SquadDash\ValidationStateSimulator.cs" Link="Source\ValidationStateSimulator.cs" />
     <Compile Remove="bin\**\*.cs" />

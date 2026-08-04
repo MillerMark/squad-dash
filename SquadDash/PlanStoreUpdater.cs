@@ -257,6 +257,77 @@ internal static class PlanStoreUpdater
         };
     }
 
+    /// <summary>
+    /// Transitions a plan task through recovery (retry or replan), preserving the proof provenance
+    /// from the prior attempt. Generates a <see cref="ProofProvenanceEntry"/> for the previous
+    /// execution and appends it to the task's provenance chain. Resets the task status to pending.
+    /// Returns the plan unchanged if <paramref name="taskId"/> is not found.
+    /// </summary>
+    internal static Plan ApplyRecoveryWithProvenance(
+        Plan    plan,
+        string  taskId,
+        string? previousAttemptCommit,
+        string  recoveryKind)
+    {
+        var taskIndex = -1;
+        for (int i = 0; i < plan.Tasks.Count; i++)
+        {
+            if (string.Equals(plan.Tasks[i].TaskId, taskId, StringComparison.Ordinal))
+            {
+                taskIndex = i;
+                break;
+            }
+        }
+
+        if (taskIndex < 0)
+            return plan;
+
+        var task = plan.Tasks[taskIndex];
+
+        // Build provenance from the prior attempt using ProofProvenancePresenter
+        var provenanceContent = ProofProvenancePresenter.BuildForTask(task);
+
+        var sourceKind = provenanceContent?.SourceKind ?? EvidenceSourceKind.HostRecorded;
+        var sourceLabel = provenanceContent?.SourceLabel
+            ?? ProofProvenancePresenter.FormatSourceLabel(EvidenceSourceKind.HostRecorded);
+
+        var summary = provenanceContent?.ReturnedSummaries is { Count: > 0 } summaries
+            ? string.Join("; ", summaries)
+            : task.CompletionSummary;
+
+        var entry = new ProofProvenanceEntry(
+            TaskId: taskId,
+            SourceLabel: sourceLabel,
+            SourceKind: sourceKind.ToString(),
+            CommitShortSha: ProofProvenancePresenter.FormatShortSha(previousAttemptCommit ?? task.Commit),
+            CommitFullSha: previousAttemptCommit ?? task.Commit,
+            Summary: summary,
+            RecoveryKind: recoveryKind,
+            RecordedAt: DateTimeOffset.UtcNow);
+
+        var existingChain = task.ProvenanceChain ?? ProofProvenanceChain.Empty;
+        var updatedChain = existingChain.Append(entry);
+
+        var updatedTask = task with
+        {
+            Status = PlanTaskStatus.Pending,
+            Commit = null,
+            CompletedAt = null,
+            CompletionSummary = null,
+            ProvenanceChain = updatedChain,
+        };
+
+        var updatedTasks = plan.Tasks.ToList();
+        updatedTasks[taskIndex] = updatedTask;
+
+        return plan with
+        {
+            Tasks = updatedTasks,
+            InterruptionData = plan.InterruptionData is null ? null
+                : plan.InterruptionData with { RecoveryState = PlanRecoveryState.RecoveryInProgress },
+        };
+    }
+
     /// <summary>Archives a non-running plan without deleting its durable history.</summary>
     internal static Plan ApplyArchived(Plan existing)
     {

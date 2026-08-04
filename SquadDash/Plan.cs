@@ -164,7 +164,10 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskProofRequirement>? ProofRequirements = null,
     [property: JsonPropertyName("proofEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null);
+                                                IReadOnlyList<PlanTaskProofEvidence>? ProofEvidence = null,
+    [property: JsonPropertyName("provenanceChain")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                ProofProvenanceChain? ProvenanceChain = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
