@@ -984,20 +984,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var title = new TextBlock
                 {
                     Text = displayTitle,
-                    Margin = new Thickness(0, 3 * _scaleFactor, 0, 0),
-                    MaxWidth = 140 * _scaleFactor,
+                    MaxWidth = 136 * _scaleFactor,
                     TextWrapping = TextWrapping.Wrap,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     MaxHeight = 32 * _scaleFactor,
-                    ToolTip = displayTitle != validation.Title
-                        ? BuildValidationToolTip(validation, durableValidation, tasksById)
-                        : null,
                 };
                 title.SetResourceReference(TextBlock.ForegroundProperty,
                     validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
                 title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-                visual.Children.Add(title);
+                var titleBorder = new Border
+                {
+                    CornerRadius = new CornerRadius(2),
+                    Padding = new Thickness(3, 1, 3, 1),
+                    Margin = new Thickness(0, 3 * _scaleFactor, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Child = title,
+                    ToolTip = displayTitle != validation.Title
+                        ? BuildValidationToolTip(validation, durableValidation, tasksById)
+                        : null,
+                };
+                titleBorder.SetResourceReference(Border.BackgroundProperty, "ValidationTitleBackdrop");
+                visual.Children.Add(titleBorder);
 
                 var taskPositionMap = positions.ToDictionary(
                     entry => entry.Key,
