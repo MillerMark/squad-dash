@@ -19,6 +19,57 @@ internal sealed class PlanExecutionBoundaryPolicyTests
     }
 
     [Test]
+    public void ReadyValidation_WaitsForHumanProofAtSameBoundary()
+    {
+        var plan = MakePlan(PlanValidationStatus.Ready, includeApprovalGate: true) with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "GATE-1", "Observe A", ["A"], ["B"], PlanGateStatus.Pending,
+                    ProofRequirements:
+                    [
+                        new PlanTaskProofRequirement(
+                            "visible", "human-observation", "Observe the completed behavior."),
+                    ]),
+            ],
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanExecutionBoundaryPolicy.SelectValidation(plan), Is.Null);
+            Assert.That(PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(plan), Is.True);
+        });
+    }
+
+    [Test]
+    public void PassedHumanProof_ReleasesValidationAtSameBoundary()
+    {
+        var plan = MakePlan(PlanValidationStatus.Ready, includeApprovalGate: true) with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "GATE-1", "Observe A", ["A"], ["B"], PlanGateStatus.Approved,
+                    ProofRequirements:
+                    [
+                        new PlanTaskProofRequirement(
+                            "visible", "human-observation", "Observe the completed behavior."),
+                    ],
+                    ProofEvidence:
+                    [
+                        new PlanTaskProofEvidence(
+                            "visible", "human-observation", "Observed by Mark.",
+                            ["squaddash://approval/PLAN/GATE-1"]),
+                    ]),
+            ],
+        };
+
+        Assert.That(PlanExecutionBoundaryPolicy.SelectValidation(plan)?.ValidationId,
+            Is.EqualTo("PLAN-VAL-001"));
+    }
+
+    [Test]
     public void InProgressValidation_IsRecoveredBeforeReadyValidation()
     {
         var plan = MakePlan(PlanValidationStatus.Validating) with
