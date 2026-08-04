@@ -1530,7 +1530,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     task.Description,
                     prereqLines,
                     durableTask?.CompletionSummary,
-                    durableTask?.Commit),
+                    durableTask?.Commit,
+                    durableTask?.ProvenanceChain),
                 Child           = nodeLayout,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
@@ -2683,7 +2684,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         string description,
         string[] prereqLines,
         string? completionSummary = null,
-        string? commit = null)
+        string? commit = null,
+        ProofProvenanceChain? provenanceChain = null)
     {
         var titleBlock = new TextBlock
         {
@@ -2765,6 +2767,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
             commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             panel.Children.Add(commitBlock);
+        }
+
+        if (provenanceChain is { Entries.Count: > 0 })
+        {
+            var provenanceHeader = new TextBlock
+            {
+                Text       = "Prior attempts:",
+                FontWeight = FontWeights.SemiBold,
+                Margin     = new Thickness(0, 8, 0, 2),
+            };
+            provenanceHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            provenanceHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(provenanceHeader);
+
+            var provenanceSummary = new TextBlock
+            {
+                Text         = provenanceChain.BuildSummary(),
+                TextWrapping = TextWrapping.Wrap,
+            };
+            provenanceSummary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            provenanceSummary.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
+            panel.Children.Add(provenanceSummary);
         }
 
         return new ToolTip { Content = panel };

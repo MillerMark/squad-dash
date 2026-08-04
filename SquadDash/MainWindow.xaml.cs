@@ -325,6 +325,7 @@ public partial class MainWindow : Window
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
     private PlanStore? _planStore;
+    private PlanRecoveryProvenanceService? _planRecoveryProvenance;
     private PlansPanelController? _plansPanelController;
     private Action<PlanProgressEvent>? _onPlanProgressEvent;
     private CodeHealthPanelController? _codeHealthPanel;
@@ -9734,6 +9735,12 @@ public partial class MainWindow : Window
                     routingPolicy);
                 if (freshAttempt is not null)
                 {
+                    // Record provenance of the contaminated attempt in the durable plan
+                    var durableTaskCommit = canonicalPlan?.Tasks.FirstOrDefault(t =>
+                        string.Equals(t.TaskId, taskId, StringComparison.Ordinal))?.Commit;
+                    _planRecoveryProvenance?.ApplyFreshAttemptRecovery(
+                        groupId, taskId, durableTaskCommit);
+
                     var history = PlanExecutionRecoveryPolicy.ArchiveRejectedAttempt(
                         activeExecution.PreviousPlanExecutionAttempts,
                         executionAttempt,
@@ -9770,6 +9777,12 @@ public partial class MainWindow : Window
 
             if (recoveryAction == PlanExecutionRecoveryAction.RequestRepair)
             {
+                // Record provenance of the invalid result in the durable plan (bounded: once per task)
+                var durableRepairCommit = canonicalPlan?.Tasks.FirstOrDefault(t =>
+                    string.Equals(t.TaskId, taskId, StringComparison.Ordinal))?.Commit;
+                _planRecoveryProvenance?.ApplyEnvelopeRepair(
+                    groupId, taskId, durableRepairCommit);
+
                 _conversationManager.UpdateActiveLoopExecutionState(
                     activeExecution with {
                         RecoveryTaskId = taskId,
@@ -27304,6 +27317,7 @@ public partial class MainWindow : Window
         _notesPanel?.Refresh(_noteItems);
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
+        _planRecoveryProvenance = new PlanRecoveryProvenanceService(_planStore);
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
         RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
