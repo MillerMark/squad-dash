@@ -320,12 +320,51 @@ internal static class PlanStoreUpdater
         var updatedTasks = plan.Tasks.ToList();
         updatedTasks[taskIndex] = updatedTask;
 
-        return plan with
+        var recovered = plan with
         {
             Tasks = updatedTasks,
             InterruptionData = plan.InterruptionData is null ? null
                 : plan.InterruptionData with { RecoveryState = PlanRecoveryState.RecoveryInProgress },
         };
+
+        // Atomically invalidate dependent validations: any validation node whose
+        // AfterTaskIds includes the recovered task must be reset to Pending so it
+        // re-runs against the new attempt's output.
+        recovered = InvalidateDependentValidationsForRecovery(recovered, taskId);
+
+        return recovered;
+    }
+
+    /// <summary>
+    /// Resets all validation nodes that depend on the recovered task back to
+    /// <see cref="PlanValidationStatus.Pending"/>, clearing their prior verdicts.
+    /// Called atomically within <see cref="ApplyRecoveryWithProvenance"/>.
+    /// </summary>
+    internal static Plan InvalidateDependentValidationsForRecovery(Plan plan, string recoveredTaskId)
+    {
+        if (plan.Validations is not { Count: > 0 })
+            return plan;
+
+        var anyReset = false;
+        var updated = plan.Validations.Select(validation =>
+        {
+            if (!validation.AfterTaskIds.Contains(recoveredTaskId))
+                return validation;
+            if (validation.Status is PlanValidationStatus.Pending)
+                return validation;
+
+            anyReset = true;
+            return validation with
+            {
+                Status = PlanValidationStatus.Pending,
+                Summary = $"Reset: upstream task '{recoveredTaskId}' was recovered.",
+                ValidatedCommit = null,
+                CompletedAt = null,
+                Evidence = null,
+            };
+        }).ToArray();
+
+        return anyReset ? plan with { Validations = updated } : plan;
     }
 
     /// <summary>Archives a non-running plan without deleting its durable history.</summary>

@@ -326,6 +326,7 @@ public partial class MainWindow : Window
     private List<NoteItem> _noteItems = [];
     private PlanStore? _planStore;
     private PlanRecoveryProvenanceService? _planRecoveryProvenance;
+    private PlanRecoveryDecisionHandler? _planRecoveryDecision;
     private PlansPanelController? _plansPanelController;
     private Action<PlanProgressEvent>? _onPlanProgressEvent;
     private CodeHealthPanelController? _codeHealthPanel;
@@ -9735,11 +9736,21 @@ public partial class MainWindow : Window
                     routingPolicy);
                 if (freshAttempt is not null)
                 {
-                    // Record provenance of the contaminated attempt in the durable plan
+                    // Authoritative recovery gating: decision handler enforces bounded recovery
                     var durableTaskCommit = canonicalPlan?.Tasks.FirstOrDefault(t =>
                         string.Equals(t.TaskId, taskId, StringComparison.Ordinal))?.Commit;
-                    _planRecoveryProvenance?.ApplyFreshAttemptRecovery(
-                        groupId, taskId, durableTaskCommit);
+
+                    if (_planRecoveryDecision is not null)
+                    {
+                        var decision = _planRecoveryDecision.HandleFreshAttemptDecision(
+                            groupId, taskId, durableTaskCommit);
+                        ScheduleDecomposeSystemEntry(decision.UserMessage);
+                        if (!decision.Allowed)
+                        {
+                            recoveryAction = PlanExecutionRecoveryAction.Block;
+                            goto recoveryBlocked;
+                        }
+                    }
 
                     var history = PlanExecutionRecoveryPolicy.ArchiveRejectedAttempt(
                         activeExecution.PreviousPlanExecutionAttempts,
@@ -9775,13 +9786,28 @@ public partial class MainWindow : Window
                 recoveryAction = PlanExecutionRecoveryAction.Block;
             }
 
+            recoveryBlocked:
+
             if (recoveryAction == PlanExecutionRecoveryAction.RequestRepair)
             {
-                // Record provenance of the invalid result in the durable plan (bounded: once per task)
+                // Authoritative recovery gating: decision handler enforces bounded recovery
                 var durableRepairCommit = canonicalPlan?.Tasks.FirstOrDefault(t =>
                     string.Equals(t.TaskId, taskId, StringComparison.Ordinal))?.Commit;
-                _planRecoveryProvenance?.ApplyEnvelopeRepair(
-                    groupId, taskId, durableRepairCommit);
+
+                if (_planRecoveryDecision is not null)
+                {
+                    var repairDecision = _planRecoveryDecision.HandleRepairDecision(
+                        groupId, taskId, durableRepairCommit);
+                    ScheduleDecomposeSystemEntry(repairDecision.UserMessage);
+                    if (!repairDecision.Allowed)
+                    {
+                        // Recovery exhausted — do not proceed with repair prompt
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"Envelope-repair blocked for task '{taskId}' — falling through to block.");
+                        recoveryAction = PlanExecutionRecoveryAction.Block;
+                        goto handleBlock;
+                    }
+                }
 
                 _conversationManager.UpdateActiveLoopExecutionState(
                     activeExecution with {
@@ -9875,6 +9901,7 @@ public partial class MainWindow : Window
 
             // A repeated repair failure or repeated evidence contamination is terminal
             // for this automatic run. Preserve the attempt history and offer recovery.
+            handleBlock:
             _CodeHealthGroupRunner.MarkCurrentStepFailed();
             StopAndOfferDecomposeRecovery(
                 groupId,
@@ -27318,6 +27345,7 @@ public partial class MainWindow : Window
 
         _planStore = new PlanStore(_currentWorkspace.SquadFolderPath);
         _planRecoveryProvenance = new PlanRecoveryProvenanceService(_planStore);
+        _planRecoveryDecision = new PlanRecoveryDecisionHandler(_planRecoveryProvenance);
         _inboxStore = new InboxStore(_currentWorkspace.SquadFolderPath);
         RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
