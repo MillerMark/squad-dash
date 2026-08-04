@@ -323,6 +323,7 @@ internal static class PlanStoreUpdater
         var recovered = plan with
         {
             Tasks = updatedTasks,
+            Progress = RecalculateProgressAfterRecovery(plan, updatedTasks),
             InterruptionData = plan.InterruptionData is null ? null
                 : plan.InterruptionData with { RecoveryState = PlanRecoveryState.RecoveryInProgress },
         };
@@ -336,8 +337,8 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
-    /// Resets all validation nodes that depend on the recovered task back to
-    /// <see cref="PlanValidationStatus.Pending"/>, clearing their prior verdicts.
+    /// Transitions all validation nodes that depend on the recovered task to
+    /// <see cref="PlanValidationStatus.Stale"/>, preserving their prior evidence for audit.
     /// Called atomically within <see cref="ApplyRecoveryWithProvenance"/>.
     /// </summary>
     internal static Plan InvalidateDependentValidationsForRecovery(Plan plan, string recoveredTaskId)
@@ -350,21 +351,30 @@ internal static class PlanStoreUpdater
         {
             if (!validation.AfterTaskIds.Contains(recoveredTaskId))
                 return validation;
-            if (validation.Status is PlanValidationStatus.Pending)
+            if (validation.Status is PlanValidationStatus.Pending or PlanValidationStatus.Stale)
                 return validation;
 
             anyReset = true;
             return validation with
             {
-                Status = PlanValidationStatus.Pending,
-                Summary = $"Reset: upstream task '{recoveredTaskId}' was recovered.",
-                ValidatedCommit = null,
+                Status = PlanValidationStatus.Stale,
+                Summary = $"Stale: upstream task '{recoveredTaskId}' was recovered.",
                 CompletedAt = null,
-                Evidence = null,
             };
         }).ToArray();
 
         return anyReset ? plan with { Validations = updated } : plan;
+    }
+
+    /// <summary>
+    /// Recalculates <see cref="PlanProgress.CompletedCount"/> after a recovery transition
+    /// changes a task from Complete to Pending.
+    /// </summary>
+    private static PlanProgress RecalculateProgressAfterRecovery(Plan original, IReadOnlyList<PlanTask> updatedTasks)
+    {
+        var completed = updatedTasks.Count(t =>
+            t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+        return original.Progress with { CompletedCount = completed };
     }
 
     /// <summary>Archives a non-running plan without deleting its durable history.</summary>

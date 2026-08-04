@@ -233,14 +233,16 @@ internal sealed class PlanRecoveryDecisionHandlerTests
 
         var reloaded = _planStore.Load(plan.PlanId)!;
 
-        // VAL-001 depends on TASK-001 — should be reset to Pending
+        // VAL-001 depends on TASK-001 — should be transitioned to Stale with evidence preserved
         var val1 = reloaded.Validations!.First(v => v.ValidationId == "VAL-001");
-        Assert.That(val1.Status, Is.EqualTo(PlanValidationStatus.Pending),
-            "Dependent validation must be reset to Pending when upstream task is recovered.");
-        Assert.That(val1.ValidatedCommit, Is.Null,
-            "Validated commit must be cleared on reset.");
+        Assert.That(val1.Status, Is.EqualTo(PlanValidationStatus.Stale),
+            "Dependent validation must be marked Stale when upstream task is recovered.");
+        Assert.That(val1.ValidatedCommit, Is.EqualTo("abc1234def5678901234567890abcdef12345678"),
+            "ValidatedCommit must be preserved for audit when transitioning to Stale.");
+        Assert.That(val1.Evidence, Is.Not.Null,
+            "Evidence must be preserved for audit when transitioning to Stale.");
         Assert.That(val1.CompletedAt, Is.Null,
-            "CompletedAt must be cleared on reset.");
+            "CompletedAt must be cleared on stale transition.");
 
         // VAL-002 does NOT depend on TASK-001 — should remain Passed
         var val2 = reloaded.Validations!.First(v => v.ValidationId == "VAL-002");
@@ -281,8 +283,8 @@ internal sealed class PlanRecoveryDecisionHandlerTests
 
         var reloaded = _planStore.Load(plan.PlanId)!;
         var val = reloaded.Validations!.First(v => v.ValidationId == "VAL-FA-001");
-        Assert.That(val.Status, Is.EqualTo(PlanValidationStatus.Pending),
-            "Failed dependent validation must be reset to Pending on upstream task recovery.");
+        Assert.That(val.Status, Is.EqualTo(PlanValidationStatus.Stale),
+            "Failed dependent validation must be marked Stale on upstream task recovery.");
     }
 
     // ── Test: user message contains provenance content on applied recovery ───
