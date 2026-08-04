@@ -112,40 +112,12 @@ internal static class TranscriptQuickReplyFactory
     {
         foreach (var block in blocks.ToArray())
         {
-            if (block is BlockUIContainer { Tag: DecomposeRecoveryTag })
+            if (block is BlockUIContainer { Tag: DecomposeRecoveryTag } or
+                Section { Tag: DecomposeRecoveryTag })
                 blocks.Remove(block);
             else if (block is Section section)
                 RemoveDecomposeRecoveryContainers(section.Blocks);
         }
-    }
-
-    internal static bool ContainsDecomposeRecoveryContainer(
-        BlockCollection blocks,
-        string groupId,
-        string revision,
-        string taskId)
-    {
-        foreach (var block in blocks)
-        {
-            if (block is BlockUIContainer
-                {
-                    Tag: DecomposeRecoveryTag tag,
-                } &&
-                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal) &&
-                string.Equals(tag.Revision, revision, StringComparison.Ordinal) &&
-                string.Equals(tag.TaskId, taskId, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (block is Section section &&
-                ContainsDecomposeRecoveryContainer(section.Blocks, groupId, revision, taskId))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     internal static IEnumerable<Button> EnumerateButtons(DependencyObject root)

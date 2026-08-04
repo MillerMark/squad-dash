@@ -11665,14 +11665,11 @@ public partial class MainWindow : Window
             turn.Timestamp >= interruptionStarted.AddSeconds(-1) &&
             turn.ResponseText?.Contains(marker, StringComparison.Ordinal) == true);
 
-        if (TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
-                CoordinatorThread.Document.Blocks,
-                plan.PlanId,
-                plan.Revision,
-                taskId))
-        {
-            return;
-        }
+        // A virtualized history batch must never own current actions. Remove any recovery
+        // surface left by an older build or an earlier restoration pass, then append exactly
+        // one authoritative surface at the true end of the coordinator transcript.
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+            CoordinatorThread.Document.Blocks);
 
         if (HasCurrentRecoveryEntry())
         {
@@ -11695,10 +11692,12 @@ public partial class MainWindow : Window
     private void AppendDecomposeRecoveryActions(
         PendingDecomposePlan plan,
         string taskId,
-        BlockCollection? targetBlocks = null,
         bool showEndPlan = false)
     {
-        var blocks = targetBlocks ?? CoordinatorThread.Document.Blocks;
+        var recoveryTag = new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId);
+        var recoverySurface = new Section { Tag = recoveryTag };
+        CoordinatorThread.Document.Blocks.Add(recoverySurface);
+        var blocks = recoverySurface.Blocks;
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
         planLinkParagraph.Inlines.Add(new Run("Plan: "));
         var planLink = new Hyperlink(new Run(plan.Group.GroupTitle))
@@ -11828,7 +11827,7 @@ public partial class MainWindow : Window
 
         blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
             panel,
-            new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
+            recoveryTag));
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         void AddAction(
@@ -13434,62 +13433,6 @@ public partial class MainWindow : Window
         var shortHead = currentHead.Length >= 7 ? currentHead[..7] : currentHead;
         ShowSystemTranscriptEntry(
             $"📋 Replan queued for task {taskId} with current repository state as baseline (HEAD: {shortHead}).");
-    }
-
-    private void AppendPersistedDecomposeRecoveryIfNeeded(TranscriptTurnView view, string responseText)
-    {
-        if (_currentWorkspace is null) return;
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) return;
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        DecomposeStepResultParser.TryParse(responseText, out var persistedResult, out _);
-
-        // Collect all blocked tasks, then pick the one whose durable plan was interrupted most recently.
-        var allBlocked = parsed.OpenGroups
-            .SelectMany(group => group.Items)
-            .Where(item =>
-                item.TaskId is not null && (item.IsFailed || item.IsPartial) &&
-                // Skip plans that are already stopped or completed — EndInterruptedPlan updates the
-                // durable store but not tasks.md, so IsFailed/IsPartial can linger there indefinitely.
-                (item.DecomposeGroupId is null ||
-                 _planStore?.Load(item.DecomposeGroupId)?.LifecycleStatus is not
-                     (PlanLifecycleStatus.Stopped or PlanLifecycleStatus.Completed)) &&
-                (persistedResult is null ||
-                 (string.Equals(item.DecomposeGroupId, persistedResult.GroupId, StringComparison.Ordinal) &&
-                  string.Equals(item.TaskId, persistedResult.TaskId, StringComparison.Ordinal))))
-            .ToList();
-
-        if (allBlocked.Count == 0) return;
-
-        // Prefer the plan whose durable record has the latest InterruptedAt; fall back to first found.
-        var blocked = allBlocked
-            .OrderByDescending(item =>
-            {
-                if (item.DecomposeGroupId is null) return DateTimeOffset.MinValue;
-                return _planStore?.Load(item.DecomposeGroupId)?.Timestamps?.InterruptedAt
-                       ?? DateTimeOffset.MinValue;
-            })
-            .First();
-
-        if (blocked.TaskId is null || blocked.DecomposeGroupId is null ||
-            !parsed.DecomposeGroups.TryGetValue(blocked.DecomposeGroupId, out var group))
-            return;
-
-        var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
-
-        // System-message header so the user understands the context.
-        var headerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-        var headerRun = new Run("Plan execution stopped unexpectedly. Recovery is available.");
-        headerRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        headerRun.FontWeight = FontWeights.SemiBold;
-        headerParagraph.Inlines.Add(headerRun);
-        view.NarrativeSection.Blocks.Add(headerParagraph);
-
-        AppendDecomposeRecoveryActions(
-            new PendingDecomposePlan(revision, group with { HostRevision = revision }),
-            blocked.TaskId,
-            view.NarrativeSection.Blocks,
-            showEndPlan: true);
     }
 
     private void OpenDecomposePlanAttachment(InboxAttachment attachment)
@@ -31847,9 +31790,6 @@ public partial class MainWindow : Window
                 !DecomposePlanInbox.RequestsInboxDelivery(pendingPlan.Group))
                 AppendPendingDecomposeApproval(pendingPlan, view, includeActions: isLastTurn);
         }
-        if (ReferenceEquals(thread, CoordinatorThread) && isLastTurn &&
-            !turn.ResponseText.Contains("TASKS_JSON:", StringComparison.Ordinal))
-            AppendPersistedDecomposeRecoveryIfNeeded(view, turn.ResponseText);
         foreach (var block in view.ThinkingBlocks)
             block.Expander.IsExpanded = !turn.ThinkingCollapsed;
 

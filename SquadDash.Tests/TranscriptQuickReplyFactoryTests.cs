@@ -110,21 +110,26 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
-    public void ContainsDecomposeRecoveryContainer_FindsMatchingActionsRecursively()
+    public void RemoveDecomposeRecoveryContainers_RemovesEntireTaggedSurfaceRecursively()
     {
         var document = new FlowDocument();
-        var section = new Section();
-        section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+        var historySection = new Section();
+        var recoverySurface = new Section
+        {
+            Tag = new DecomposeRecoveryTag("PLAN-RECOVERY", "revision-2", "TASK-005"),
+        };
+        recoverySurface.Blocks.Add(new Paragraph(new Run("Recovery explanation")));
+        recoverySurface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
             new WrapPanel(),
             new DecomposeRecoveryTag("PLAN-RECOVERY", "revision-2", "TASK-005")));
-        document.Blocks.Add(section);
+        historySection.Blocks.Add(recoverySurface);
+        historySection.Blocks.Add(new Paragraph(new Run("Historical narrative")));
+        document.Blocks.Add(historySection);
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
-                document.Blocks, "PLAN-RECOVERY", "revision-2", "TASK-005"), Is.True);
-            Assert.That(TranscriptQuickReplyFactory.ContainsDecomposeRecoveryContainer(
-                document.Blocks, "PLAN-RECOVERY", "revision-2", "TASK-006"), Is.False);
-        });
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(document.Blocks);
+
+        Assert.That(historySection.Blocks.Contains(recoverySurface), Is.False);
+        Assert.That(historySection.Blocks.OfType<Paragraph>().Single().Inlines
+            .OfType<Run>().Single().Text, Is.EqualTo("Historical narrative"));
     }
 }

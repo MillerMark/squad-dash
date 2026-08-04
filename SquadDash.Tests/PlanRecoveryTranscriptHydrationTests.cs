@@ -24,6 +24,15 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         });
     }
 
+    [Test]
+    public void PersistedTurnRendering_DoesNotAttachCurrentRecoveryActionsToHistoryBatches()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.That(source, Does.Not.Contain("AppendPersistedDecomposeRecoveryIfNeeded"),
+            "Current recovery actions must be owned by post-hydration restoration, not by a batch's last persisted turn.");
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
