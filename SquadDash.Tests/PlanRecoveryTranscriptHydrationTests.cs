@@ -54,6 +54,27 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         });
     }
 
+    [Test]
+    public void PlansPanel_OpensAuthoritativeDurableRevision_NotPendingProposalWithSameId()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private void OpenPlanFromStore(Plan plan)",
+            StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private void ArchivePlan(Plan plan)",
+            methodStart,
+            StringComparison.Ordinal);
+        var method = source[methodStart..methodEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("PendingDecomposePlanAdapter.FromPlan(plan)"));
+            Assert.That(method, Does.Not.Contain("PendingDecomposePlanStore"),
+                "The Plans panel must not replace durable progress with a pending proposal sharing the plan ID.");
+        });
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);

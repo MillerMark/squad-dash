@@ -43917,20 +43917,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Transcript and Inbox actions capture immutable snapshots. Always replace that
-            // snapshot with the current durable plan before opening so a validation that turned
-            // green moments earlier never remains blue until the next restart/event.
+            // The Plans panel is a durable-plan surface. A pending Inbox proposal can legitimately
+            // have the same plan ID while representing a different revision, so never substitute
+            // it here. Inbox and transcript proposal links open their own pending snapshots.
             plan = _planStore?.Load(plan.PlanId) ?? plan;
-            PendingDecomposePlan? pending = null;
-            if (_currentWorkspace is not null)
-            {
-                var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
-                pending = store.Load(plan.PlanId);
-            }
-            if (pending is null)
-                pending = PendingDecomposePlanAdapter.FromPlan(plan);
-
-            OpenDecomposePlanViewer(pending, durablePlan: plan);
+            OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(plan), durablePlan: plan);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(OpenPlanFromStore), ex); }
     }
