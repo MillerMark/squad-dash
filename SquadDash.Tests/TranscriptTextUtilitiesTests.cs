@@ -170,6 +170,40 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_PlanValidationResult_StripsPayloadAndPreservesAssessment()
+    {
+        const string text = """
+            All three assertions passed.
+
+            PLAN_VALIDATION_RESULT_JSON:
+            {
+              "validationId": "PLAN-VAL-003",
+              "planId": "PLAN-001",
+              "passed": true,
+              "summary": "Ready for the live soak.",
+              "assertionEvidence": [
+                { "assertion": "Build passes.", "passed": true, "evidence": "0 errors." }
+              ],
+              "validatedCommit": "98353d5755d1406d52a013e9024684457c4e73c5"
+            }
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("All three assertions passed."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_PartialPlanValidationResult_HidesStreamingPayload()
+    {
+        const string text = "Validation complete.\n\nPLAN_VALIDATION_RESULT_JSON:\n{\n  \"validationId\": \"V1\",";
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("Validation complete."));
+    }
+
+    [Test]
     public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
     {
         const string text = """
