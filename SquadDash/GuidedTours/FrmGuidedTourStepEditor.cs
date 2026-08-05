@@ -1063,6 +1063,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // snapshot reflects in-flight edits rather than waiting for the auto-save timer.
         _markdownBox.LostFocus += (_, _) => { if (!_isLoadingStep) FlushPendingChanges(); };
         _titleBox.LostFocus    += (_, _) => { if (!_isLoadingStep) FlushPendingChanges(); };
+        _contextNameBox.LostFocus += (_, _) => { if (!_isLoadingStep) FlushPendingChanges(); };
 
         SnapshotCurrentValues();
         _lastUndoSnapshot = SnapshotTourJson();
@@ -1153,7 +1154,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _step.TargetControlId  = _targetControlBox.Text.Trim();
         _step.AdvanceTrigger   = GetSelectedCommand(_advanceTriggerBox);
 
-        _step.RequiredContext      = _contextNameBox.SelectedItem is string ctx && ctx != "(none)" ? ctx : string.Empty;
+        _step.RequiredContext      = GetSelectedContext();
         _step.RequiredContextValue = _contextTrueRadio.IsChecked == true;
 
         _step.CommandsBefore = _commandBeforeBox.Text
@@ -1746,8 +1747,12 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _advanceTriggerBox.Text = string.IsNullOrEmpty(step.AdvanceTrigger) ? "(none)" : step.AdvanceTrigger;
 
         var ctxName = string.IsNullOrWhiteSpace(step.RequiredContext) ? "(none)" : step.RequiredContext;
-        _contextNameBox.SelectedItem = _contextNameBox.Items.Cast<string>()
-            .FirstOrDefault(i => string.Equals(i, ctxName, StringComparison.OrdinalIgnoreCase)) ?? "(none)";
+        var matchedItem = _contextNameBox.Items.Cast<string>()
+            .FirstOrDefault(i => string.Equals(i, ctxName, StringComparison.OrdinalIgnoreCase));
+        if (matchedItem is not null)
+            _contextNameBox.SelectedItem = matchedItem;
+        else
+            _contextNameBox.Text = ctxName;
         _contextTrueRadio.IsChecked  = step.RequiredContextValue;
         _contextFalseRadio.IsChecked = !step.RequiredContextValue;
 
@@ -1846,7 +1851,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _snapAdvanceTrigger  = _advanceTriggerBox.Text;
         _snapCommandsBefore  = _commandBeforeBox.Text;
         _snapCommandsAfter   = _commandAfterBox.Text;
-        _snapRequiredContext      = _contextNameBox.SelectedItem is string ctx && ctx != "(none)" ? ctx : string.Empty;
+        _snapRequiredContext      = GetSelectedContext();
         _snapRequiredContextValue = _contextTrueRadio.IsChecked == true;
         _originalTargetOffsetX = _step.TargetOffsetX;
         _originalTargetOffsetY = _step.TargetOffsetY;
@@ -1863,7 +1868,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         if (_step.TargetOffsetY       != _originalTargetOffsetY) return true;
         if (_commandBeforeBox.Text != _snapCommandsBefore) return true;
         if (_commandAfterBox.Text  != _snapCommandsAfter)  return true;
-        var currentCtx = _contextNameBox.SelectedItem is string s && s != "(none)" ? s : string.Empty;
+        var currentCtx = GetSelectedContext();
         if (currentCtx != _snapRequiredContext) return true;
         if ((_contextTrueRadio.IsChecked == true) != _snapRequiredContextValue) return true;
         return false;
@@ -2715,6 +2720,11 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
 
     private static string GetSelectedCommand(ComboBox cb) =>
         !string.IsNullOrWhiteSpace(cb.Text) && cb.Text != "(none)" ? cb.Text.Trim() : string.Empty;
+
+    private string GetSelectedContext() =>
+        !string.IsNullOrWhiteSpace(_contextNameBox.Text) && _contextNameBox.Text != "(none)"
+            ? _contextNameBox.Text.Trim()
+            : string.Empty;
 
     private object MakeStepListItem(int index, GuidedTourStep step)
     {
