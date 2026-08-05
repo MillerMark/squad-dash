@@ -33378,9 +33378,12 @@ public partial class MainWindow : Window
         var capturedPath  = reportPath;
         var capturedLabel = agentLabel;
 
+        var fileTime = File.GetCreationTime(reportPath);
+        var relTime = StatusTimingPresentation.FormatRelativeTimestamp(new DateTimeOffset(fileTime));
+
         var button = new Button
         {
-            Content   = $"📋 {(AgentReportStore.IsKnownAgent(agentLabel) ? $"{agentLabel}'s" : agentLabel)} report",
+            Content   = $"📋 {(AgentReportStore.IsKnownAgent(agentLabel) ? $"{agentLabel}'s" : agentLabel)} report — {relTime}",
             ToolTip   = "Click to open the full agent report",
             Cursor    = Cursors.Hand,
             Margin    = new Thickness(0, 0, 0, 0),
