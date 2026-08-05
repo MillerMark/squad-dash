@@ -11225,6 +11225,38 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Wait until the main window is active so the callout doesn't appear
+            // over a different application that was in front during startup.
+            if (!IsActive)
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                EventHandler? handler = null;
+                handler = (_, _) =>
+                {
+                    Activated -= handler;
+                    tcs.TrySetResult(true);
+                };
+                Activated += handler;
+
+                // Also handle the case where the window never activates (e.g. it closes).
+                EventHandler? closedHandler = null;
+                closedHandler = (_, _) =>
+                {
+                    Activated -= handler;
+                    Closed -= closedHandler;
+                    tcs.TrySetResult(false);
+                };
+                Closed += closedHandler;
+
+                var activated = await tcs.Task;
+                Closed -= closedHandler;
+                if (!activated)
+                    return;
+
+                // Let layout settle after activation.
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+            }
+
             var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
             _pendingApprovalCalloutMessageId = messageId;
 
