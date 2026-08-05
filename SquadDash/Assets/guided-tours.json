@@ -1543,7 +1543,7 @@
       },
       {
         "title": "Show Notes Panel",
-        "markdownText": "If the **Notes** panel isn\u0027t visible, find it in the **Tools** menu.\r\nWe\u0027ll open it for you now.",
+        "markdownText": "If the **Notes** panel isn\u0027t visible, find it in the **Tools** menu.",
         "targetControlId": "ViewNotesMenuItem",
         "calloutPlacement": "East",
         "preAction": "None",
@@ -1556,7 +1556,7 @@
         "commandsAfter": [
           "UnhighlightMenuItems"
         ],
-        "advanceTrigger": "",
+        "advanceTrigger": "ToolPanelShown: Notes",
         "requiredContext": "IsPanelVisible: Notes",
         "requiredContextValue": false,
         "targetOffsetX": 0.5,
@@ -1604,7 +1604,9 @@
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "CreateTourNote"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",
