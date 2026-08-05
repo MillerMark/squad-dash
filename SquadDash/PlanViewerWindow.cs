@@ -1777,14 +1777,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         avatarChipsByAgent[assignment.AgentHandle] = list;
                     }
 
+                    // Hover glow using agent accent color
+                    var accentBrush = info?.Accent;
+                    var glowColor = accentBrush is SolidColorBrush scb ? scb.Color : Colors.Gray;
+
                     // Wrap chip in a Grid with a glow-only backing element so the
                     // DropShadowEffect doesn't blur the avatar image content.
+                    // The backing needs a solid fill for DropShadowEffect to cast from;
+                    // the chip sits on top and covers it — only the glow extends beyond.
                     var glowBacking = new Border
                     {
                         Width = ((Border)chip).Width,
                         Height = ((Border)chip).Height,
                         CornerRadius = ((Border)chip).CornerRadius,
-                        Background = Brushes.Transparent,
+                        Background = new SolidColorBrush(glowColor) { Opacity = 0.6 },
                         Margin = ((Border)chip).Margin,
                         Visibility = Visibility.Collapsed,
                     };
@@ -1794,9 +1800,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                     list.Add(glowBacking);
 
-                    // Hover glow using agent accent color
-                    var accentBrush = info?.Accent;
-                    var glowColor = accentBrush is SolidColorBrush scb ? scb.Color : Colors.Gray;
                     var capturedHandle = assignment.AgentHandle;
                     chip.MouseEnter += (_, _) =>
                     {
