@@ -31,12 +31,12 @@
     <SolidColorBrush x:Key="PlanApprovalResolved" Color="#1359A0"/>
     <SolidColorBrush x:Key="PlanApprovalResolvedBg" Color="#D0E8FF"/>
     <SolidColorBrush x:Key="ValidationTitleBackdrop" Color="#66FFFFFF"/>
-    <SolidColorBrush x:Key="ValidationPendingFill"    Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ValidationPendingFill"    Color="#F5F3F1"/>
     <SolidColorBrush x:Key="ValidationPendingIcon"   Color="#AE987A"/>
     <SolidColorBrush x:Key="ValidationPendingBorder" Color="#AE987A"/>
     <SolidColorBrush x:Key="ValidationPendingCheck"  Color="#CABEAE"/>
 
-    <SolidColorBrush x:Key="ValidationReadyFill"     Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ValidationReadyFill"     Color="#F2F8FC"/>
     <SolidColorBrush x:Key="ValidationReadyIcon"     Color="#6C90A8"/>
     <SolidColorBrush x:Key="ValidationReadyBorder"   Color="#6C90A8"/>
     <SolidColorBrush x:Key="ValidationReadyDots"     Color="#388EC8"/>
@@ -44,8 +44,9 @@
     <SolidColorBrush x:Key="ValidationPassedFill"    Color="#107235"/>
     <SolidColorBrush x:Key="ValidationPassedIcon"    Color="#E5FFEF"/>
 
-    <SolidColorBrush x:Key="ValidationValidatingFill"   Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ValidationValidatingFill"   Color="#17425F"/>
     <SolidColorBrush x:Key="ValidationValidatingBorder" Color="#4D9DD3"/>
+    <SolidColorBrush x:Key="ValidationValidatingSpinner" Color="#AFD3EB"/>
 
     <SolidColorBrush x:Key="NeedsRevalidationFill"   Color="#FFEEB7"/>
     <SolidColorBrush x:Key="NeedsRevalidationBorder" Color="#B08600"/>

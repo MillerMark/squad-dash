@@ -2561,16 +2561,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (ValidationShieldPresenter.ShowsActivitySpinner(status))
         {
+            var spinnerSize = shieldWidth * 0.55;
             var spinner = new ActivitySpinner
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                AccentColor = ResolvePlanSpinnerColor(),
+                AccentColor = ResolvePlanActivityColor("ValidationValidatingSpinner", Colors.SteelBlue),
+                FontSize = spinnerSize,
                 ToolTip = ToolTipHelper.MakeThemedToolTip("Validation is actively evaluating its contract."),
             };
-            spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
             spinner.SetContinuousActive(true);
-            spinner.RenderTransform = new TranslateTransform(0, 0);
             _validationSpinnersById[validationId] = spinner;
             grid.Children.Add(spinner);
         }
