@@ -2561,10 +2561,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _                               => "ValidationPendingShield",
         };
 
+        var shieldWidth = 29 * s;
+        var shieldHeight = 31 * s;
+
         var grid = new Grid
         {
-            Width = 24 * s,
-            Height = 26 * s,
+            Width = shieldWidth,
+            Height = shieldHeight,
             Background = Brushes.Transparent,
         };
 
@@ -2572,18 +2575,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Application.Current?.TryFindResource(viewboxKey) is Viewbox viewboxTemplate)
         {
             var viewbox = (Viewbox)Application.Current.FindResource(viewboxKey);
-            viewbox.Width = 24 * s;
-            viewbox.Height = 26 * s;
+            viewbox.Width = shieldWidth;
+            viewbox.Height = shieldHeight;
             grid.Children.Add(viewbox);
         }
         else
         {
-            // Legacy path for Stale status or missing Viewbox resources.
+            // Legacy path for missing Viewbox resources.
             var shield = new Path
             {
                 Data = Geometry.Parse("M 12,1 L 22,5 L 22,12 C 22,18 18,22 12,25 C 6,22 2,18 2,12 L 2,5 Z"),
-                Width = 24 * s,
-                Height = 26 * s,
+                Width = shieldWidth,
+                Height = shieldHeight,
                 Stretch = Stretch.Fill,
                 StrokeThickness = 1.6,
                 StrokeLineJoin = PenLineJoin.Round,
@@ -2591,8 +2594,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var innerIcon = new Path
             {
                 Data = Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
-                Width = 12 * s,
-                Height = 9 * s,
+                Width = 14 * s,
+                Height = 11 * s,
                 Stretch = Stretch.Fill,
                 StrokeThickness = 2,
                 StrokeStartLineCap = PenLineCap.Round,
@@ -2620,7 +2623,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
             spinner.SetContinuousActive(true);
-            spinner.RenderTransform = new TranslateTransform(-1, 0);
+            spinner.RenderTransform = new TranslateTransform(0, 0);
             _validationSpinnersById[validationId] = spinner;
             grid.Children.Add(spinner);
         }
