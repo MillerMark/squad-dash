@@ -9269,7 +9269,8 @@ public partial class MainWindow : Window
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
             broker: _broker,
-            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha))
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -9299,6 +9300,14 @@ public partial class MainWindow : Window
             }
         }
 
+    }
+
+    private (ImageSource? Image, string Initial, Brush Accent)? ResolveAgentAvatarForPlanViewer(string agentHandle)
+    {
+        var card = _agents.FirstOrDefault(a =>
+            string.Equals(a.AccentStorageKey, agentHandle, StringComparison.OrdinalIgnoreCase));
+        if (card is null) return null;
+        return (card.AgentImageSource, card.Initial, card.EffectiveAccentBrush);
     }
 
     private void CaptureExecutingPlanStepResult(string? rawResponse)

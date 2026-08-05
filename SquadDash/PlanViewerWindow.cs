@@ -40,6 +40,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
     private readonly Action<string>? _onOpenCommit;
+    private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -70,7 +71,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
         WeakEventBroker? broker = null,
-        Action<string>? onOpenCommit = null)
+        Action<string>? onOpenCommit = null,
+        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -99,6 +101,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
         _onOpenCommit = onOpenCommit;
+        _resolveAgentAvatar = resolveAgentAvatar;
 
         Title     = plan.Group.GroupTitle;
         Width     = 1200;
@@ -1584,9 +1587,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
 
             var nodeLayout = new Grid();
+            var hasAgentAvatars = _resolveAgentAvatar is not null &&
+                                  task.AgentAssignments is { Count: > 0 };
+            var avatarRowHeight = 0.0;
+            if (hasAgentAvatars)
+            {
+                avatarRowHeight = Math.Round(BaseNodeHeight * 0.25 * _scaleFactor);
+                nodeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
             nodeLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             nodeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            nodeLayout.Children.Add(content);
 
             var stepLabel = new TextBlock
             {
@@ -1596,13 +1606,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             stepLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             stepLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            Grid.SetRow(stepLabel, 1);
+
+            if (hasAgentAvatars)
+            {
+                var avatarPanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 0, 4 * _scaleFactor),
+                };
+                foreach (var assignment in task.AgentAssignments!)
+                {
+                    var info = _resolveAgentAvatar!(assignment.AgentHandle);
+                    var chipSize = avatarRowHeight;
+                    var chipContent = CreateAgentAvatarChip(info, chipSize, assignment.AgentHandle);
+                    chipContent.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"{assignment.AgentHandle} — {assignment.Role}");
+                    avatarPanel.Children.Add(chipContent);
+                }
+                Grid.SetRow(avatarPanel, 0);
+                nodeLayout.Children.Add(avatarPanel);
+                Grid.SetRow(content, 1);
+                Grid.SetRow(stepLabel, 2);
+            }
+            else
+            {
+                Grid.SetRow(stepLabel, 1);
+            }
+            nodeLayout.Children.Add(content);
             nodeLayout.Children.Add(stepLabel);
 
             var border = new Border
             {
                 Width           = NodeWidth,
-                Height          = NodeHeight,
+                Height          = NodeHeight + (hasAgentAvatars ? avatarRowHeight + 4 * _scaleFactor : 0),
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
@@ -2495,6 +2531,56 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // No room — use scrollbar fallback.
             approvalSummary.MaxHeight = 170;
         }
+    }
+
+    private FrameworkElement CreateAgentAvatarChip(
+        (ImageSource? Image, string Initial, Brush Accent)? info,
+        double chipSize,
+        string agentHandle)
+    {
+        UIElement content;
+        if (info?.Image is { } image)
+        {
+            content = new Image
+            {
+                Source = image,
+                Width = chipSize - 4,
+                Height = chipSize - 4,
+                Stretch = Stretch.UniformToFill,
+            };
+        }
+        else
+        {
+            var initial = info?.Initial ?? (agentHandle.Length > 0
+                ? agentHandle[0].ToString().ToUpperInvariant()
+                : "?");
+            var tb = new TextBlock
+            {
+                Text = initial,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = chipSize * 0.5,
+            };
+            if (info?.Accent is { } accent)
+                tb.Foreground = accent;
+            else
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            content = tb;
+        }
+
+        var chip = new Border
+        {
+            Width = chipSize,
+            Height = chipSize,
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brushes.Gray,
+            Margin = new Thickness(0, 0, 3 * _scaleFactor, 0),
+            Child = content is Image ? content : new Viewbox { Child = (UIElement)content },
+        };
+        chip.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        return chip;
     }
 
     private FrameworkElement CreateValidationShield(string validationId, string status)
