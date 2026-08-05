@@ -131,8 +131,11 @@ internal sealed class WorkspaceConversationStore {
 
     private WorkspaceConversationState LoadStateWithRecovery(string normalizedWorkspace, bool repairPrimary) {
         var path = GetConversationPath(normalizedWorkspace);
+        var phaseSw = Stopwatch.StartNew();
         if (TryLoadState(path, out var state)) {
+            var jsonMs = phaseSw.ElapsedMilliseconds;
             var normalized = NormalizeState(state ?? WorkspaceConversationState.Empty);
+            var normalizeMs = phaseSw.ElapsedMilliseconds - jsonMs;
 
             if (TryFindRecoveryCandidate(path, normalized, out var recoveryCandidate) &&
                 recoveryCandidate is not null) {
@@ -146,6 +149,9 @@ internal sealed class WorkspaceConversationStore {
 
                 return recoveryCandidate.State;
             }
+            var recoveryMs = phaseSw.ElapsedMilliseconds - jsonMs - normalizeMs;
+            SquadDashTrace.Write(TraceCategory.Performance,
+                $"DESER_PHASES: json={jsonMs}ms normalize={normalizeMs}ms recovery={recoveryMs}ms turns={normalized.Turns.Count}");
 
             if (repairPrimary && !Equals(state, normalized))
                 SaveCore(normalizedWorkspace, normalized);
@@ -184,6 +190,11 @@ internal sealed class WorkspaceConversationStore {
         candidate = null;
 
         if (current is not null && HasClearedTranscriptMarker(current))
+            return false;
+
+        // If the primary state has meaningful content with durable transcript turns,
+        // no recovery candidate can ever be preferred — skip the backup file scan.
+        if (current is not null && HasMeaningfulContent(current) && CountDurableTranscriptTurns(current) > 0)
             return false;
 
         foreach (var candidatePath in EnumerateRecoveryCandidatePaths(primaryPath)) {
@@ -313,11 +324,11 @@ internal sealed class WorkspaceConversationStore {
             return false;
 
         try {
-            var json = File.ReadAllText(path);
-            if (string.IsNullOrWhiteSpace(json))
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            if (stream.Length == 0)
                 return false;
 
-            state = JsonSerializer.Deserialize<WorkspaceConversationState>(json);
+            state = JsonSerializer.Deserialize<WorkspaceConversationState>(stream);
             return state is not null;
         }
         catch {
@@ -332,9 +343,7 @@ internal sealed class WorkspaceConversationStore {
 
         var backupPath = GetConversationPath(normalizedWorkspace) + ".bak";
         Directory.CreateDirectory(Path.GetDirectoryName(backupPath)!);
-        var json = JsonSerializer.Serialize(state, new JsonSerializerOptions {
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(state, JsonFileStorage.PrettyPrint);
         File.WriteAllText(backupPath, json);
     }
 
@@ -353,9 +362,7 @@ internal sealed class WorkspaceConversationStore {
 
         var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff");
         var rescuePath = Path.Combine(directory, $"conversation.{safeReason}.{timestamp}.json");
-        var json = JsonSerializer.Serialize(state, new JsonSerializerOptions {
-            WriteIndented = true
-        });
+        var json = JsonSerializer.Serialize(state, JsonFileStorage.PrettyPrint);
         File.WriteAllText(rescuePath, json);
         SquadDashTrace.Write("Persistence", $"ConversationStore.Save: rescue backup written path={rescuePath}");
     }
