@@ -1791,8 +1791,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 {
                                     Color = glowColor,
                                     ShadowDepth = 0,
-                                    BlurRadius = 10,
-                                    Opacity = 0.9,
+                                    BlurRadius = 18,
+                                    Opacity = 0.95,
                                 };
                         }
                     };
