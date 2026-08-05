@@ -391,7 +391,12 @@ internal static class ValidationShieldPresenter
         var badgeHalfWidth = 29.0 * s;
         // Shields are 144px wide, centered on gate
         var shieldHalfWidth = BaseShieldVisualWidth / 2.0 * s;
-        var halfWidth = Math.Max(badgeHalfWidth, shieldHalfWidth);
+        // A bare ALL badge must not reserve the width of a validation title that does not
+        // exist. Doing so can falsely place a nearby connector endpoint inside the obstacle,
+        // which makes every otherwise-valid forward detour appear impossible.
+        var halfWidth = shieldCount > 0
+            ? Math.Max(badgeHalfWidth, shieldHalfWidth)
+            : badgeHalfWidth;
 
         var left = gateCenterX - halfWidth;
         var width = halfWidth * 2;
@@ -413,6 +418,55 @@ internal static class ValidationShieldPresenter
         }
 
         return new LayoutRect(left, top, width, height);
+    }
+
+    /// <summary>Input used to vertically arrange ALL clusters sharing one boundary.</summary>
+    internal readonly record struct AllClusterStackItem(double CenterY, int ShieldCount);
+
+    /// <summary>
+    /// Resolves the center Y coordinates of ALL clusters sharing the same boundary so the
+    /// complete badge + validation-title footprint of an upper cluster cannot overlap the
+    /// badge or validation stack below it. Returned centers preserve the caller's item order.
+    /// </summary>
+    internal static IReadOnlyList<double> StackAllClusterCenters(
+        IReadOnlyList<AllClusterStackItem> items,
+        double scaleFactor)
+    {
+        if (items.Count == 0) return [];
+
+        var resolved = items.Select(item => item.CenterY).ToArray();
+        var order = Enumerable.Range(0, items.Count)
+            .OrderBy(index => items[index].CenterY)
+            // When centers coincide, keep the taller validation-bearing cluster above the
+            // shorter one so the visual reading order is deterministic.
+            .ThenByDescending(index => items[index].ShieldCount)
+            .ThenBy(index => index)
+            .ToArray();
+        LayoutRect? previous = null;
+        var gap = BaseClusterConnectorClearance * scaleFactor;
+
+        foreach (var index in order)
+        {
+            var centerY = resolved[index];
+            var footprint = ComputeAllClusterFootprint(
+                gateCenterX: 0,
+                gateCenterY: centerY,
+                shieldCount: items[index].ShieldCount,
+                scaleFactor);
+            if (previous is { } upper && footprint.Top < upper.Bottom + gap)
+            {
+                centerY += upper.Bottom + gap - footprint.Top;
+                resolved[index] = centerY;
+                footprint = ComputeAllClusterFootprint(
+                    gateCenterX: 0,
+                    gateCenterY: centerY,
+                    shieldCount: items[index].ShieldCount,
+                    scaleFactor);
+            }
+            previous = footprint;
+        }
+
+        return resolved;
     }
 
     /// <summary>
@@ -438,6 +492,8 @@ internal static class ValidationShieldPresenter
     /// <summary>
     /// Computes waypoints that route a connector around ALL cluster footprints.
     /// Returns null if no detour is needed (path is clear).
+    /// Returns an empty collection when an obstruction exists but neither a forward-only upper
+    /// nor lower route is clear; callers may then use an explicitly styled fallback connector.
     /// The returned list includes the start, any intermediate waypoints, and the end.
     /// </summary>
     internal static IReadOnlyList<(double X, double Y)>? ComputeConnectorDetour(
@@ -450,26 +506,167 @@ internal static class ValidationShieldPresenter
             return null;
 
         var clearance = BaseClusterConnectorClearance * scaleFactor;
-
-        // Collect all intersecting footprints and route above the highest one
         var intersecting = allClusterFootprints
             .Where(r => LineIntersectsRect(connectorStart.X, connectorStart.Y,
                                            connectorEnd.X, connectorEnd.Y, r))
             .OrderBy(r => r.Left)
             .ToArray();
+        if (intersecting.Length == 0)
+            return [];
 
-        // Use a single detour Y above all intersecting clusters
-        var detourY = intersecting.Min(r => r.Top) - clearance;
-        var entryX = Math.Max(connectorStart.X, intersecting[0].Left - clearance);
-        var exitX = Math.Min(connectorEnd.X, intersecting[^1].Right + clearance);
+        var minX = Math.Min(connectorStart.X, connectorEnd.X);
+        var maxX = Math.Max(connectorStart.X, connectorEnd.X);
+        var horizontallyRelevant = allClusterFootprints
+            .Where(rect => rect.Right >= minX && rect.Left <= maxX)
+            .ToArray();
+        if (horizontallyRelevant.Length == 0)
+            horizontallyRelevant = intersecting;
 
-        return new List<(double X, double Y)>
+        // Reserve a final horizontal run into the target. Arrowheads are right-facing, so a
+        // vertical final segment would create a misleading curl immediately before the task.
+        if (maxX - minX <= clearance * 2)
+            return [];
+        var entryX = Math.Clamp(intersecting.Min(rect => rect.Left) - clearance, minX, maxX);
+        var exitX = Math.Clamp(
+            intersecting.Max(rect => rect.Right) + clearance,
+            entryX,
+            maxX - clearance);
+        if (entryX > exitX)
+            return [];
+
+        var upperY = horizontallyRelevant.Min(rect => rect.Top) - clearance;
+        var lowerY = horizontallyRelevant.Max(rect => rect.Bottom) + clearance;
+        var candidates = new[]
         {
-            connectorStart,
-            (entryX, detourY),
-            (exitX, detourY),
-            connectorEnd
+            BuildOrthogonalDetour(connectorStart, connectorEnd, entryX, exitX, upperY),
+            BuildOrthogonalDetour(connectorStart, connectorEnd, entryX, exitX, lowerY),
         };
+
+        return candidates
+            .Where(route => IsConnectorRouteForwardOnly(route) &&
+                            IsConnectorRouteClear(route, allClusterFootprints))
+            .OrderBy(ConnectorRouteLength)
+            .FirstOrDefault() ?? [];
+    }
+
+    /// <summary>True when every segment in a waypoint route clears every obstacle.</summary>
+    internal static bool IsConnectorRouteClear(
+        IReadOnlyList<(double X, double Y)> route,
+        IReadOnlyList<LayoutRect> footprints)
+    {
+        if (route.Count < 2) return false;
+        for (var index = 0; index < route.Count - 1; index++)
+        {
+            if (!IsConnectorPathClear(route[index], route[index + 1], footprints))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>True when a left-to-right connector never reverses horizontal direction.</summary>
+    internal static bool IsConnectorRouteForwardOnly(
+        IReadOnlyList<(double X, double Y)> route)
+    {
+        if (route.Count < 2) return false;
+        var direction = Math.Sign(route[^1].X - route[0].X);
+        if (direction == 0) return route.All(point => Math.Abs(point.X - route[0].X) < 0.01);
+
+        for (var index = 1; index < route.Count; index++)
+        {
+            var delta = route[index].X - route[index - 1].X;
+            if (direction > 0 && delta < -0.01) return false;
+            if (direction < 0 && delta > 0.01) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Geometry for one rounded interior turn in a routed connector.</summary>
+    internal readonly record struct RoundedRouteCorner(
+        int PointIndex,
+        (double X, double Y) Entry,
+        (double X, double Y) Control,
+        (double X, double Y) Exit,
+        double Radius);
+
+    /// <summary>
+    /// Computes rounded-corner geometry for a polyline route. At each real turn, the cutback
+    /// distance is half the shorter adjacent segment. The original corner is the quadratic
+    /// Bézier control point; Entry and Exit are the curve endpoints on the adjoining segments.
+    /// </summary>
+    internal static IReadOnlyList<RoundedRouteCorner> ComputeRoundedRouteCorners(
+        IReadOnlyList<(double X, double Y)> route)
+    {
+        if (route.Count < 3) return [];
+
+        var corners = new List<RoundedRouteCorner>();
+        for (var index = 1; index < route.Count - 1; index++)
+        {
+            var previous = route[index - 1];
+            var corner = route[index];
+            var next = route[index + 1];
+            var incomingX = corner.X - previous.X;
+            var incomingY = corner.Y - previous.Y;
+            var outgoingX = next.X - corner.X;
+            var outgoingY = next.Y - corner.Y;
+            var incomingLength = Math.Sqrt(incomingX * incomingX + incomingY * incomingY);
+            var outgoingLength = Math.Sqrt(outgoingX * outgoingX + outgoingY * outgoingY);
+            if (incomingLength < 0.01 || outgoingLength < 0.01) continue;
+
+            var incomingUnitX = incomingX / incomingLength;
+            var incomingUnitY = incomingY / incomingLength;
+            var outgoingUnitX = outgoingX / outgoingLength;
+            var outgoingUnitY = outgoingY / outgoingLength;
+            var cross = incomingUnitX * outgoingUnitY - incomingUnitY * outgoingUnitX;
+            var dot = incomingUnitX * outgoingUnitX + incomingUnitY * outgoingUnitY;
+            if (Math.Abs(cross) < 0.0001 && dot > 0) continue;
+
+            var radius = Math.Min(incomingLength, outgoingLength) / 2.0;
+            corners.Add(new RoundedRouteCorner(
+                index,
+                (corner.X - incomingUnitX * radius, corner.Y - incomingUnitY * radius),
+                corner,
+                (corner.X + outgoingUnitX * radius, corner.Y + outgoingUnitY * radius),
+                radius));
+        }
+        return corners;
+    }
+
+    private static IReadOnlyList<(double X, double Y)> BuildOrthogonalDetour(
+        (double X, double Y) start,
+        (double X, double Y) end,
+        double entryX,
+        double exitX,
+        double laneY)
+    {
+        var points = new List<(double X, double Y)> { start };
+        AddDistinct(points, (entryX, start.Y));
+        AddDistinct(points, (entryX, laneY));
+        AddDistinct(points, (exitX, laneY));
+        AddDistinct(points, (exitX, end.Y));
+        AddDistinct(points, end);
+        return points;
+    }
+
+    private static void AddDistinct(
+        ICollection<(double X, double Y)> points,
+        (double X, double Y) point)
+    {
+        var last = points.Last();
+        if (Math.Abs(last.X - point.X) < 0.01 && Math.Abs(last.Y - point.Y) < 0.01)
+            return;
+        points.Add(point);
+    }
+
+    private static double ConnectorRouteLength(IReadOnlyList<(double X, double Y)> route)
+    {
+        var length = 0.0;
+        for (var index = 0; index < route.Count - 1; index++)
+        {
+            var dx = route[index + 1].X - route[index].X;
+            var dy = route[index + 1].Y - route[index].Y;
+            length += Math.Sqrt(dx * dx + dy * dy);
+        }
+        return length;
     }
 
     /// <summary>

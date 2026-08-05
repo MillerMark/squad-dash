@@ -317,13 +317,10 @@ internal sealed class LiveEvidenceSoakTests
         Assert.That(detour[0], Is.EqualTo((50.0, (double)gateCenterY)), "Detour starts at source");
         Assert.That(detour[^1], Is.EqualTo((750.0, (double)gateCenterY)), "Detour ends at target");
 
-        // All intermediate waypoints must route above the cluster
-        var clearance = ValidationShieldPresenter.BaseClusterConnectorClearance;
-        for (int i = 1; i < detour.Count - 1; i++)
-        {
-            Assert.That(detour[i].Y, Is.LessThanOrEqualTo(clusterFootprint.Top - clearance),
-                $"Waypoint {i} at Y={detour[i].Y} must be above cluster top ({clusterFootprint.Top}) minus clearance ({clearance})");
-        }
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour), Is.True,
+            "The detour must never backtrack horizontally");
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True,
+            "Every detour segment must clear the complete ALL cluster footprint");
 
         // Write artifact
         WriteArtifact("dense-cluster-connector-routing.json", new

@@ -63,6 +63,25 @@ internal sealed class AllClusterCollisionRoutingTests
         var rect = ValidationShieldPresenter.ComputeAllClusterFootprint(400, 200, 0, 1.0);
 
         Assert.That(rect.Height, Is.EqualTo(ValidationShieldPresenter.BaseAllBadgeHalfHeight * 2).Within(0.01));
+        Assert.That(rect.Width, Is.EqualTo(58).Within(0.01),
+            "A bare ALL badge must not reserve the width of an absent validation title.");
+    }
+
+    [Test]
+    public void StackAllClusterCenters_UpperValidationStackClearsLowerBadge()
+    {
+        var items = new[]
+        {
+            new ValidationShieldPresenter.AllClusterStackItem(200, 1),
+            new ValidationShieldPresenter.AllClusterStackItem(220, 0),
+        };
+
+        var centers = ValidationShieldPresenter.StackAllClusterCenters(items, 1.0);
+        var upper = ValidationShieldPresenter.ComputeAllClusterFootprint(400, centers[0], 1, 1.0);
+        var lower = ValidationShieldPresenter.ComputeAllClusterFootprint(400, centers[1], 0, 1.0);
+
+        Assert.That(lower.Top, Is.GreaterThanOrEqualTo(
+            upper.Bottom + ValidationShieldPresenter.BaseClusterConnectorClearance - 0.01));
     }
 
     [TestCase(1.0)]
@@ -198,13 +217,15 @@ internal sealed class AllClusterCollisionRoutingTests
         Assert.That(detour, Is.Not.Null);
         Assert.That(detour!.Count, Is.GreaterThanOrEqualTo(4)); // start + 2 waypoints + end
 
-        // All intermediate waypoints should be above the cluster top (100) minus clearance
         var clearance = ValidationShieldPresenter.BaseClusterConnectorClearance;
-        for (int i = 1; i < detour.Count - 1; i++)
+        Assert.Multiple(() =>
         {
-            Assert.That(detour[i].Y, Is.LessThanOrEqualTo(100 - clearance),
-                $"Waypoint {i} at Y={detour[i].Y} is not above cluster");
-        }
+            Assert.That(detour.Any(point => point.Y <= 100 - clearance), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True);
+            Assert.That(detour[^2].Y, Is.EqualTo(detour[^1].Y).Within(0.01));
+            Assert.That(detour[^2].X, Is.LessThan(detour[^1].X));
+        });
     }
 
     [Test]
@@ -236,15 +257,11 @@ internal sealed class AllClusterCollisionRoutingTests
             (50, 150), (700, 150), footprints, 1.0);
 
         Assert.That(detour, Is.Not.Null);
-        // Intermediate waypoints route above each intersected cluster minus clearance
-        var clearance = ValidationShieldPresenter.BaseClusterConnectorClearance;
-        for (int i = 1; i < detour!.Count - 1; i++)
+        Assert.Multiple(() =>
         {
-            // Each waypoint Y should be at or below (cluster.Top - clearance) for one of the clusters
-            var lowestAllowedY = footprints.Min(f => f.Top) - clearance;
-            Assert.That(detour[i].Y, Is.LessThanOrEqualTo(lowestAllowedY),
-                $"Waypoint {i} at Y={detour[i].Y} should be above clusters (max allowed: {lowestAllowedY})");
-        }
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True);
+        });
     }
 
     [TestCase(1.0)]
@@ -262,11 +279,9 @@ internal sealed class AllClusterCollisionRoutingTests
 
         Assert.That(detour, Is.Not.Null);
         var expectedMaxY = 100 - ValidationShieldPresenter.BaseClusterConnectorClearance * scale;
-        for (int i = 1; i < detour!.Count - 1; i++)
-        {
-            Assert.That(detour[i].Y, Is.LessThanOrEqualTo(expectedMaxY).Within(0.01),
-                $"Waypoint {i} at scale {scale}: Y={detour[i].Y} should be <= {expectedMaxY}");
-        }
+        Assert.That(detour!.Any(point => point.Y <= expectedMaxY + 0.01), Is.True,
+            $"A route lane at scale {scale} should be at or above {expectedMaxY}");
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True);
     }
 
     // ── Multiple ALL clusters at same boundary ───────────────────────────────
@@ -310,12 +325,110 @@ internal sealed class AllClusterCollisionRoutingTests
             (100, 200), (500, 200), footprints, 1.0);
 
         Assert.That(detour, Is.Not.Null);
-        // Waypoints should route above all intersected clusters
         var clearance = ValidationShieldPresenter.BaseClusterConnectorClearance;
-        for (int i = 1; i < detour!.Count - 1; i++)
+        Assert.Multiple(() =>
         {
-            Assert.That(detour[i].Y, Is.LessThanOrEqualTo(fp1.Top - clearance),
-                $"Waypoint {i} should be above the first cluster");
-        }
+            Assert.That(detour!.Any(point => point.Y <= fp1.Top - clearance), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True);
+        });
+    }
+
+    [Test]
+    public void ComputeConnectorDetour_PrefersShorterLowerLane()
+    {
+        var footprints = new[]
+        {
+            new ValidationShieldPresenter.LayoutRect(300, 100, 144, 100)
+        };
+
+        var detour = ValidationShieldPresenter.ComputeConnectorDetour(
+            (100, 185), (600, 185), footprints, 1.0);
+
+        Assert.That(detour, Is.Not.Null.And.Not.Empty);
+        Assert.Multiple(() =>
+        {
+            Assert.That(detour!.Any(point => point.Y >= 214), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour), Is.True);
+            Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour, footprints), Is.True);
+        });
+    }
+
+    [Test]
+    public void ComputeConnectorDetour_NarrowHorizontalSpace_NeverBacktracks()
+    {
+        var footprints = new[]
+        {
+            new ValidationShieldPresenter.LayoutRect(120, 100, 60, 100)
+        };
+
+        var detour = ValidationShieldPresenter.ComputeConnectorDetour(
+            (100, 150), (220, 150), footprints, 1.0);
+
+        Assert.That(detour, Is.Not.Null.And.Not.Empty);
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour!), Is.True);
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour!, footprints), Is.True);
+    }
+
+    [Test]
+    public void ComputeConnectorDetour_BareAllBetweenNearbyTasks_FindsCleanRoute()
+    {
+        // Mirrors a same-row task connector crossing a bare ALL badge at the adjacent
+        // stage boundary. The badge is narrow enough to leave approach lanes on both sides.
+        var footprints = new[]
+        {
+            ValidationShieldPresenter.ComputeAllClusterFootprint(332, 208, 0, 1.0),
+        };
+
+        var detour = ValidationShieldPresenter.ComputeConnectorDetour(
+            (262, 208), (402, 208), footprints, 1.0);
+
+        Assert.That(detour, Is.Not.Null.And.Not.Empty);
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteForwardOnly(detour!), Is.True);
+        Assert.That(ValidationShieldPresenter.IsConnectorRouteClear(detour!, footprints), Is.True);
+    }
+
+    [Test]
+    public void ComputeRoundedRouteCorners_UsesHalfOfShorterAdjacentSegment()
+    {
+        var route = new (double X, double Y)[]
+        {
+            (0, 0),
+            (20, 0),
+            (20, 10),
+            (50, 10),
+        };
+
+        var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(route);
+
+        Assert.That(corners, Has.Count.EqualTo(2));
+        Assert.Multiple(() =>
+        {
+            Assert.That(corners[0].Radius, Is.EqualTo(5).Within(0.001));
+            Assert.That(corners[0].Entry, Is.EqualTo((15d, 0d)));
+            Assert.That(corners[0].Exit, Is.EqualTo((20d, 5d)));
+            Assert.That(corners[1].Radius, Is.EqualTo(5).Within(0.001));
+            Assert.That(corners[1].Entry, Is.EqualTo((20d, 5d)));
+            Assert.That(corners[1].Exit, Is.EqualTo((25d, 10d)));
+        });
+    }
+
+    [Test]
+    public void ComputeRoundedRouteCorners_FourTurnDetour_RoundsEveryCorner()
+    {
+        var route = new (double X, double Y)[]
+        {
+            (262, 208),
+            (289, 208),
+            (289, 177),
+            (375, 177),
+            (375, 208),
+            (402, 208),
+        };
+
+        var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(route);
+
+        Assert.That(corners, Has.Count.EqualTo(4));
+        Assert.That(corners.All(corner => corner.Radius > 0), Is.True);
     }
 }

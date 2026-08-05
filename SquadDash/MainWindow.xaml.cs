@@ -9090,7 +9090,8 @@ public partial class MainWindow : Window
         var isInteractiveVisualizationFixture = groupId is
             "VIZLINEAR-20260729" or
             "VIZDIAMOND-20260729" or
-            "VIZPARALLEL-20260729";
+            "VIZPARALLEL-20260729" or
+            SimulationPlanFixtureBuilder.ValidationShieldGalleryPlanId;
 
         // If a viewer for this plan is already open, bring it to the front instead of opening another.
         var existing = _openPlanViewerWindows.FirstOrDefault(e =>
@@ -9127,11 +9128,16 @@ public partial class MainWindow : Window
         // interactive, but never publish it to PlanStore/tasks.md or expose execution actions.
         if (durablePlan is null && isInteractiveVisualizationFixture)
         {
-            durablePlan = PendingDecomposePlanAdapter.ToPlan(plan, plan.CreatedAt ?? DateTimeOffset.UtcNow) with
-            {
-                Summary = "INTERACTIVE PREVIEW — approval-stop changes are temporary and reset when this window closes. " +
-                          plan.Group.Summary,
-            };
+            durablePlan = string.Equals(
+                groupId,
+                SimulationPlanFixtureBuilder.ValidationShieldGalleryPlanId,
+                StringComparison.Ordinal)
+                ? SimulationPlanFixtureBuilder.BuildValidationShieldGallery(plan)
+                : PendingDecomposePlanAdapter.ToPlan(plan, plan.CreatedAt ?? DateTimeOffset.UtcNow) with
+                {
+                    Summary = "INTERACTIVE PREVIEW — approval-stop changes are temporary and reset when this window closes. " +
+                              plan.Group.Summary,
+                };
         }
 
         PendingDecomposePlan? livePlan = null;
