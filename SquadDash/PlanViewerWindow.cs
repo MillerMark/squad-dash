@@ -2557,7 +2557,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             PlanValidationStatus.Failed     => "ValidationFailedShield",
             PlanValidationStatus.Validating => "ValidationValidatingShield",
             PlanValidationStatus.Ready      => "ValidationReadyShield",
-            PlanValidationStatus.Stale      => null, // no Viewbox for Stale — use legacy rendering
+            PlanValidationStatus.Stale      => "NeedsRevalidationShield",
             _                               => "ValidationPendingShield",
         };
 

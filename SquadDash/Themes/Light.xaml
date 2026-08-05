@@ -47,6 +47,10 @@
     <SolidColorBrush x:Key="ValidationValidatingFill"   Color="#FFFFFF"/>
     <SolidColorBrush x:Key="ValidationValidatingBorder" Color="#4D9DD3"/>
 
+    <SolidColorBrush x:Key="NeedsRevalidationFill"   Color="#FFEEB7"/>
+    <SolidColorBrush x:Key="NeedsRevalidationBorder" Color="#B08600"/>
+    <SolidColorBrush x:Key="NeedsRevalidationIcon"   Color="#503D00"/>
+
     <SolidColorBrush x:Key="ValidationFailedFill"    Color="#C00000"/>
     <SolidColorBrush x:Key="ValidationFailedIcon"    Color="#FFFFFF"/>
 
