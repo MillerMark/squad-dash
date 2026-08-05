@@ -52,7 +52,7 @@ internal sealed class TranscriptConversationManager {
     // toward the top.  Never used for agent threads (they are lazy-rendered separately).
     private IReadOnlyList<TranscriptTurnRecord> _allCoordinatorTurns = [];
     private int _coordinatorRenderedFromIndex;            // index of the first currently-rendered turn
-    private const int InitialTurnWindow = 30;
+    private const int InitialTurnWindow = 15;
     private const int PrependBatchSize  = 20;
     private static readonly TimeSpan AgentThreadSnapshotPersistDebounce = TimeSpan.FromMilliseconds(1000);
     private bool _prependInProgress;

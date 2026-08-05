@@ -41830,57 +41830,76 @@ public partial class MainWindow : Window
             ApplyViewMode();
         }
 
-        // Restore tasks panel visibility.
-        if (_docsPanelState.TasksPanelVisible == true)
+        // Defer panel visibility restoration to after the main window is interactive.
+        // Each SyncXxxPanel() call triggers OnPanelVisibilityChanged which forces a
+        // full WPF layout pass — doing them synchronously during startup adds 2-4 s.
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
         {
-            _tasksPanelVisible = true;
-            SyncTasksPanel();
-            if (ViewTasksMenuItem is not null)
-                ViewTasksMenuItem.IsChecked = true;
-        }
+            var panelSw = System.Diagnostics.Stopwatch.StartNew();
 
-        // Restore approval panel visibility.
-        if (_docsPanelState.ApprovalPanelVisible == true)
-        {
-            _approvalPanelVisible = true;
-            SyncApprovalPanel();
-            if (ViewCommitApprovalsMenuItem is not null)
-                ViewCommitApprovalsMenuItem.IsChecked = true;
-        }
+            // Restore tasks panel visibility.
+            if (_docsPanelState.TasksPanelVisible == true)
+            {
+                _tasksPanelVisible = true;
+                SyncTasksPanel();
+                if (ViewTasksMenuItem is not null)
+                    ViewTasksMenuItem.IsChecked = true;
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL tasks={panelSw.ElapsedMilliseconds}ms");
+            panelSw.Restart();
 
-        // Restore notes panel visibility.
-        if (_docsPanelState.NotesPanelVisible == true)
-        {
-            _notesPanelVisible = true;
-            SyncNotesPanel();
-            if (ViewNotesMenuItem is not null)
-                ViewNotesMenuItem.IsChecked = true;
-        }
+            // Restore approval panel visibility.
+            if (_docsPanelState.ApprovalPanelVisible == true)
+            {
+                _approvalPanelVisible = true;
+                SyncApprovalPanel();
+                if (ViewCommitApprovalsMenuItem is not null)
+                    ViewCommitApprovalsMenuItem.IsChecked = true;
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL approvals={panelSw.ElapsedMilliseconds}ms");
+            panelSw.Restart();
 
-        // Restore maintenance panel visibility.
-        if (_docsPanelState.CodeHealthPanelVisible == true)
-        {
-            _codeHealthPanelVisible = true;
-            SyncCodeHealthPanel();
-            if (ViewCodeHealthMenuItem is not null)
-                ViewCodeHealthMenuItem.IsChecked = true;
-        }
+            // Restore notes panel visibility.
+            if (_docsPanelState.NotesPanelVisible == true)
+            {
+                _notesPanelVisible = true;
+                SyncNotesPanel();
+                if (ViewNotesMenuItem is not null)
+                    ViewNotesMenuItem.IsChecked = true;
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL notes={panelSw.ElapsedMilliseconds}ms");
+            panelSw.Restart();
 
-        // Restore inbox panel visibility.
-        if (_docsPanelState.InboxPanelVisible == true)
-        {
-            EnsureInboxPanelCreated();
-            _inboxPanel!.Show(flash: false);
-        }
+            // Restore maintenance panel visibility.
+            if (_docsPanelState.CodeHealthPanelVisible == true)
+            {
+                _codeHealthPanelVisible = true;
+                SyncCodeHealthPanel();
+                if (ViewCodeHealthMenuItem is not null)
+                    ViewCodeHealthMenuItem.IsChecked = true;
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL maintenance={panelSw.ElapsedMilliseconds}ms");
+            panelSw.Restart();
 
-        // Restore plans panel visibility.
-        if (_docsPanelState.PlansPanelVisible == true)
-        {
-            _plansPanelVisible = true;
-            SyncPlansPanel();
-            if (ViewPlansMenuItem is not null)
-                ViewPlansMenuItem.IsChecked = true;
-        }
+            // Restore inbox panel visibility.
+            if (_docsPanelState.InboxPanelVisible == true)
+            {
+                EnsureInboxPanelCreated();
+                _inboxPanel!.Show(flash: false);
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL inbox={panelSw.ElapsedMilliseconds}ms");
+            panelSw.Restart();
+
+            // Restore plans panel visibility.
+            if (_docsPanelState.PlansPanelVisible == true)
+            {
+                _plansPanelVisible = true;
+                SyncPlansPanel();
+                if (ViewPlansMenuItem is not null)
+                    ViewPlansMenuItem.IsChecked = true;
+            }
+            SquadDashTrace.Write(TraceCategory.Performance, $"DEFERRED_PANEL plans={panelSw.ElapsedMilliseconds}ms");
+        });
 
         // Restore any inbox viewer windows that were open at last shutdown.
         // Deferred to ApplicationIdle so the main window finishes loading first —
