@@ -6,13 +6,15 @@ namespace SquadDash;
 internal static class PlanGateResponseDisposition
 {
     internal const string RequestRework = "request-rework";
+    internal const string AddAmendment = "add-amendment";
     internal const string Unrelated = "unrelated";
     internal const string Clarification = "clarification";
 }
 
 /// <summary>
 /// Structured classification of a free-form user response while a plan approval request is active.
-/// The host changes plan state only for <see cref="PlanGateResponseDisposition.RequestRework"/>.
+/// The host changes plan state only for <see cref="PlanGateResponseDisposition.RequestRework"/>
+/// and <see cref="PlanGateResponseDisposition.AddAmendment"/>.
 /// </summary>
 internal sealed record PlanGateResponse(
     [property: JsonPropertyName("planId")] string PlanId,
@@ -23,6 +25,9 @@ internal sealed record PlanGateResponse(
     [property: JsonPropertyName("taskIds")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<string>? TaskIds = null,
+    [property: JsonPropertyName("title")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Title = null,
     [property: JsonPropertyName("instructions")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Instructions = null);
@@ -43,6 +48,7 @@ internal sealed record PlanGateResponseWire(
     [property: JsonPropertyName("requestVersion")] int RequestVersion,
     [property: JsonPropertyName("disposition")] string Disposition,
     [property: JsonPropertyName("taskIds")] IReadOnlyList<string>? TaskIds = null,
+    [property: JsonPropertyName("title")] string? Title = null,
     [property: JsonPropertyName("instructions")] string? Instructions = null,
     [property: JsonPropertyName("reworkTasks")] IReadOnlyList<PlanGateReworkTask>? ReworkTasks = null);
 
@@ -65,11 +71,12 @@ internal static class PlanGateResponseParser
             wire.RequestVersion <= 0 ||
             wire.Disposition is not (
                 PlanGateResponseDisposition.RequestRework or
+                PlanGateResponseDisposition.AddAmendment or
                 PlanGateResponseDisposition.Unrelated or
                 PlanGateResponseDisposition.Clarification))
             return false;
 
-        if (wire.Disposition != PlanGateResponseDisposition.RequestRework)
+        if (wire.Disposition is PlanGateResponseDisposition.Unrelated or PlanGateResponseDisposition.Clarification)
         {
             response = new PlanGateResponse(
                 wire.PlanId, wire.GateId, wire.Revision, wire.RequestVersion, wire.Disposition);
@@ -77,8 +84,10 @@ internal static class PlanGateResponseParser
         }
 
         var taskIds = wire.TaskIds;
+        var title = wire.Title;
         var instructions = wire.Instructions;
-        if ((taskIds is not { Count: > 0 } || string.IsNullOrWhiteSpace(instructions)) &&
+        if (wire.Disposition == PlanGateResponseDisposition.RequestRework &&
+            (taskIds is not { Count: > 0 } || string.IsNullOrWhiteSpace(instructions)) &&
             wire.ReworkTasks is { Count: > 0 } legacyTasks &&
             legacyTasks.All(task =>
                 !string.IsNullOrWhiteSpace(task.TaskId) &&
@@ -90,10 +99,13 @@ internal static class PlanGateResponseParser
                 : string.Join("\n", legacyTasks.Select(task => $"{task.TaskId}: {task.Instructions.Trim()}"));
         }
 
-        if (taskIds is not { Count: > 0 } ||
-            taskIds.Any(string.IsNullOrWhiteSpace) ||
-            string.IsNullOrWhiteSpace(instructions))
+        if (string.IsNullOrWhiteSpace(instructions) ||
+            taskIds?.Any(string.IsNullOrWhiteSpace) == true ||
+            (wire.Disposition == PlanGateResponseDisposition.RequestRework && taskIds is not { Count: > 0 }))
             return false;
+
+        if (wire.Disposition == PlanGateResponseDisposition.AddAmendment && string.IsNullOrWhiteSpace(title))
+            title = "Apply requested changes before approval";
 
         response = new PlanGateResponse(
             wire.PlanId,
@@ -102,6 +114,7 @@ internal static class PlanGateResponseParser
             wire.RequestVersion,
             wire.Disposition,
             taskIds,
+            title,
             instructions);
         return true;
     }
@@ -132,6 +145,17 @@ internal static class PlanGateResponseParser
             taskIds = new[] { exampleTaskId },
             instructions = "Describe the requested correction precisely.",
         });
+        var addAmendmentExample = JsonSerializer.Serialize(new
+        {
+            planId = plan.PlanId,
+            gateId = gate.GateId,
+            revision = plan.Revision,
+            requestVersion = token.RequestVersion,
+            disposition = PlanGateResponseDisposition.AddAmendment,
+            taskIds = gate.AfterTaskIds,
+            title = "Add the requested integration correction",
+            instructions = "Describe the bounded additional work precisely.",
+        });
 
         return $$"""
             ## Active plan approval response
@@ -145,7 +169,10 @@ internal static class PlanGateResponseParser
             {{string.Join("\n", reviewedTasks)}}
 
             Make a semantic judgment. Do not assume every prompt is rework.
-            - If it explicitly asks to revise reviewed work, emit disposition `request-rework`, exact task IDs, and actionable instructions. Do not edit files in this classification turn.
+            - Use `request-rework` only when the user wants to withdraw acceptance of an existing completed task's result and replace or correct that task's own deliverable. Name the exact completed task IDs whose accepted results must be reopened. Do not edit files in this classification turn.
+            - Use `add-amendment` when the completed reviewed tasks should remain complete and the user wants bounded additional work before approving their accumulated result. This includes a new integration, cleanup, hardening, compatibility correction, or guided-tour adjustment discovered during review; a change spanning more than one reviewed task; or work the user performed during the approval pause that now needs to be incorporated and verified. An amendment becomes a new plan task after the reviewed tasks and returns to this same approval gate when complete.
+            - Do not choose `request-rework` merely because the user says "change", "fix", or names code originally created by a completed task. Choose it only when that completed task's accepted result itself must be replaced. If its result remains valid and the requested work can be layered onto the joined result, choose `add-amendment`.
+            - For `add-amendment`, include the reviewed `taskIds` whose accumulated output the amendment affects. Omit `taskIds` only when it applies to the entire reviewed boundary. Supply a concise imperative `title` and exact, independently executable `instructions`.
             - If it requests separate work, handle that work normally and emit disposition `unrelated`; the approval remains pending.
             - If intent or target is ambiguous, ask one concise question and emit disposition `clarification`; the approval remains pending.
 
@@ -153,7 +180,11 @@ internal static class PlanGateResponseParser
             {{Marker}}
             {{requestReworkExample}}
 
-            Use `taskIds` plus one top-level `instructions` string. Never emit `reworkTasks`.
+            For `add-amendment`, copy this structure exactly:
+            {{Marker}}
+            {{addAmendmentExample}}
+
+            Use `taskIds` plus one top-level `instructions` string. `add-amendment` also uses `title`. Never emit `reworkTasks`.
             End the response with exactly one {{Marker}} JSON object using the exact plan, gate, revision, and request version above.
             """;
     }

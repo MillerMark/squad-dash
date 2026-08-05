@@ -777,6 +777,40 @@ internal sealed class DecomposedTasksWriterTests
         Assert.That(CountOccurrences(content, $"<!-- decompose-group: {group.GroupId} |"), Is.EqualTo(1));
     }
 
+    [Test]
+    public void AppendTaskToGroup_PreservesCompletedHistoryAndRoundTripsAmendmentIdentity()
+    {
+        var writer = new DecomposedTasksWriter();
+        var group = MakeGroup();
+        writer.WriteGroup(_tasksFile, group, "old-revision");
+        writer.MarkTaskComplete(_tasksFile, "PROJ-20240101-001", "abc1234", "Accepted work");
+        var amendment = new DecomposedSubTask(
+            "PROJ-20240101-AMD-001",
+            "Add cleanup without reopening accepted work.",
+            ["PROJ-20240101-001"],
+            "high",
+            "Add boundary cleanup",
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "User-authored boundary amendment.",
+            AmendmentGateId: "PROJ-20240101-GATE-001");
+
+        Assert.That(writer.AppendTaskToGroup(
+            _tasksFile, group.GroupId, group.Branch, amendment, "new-revision"), Is.True);
+        var content = File.ReadAllText(_tasksFile);
+        var parsed = TasksPanelParser.Parse(File.ReadAllLines(_tasksFile));
+        var restored = parsed.DecomposeGroups[group.GroupId].Tasks
+            .Single(task => task.Id == amendment.Id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content, Does.Contain("revision: new-revision"));
+            Assert.That(content, Does.Contain("Completed by SquadDash — commit abc1234: Accepted work"));
+            Assert.That(content, Does.Contain("- [ ] **[PROJ-20240101-AMD-001]** Add boundary cleanup"));
+            Assert.That(restored.AmendmentGateId, Is.EqualTo("PROJ-20240101-GATE-001"));
+            Assert.That(parsed.CompletedItems.Any(item => item.TaskId == "PROJ-20240101-001"), Is.True);
+        });
+    }
+
     // ── WriteGroupFailed ─────────────────────────────────────────────────────
 
     [Test]

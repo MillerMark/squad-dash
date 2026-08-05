@@ -846,6 +846,112 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyGateAmendmentRequested_PreservesCompletedTasksAndAddsReviewedWork()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, revision, items, "GROUP-001-001");
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Commit = "abc1234",
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    CompletionSummary = "Accepted original result",
+                }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Progress = new PlanProgress(1, 4),
+            Validations =
+            [
+                new PlanValidationNode(
+                    "GROUP-001-VAL-001", "Joined work", "Validate joined work.",
+                    ["GROUP-001-001"], ["GROUP-001-002"], ["It is integrated."],
+                    null, "ai", null, false, PlanValidationStatus.Passed,
+                    CompletedAt: DateTimeOffset.UtcNow, ValidatedCommit: "abc1234",
+                    Summary: "Passed.", Evidence: ["Evidence"]),
+            ],
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan,
+            "GROUP-001-G01",
+            ["GROUP-001-001"],
+            "Add restart cleanup",
+            "Run cleanup on every exit path.");
+        var original = updated.Tasks.Single(task => task.TaskId == "GROUP-001-001");
+        var amendment = updated.Tasks.Single(task => task.AmendmentGateId == "GROUP-001-G01");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(original.Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(original.Commit, Is.EqualTo("abc1234"));
+            Assert.That(original.AttemptHistory, Is.Null);
+            Assert.That(amendment.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(amendment.DependsOn, Is.EqualTo(new[] { "GROUP-001-001" }));
+            Assert.That(amendment.Description, Does.Contain("Run cleanup on every exit path."));
+            Assert.That(updated.ApprovalGates[0].AfterTaskIds, Does.Contain(amendment.TaskId));
+            Assert.That(updated.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(updated.Validations![0].AfterTaskIds, Does.Contain(amendment.TaskId));
+            Assert.That(updated.Validations[0].Status, Is.EqualTo(PlanValidationStatus.Pending));
+            Assert.That(updated.Progress, Is.EqualTo(new PlanProgress(1, 5)));
+            Assert.That(updated.Revision, Is.Not.EqualTo(revision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(updated), Is.True);
+        });
+    }
+
+    [Test]
+    public void ConvertUnstartedGateReworkToAmendment_RestoresAcceptedAttemptBeforeAddingWork()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, revision, items, "GROUP-001-001");
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Commit = "abc1234",
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    CompletionSummary = "Accepted result",
+                }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+        };
+        var misclassified = PlanStoreUpdater.ApplyGateReworkRequested(
+            plan, "GROUP-001-G01", ["GROUP-001-001"], "Add cleanup across the joined result.");
+        misclassified = PlanStoreUpdater.ApplyInterrupted(
+            misclassified, "Preflight blocked", 0, "GROUP-001-001");
+
+        var repaired = PlanStoreUpdater.ConvertUnstartedGateReworkToAmendment(
+            misclassified,
+            "GROUP-001-G01",
+            ["GROUP-001-001"],
+            "Add joined cleanup",
+            "Add cleanup across the joined result.");
+        var original = repaired.Tasks.Single(task => task.TaskId == "GROUP-001-001");
+        var amendment = repaired.Tasks.Single(task => task.AmendmentGateId == "GROUP-001-G01");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(original.Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(original.Commit, Is.EqualTo("abc1234"));
+            Assert.That(original.AttemptHistory, Is.Null);
+            Assert.That(amendment.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(repaired.InterruptionData, Is.Null);
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(repaired), Is.True);
+        });
+    }
+
+    [Test]
     public void ApplyTaskStarted_MarksAuthoritativeTaskAndProgressExecuting()
     {
         var group = MakeGroup(3);

@@ -34,6 +34,60 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void ReworkRecoveryContent_ExplainsThatReopenIsPreservedAndOffersResume()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Uncommitted changes", [".squad/tasks.md", "tour.json"], "feature/rework");
+
+        var content = PlanPreflightRecoveryContent.FromRework(
+            exception,
+            "Build guided-tour fixtures",
+            "Add simulated notes");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.Title, Is.EqualTo("Rework ready — execution paused"));
+            Assert.That(content.Summary, Does.Contain("Add simulated notes"));
+            Assert.That(content.Summary, Does.Contain("no new task work started"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("Resume Rework"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("will not submit them again"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain("tour.json"));
+        });
+    }
+
+    [Test]
+    public void ReworkPreflightPause_IsSafelyResumableAndRecognizesPendingAttempt()
+    {
+        var attempted = new PlanTaskAttempt(
+            PlanTaskStatus.Complete,
+            "abcdef1",
+            System.DateTimeOffset.UtcNow,
+            "Initial implementation",
+            "changes-requested",
+            "Adjust the guided tour.");
+        var task = new PlanTask(
+            "P-1", "Add simulated notes", "Description", [], "mid", PlanTaskStatus.Pending,
+            AttemptHistory: [attempted]);
+        var executing = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Executing,
+            "Build guided-tour fixtures", "feature/rework", "Summary",
+            [task], [], new PlanProgress(0, 1), new PlanTimestamps(System.DateTimeOffset.UtcNow));
+        var paused = PlanStoreUpdater.ApplyInterrupted(
+            executing,
+            PlanRecoveryResumePolicy.BuildReworkPreflightReason("Two files are dirty."),
+            loopIteration: 0,
+            interruptedTaskId: task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryResumePolicy.HasPendingRework(executing), Is.True);
+            Assert.That(PlanRecoveryResumePolicy.IsReworkPreflightPause(paused), Is.True);
+            Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(paused), Is.True);
+            Assert.That(paused.Progress.ExecutingTaskId, Is.Null);
+        });
+    }
+
+    [Test]
     public void PlanPreflightBlockedException_Properties_StoredCorrectly()
     {
         var paths = new List<string> { "src/Foo.cs", "src/Bar.cs" };

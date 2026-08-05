@@ -8775,14 +8775,18 @@ public partial class MainWindow : Window
         string? branchOverride,
         PlanPreflightBlockedException exception,
         WrapPanel? sourceActionsPanel,
-        BlockCollection blocks)
+        BlockCollection blocks,
+        Func<Task<bool>>? retryOverride = null,
+        Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent>? contentFactory = null,
+        string retryLabel = "Retry",
+        Action? viewPlan = null)
     {
         foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
                      block.Tag is PlanPreflightRecoveryTag tag &&
                      string.Equals(tag.GroupId, plan.Group.GroupId, StringComparison.Ordinal)).ToArray())
             blocks.Remove(existing);
 
-        var content = PlanPreflightRecoveryContent.From(exception);
+        var content = (contentFactory ?? PlanPreflightRecoveryContent.From)(exception);
         var stack = new StackPanel();
         var title = new TextBlock
         {
@@ -8844,9 +8848,15 @@ public partial class MainWindow : Window
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _transcriptFontSize);
         var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _transcriptFontSize);
-        var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _transcriptFontSize);
+        var retryButton = TranscriptQuickReplyFactory.CreateButton(retryLabel, _transcriptFontSize);
         var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _transcriptFontSize);
         buttons.Children.Add(viewButton);
+        if (viewPlan is not null)
+        {
+            var viewPlanButton = TranscriptQuickReplyFactory.CreateButton("View Plan", _transcriptFontSize);
+            viewPlanButton.Click += (_, _) => viewPlan();
+            buttons.Children.Add(viewPlanButton);
+        }
         buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
@@ -8890,7 +8900,10 @@ public partial class MainWindow : Window
             readiness.Text = "Checking the workspace and retrying…";
             try
             {
-                if (await ApplyDecomposeDecisionAsync(plan, action, branchOverride))
+                var succeeded = retryOverride is null
+                    ? await ApplyDecomposeDecisionAsync(plan, action, branchOverride)
+                    : await retryOverride();
+                if (succeeded)
                 {
                     if (blocks.Contains(container)) blocks.Remove(container);
                     return;
@@ -8902,7 +8915,8 @@ public partial class MainWindow : Window
             {
                 if (blocks.Contains(container)) blocks.Remove(container);
                 ShowTranscriptPlanPreflightRecovery(
-                    plan, action, branchOverride, blocked, sourceActionsPanel, blocks);
+                    plan, action, branchOverride, blocked, sourceActionsPanel, blocks,
+                    retryOverride, contentFactory, retryLabel, viewPlan);
             }
             catch (Exception ex)
             {
@@ -9231,9 +9245,12 @@ public partial class MainWindow : Window
                   }
             : null;
         Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
-            ? p => _ = StartDecomposeLoopAsync(p.PlanId)
+            ? p => _ = StartOrResumeDurablePlanAsync(p)
             : null;
-        Action<Plan>? onResumePlan = null;
+        Action<Plan>? onResumePlan = durablePlan is not null &&
+                                      PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan)
+            ? p => _ = StartOrResumeDurablePlanAsync(p)
+            : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         var hasRecordedTaskEvidence = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                                       !string.IsNullOrWhiteSpace(interruptedTaskId) &&
@@ -11813,6 +11830,9 @@ public partial class MainWindow : Window
             return true;
         }
 
+        if (response.Disposition == PlanGateResponseDisposition.AddAmendment)
+            return await ApplyGateAmendmentResponseAsync(plan, gate, currentToken, response);
+
         return await ApplyGateReworkResponseAsync(plan, gate, currentToken, response);
     }
 
@@ -11948,9 +11968,209 @@ public partial class MainWindow : Window
         {
             await StartBackloggedDecomposeGroupAsync(group with { HostRevision = plan.Revision });
         }
+        catch (PlanPreflightBlockedException blocked)
+        {
+            var reopenedTaskId = taskIds[0];
+            var reopenedTaskTitle = result.UpdatedPlan.Tasks.FirstOrDefault(candidate =>
+                string.Equals(candidate.TaskId, reopenedTaskId, StringComparison.Ordinal))?.Title ?? reopenedTaskId;
+            var pausedPlan = PlanStoreUpdater.ApplyInterrupted(
+                result.UpdatedPlan,
+                PlanRecoveryResumePolicy.BuildReworkPreflightReason(blocked.Message),
+                loopIteration: 0,
+                interruptedTaskId: reopenedTaskId,
+                affectedPaths: blocked.ChangedPaths);
+            if (!TryPublishPlanProgress(pausedPlan, out var pauseError))
+            {
+                AppendLine("⚠ The rework was prepared but SquadDash could not save its paused recovery state: " +
+                           (pauseError ?? "unknown persistence failure"));
+                return true;
+            }
+
+            LoadTasksPanel();
+            SyncPlansPanel();
+            var pausedPending = PendingDecomposePlanAdapter.FromPlan(pausedPlan);
+            ShowTranscriptPlanPreflightRecovery(
+                pausedPending,
+                action: "resume-rework",
+                branchOverride: pausedPlan.Branch,
+                blocked,
+                sourceActionsPanel: null,
+                CoordinatorThread.Document.Blocks,
+                retryOverride: async () =>
+                {
+                    var latest = _planStore?.Load(pausedPlan.PlanId)
+                        ?? throw new InvalidOperationException("The paused plan is no longer available.");
+                    if (!PlanRecoveryResumePolicy.IsReworkPreflightPause(latest))
+                        throw new InvalidOperationException(
+                            "The plan changed after these recovery controls were created. Open the current plan state.");
+                    await StartBackloggedDecomposeGroupAsync(group with { HostRevision = latest.Revision });
+                    return true;
+                },
+                contentFactory: exception => PlanPreflightRecoveryContent.FromRework(
+                    exception,
+                    pausedPlan.Title,
+                    reopenedTaskTitle),
+                retryLabel: "Resume Rework",
+                viewPlan: () =>
+                {
+                    var latest = _planStore?.Load(pausedPlan.PlanId) ?? pausedPlan;
+                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(latest), latest);
+                });
+        }
         catch (Exception ex)
         {
-            AppendLine($"⚠ The task was reopened, but its execution could not start: {ex.Message} Use Resume Plan after resolving the workspace condition.");
+            AppendLine($"⚠ The task was reopened, but its execution could not start: {ex.Message}");
+        }
+        return true;
+    }
+
+    private async Task<bool> ApplyGateAmendmentResponseAsync(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalClickToken token,
+        PlanGateResponse response)
+    {
+        if (_currentWorkspace is null || string.IsNullOrWhiteSpace(response.Title) ||
+            string.IsNullOrWhiteSpace(response.Instructions))
+            return false;
+
+        var relatedTaskIds = response.TaskIds is { Count: > 0 }
+            ? response.TaskIds.Distinct(StringComparer.Ordinal).ToArray()
+            : gate.AfterTaskIds.Distinct(StringComparer.Ordinal).ToArray();
+        var invalidTargets = relatedTaskIds.Where(id =>
+            !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
+            !plan.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)).ToArray();
+        if (invalidTargets.Length > 0)
+        {
+            AppendLine("⚠ The requested amendment named tasks outside the current completed approval boundary: " +
+                       string.Join(", ", invalidTargets) + ". The plan remains unchanged.");
+            return true;
+        }
+
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        if (!File.Exists(tasksPath))
+        {
+            AppendLine("⚠ The requested amendment could not start because tasks.md is missing.");
+            return true;
+        }
+        var originalTasks = File.ReadAllText(tasksPath);
+        var writer = new DecomposedTasksWriter();
+        var projectionWritten = false;
+        var result = await _planApprovalRuntime!.RequestAmendmentAsync(
+            token,
+            plan,
+            gate.GateId,
+            relatedTaskIds,
+            response.Title,
+            response.Instructions,
+            persistPlan: updated =>
+            {
+                var amendment = updated.Tasks.SingleOrDefault(task =>
+                    !plan.Tasks.Any(existing => string.Equals(existing.TaskId, task.TaskId, StringComparison.Ordinal)));
+                if (amendment is null) return false;
+                var amendmentDefinition = PendingDecomposePlanAdapter.FromPlan(updated).Group.Tasks
+                    .Single(task => string.Equals(task.Id, amendment.TaskId, StringComparison.Ordinal));
+                projectionWritten = writer.AppendTaskToGroup(
+                    tasksPath, updated.PlanId, updated.Branch, amendmentDefinition, updated.Revision);
+                if (!projectionWritten) return false;
+                if (TryPublishPlanProgress(updated, out _)) return true;
+                RestoreFileAtomically(tasksPath, originalTasks);
+                projectionWritten = false;
+                return false;
+            });
+        if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
+        {
+            if (projectionWritten) RestoreFileAtomically(tasksPath, originalTasks);
+            AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
+                ? "⚠ SquadDash could not persist the amendment. The approval remains unchanged."
+                : "⚠ The amendment request became stale. Reopen the current approval and try again.");
+            return true;
+        }
+
+        var amendmentTask = result.UpdatedPlan.Tasks.Single(task =>
+            !plan.Tasks.Any(existing => string.Equals(existing.TaskId, task.TaskId, StringComparison.Ordinal)));
+        _pendingGateResponseContext = null;
+        _activePlanAwaitingGateApproval = result.UpdatedPlan.ApprovalGates
+            .FirstOrDefault(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)?.GateId;
+        if (_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
+        {
+            foreach (var card in cards.Where(card =>
+                         card.Container.Tag is TranscriptApprovalCardTag tag &&
+                         string.Equals(tag.GateId, gate.GateId, StringComparison.Ordinal)))
+                TranscriptApprovalCardBuilder.ShowAmendmentRequestedState(card);
+        }
+
+        var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+        if (_inboxStore is not null)
+        {
+            _inboxPanel?.Refresh(_inboxStore.LoadAll());
+            if (_inboxStore.GetById(messageId) is { } updatedMessage)
+                RefreshOpenApprovalInboxWindows(messageId, updatedMessage);
+        }
+        LoadTasksPanel();
+        AppendLine($"＋ Added amendment \"{amendmentTask.Title}\". Previously completed tasks remain accepted; " +
+                   "SquadDash will verify only the additional work before returning to this approval checkpoint.");
+
+        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
+        if (!parsed.DecomposeGroups.TryGetValue(plan.PlanId, out var group))
+        {
+            AppendLine("⚠ The amendment was preserved, but SquadDash could not reconstruct the plan for execution. Open the plan and select Resume Plan.");
+            return true;
+        }
+        try
+        {
+            await StartBackloggedDecomposeGroupAsync(group with { HostRevision = result.UpdatedPlan.Revision });
+        }
+        catch (PlanPreflightBlockedException blocked)
+        {
+            var pausedPlan = PlanStoreUpdater.ApplyInterrupted(
+                result.UpdatedPlan,
+                PlanRecoveryResumePolicy.BuildAmendmentPreflightReason(blocked.Message),
+                loopIteration: 0,
+                interruptedTaskId: amendmentTask.TaskId,
+                affectedPaths: blocked.ChangedPaths);
+            if (!TryPublishPlanProgress(pausedPlan, out var pauseError))
+            {
+                AppendLine("⚠ The amendment was prepared but SquadDash could not save its paused recovery state: " +
+                           (pauseError ?? "unknown persistence failure"));
+                return true;
+            }
+
+            LoadTasksPanel();
+            SyncPlansPanel();
+            var pausedPending = PendingDecomposePlanAdapter.FromPlan(pausedPlan);
+            ShowTranscriptPlanPreflightRecovery(
+                pausedPending,
+                action: "resume-amendment",
+                branchOverride: pausedPlan.Branch,
+                blocked,
+                sourceActionsPanel: null,
+                CoordinatorThread.Document.Blocks,
+                retryOverride: async () =>
+                {
+                    var latest = _planStore?.Load(pausedPlan.PlanId)
+                        ?? throw new InvalidOperationException("The paused plan is no longer available.");
+                    if (!PlanRecoveryResumePolicy.IsAmendmentPreflightPause(latest))
+                        throw new InvalidOperationException(
+                            "The plan changed after these recovery controls were created. Open the current plan state.");
+                    await StartBackloggedDecomposeGroupAsync(group with { HostRevision = latest.Revision });
+                    return true;
+                },
+                contentFactory: exception => PlanPreflightRecoveryContent.FromAmendment(
+                    exception,
+                    pausedPlan.Title,
+                    amendmentTask.Title ?? amendmentTask.TaskId),
+                retryLabel: "Resume Amendment",
+                viewPlan: () =>
+                {
+                    var latest = _planStore?.Load(pausedPlan.PlanId) ?? pausedPlan;
+                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(latest), latest);
+                });
+        }
+        catch (Exception ex)
+        {
+            AppendLine($"⚠ The amendment was added, but its execution could not start: {ex.Message}");
         }
         return true;
     }
@@ -12119,6 +12339,23 @@ public partial class MainWindow : Window
             : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        if (durablePlan is not null && PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan))
+        {
+            var isReworkPause = PlanRecoveryResumePolicy.IsReworkPreflightPause(durablePlan);
+            var isAmendmentPause = PlanRecoveryResumePolicy.IsAmendmentPreflightPause(durablePlan);
+            AddAsyncAction(
+                isAmendmentPause ? "Resume Amendment" : isReworkPause ? "Resume Rework" : "Resume Plan",
+                isAmendmentPause
+                    ? "Resume the added amendment after committing or stashing blocking changes; completed tasks remain accepted."
+                    : isReworkPause
+                        ? "Resume the already-reopened task after committing or stashing any blocking workspace changes. The change request will not be submitted again."
+                        : "Resume with the next runnable plan step. Previously accepted work will not be repeated.",
+                async () => await StartOrResumeDurablePlanAsync(durablePlan));
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
         if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
             if (presentation.CommitEvidence is { } commitEvidence)
@@ -44502,7 +44739,7 @@ public partial class MainWindow : Window
                 },
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
-                startPlan:  plan => _ = StartDecomposeLoopAsync(plan.PlanId),
+                startPlan:  plan => _ = StartOrResumeDurablePlanAsync(plan),
                 resumePlan: plan => _ = AssessInterruptedPlanFromDurableAsync(plan),
                 endPlan:    EndInterruptedPlan,
                 approveGate: plan =>
@@ -44536,6 +44773,58 @@ public partial class MainWindow : Window
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { PlansPanelVisible = _plansPanelVisible };
         _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+    }
+
+    private async Task StartOrResumeDurablePlanAsync(Plan plan)
+    {
+        try
+        {
+            if (!await StartDecomposeLoopAsync(plan.PlanId))
+                AppendLine($"⚠ Plan “{plan.Title}” did not start. Open the plan to review its current state.");
+        }
+        catch (PlanPreflightBlockedException blocked)
+        {
+            var latest = _planStore?.Load(plan.PlanId) ?? plan;
+            var pending = PendingDecomposePlanAdapter.FromPlan(latest);
+            var taskId = latest.InterruptionData?.InterruptedTaskId
+                ?? latest.Tasks.FirstOrDefault(task => task.Status == PlanTaskStatus.Pending)?.TaskId;
+            var taskTitle = latest.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Title ?? taskId ?? "reopened task";
+            var isReworkPause = PlanRecoveryResumePolicy.IsReworkPreflightPause(latest) ||
+                                PlanRecoveryResumePolicy.HasPendingRework(latest);
+            var isAmendmentPause = PlanRecoveryResumePolicy.IsAmendmentPreflightPause(latest) ||
+                                   PlanRecoveryResumePolicy.HasPendingAmendment(latest);
+
+            ShowTranscriptPlanPreflightRecovery(
+                pending,
+                action: "resume-plan",
+                branchOverride: latest.Branch,
+                exception: blocked,
+                sourceActionsPanel: null,
+                blocks: CoordinatorThread.Document.Blocks,
+                retryOverride: async () => await StartDecomposeLoopAsync(latest.PlanId),
+                contentFactory: isAmendmentPause
+                    ? exception => PlanPreflightRecoveryContent.FromAmendment(
+                        exception,
+                        latest.Title,
+                        taskTitle)
+                    : isReworkPause
+                    ? exception => PlanPreflightRecoveryContent.FromRework(
+                        exception,
+                        latest.Title,
+                        taskTitle)
+                    : null,
+                retryLabel: isAmendmentPause ? "Resume Amendment" : isReworkPause ? "Resume Rework" : "Resume Plan",
+                viewPlan: () =>
+                {
+                    var current = _planStore?.Load(latest.PlanId) ?? latest;
+                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(current), current);
+                });
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("Resume plan", ex);
+        }
     }
 
     private void OpenPlanFromStore(Plan plan)
@@ -44687,9 +44976,16 @@ public partial class MainWindow : Window
 
                 var interruptedTaskId = plan.Progress.ExecutingTaskId
                     ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+                var repairReason = PlanRecoveryResumePolicy.HasPendingAmendment(plan)
+                    ? PlanRecoveryResumePolicy.BuildAmendmentPreflightReason(
+                        "No matching workspace execution envelope was available after restart.")
+                    : PlanRecoveryResumePolicy.HasPendingRework(plan)
+                    ? PlanRecoveryResumePolicy.BuildReworkPreflightReason(
+                        "No matching workspace execution envelope was available after restart.")
+                    : "No matching workspace execution envelope was available after restart.";
                 var repaired = PlanStoreUpdater.ApplyInterrupted(
                     plan,
-                    reason:        "No matching workspace execution envelope was available after restart.",
+                    reason:        repairReason,
                     loopIteration: 0,
                     interruptedTaskId: interruptedTaskId);
                 _planStore.Save(repaired);
@@ -44885,9 +45181,14 @@ public partial class MainWindow : Window
             ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
         try
         {
+            var interruptionReason = PlanRecoveryResumePolicy.HasPendingAmendment(plan)
+                ? PlanRecoveryResumePolicy.BuildAmendmentPreflightReason(reason)
+                : PlanRecoveryResumePolicy.HasPendingRework(plan)
+                ? PlanRecoveryResumePolicy.BuildReworkPreflightReason(reason)
+                : $"Automatic restart recovery failed: {reason}";
             var interrupted = PlanStoreUpdater.ApplyInterrupted(
                 plan,
-                $"Automatic restart recovery failed: {reason}",
+                interruptionReason,
                 execution.LastCompletedIteration,
                 interruptedTaskId);
             _planStore.Save(interrupted);

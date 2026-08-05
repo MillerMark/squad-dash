@@ -316,12 +316,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedPlan   = durablePlan;
                 var capturedAction = onResumePlan;
+                var safeResume = PlanRecoveryResumePolicy.IsSafelyResumable(capturedPlan);
                 var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
-                    "Resume Plan Anyway…",
+                    safeResume ? "Resume Plan" : "Resume Plan Anyway…",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Resume without assessing repository evidence. This may repeat work from the interrupted task."),
-                    tone: QuickReplyTone.Warning);
+                        safeResume
+                            ? PlanRecoveryResumePolicy.IsAmendmentPreflightPause(capturedPlan)
+                                ? "Resume the added amendment; completed tasks remain accepted."
+                                : PlanRecoveryResumePolicy.IsReworkPreflightPause(capturedPlan)
+                                    ? "Resume the already-prepared rework. The change request will not be submitted again."
+                                    : "Resume with the next runnable plan step."
+                            : "Resume without assessing repository evidence. This may repeat work from the interrupted task."),
+                    tone: safeResume ? QuickReplyTone.Default : QuickReplyTone.Warning);
                 resumeButton.Focusable = false;
                 resumeButton.Click += (_, _) =>
                 {

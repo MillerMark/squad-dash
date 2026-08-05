@@ -593,6 +593,17 @@ internal static class TranscriptApprovalCardBuilder
         card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
+    /// <summary>Turns the card into durable history after bounded additional work is accepted.</summary>
+    internal static void ShowAmendmentRequestedState(CardResult card)
+    {
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.ResolvedIndicator.Visibility = Visibility.Collapsed;
+        card.ReworkIndicator.Text = "＋ Amendment added. Completed tasks remain accepted.";
+        card.ReworkIndicator.Visibility = Visibility.Visible;
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────
 
     /// <summary>Creates a themed <see cref="TextBlock"/> with the given text, size, and foreground resource key.</summary>

@@ -332,9 +332,10 @@ provided specific approval commentary.
 
 ## PLAN_GATE_RESPONSE_JSON schema
 
-When an approval request is active and the user responds in free form, distinguish revisions to
-the reviewed work from unrelated work. Never modify reviewed plan work during the classification
-turn. For an explicit rework request, emit:
+When an approval request is active and the user responds in free form, distinguish replacement of
+a completed task result, bounded additional work on the accumulated result, and unrelated work.
+Never modify reviewed plan work during the classification turn. When the user wants to withdraw
+acceptance of a completed task's own result so it can be replaced or corrected, emit:
 
 `PLAN_GATE_RESPONSE_JSON:`
 
@@ -349,6 +350,33 @@ turn. For an explicit rework request, emit:
   "instructions": "The user's concrete requested changes"
 }
 ```
+
+Do not use `request-rework` merely because the user says "change" or names code created by a
+completed task. Use it only when that task's accepted result itself must be reopened.
+
+When the completed reviewed tasks should remain complete and the user wants bounded additional
+work before approving their accumulated result, emit:
+
+`PLAN_GATE_RESPONSE_JSON:`
+
+```json
+{
+  "planId": "GROUP-YYYYMMDD",
+  "gateId": "GROUP-YYYYMMDD-GATE-001",
+  "revision": "revision supplied by SquadDash",
+  "requestVersion": 1,
+  "disposition": "add-amendment",
+  "taskIds": ["GROUP-YYYYMMDD-001", "GROUP-YYYYMMDD-002"],
+  "title": "Add the requested integration correction",
+  "instructions": "The user's bounded additional work"
+}
+```
+
+`add-amendment` is appropriate for new integration, cleanup, hardening, compatibility, or UX
+work discovered during review; a correction spanning multiple reviewed tasks; or work performed
+during the approval pause that must be incorporated and verified. It creates a new task after the
+named reviewed tasks and returns to the same approval gate. It does not erase or reopen their
+accepted results. Omit `taskIds` only when the amendment applies to the entire reviewed boundary.
 
 Use `unrelated` when the request is separate work and `clarification` when the intended approval
 task or requested change is ambiguous; those dispositions omit `taskIds` and `instructions` and

@@ -92,6 +92,42 @@ internal sealed class DecomposedTasksWriter
         return false;
     }
 
+    /// <summary>Adds one host-authored amendment task without rewriting accepted task history.</summary>
+    internal bool AppendTaskToGroup(
+        string tasksFilePath,
+        string groupId,
+        string branch,
+        DecomposedSubTask task,
+        string revision)
+    {
+        if (!File.Exists(tasksFilePath) || string.IsNullOrWhiteSpace(revision)) return false;
+        var lines = File.ReadAllLines(tasksFilePath).ToList();
+        if (lines.Any(line => line.Contains($"**[{task.Id}]**", StringComparison.Ordinal)))
+            return false;
+
+        var headerPrefix = $"<!-- decompose-group: {groupId} |";
+        var start = lines.FindIndex(line => line.TrimStart().StartsWith(headerPrefix, StringComparison.Ordinal));
+        if (start < 0) return false;
+        var close = lines[start].LastIndexOf("-->", StringComparison.Ordinal);
+        if (close < 0) return false;
+        var header = lines[start][..close].TrimEnd();
+        var revisionIndex = header.IndexOf(" | revision:", StringComparison.Ordinal);
+        if (revisionIndex >= 0) header = header[..revisionIndex].TrimEnd();
+        lines[start] = $"{header} | revision: {revision} -->";
+
+        var end = start + 1;
+        while (end < lines.Count &&
+               !lines[end].TrimStart().StartsWith("<!-- decompose-group:", StringComparison.Ordinal) &&
+               !lines[end].StartsWith("# ", StringComparison.Ordinal))
+            end++;
+
+        var block = BuildTaskBlock(groupId, branch, task).ToList();
+        if (end > 0 && !string.IsNullOrWhiteSpace(lines[end - 1])) block.Insert(0, string.Empty);
+        lines.InsertRange(end, block);
+        WriteAllLinesAtomically(tasksFilePath, lines);
+        return true;
+    }
+
     /// <summary>
     /// Finds the line <c>- [ ] **[{taskId}]**</c> in <paramref name="tasksFilePath"/>
     /// and replaces <c>[ ]</c> with <c>[!]</c>. Appends a failure note if not already present.
@@ -228,6 +264,8 @@ internal sealed class DecomposedTasksWriter
                 sb.AppendLine($"  genericAgentReason: {task.GenericAgentReason}");
             if (!string.IsNullOrWhiteSpace(task.ParentTaskId))
                 sb.AppendLine($"  parentTaskId: {task.ParentTaskId}");
+            if (!string.IsNullOrWhiteSpace(task.AmendmentGateId))
+                sb.AppendLine($"  amendmentGateId: {task.AmendmentGateId}");
             if (failed)
                 sb.AppendLine("  (Failed — see inbox for details.)");
             else if (status == '>')
@@ -241,6 +279,30 @@ internal sealed class DecomposedTasksWriter
         }
 
         return sb.ToString();
+    }
+
+    private static IEnumerable<string> BuildTaskBlock(string groupId, string branch, DecomposedSubTask task)
+    {
+        var depsDisplay = task.DependsOn is { Count: > 0 }
+            ? string.Join(", ", task.DependsOn)
+            : "(none)";
+        yield return $"- [ ] **[{task.Id}]** {task.Title ?? task.Description}";
+        yield return $"  Group: {groupId} | Branch: {branch} | Priority: {task.Priority}";
+        yield return $"  description: {task.Description}";
+        yield return $"  dependsOn: {depsDisplay}";
+        if (task.AgentAssignments is { Count: > 0 })
+            yield return $"  agentAssignments: {System.Text.Json.JsonSerializer.Serialize(task.AgentAssignments)}";
+        if (task.ParallelEligible is not null)
+            yield return $"  parallelEligible: {task.ParallelEligible.Value.ToString().ToLowerInvariant()}";
+        if (!string.IsNullOrWhiteSpace(task.AgentRoutingMode))
+            yield return $"  agentRoutingMode: {task.AgentRoutingMode}";
+        if (!string.IsNullOrWhiteSpace(task.GenericAgentReason))
+            yield return $"  genericAgentReason: {task.GenericAgentReason}";
+        if (!string.IsNullOrWhiteSpace(task.ParentTaskId))
+            yield return $"  parentTaskId: {task.ParentTaskId}";
+        if (!string.IsNullOrWhiteSpace(task.AmendmentGateId))
+            yield return $"  amendmentGateId: {task.AmendmentGateId}";
+        yield return string.Empty;
     }
 
     private static void PrependToTasksFile(string tasksFilePath, string groupId, string content)

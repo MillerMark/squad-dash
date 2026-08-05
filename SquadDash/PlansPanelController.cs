@@ -474,7 +474,7 @@ internal sealed class PlansPanelController
 
         if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
-            if (IsUserPaused(plan) && _startPlan is not null)
+            if (PlanRecoveryResumePolicy.IsSafelyResumable(plan) && _startPlan is not null)
             {
                 var resumeItem = new MenuItem
                 {
@@ -571,7 +571,11 @@ internal sealed class PlansPanelController
     {
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
             return "Approval ready";
-        if (IsUserPaused(plan))
+        if (PlanRecoveryResumePolicy.IsReworkPreflightPause(plan))
+            return "Rework ready · workspace blocked";
+        if (PlanRecoveryResumePolicy.IsAmendmentPreflightPause(plan))
+            return "Amendment ready · workspace blocked";
+        if (PlanRecoveryResumePolicy.IsSafelyResumable(plan))
             return "Paused after accepted step";
         if (plan.Progress.ExecutingTaskId is not { Length: > 0 } executingTaskId)
             return null;
@@ -582,10 +586,6 @@ internal sealed class PlansPanelController
             ? $"Step {taskIndex + 1} running"
             : "Executing";
     }
-
-    private static bool IsUserPaused(Plan plan) =>
-        plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-        plan.InterruptionData?.Reason.StartsWith("Paused by user", StringComparison.OrdinalIgnoreCase) == true;
 
     private FrameworkElement BuildTitleStatusOrControl(Plan plan)
     {
@@ -611,7 +611,7 @@ internal sealed class PlansPanelController
             return pause;
         }
 
-        if (IsUserPaused(plan) && _startPlan is not null)
+        if (PlanRecoveryResumePolicy.IsSafelyResumable(plan) && _startPlan is not null)
         {
             var resume = new Button
             {
@@ -621,7 +621,12 @@ internal sealed class PlansPanelController
                 Padding = new Thickness(0),
                 Margin = new Thickness(0, 0, 5, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = ToolTipHelper.MakeThemedToolTip("Resume with the next runnable plan step."),
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    PlanRecoveryResumePolicy.IsAmendmentPreflightPause(plan)
+                        ? "Resume the added amendment after committing or stashing the blocking changes; completed tasks remain accepted."
+                        : PlanRecoveryResumePolicy.IsReworkPreflightPause(plan)
+                            ? "Resume the already-prepared rework after committing or stashing the blocking changes."
+                            : "Resume with the next runnable plan step."),
             };
             System.Windows.Automation.AutomationProperties.SetName(resume, "Resume plan");
             resume.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");

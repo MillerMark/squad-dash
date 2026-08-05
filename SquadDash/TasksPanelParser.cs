@@ -246,6 +246,7 @@ internal static class TasksPanelParser {
                 bool? parallelEligible = null;
                 string? agentRoutingMode = null;
                 string? genericAgentReason = null;
+                string? amendmentGateId = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -290,6 +291,8 @@ internal static class TasksPanelParser {
                     }
                     else if (metadata.StartsWith("genericAgentReason:", StringComparison.OrdinalIgnoreCase))
                         genericAgentReason = metadata["genericAgentReason:".Length..].Trim();
+                    else if (metadata.StartsWith("amendmentGateId:", StringComparison.OrdinalIgnoreCase))
+                        amendmentGateId = metadata["amendmentGateId:".Length..].Trim();
                     metadataEnd++;
                 }
 
@@ -337,7 +340,8 @@ internal static class TasksPanelParser {
 
                 tasks.Add(new DecomposedSubTask(
                     taskId, description, dependsOn, priority, taskTitle, parentTaskId,
-                    agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason));
+                    agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason,
+                    AmendmentGateId: amendmentGateId));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

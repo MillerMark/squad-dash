@@ -192,6 +192,37 @@ internal sealed class PlanLifecycleRecoveryBoundaryTests
     // ── 3. Immediate abort with preserved repository evidence ─────────────────
 
     [Test]
+    public void ReworkPreflightPause_OffersDirectResumeInsteadOfAssessment()
+    {
+        WpfTestContext.Run(() =>
+        {
+            var executing = MakeExecutingPlan("REWORK-RESUME-001");
+            var paused = PlanStoreUpdater.ApplyInterrupted(
+                executing,
+                PlanRecoveryResumePolicy.BuildReworkPreflightReason("Two files are dirty."),
+                loopIteration: 0,
+                interruptedTaskId: "REWORK-RESUME-001-003");
+            var (controller, activePanel, _, _, log) = BuildControllerWithActions();
+
+            controller.Refresh([paused]);
+
+            var row = activePanel.Children.OfType<Border>().Single(border =>
+                string.Equals(border.Tag as string, paused.PlanId, StringComparison.Ordinal));
+            var actions = row.ContextMenu!.Items.OfType<MenuItem>().ToArray();
+            var resume = actions.Single(item =>
+                string.Equals(item.Header as string, "Resume Plan", StringComparison.Ordinal));
+            Assert.That(actions.Any(item =>
+                    string.Equals(item.Header as string, "Assess & Continue", StringComparison.Ordinal)),
+                Is.False);
+
+            resume.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.That(log.Any(entry =>
+                entry.Action == "start" && entry.Plan.PlanId == paused.PlanId), Is.True);
+        });
+    }
+
+    [Test]
     public void ImmediateAbort_PreservesCommitEvidence_CompletedTasksSurvive()
     {
         var executing = MakeExecutingPlan("ABORT-001", completed: 3, total: 6);

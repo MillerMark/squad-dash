@@ -100,4 +100,7 @@ internal sealed record DecomposedSubTask(
                                                 IReadOnlyList<string>? Inputs = null,
     [property: JsonPropertyName("proofRequirements")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<DecomposedTaskProofRequirement>? ProofRequirements = null);
+                                                IReadOnlyList<DecomposedTaskProofRequirement>? ProofRequirements = null,
+    [property: JsonPropertyName("amendmentGateId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? AmendmentGateId = null);

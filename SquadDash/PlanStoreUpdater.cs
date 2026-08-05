@@ -821,6 +821,181 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Adds bounded work discovered during human review without withdrawing any accepted task
+    /// result. The amendment becomes part of the reviewed side of the same gate, and validations
+    /// covering the affected joined result are rescheduled after the amendment.
+    /// </summary>
+    internal static Plan ApplyGateAmendmentRequested(
+        Plan existing,
+        string gateId,
+        IReadOnlyCollection<string>? relatedTaskIds,
+        string title,
+        string instructions)
+    {
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(instructions)) return existing;
+        var gate = existing.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status != PlanGateStatus.AwaitingApproval) return existing;
+
+        var related = relatedTaskIds is { Count: > 0 }
+            ? relatedTaskIds.Distinct(StringComparer.Ordinal).ToArray()
+            : gate.AfterTaskIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (related.Length == 0 || related.Any(id =>
+                !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
+                !existing.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                    task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)))
+            return existing;
+
+        var amendmentNumber = 1;
+        string amendmentId;
+        do
+        {
+            amendmentId = $"{existing.PlanId}-AMD-{amendmentNumber:000}";
+            amendmentNumber++;
+        } while (existing.Tasks.Any(task => string.Equals(task.TaskId, amendmentId, StringComparison.Ordinal)));
+
+        var amendment = new PlanTask(
+            amendmentId,
+            title.Trim(),
+            "This is additional work requested at a human approval boundary. Preserve the accepted " +
+            "results of the tasks below; inspect the current repository because the user may already " +
+            "have implemented part of this amendment during the approval pause. Complete only the " +
+            "remaining bounded work, integrate it with the accumulated result, and return normal task " +
+            $"handoff evidence. Requested amendment: {instructions.Trim().ReplaceLineEndings(" ")}",
+            related,
+            "high",
+            PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This user-authored boundary amendment may span accepted task contracts and has no preapproved roster assignment.",
+            AmendmentGateId: gateId);
+
+        var updatedTasks = existing.Tasks.Append(amendment).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var updatedGate = gate with
+        {
+            AfterTaskIds = gate.AfterTaskIds.Append(amendmentId).Distinct(StringComparer.Ordinal).ToArray(),
+            Status = PlanGateStatus.Pending,
+            RequestedAt = null,
+            NotifiedAt = null,
+            ResolvedAt = null,
+            ResolutionNote = null,
+            ResolvedBy = null,
+            ProofEvidence = null,
+            ReworkCount = gate.ReworkCount + 1,
+            LastReworkRequestedAt = now,
+            LastReworkInstructions = instructions.Trim(),
+        };
+        var updatedGates = existing.ApprovalGates
+            .Select(candidate => string.Equals(candidate.GateId, gateId, StringComparison.Ordinal)
+                ? updatedGate
+                : candidate)
+            .ToArray();
+
+        var affected = related.ToHashSet(StringComparer.Ordinal);
+        var updatedValidations = existing.Validations?.Select(validation =>
+        {
+            if (!validation.AfterTaskIds.Any(affected.Contains)) return validation;
+            return validation with
+            {
+                AfterTaskIds = validation.AfterTaskIds.Append(amendmentId)
+                    .Distinct(StringComparer.Ordinal).ToArray(),
+                Status = PlanValidationStatus.Pending,
+                StartedAt = null,
+                CompletedAt = null,
+                ValidatedCommit = null,
+                Summary = null,
+                Evidence = null,
+            };
+        }).ToArray();
+
+        var preliminary = existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = updatedTasks,
+            ApprovalGates = updatedGates,
+            Validations = updatedValidations,
+            Progress = new PlanProgress(
+                updatedTasks.Count(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded),
+                updatedTasks.Count(task => task.Status != PlanTaskStatus.Superseded)),
+            InterruptionData = null,
+            Timestamps = existing.Timestamps with
+            {
+                InterruptedAt = null,
+                CompletedAt = null,
+                LastRunAt = now,
+            },
+        };
+        var revisedGroup = PendingDecomposePlanAdapter.FromPlan(preliminary).Group;
+        var revision = PendingDecomposePlanStore.ComputeRevision(revisedGroup);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates
+                .Select(candidate => candidate with { PlanRevision = revision })
+                .ToArray(),
+        };
+    }
+
+    /// <summary>
+    /// Repairs a legacy gate response that reopened accepted tasks before the host could express
+    /// boundary amendments. This is valid only before a replacement attempt starts.
+    /// </summary>
+    internal static Plan ConvertUnstartedGateReworkToAmendment(
+        Plan existing,
+        string gateId,
+        IReadOnlyCollection<string> reopenedTaskIds,
+        string title,
+        string instructions)
+    {
+        if (reopenedTaskIds.Count == 0) return existing;
+        var ids = reopenedTaskIds.ToHashSet(StringComparer.Ordinal);
+        var gate = existing.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || ids.Any(id => !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal)))
+            return existing;
+
+        var invalid = existing.Tasks.Where(task => ids.Contains(task.TaskId)).Any(task =>
+            task.Status != PlanTaskStatus.Pending ||
+            task.AttemptHistory is not { Count: > 0 } history ||
+            history[^1].Disposition != "changes-requested");
+        if (invalid) return existing;
+
+        var restoredTasks = existing.Tasks.Select(task =>
+        {
+            if (!ids.Contains(task.TaskId)) return task;
+            var history = task.AttemptHistory!;
+            var accepted = history[^1];
+            return task with
+            {
+                Status = accepted.Status,
+                Commit = accepted.Commit,
+                CompletedAt = accepted.CompletedAt,
+                CompletionSummary = accepted.Summary,
+                AttemptHistory = history.Count == 1 ? null : history.Take(history.Count - 1).ToArray(),
+            };
+        }).ToArray();
+        var restoredGate = gate with
+        {
+            Status = PlanGateStatus.AwaitingApproval,
+            ReworkCount = Math.Max(0, gate.ReworkCount - 1),
+        };
+        var restored = existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = restoredTasks,
+            ApprovalGates = existing.ApprovalGates.Select(candidate =>
+                string.Equals(candidate.GateId, gateId, StringComparison.Ordinal) ? restoredGate : candidate).ToArray(),
+            Progress = new PlanProgress(
+                restoredTasks.Count(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded),
+                restoredTasks.Count(task => task.Status != PlanTaskStatus.Superseded)),
+            InterruptionData = null,
+            Timestamps = existing.Timestamps with { InterruptedAt = null },
+        };
+        return ApplyGateAmendmentRequested(restored, gateId, null, title, instructions);
+    }
+
+    /// <summary>
     /// Marks a gate as ready for approval without transitioning the plan to awaiting-approval.
     /// Sets the gate status to <see cref="PlanGateStatus.AwaitingApproval"/> and records
     /// <see cref="PlanApprovalGate.RequestedAt"/>, but keeps the plan in

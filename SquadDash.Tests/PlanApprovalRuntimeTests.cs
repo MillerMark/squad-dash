@@ -209,6 +209,35 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task RequestAmendment_PreservesAcceptedTaskAndConsumesApprovalVersionAtomically()
+    {
+        var stopped = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Complete));
+        Plan? persisted = null;
+
+        var result = await _runtime.RequestAmendmentAsync(
+            stopped.ClickToken!,
+            stopped.UpdatedPlan,
+            "GATE-AC",
+            ["A"],
+            "Add joined-result cleanup",
+            "Clean up on every exit path.",
+            plan => { persisted = plan; return true; });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(persisted, Is.Not.Null);
+            Assert.That(persisted!.Tasks.Single(task => task.TaskId == "A").Status,
+                Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(persisted.Tasks.Single(task => task.AmendmentGateId == "GATE-AC").Status,
+                Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(persisted.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(_actions.GetCurrentToken(persisted.PlanId)!.GateIds, Does.Not.Contain("GATE-AC"),
+                "The old approval action must no longer include the amended gate while its task runs.");
+        });
+    }
+
+    [Test]
     public async Task Approve_OneGateFromViewer_LeavesOtherGateVersionedAndActive()
     {
         var basePlan = MakePlan(taskBStatus: PlanTaskStatus.Complete);
