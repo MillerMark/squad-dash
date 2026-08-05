@@ -452,8 +452,8 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         // ── Context condition row ─────────────────────────────────────────────
 
         var contextNames = contextRegistry?.ContextNames ?? [];
-        _contextNameBox = new ComboBox { IsEditable = true, Height = 26 };
-        _contextNameBox.SetResourceReference(ComboBox.StyleProperty,    "ThemedComboBoxStyle");
+        _contextNameBox = new ComboBox { IsEditable = true, Height = 26, MinWidth = 180 };
+        _contextNameBox.SetResourceReference(ComboBox.StyleProperty,    "ThemedEditableComboBoxStyle");
         _contextNameBox.SetResourceReference(ComboBox.FontSizeProperty, "FontSizeBody");
         _contextNameBox.Items.Add("(none)");
         foreach (var name in contextNames)
