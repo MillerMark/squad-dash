@@ -1776,7 +1776,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         list = [];
                         avatarChipsByAgent[assignment.AgentHandle] = list;
                     }
-                    list.Add((Border)chip);
+
+                    // Wrap chip in a Grid with a glow-only backing element so the
+                    // DropShadowEffect doesn't blur the avatar image content.
+                    var glowBacking = new Border
+                    {
+                        Width = ((Border)chip).Width,
+                        Height = ((Border)chip).Height,
+                        CornerRadius = ((Border)chip).CornerRadius,
+                        Background = Brushes.Transparent,
+                        Margin = ((Border)chip).Margin,
+                        Visibility = Visibility.Collapsed,
+                    };
+                    var chipWrapper = new Grid();
+                    chipWrapper.Children.Add(glowBacking);
+                    chipWrapper.Children.Add(chip);
+
+                    list.Add(glowBacking);
 
                     // Hover glow using agent accent color
                     var accentBrush = info?.Accent;
@@ -1787,6 +1803,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         if (avatarChipsByAgent.TryGetValue(capturedHandle, out var siblings))
                         {
                             foreach (var sibling in siblings)
+                            {
+                                sibling.Visibility = Visibility.Visible;
                                 sibling.Effect = new System.Windows.Media.Effects.DropShadowEffect
                                 {
                                     Color = glowColor,
@@ -1794,6 +1812,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     BlurRadius = 18,
                                     Opacity = 0.95,
                                 };
+                            }
                         }
                     };
                     chip.MouseLeave += (_, _) =>
@@ -1801,11 +1820,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         if (avatarChipsByAgent.TryGetValue(capturedHandle, out var siblings))
                         {
                             foreach (var sibling in siblings)
+                            {
                                 sibling.Effect = null;
+                                sibling.Visibility = Visibility.Collapsed;
+                            }
                         }
                     };
 
-                    avatarPanel.Children.Add(chip);
+                    avatarPanel.Children.Add(chipWrapper);
                 }
                 Canvas.SetLeft(avatarPanel, position.X + 4 * _scaleFactor);
                 Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
