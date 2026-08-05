@@ -1590,12 +1590,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var nodeLayout = new Grid();
             var hasAgentAvatars = _resolveAgentAvatar is not null &&
                                   task.AgentAssignments is { Count: > 0 };
-            var avatarRowHeight = 0.0;
-            if (hasAgentAvatars)
-            {
-                avatarRowHeight = Math.Round(BaseNodeHeight * 0.25 * _scaleFactor);
-                nodeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            }
+            var avatarChipSize = hasAgentAvatars
+                ? Math.Round(BaseNodeHeight * 0.375 * _scaleFactor)
+                : 0.0;
             nodeLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             nodeLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -1608,38 +1605,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             stepLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             stepLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
 
-            if (hasAgentAvatars)
-            {
-                var avatarPanel = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 0, 0, 4 * _scaleFactor),
-                };
-                foreach (var assignment in task.AgentAssignments!)
-                {
-                    var info = _resolveAgentAvatar!(assignment.AgentHandle);
-                    var chipSize = avatarRowHeight;
-                    var chipContent = CreateAgentAvatarChip(info, chipSize, assignment.AgentHandle);
-                    chipContent.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        $"{assignment.AgentHandle} — {assignment.Role}");
-                    avatarPanel.Children.Add(chipContent);
-                }
-                Grid.SetRow(avatarPanel, 0);
-                nodeLayout.Children.Add(avatarPanel);
-                Grid.SetRow(content, 1);
-                Grid.SetRow(stepLabel, 2);
-            }
-            else
-            {
-                Grid.SetRow(stepLabel, 1);
-            }
+            Grid.SetRow(stepLabel, 1);
             nodeLayout.Children.Add(content);
             nodeLayout.Children.Add(stepLabel);
 
             var border = new Border
             {
                 Width           = NodeWidth,
-                Height          = NodeHeight + (hasAgentAvatars ? avatarRowHeight + 4 * _scaleFactor : 0),
+                Height          = NodeHeight,
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
@@ -1774,6 +1747,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             Panel.SetZIndex(border, 20);
             canvas.Children.Add(border);
+
+            if (hasAgentAvatars)
+            {
+                var avatarPanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                };
+                foreach (var assignment in task.AgentAssignments!)
+                {
+                    var info = _resolveAgentAvatar!(assignment.AgentHandle);
+                    var chipContent = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
+                    chipContent.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"{assignment.AgentHandle} — {assignment.Role}");
+                    avatarPanel.Children.Add(chipContent);
+                }
+                Canvas.SetLeft(avatarPanel, position.X + 4 * _scaleFactor);
+                Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
+                Panel.SetZIndex(avatarPanel, 35);
+                canvas.Children.Add(avatarPanel);
+            }
 
             borderByTask[task.Id] = border;
 
@@ -2542,13 +2535,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
         UIElement content;
         if (info?.Image is { } image)
         {
-            content = new Image
+            // Crop 15% from each edge to zoom into the face at center.
+            // A Viewbox with a negative-margin Image achieves this without
+            // needing a CroppedBitmap (which requires pixel dimensions).
+            var cropFraction = 0.15;
+            var innerScale = 1.0 / (1.0 - 2 * cropFraction); // ~1.4286
+            var innerSize = chipSize * innerScale;
+            var offset = (innerSize - chipSize) / 2;
+            var img = new Image
             {
                 Source = image,
-                Width = chipSize - 4,
-                Height = chipSize - 4,
+                Width = innerSize,
+                Height = innerSize,
                 Stretch = Stretch.UniformToFill,
             };
+            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+            var clipGrid = new Grid
+            {
+                Width = chipSize - 4,
+                Height = chipSize - 4,
+                ClipToBounds = true,
+            };
+            img.Margin = new Thickness(-offset);
+            clipGrid.Children.Add(img);
+            content = clipGrid;
         }
         else
         {
@@ -2577,8 +2587,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             CornerRadius = new CornerRadius(3),
             BorderThickness = new Thickness(1),
             BorderBrush = Brushes.Gray,
+            ClipToBounds = true,
             Margin = new Thickness(0, 0, 3 * _scaleFactor, 0),
-            Child = content is Image ? content : new Viewbox { Child = (UIElement)content },
+            Child = content is Grid ? content : new Viewbox { Child = (UIElement)content },
         };
         chip.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         return chip;
