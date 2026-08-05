@@ -8801,22 +8801,24 @@ public partial class MainWindow : Window
         header.Children.Add(title);
 
         var copyTip = new ToolTip { Content = "Copy details", Placement = PlacementMode.Bottom };
+        copyTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
+        copyTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
         var copyButton = new Button
         {
             Content = "📋",
             ToolTip = copyTip,
-            FontSize = _transcriptFontSize,
+            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
             Width = 26,
             Height = 22,
             Padding = new Thickness(0),
-            Margin = new Thickness(8, 0, 0, 0),
+            Margin = new Thickness(4, 2, 4, 2),
             BorderThickness = new Thickness(0),
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-        copyButton.SetResourceReference(Control.ForegroundProperty, "PlanPreflightWarningText");
+        copyButton.SetResourceReference(Control.ForegroundProperty, "SubtleText");
         copyButton.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
         System.Windows.Automation.AutomationProperties.SetName(copyButton, "Copy details");
         Grid.SetColumn(copyButton, 1);
@@ -8971,7 +8973,15 @@ public partial class MainWindow : Window
             {
                 if (!await IsPlanPreflightWorkspaceCleanAsync()) return;
                 timer.Stop();
+                summary.Visibility = Visibility.Collapsed;
+                files.Visibility = Visibility.Collapsed;
+                details.Visibility = Visibility.Collapsed;
+                utilities.Visibility = Visibility.Collapsed;
+                copyButton.Visibility = Visibility.Collapsed;
                 readiness.Text = "Workspace is clean. Retry is ready.";
+                readiness.FontWeight = FontWeights.Bold;
+                readiness.Margin = new Thickness(0, 6, 0, 6);
+                card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
                 retryButton.FontWeight = FontWeights.SemiBold;
             }
             finally { pollInFlight = false; }
