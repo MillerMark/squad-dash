@@ -811,6 +811,42 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
         }
 
+        // Multiple ALL joins can occupy the same stage boundary. Arrange them using their
+        // complete badge + attached-validation footprints, not badge height alone; otherwise
+        // a lower ALL badge can be drawn on top of the upper join's shield or title.
+        var gateIndexesByBoundary = Enumerable.Range(0, gates.Count)
+            .GroupBy(index => Math.Round(gates[index].Center.X, 2));
+        foreach (var boundaryIndexes in gateIndexesByBoundary)
+        {
+            var indexes = boundaryIndexes.ToArray();
+            if (indexes.Length < 2) continue;
+
+            int AttachedValidationCount(int gateIndex)
+            {
+                var allKey = string.Join("\u001f", gates[gateIndex].Dependencies);
+                return validationAnchors.Values.Count(anchor =>
+                    anchor.Kind == "all" &&
+                    string.Equals(anchor.AllKey, allKey, StringComparison.Ordinal));
+            }
+
+            var centers = ValidationShieldPresenter.StackAllClusterCenters(
+                indexes.Select(index => new ValidationShieldPresenter.AllClusterStackItem(
+                    gates[index].Center.Y,
+                    AttachedValidationCount(index))).ToArray(),
+                _scaleFactor);
+            for (var itemIndex = 0; itemIndex < indexes.Length; itemIndex++)
+            {
+                var gateIndex = indexes[itemIndex];
+                var gate = gates[gateIndex];
+                gates[gateIndex] = (
+                    new Point(gate.Center.X, centers[itemIndex]),
+                    gate.Targets,
+                    gate.Dependencies,
+                    gate.MinTargetLevel,
+                    gate.MaxDepLevel);
+            }
+        }
+
         bool SameBoundary(
             IReadOnlyList<string> actualAfter,
             IReadOnlyList<string> actualBefore,
@@ -1093,12 +1129,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var allKey = string.Join("\u001f", dependencies);
             var attachedCount = validationAnchors.Values.Count(anchor =>
                 anchor.Kind == "all" && string.Equals(anchor.AllKey, allKey, StringComparison.Ordinal));
-            if (attachedCount > 0)
-            {
-                allClusterFootprints.Add(
-                    ValidationShieldPresenter.ComputeAllClusterFootprint(
-                        gateCenter.X, gateCenter.Y, attachedCount, _scaleFactor));
-            }
+            // The ALL badge is an obstacle even when no validation shields are attached.
+            // Omitting bare badges allowed unrelated direct connectors to appear to enter them.
+            allClusterFootprints.Add(
+                ValidationShieldPresenter.ComputeAllClusterFootprint(
+                    gateCenter.X, gateCenter.Y, attachedCount, _scaleFactor));
         }
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
@@ -1213,7 +1248,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         (fromPt.X, fromPt.Y), (toPt.X, toPt.Y), allClusterFootprints, _scaleFactor)
                     : null;
 
-                if (detour is null || detour.Count <= 2)
+                if (detour is { Count: 0 })
+                {
+                    // No collision-free forward-only route was available. Preserve the dependency
+                    // with the same alternate hue used for a stage-bypassing connector so the
+                    // overlap is visibly distinct rather than appearing to enter the ALL badge.
+                    var cg = AddConnector(canvas,
+                        fromPt, toPt,
+                        arrowHead: true,
+                        skipCount: Math.Max(1, skipCount),
+                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
+                        toolTip: "Alternate connector color: no clear route around an ALL group was available.",
+                        splitAtX: FindSplitX(fromPt.X, toPt.X));
+                    RegisterConnector(dependency, cg);
+                    RegisterConnector(task.Id, cg);
+                }
+                else if (detour is null || detour.Count <= 2)
                 {
                     var cg = AddConnector(canvas,
                         fromPt, toPt,
@@ -1226,23 +1276,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 else
                 {
-                    // Draw segmented connector along detour waypoints
-                    ConnectorGroup? firstCg = null;
-                    for (int wi = 0; wi < detour.Count - 1; wi++)
-                    {
-                        var segFrom = new Point(detour[wi].X, detour[wi].Y);
-                        var segTo   = new Point(detour[wi + 1].X, detour[wi + 1].Y);
-                        var isLast  = wi == detour.Count - 2;
-                        var cg = AddConnector(canvas,
-                            segFrom, segTo,
-                            arrowHead: isLast,
-                            skipCount: wi == 0 ? skipCount : 0,
-                            dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                            splitAtX: wi == 0 ? FindSplitX(segFrom.X, segTo.X) : double.NaN);
-                        firstCg ??= cg;
-                        RegisterConnector(dependency, cg);
-                        RegisterConnector(task.Id,   cg);
-                    }
+                    // Render the complete collision-safe route as one rounded path. Each corner
+                    // cuts back by half its shorter adjacent segment, producing proportional
+                    // curves without allowing a long segment to overwhelm a nearby short turn.
+                    var routeGroup = AddRoundedConnectorRoute(
+                        canvas,
+                        detour,
+                        arrowHead: true,
+                        skipCount: skipCount,
+                        dashed: dashedTaskEdges.Contains((dependency, task.Id)));
+                    RegisterConnector(dependency, routeGroup);
+                    RegisterConnector(task.Id, routeGroup);
                 }
             }
         }
@@ -2061,7 +2105,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
         canvas.Height = Math.Max(
             positions.Values.Max(point => point.Y) + NodeHeight,
-            validationBottom);
+            Math.Max(
+                validationBottom,
+                allClusterFootprints.Select(footprint => footprint.Bottom).DefaultIfEmpty(0).Max()));
 
         SizeWindowToContent(canvas.Width, canvas.Height);
 
@@ -2503,64 +2549,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private FrameworkElement CreateValidationShield(string validationId, string status)
     {
         var s = _scaleFactor;
-        var shield = new Path
-        {
-            Data = Geometry.Parse("M 12,1 L 22,5 L 22,12 C 22,18 18,22 12,25 C 6,22 2,18 2,12 L 2,5 Z"),
-            Width = 24 * s,
-            Height = 26 * s,
-            Stretch = Stretch.Fill,
-            StrokeThickness = 1.6,
-            StrokeLineJoin = PenLineJoin.Round,
-        };
 
-        // Failed uses an X mark; non-running states use a check mark. Validating replaces the
-        // check with the same continuously active spinner used by task and agent activity.
-        var isFailed = status == PlanValidationStatus.Failed;
-        var innerIcon = new Path
+        // Map status to the Viewbox resource key added in ValidationShields.xaml.
+        var viewboxKey = status switch
         {
-            Data = isFailed
-                ? Geometry.Parse("M 7,7 L 17,17 M 17,7 L 7,17")
-                : Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
-            Width = 12 * s,
-            Height = isFailed ? 12 * s : 9 * s,
-            Stretch = Stretch.Fill,
-            StrokeThickness = 2,
-            StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round,
-            StrokeLineJoin = PenLineJoin.Round,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
+            PlanValidationStatus.Passed     => "ValidationPassedShield",
+            PlanValidationStatus.Failed     => "ValidationFailedShield",
+            PlanValidationStatus.Validating => "ValidationValidatingShield",
+            PlanValidationStatus.Ready      => "ValidationReadyShield",
+            PlanValidationStatus.Stale      => null, // no Viewbox for Stale — use legacy rendering
+            _                               => "ValidationPendingShield",
         };
-
-        switch (status)
-        {
-            case PlanValidationStatus.Passed:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationPassedFill");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationPassedIcon");
-                break;
-            case PlanValidationStatus.Validating:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationValidatingFill");
-                break;
-            case PlanValidationStatus.Failed:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationFailedFill");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationFailedIcon");
-                break;
-            case PlanValidationStatus.Stale:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationStaleFill");
-                shield.StrokeDashArray = [3, 2];
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationStaleIcon");
-                innerIcon.Opacity = 0.65;
-                break;
-            case PlanValidationStatus.Ready:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationReadyFill");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationReadyIcon");
-                break;
-            default:
-                shield.SetResourceReference(Shape.FillProperty, "ValidationPendingFill");
-                innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationPendingIcon");
-                innerIcon.Opacity = 0.45;
-                break;
-        }
 
         var grid = new Grid
         {
@@ -2568,7 +2567,48 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Height = 26 * s,
             Background = Brushes.Transparent,
         };
-        grid.Children.Add(shield);
+
+        if (viewboxKey is not null &&
+            Application.Current?.TryFindResource(viewboxKey) is Viewbox viewboxTemplate)
+        {
+            var viewbox = (Viewbox)Application.Current.FindResource(viewboxKey);
+            viewbox.Width = 24 * s;
+            viewbox.Height = 26 * s;
+            grid.Children.Add(viewbox);
+        }
+        else
+        {
+            // Legacy path for Stale status or missing Viewbox resources.
+            var shield = new Path
+            {
+                Data = Geometry.Parse("M 12,1 L 22,5 L 22,12 C 22,18 18,22 12,25 C 6,22 2,18 2,12 L 2,5 Z"),
+                Width = 24 * s,
+                Height = 26 * s,
+                Stretch = Stretch.Fill,
+                StrokeThickness = 1.6,
+                StrokeLineJoin = PenLineJoin.Round,
+            };
+            var innerIcon = new Path
+            {
+                Data = Geometry.Parse("M 7,13 L 10.5,16.5 L 17.5,9"),
+                Width = 12 * s,
+                Height = 9 * s,
+                Stretch = Stretch.Fill,
+                StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            shield.SetResourceReference(Shape.FillProperty, "ValidationStaleFill");
+            shield.StrokeDashArray = [3, 2];
+            innerIcon.SetResourceReference(Shape.StrokeProperty, "ValidationStaleIcon");
+            innerIcon.Opacity = 0.65;
+            grid.Children.Add(shield);
+            grid.Children.Add(innerIcon);
+        }
+
         if (ValidationShieldPresenter.ShowsActivitySpinner(status))
         {
             var spinner = new ActivitySpinner
@@ -2583,10 +2623,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             spinner.RenderTransform = new TranslateTransform(-1, 0);
             _validationSpinnersById[validationId] = spinner;
             grid.Children.Add(spinner);
-        }
-        else
-        {
-            grid.Children.Add(innerIcon);
         }
         return grid;
     }
@@ -2928,9 +2964,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public readonly List<Border>    GateBadges    = [];
     }
 
-    private static ConnectorGroup AddConnector(Canvas canvas, Point from, Point to, bool arrowHead, int skipCount = 0, bool dashed = false, string? toolTip = null, double splitAtX = double.NaN)
+    private static ConnectorGroup AddConnector(
+        Canvas canvas,
+        Point from,
+        Point to,
+        bool arrowHead,
+        int skipCount = 0,
+        bool dashed = false,
+        string? toolTip = null,
+        double splitAtX = double.NaN,
+        ConnectorGroup? existingGroup = null)
     {
-        var group = new ConnectorGroup();
+        var group = existingGroup ?? new ConnectorGroup();
 
         const double arrowLength     = 11;
         const double arrowHalfWidth  = 5;
@@ -2946,7 +2991,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
 
-        if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0)
+        if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0 || Math.Abs(to.X - from.X) < 1.0)
         {
             // Straight line.
             var glowLine = new Line
@@ -3017,7 +3062,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             // S-curve Bézier with horizontal tangents at both endpoints.
             double dx        = lineEnd.X - from.X;
-            double handleLen = Math.Max(dx * 0.5, 40.0);
+            // Keep both control points within the segment's horizontal bounds. The previous
+            // minimum 40px handle made short detour segments overshoot and curl backward.
+            double handleLen = Math.Max(0, dx * 0.5);
             var cp1 = new Point(from.X    + handleLen, from.Y);
             var cp2 = new Point(lineEnd.X - handleLen, lineEnd.Y);
 
@@ -3120,6 +3167,118 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 Fill   = mainBrush,
                 Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+            };
+            canvas.Children.Add(mainArrow);
+            group.MainElements.Add(mainArrow);
+        }
+
+        return group;
+    }
+
+    private static ConnectorGroup AddRoundedConnectorRoute(
+        Canvas canvas,
+        IReadOnlyList<(double X, double Y)> route,
+        bool arrowHead,
+        int skipCount = 0,
+        bool dashed = false,
+        string? toolTip = null)
+    {
+        var group = new ConnectorGroup();
+        if (route.Count < 2) return group;
+
+        const double arrowLength = 11;
+        const double arrowHalfWidth = 5;
+        const double glowThickness = 8;
+        const double glowArrowHalf = 10;
+
+        var drawableRoute = route.ToArray();
+        var target = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
+        if (arrowHead)
+            drawableRoute[^1] = (drawableRoute[^1].X - arrowLength, drawableRoute[^1].Y);
+        var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(drawableRoute)
+            .ToDictionary(corner => corner.PointIndex);
+
+        PathGeometry MakeGeometry()
+        {
+            var figure = new PathFigure
+            {
+                StartPoint = new Point(drawableRoute[0].X, drawableRoute[0].Y),
+            };
+            for (var index = 1; index < drawableRoute.Length - 1; index++)
+            {
+                if (!corners.TryGetValue(index, out var corner)) continue;
+                figure.Segments.Add(new LineSegment(
+                    new Point(corner.Entry.X, corner.Entry.Y), isStroked: true));
+                figure.Segments.Add(new QuadraticBezierSegment(
+                    new Point(corner.Control.X, corner.Control.Y),
+                    new Point(corner.Exit.X, corner.Exit.Y),
+                    isStroked: true));
+            }
+            figure.Segments.Add(new LineSegment(
+                new Point(drawableRoute[^1].X, drawableRoute[^1].Y), isStroked: true));
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            return geometry;
+        }
+
+        var color = ConnectorColor(skipCount);
+        var glowColor = ConnectorGlowColor(skipCount);
+        var mainBrush = new SolidColorBrush(color);
+        var glowBrush = new SolidColorBrush(glowColor);
+        var glowPath = new Path
+        {
+            Data = MakeGeometry(),
+            StrokeThickness = glowThickness,
+            Stroke = glowBrush,
+            Fill = Brushes.Transparent,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Visibility = Visibility.Hidden,
+        };
+        canvas.Children.Add(glowPath);
+        group.GlowElements.Add(glowPath);
+
+        var mainPath = new Path
+        {
+            Data = MakeGeometry(),
+            StrokeThickness = 2,
+            Stroke = mainBrush,
+            Fill = Brushes.Transparent,
+        };
+        if (dashed) mainPath.StrokeDashArray = new DoubleCollection { 7, 2 };
+        if (toolTip is not null) mainPath.ToolTip = toolTip;
+        canvas.Children.Add(mainPath);
+        group.MainElements.Add(mainPath);
+
+        var hitPath = new Path
+        {
+            Data = MakeGeometry(),
+            StrokeThickness = 12,
+            Fill = Brushes.Transparent,
+            Opacity = 0.01,
+        };
+        hitPath.SetResourceReference(Shape.StrokeProperty, "CardSurface");
+        if (toolTip is not null) hitPath.ToolTip = toolTip;
+        canvas.Children.Add(hitPath);
+        group.MainElements.Add(hitPath);
+
+        if (arrowHead)
+        {
+            var lineEnd = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
+            var perpendicular = new Vector(0, 1);
+            var glowArrow = new Polygon
+            {
+                Fill = glowBrush,
+                Visibility = Visibility.Hidden,
+                Points = [target, lineEnd + perpendicular * glowArrowHalf, lineEnd - perpendicular * glowArrowHalf],
+            };
+            canvas.Children.Add(glowArrow);
+            group.GlowElements.Add(glowArrow);
+
+            var mainArrow = new Polygon
+            {
+                Fill = mainBrush,
+                Points = [target, lineEnd + perpendicular * arrowHalfWidth, lineEnd - perpendicular * arrowHalfWidth],
             };
             canvas.Children.Add(mainArrow);
             group.MainElements.Add(mainArrow);
