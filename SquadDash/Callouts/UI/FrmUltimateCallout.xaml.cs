@@ -439,6 +439,12 @@ public partial class FrmUltimateCallout : Window, ICalloutWindow {
         }
         closeButton.Content = "×";
         closeButton.FontSize = 14;
+        // This window deliberately never activates (ShowActivated=False and
+        // WM_MOUSEACTIVATE returns MA_NOACTIVATE). ButtonBase otherwise calls Focus()
+        // on mouse-down, which can ask the inactive HwndSource to acquire keyboard
+        // focus and fail inside HwndKeyboardInputProvider.AcquireFocus.
+        closeButton.Focusable = false;
+        closeButton.IsTabStop = false;
         closeButton.Width  = closeButtonEdgeSize;
         closeButton.Height = closeButtonEdgeSize;
         closeButton.PreviewMouseLeftButtonDown += (_, _) =>
