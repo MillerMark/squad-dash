@@ -1083,13 +1083,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     ref fallbackNextLeft);
                 var left = layout.Left;
                 var top = layout.Top;
+                if (isStageValidation)
+                    left -= 72 * _scaleFactor; // re-center the wider (288px) visual over the stage boundary
 
                 Canvas.SetLeft(visual, left);
                 Canvas.SetTop(visual, top);
                 Panel.SetZIndex(visual, 30);
                 canvas.Children.Add(visual);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
-                validationRailRight = Math.Max(validationRailRight, left + 144 * _scaleFactor);
+                validationRailRight = Math.Max(validationRailRight, left + validationWidth);
                 // Full visual height: shield (26) + title margin (3) + title maxHeight (32) + bottom padding (5)
                 validationBottom = Math.Max(validationBottom, top + ValidationShieldPresenter.BaseShieldStackSpacing * _scaleFactor);
             }
