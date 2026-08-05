@@ -755,6 +755,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var nextY = graphTop;
             for (var row = 0; row < tasks.Length; row++)
             {
+                var taskHasAvatars = _resolveAgentAvatar is not null &&
+                                     tasks[row].AgentAssignments is { Count: > 0 };
+                var avatarOffset = taskHasAvatars
+                    ? Math.Round(BaseNodeHeight * 0.375 * _scaleFactor)
+                    : 0.0;
+                nextY += avatarOffset;
                 positions[tasks[row].Id] = new Point(x, nextY);
                 var attachedCount = validationAnchors.Values.Count(anchor =>
                     anchor.TaskId is not null &&
@@ -1435,6 +1441,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
+        var avatarChipsByAgent = new Dictionary<string, List<Border>>(StringComparer.OrdinalIgnoreCase);
         var taskActivityById = durablePlan is null
             ? new Dictionary<string, PlanTaskActivityState>(StringComparer.Ordinal)
             : PlanTaskActivityResolver.Resolve(durablePlan);
@@ -1753,14 +1760,52 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var avatarPanel = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
+                    MaxWidth = NodeWidth - 8 * _scaleFactor,
+                    ClipToBounds = true,
                 };
                 foreach (var assignment in task.AgentAssignments!)
                 {
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
-                    var chipContent = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
-                    chipContent.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    var chip = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
+                    chip.ToolTip = ToolTipHelper.MakeThemedToolTip(
                         $"{assignment.AgentHandle} — {assignment.Role}");
-                    avatarPanel.Children.Add(chipContent);
+
+                    // Track for cross-highlight
+                    if (!avatarChipsByAgent.TryGetValue(assignment.AgentHandle, out var list))
+                    {
+                        list = [];
+                        avatarChipsByAgent[assignment.AgentHandle] = list;
+                    }
+                    list.Add((Border)chip);
+
+                    // Hover glow using agent accent color
+                    var accentBrush = info?.Accent;
+                    var glowColor = accentBrush is SolidColorBrush scb ? scb.Color : Colors.Gray;
+                    var capturedHandle = assignment.AgentHandle;
+                    chip.MouseEnter += (_, _) =>
+                    {
+                        if (avatarChipsByAgent.TryGetValue(capturedHandle, out var siblings))
+                        {
+                            foreach (var sibling in siblings)
+                                sibling.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                                {
+                                    Color = glowColor,
+                                    ShadowDepth = 0,
+                                    BlurRadius = 10,
+                                    Opacity = 0.9,
+                                };
+                        }
+                    };
+                    chip.MouseLeave += (_, _) =>
+                    {
+                        if (avatarChipsByAgent.TryGetValue(capturedHandle, out var siblings))
+                        {
+                            foreach (var sibling in siblings)
+                                sibling.Effect = null;
+                        }
+                    };
+
+                    avatarPanel.Children.Add(chip);
                 }
                 Canvas.SetLeft(avatarPanel, position.X + 4 * _scaleFactor);
                 Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
