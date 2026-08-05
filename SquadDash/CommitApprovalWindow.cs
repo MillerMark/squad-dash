@@ -128,6 +128,7 @@ internal sealed class CommitApprovalPanel {
     }
 
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         _lastItems    = items;
         _mutableItems = items.ToList();
         _selectedRow  = null;
@@ -159,6 +160,8 @@ internal sealed class CommitApprovalPanel {
         ApplyFilterToPanel(_rejectedPanel);
         SyncApprovedSectionVisibility();
         SyncCategorizeRowVisibility();
+        SquadDashTrace.Write(TraceCategory.Performance,
+            $"APPROVAL_PANEL ReplaceAllItems={sw.ElapsedMilliseconds}ms items={items.Count} (pending={pending.Count} approved={approved.Count} rejected={ordered.Count - pending.Count - approved.Count})");
     }
 
     public void OnClearApprovedClicked() {
@@ -399,18 +402,8 @@ internal sealed class CommitApprovalPanel {
 
     // ── Row construction ─────────────────────────────────────────────────────
 
-    private Border BuildRow(CommitApprovalItem item) {
-        var row = new Border { Background = Brushes.Transparent, Tag = item };
-        row.MouseEnter += (_, _) => {
-            row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        };
-        row.MouseLeave += (_, _) => {
-            if (row == _selectedRow)
-                row.SetResourceReference(Border.BackgroundProperty, "ApprovalSelectedSurface");
-            else
-                row.Background = Brushes.Transparent;
-        };
-
+    /// <summary>Builds the full context menu for a row on first right-click (lazy).</summary>
+    private ContextMenu BuildRowContextMenu(Border row, CommitApprovalItem item) {
         var menu = MakeMenu();
         var followUpItem = MakeItem("Add to Chat");
         followUpItem.Click += (_, _) => _onFollowUp(item);
@@ -468,7 +461,27 @@ internal sealed class CommitApprovalPanel {
         };
         menu.Items.Add(rowToggleApprovedItem);
         menu.Items.Add(rowToggleRejectedItem);
-        row.ContextMenu = menu;
+        return menu;
+    }
+
+    private Border BuildRow(CommitApprovalItem item) {
+        var row = new Border { Background = Brushes.Transparent, Tag = item };
+        row.MouseEnter += (_, _) => {
+            row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        };
+        row.MouseLeave += (_, _) => {
+            if (row == _selectedRow)
+                row.SetResourceReference(Border.BackgroundProperty, "ApprovalSelectedSurface");
+            else
+                row.Background = Brushes.Transparent;
+        };
+
+        // Lazy context menu — built on first right-click to avoid creating ~8 MenuItems per row at init
+        row.ContextMenuOpening += (_, e) => {
+            if (row.ContextMenu is null) {
+                row.ContextMenu = BuildRowContextMenu(row, item);
+            }
+        };
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -489,11 +502,17 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 6, 0),
             Cursor            = Cursors.Hand,
-            ToolTip           = BuildDescriptionTooltip(item, row),
         };
         if (item.TouchesDecisionsFile)
             descBlock.FontWeight = FontWeights.Bold;
         ToolTipService.SetShowDuration(descBlock, 30000);
+        // Lazy tooltip — built on first hover to avoid creating StackPanel + TextBlocks per row at init
+        descBlock.ToolTipOpening += (sender, e) => {
+            if (sender is TextBlock tb && tb.ToolTip is not ToolTip) {
+                tb.ToolTip = BuildDescriptionTooltip(item, row);
+            }
+        };
+        descBlock.ToolTip = ""; // placeholder so ToolTipOpening fires
         descBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         descBlock.MouseLeftButtonUp += (_, e) => {
@@ -545,11 +564,16 @@ internal sealed class CommitApprovalPanel {
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
 
-        var menu = MakeMenu();
-        var unrejectItem = MakeItem("Unreject");
-        unrejectItem.Click += (_, _) => HandleUnrejectClicked(row, item);
-        menu.Items.Add(unrejectItem);
-        row.ContextMenu = menu;
+        // Lazy context menu
+        row.ContextMenuOpening += (_, e) => {
+            if (row.ContextMenu is null) {
+                var menu = MakeMenu();
+                var unrejectItem = MakeItem("Unreject");
+                unrejectItem.Click += (_, _) => HandleUnrejectClicked(row, item);
+                menu.Items.Add(unrejectItem);
+                row.ContextMenu = menu;
+            }
+        };
 
         var grid = new Grid { Margin = new Thickness(4, 2, 4, 2) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -564,11 +588,15 @@ internal sealed class CommitApprovalPanel {
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(6, 0, 6, 0),
             Opacity           = 0.6,
-            ToolTip           = BuildDescriptionTooltip(item, row),
         };
         if (item.TouchesDecisionsFile)
             descBlock.FontWeight = FontWeights.Bold;
         ToolTipService.SetShowDuration(descBlock, 30000);
+        descBlock.ToolTipOpening += (sender, e) => {
+            if (sender is TextBlock tb && tb.ToolTip is not ToolTip)
+                tb.ToolTip = BuildDescriptionTooltip(item, row);
+        };
+        descBlock.ToolTip = "";
         descBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         Grid.SetColumn(descBlock, 1);
