@@ -30,18 +30,27 @@
     <SolidColorBrush x:Key="PlanApprovalResolved" Color="#569DF6"/>
     <SolidColorBrush x:Key="PlanApprovalResolvedBg" Color="#1A3050"/>
     <SolidColorBrush x:Key="ValidationTitleBackdrop" Color="#66000000"/>
-    <SolidColorBrush x:Key="ValidationPassedFill"   Color="#37973B"/>
-    <SolidColorBrush x:Key="ValidationPassedIcon"   Color="#2E2920"/>
-    <SolidColorBrush x:Key="ValidationFailedFill"   Color="#F64F4F"/>
-    <SolidColorBrush x:Key="ValidationFailedIcon"   Color="#2E2920"/>
-    <SolidColorBrush x:Key="ValidationReadyFill"    Color="#00000000"/>
-    <SolidColorBrush x:Key="ValidationReadyIcon"    Color="#8AB0D0"/>
-    <SolidColorBrush x:Key="ValidationValidatingFill" Color="#00000000"/>
-    <SolidColorBrush x:Key="ValidationValidatingIcon" Color="#8AB0D0"/>
-    <SolidColorBrush x:Key="ValidationStaleFill"    Color="#00000000"/>
-    <SolidColorBrush x:Key="ValidationStaleIcon"    Color="#A68300"/>
-    <SolidColorBrush x:Key="ValidationPendingFill"  Color="#00000000"/>
-    <SolidColorBrush x:Key="ValidationPendingIcon"  Color="#A9A096"/>
+    <SolidColorBrush x:Key="ValidationPendingFill"    Color="#000000"/>
+    <SolidColorBrush x:Key="ValidationPendingIcon"   Color="#685740"/>
+    <SolidColorBrush x:Key="ValidationPendingBorder" Color="#685740"/>
+    <SolidColorBrush x:Key="ValidationPendingCheck"  Color="#473D2F"/>
+
+    <SolidColorBrush x:Key="ValidationReadyFill"     Color="#000000"/>
+    <SolidColorBrush x:Key="ValidationReadyIcon"     Color="#405A6C"/>
+    <SolidColorBrush x:Key="ValidationReadyBorder"   Color="#405A6C"/>
+    <SolidColorBrush x:Key="ValidationReadyDots"     Color="#5D87A3"/>
+
+    <SolidColorBrush x:Key="ValidationPassedFill"    Color="#97FFBF"/>
+    <SolidColorBrush x:Key="ValidationPassedIcon"    Color="#083A1B"/>
+
+    <SolidColorBrush x:Key="ValidationValidatingFill"   Color="#000000"/>
+    <SolidColorBrush x:Key="ValidationValidatingBorder" Color="#4D86AD"/>
+
+    <SolidColorBrush x:Key="ValidationFailedFill"    Color="#FF7575"/>
+    <SolidColorBrush x:Key="ValidationFailedIcon"    Color="#000000"/>
+
+    <SolidColorBrush x:Key="ValidationStaleFill"     Color="#00000000"/>
+    <SolidColorBrush x:Key="ValidationStaleIcon"     Color="#A68300"/>
     <SolidColorBrush x:Key="PriorityHigh"     Color="#A68300"/>
     <SolidColorBrush x:Key="PriorityCritical" Color="#F64F4F"/>
 
