@@ -11390,6 +11390,17 @@ public partial class MainWindow : Window
         FrameworkElement target,
         CalloutPlacement placement)
     {
+        // Menu opening and row layout both yield to the dispatcher before reaching here.
+        // SquadDash may lose foreground activation during those awaits, so this is the
+        // authoritative display-time check rather than relying only on the caller's check.
+        if (!IsActive)
+        {
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
+            SquadDashTrace.Write("Approval", "Callout suppressed because SquadDash is inactive at display time.");
+            return;
+        }
+
         _approvalAttentionCallout?.Close();
         var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
         var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
@@ -17493,6 +17504,17 @@ public partial class MainWindow : Window
     {
         try
         {
+            // Approval callouts are intentionally topmost while SquadDash is active. Dismiss
+            // them as soon as another application takes focus so they cannot cover that app.
+            // If one was already displayed its in-memory shown marker prevents another cue.
+            if (_approvalAttentionCallout is not null)
+            {
+                _approvalAttentionCallout.Close();
+                _approvalAttentionCallout = null;
+                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+                SquadDashTrace.Write("Approval", "Visible callout dismissed because SquadDash was deactivated.");
+            }
+
             switch (_pttState)
             {
                 case PttState.Active:
