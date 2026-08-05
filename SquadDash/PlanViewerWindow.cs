@@ -2390,6 +2390,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Title = plan.Group.GroupTitle;
     }
 
+    internal void NotifyThemeChanged()
+    {
+        var spinnerColor = ResolvePlanActivityColor("ValidationValidatingSpinner", Colors.SteelBlue);
+        foreach (var spinner in _validationSpinnersById.Values)
+            spinner.AccentColor = spinnerColor;
+
+        var taskSpinnerColor = ResolvePlanSpinnerColor();
+        foreach (var spinner in _taskSpinnersById.Values)
+            spinner.AccentColor = taskSpinnerColor;
+    }
+
     private static FrameworkElement BuildApprovalSummaryPanel(
         Plan plan,
         IReadOnlyDictionary<string, int> levels,

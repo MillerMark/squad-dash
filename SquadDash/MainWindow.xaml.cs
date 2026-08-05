@@ -40213,6 +40213,9 @@ public partial class MainWindow : Window
         foreach (var inboxWin in _openInboxWindows)
             inboxWin.NotifyThemeChanged();
 
+        foreach (var (_, planWin) in _openPlanViewerWindows)
+            planWin.NotifyThemeChanged();
+
         // Refresh the scrollbar corner rectangle in floating log/tool windows.
         _traceWindow?.NotifyThemeChanged();
         _loopOutputWindow?.NotifyThemeChanged();
