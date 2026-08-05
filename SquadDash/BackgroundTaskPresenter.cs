@@ -173,6 +173,20 @@ internal sealed class BackgroundTaskPresenter {
             if (!ShouldPromoteRestoredBackgroundReport(thread))
                 continue;
 
+            // If the report is already persisted on a coordinator turn but the
+            // thread was never marked as announced, heal the state and skip the
+            // duplicate button.  This covers threads that completed while a prompt
+            // was running, were deferred, and the app closed before the deferral ran.
+            if (string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse) &&
+                _hasVisibleOrPersistedAgentReport?.Invoke(thread) == true) {
+                thread.LastCoordinatorAnnouncedResponse = thread.LatestResponse;
+                _persistAgentThreadSnapshot(thread);
+                SquadDashTrace.Write(
+                    "Agents",
+                    $"BackgroundReport.AlreadyPersisted thread={thread.ThreadId} reason={NormalizePromotionReason(reason)}");
+                continue;
+            }
+
             if (TryPromoteBackgroundAgentReportToCoordinator(
                     thread,
                     "restored-background-report:" + reason,
