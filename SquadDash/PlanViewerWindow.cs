@@ -1785,14 +1785,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     // DropShadowEffect doesn't blur the avatar image content.
                     // The backing needs a solid fill for DropShadowEffect to cast from;
                     // the chip sits on top and covers it — only the glow extends beyond.
+                    var chipBorder = (Border)chip;
                     var glowBacking = new Border
                     {
-                        Width = ((Border)chip).Width,
-                        Height = ((Border)chip).Height,
-                        CornerRadius = ((Border)chip).CornerRadius,
+                        Width = chipBorder.Width + 6,
+                        Height = chipBorder.Height + 6,
+                        CornerRadius = chipBorder.CornerRadius,
                         Background = new SolidColorBrush(glowColor) { Opacity = 0.6 },
-                        Margin = ((Border)chip).Margin,
+                        Margin = new Thickness(
+                            chipBorder.Margin.Left - 3,
+                            chipBorder.Margin.Top - 3,
+                            chipBorder.Margin.Right - 3,
+                            chipBorder.Margin.Bottom - 3),
                         Visibility = Visibility.Collapsed,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
                     };
                     var chipWrapper = new Grid();
                     chipWrapper.Children.Add(glowBacking);
@@ -1812,7 +1819,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 {
                                     Color = glowColor,
                                     ShadowDepth = 0,
-                                    BlurRadius = 18,
+                                    BlurRadius = 24,
                                     Opacity = 0.95,
                                 };
                             }
