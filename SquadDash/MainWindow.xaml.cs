@@ -33434,13 +33434,28 @@ public partial class MainWindow : Window
                 foreach (var r in turn.AgentReports)
                     referencedPaths.Add(r.ReportPath);
 
+        // Only recover reports newer than the oldest persisted turn.
+        // Older reports belonged to turns that were trimmed by the 200-turn cap —
+        // they are not crash-orphaned and should not re-appear as buttons.
+        var oldestTurnTime = _conversationManager.ConversationState.Turns.Count > 0
+            ? _conversationManager.ConversationState.Turns[0].Timestamp
+            : DateTimeOffset.MaxValue;
+
+        var renderedCount = 0;
         foreach (var file in Directory.EnumerateFiles(reportsDir, "*.md"))
         {
             if (referencedPaths.Contains(file))
                 continue;
+            var fileTime = new DateTimeOffset(File.GetCreationTimeUtc(file), TimeSpan.Zero);
+            if (fileTime < oldestTurnTime)
+                continue;
             var agentLabel = TryReadAgentLabelFromReport(file) ?? Path.GetFileNameWithoutExtension(file);
             AppendAgentReportButton(agentLabel, file);
+            renderedCount++;
         }
+
+        if (renderedCount > 0)
+            SquadDashTrace.Write("Agents", $"RenderOrphanedAgentReports rendered={renderedCount}");
     }
 
     private static string? TryReadAgentLabelFromReport(string reportPath)
