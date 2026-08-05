@@ -8,14 +8,10 @@ internal static class PlanExecutionContextBuilder
     internal static string Build(Plan plan, PlanTask currentTask)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("## Plan intent and current task contract");
+        builder.AppendLine("## Plan intent and connected execution context");
         builder.AppendLine();
         builder.AppendLine($"Plan: **{plan.Title}** (`{plan.PlanId}`)");
         builder.AppendLine($"Guiding intent: {plan.Summary}");
-        builder.AppendLine();
-        builder.AppendLine($"Current task: **{currentTask.Title ?? currentTask.TaskId}** (`{currentTask.TaskId}`)");
-        builder.AppendLine(currentTask.Description);
-
         var ancestors = GetAncestors(plan, currentTask);
         if (ancestors.Count > 0)
         {
@@ -40,6 +36,10 @@ internal static class PlanExecutionContextBuilder
             }
         }
 
+        builder.AppendLine();
+        builder.AppendLine("### Current task contract");
+        builder.AppendLine($"Current task: **{currentTask.Title ?? currentTask.TaskId}** (`{currentTask.TaskId}`)");
+        builder.AppendLine(currentTask.Description);
         builder.AppendLine();
         builder.AppendLine("Implement this task as part of that larger intent. Preserve accepted upstream contracts, " +
                            "integrate with their actual production surfaces, and do not claim work that the repository evidence does not support.");

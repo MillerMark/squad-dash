@@ -36,6 +36,8 @@ internal sealed class PlanTaskScrutinyTests
         Assert.That(text, Does.Contain("Created the production source and exposed its contract"));
         Assert.That(text, Does.Contain("src/Source.cs"));
         Assert.That(text, Does.Contain("Wire consumer"));
+        Assert.That(text.IndexOf("Created the production source and exposed its contract", StringComparison.Ordinal),
+            Is.LessThan(text.IndexOf("### Current task contract", StringComparison.Ordinal)));
     }
 
     [Test]
