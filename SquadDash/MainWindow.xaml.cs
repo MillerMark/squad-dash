@@ -22816,6 +22816,47 @@ public partial class MainWindow : Window
             await _simulationSessionManager.EndSessionAsync(sessionId);
         });
 
+        // ── Tour session cleanup (fires on ANY tour exit path) ────────────
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            // Clean up simulation-backed Plan session
+            if (_simulatedPlanSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedPlanSessionId;
+                _simulatedPlanSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            // Clean up simulation-backed Notes session
+            if (_simulatedNotesSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedNotesSessionId;
+                _simulatedNotesSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
+        _guidedTourController.RegisterTourSessionCleanup(() =>
+        {
+            // Clean up the legacy CreateTourNote item
+            if (_tourNoteItem is not null && _notesStore is not null)
+            {
+                var note = _tourNoteItem;
+                _tourNoteItem = null;
+                _noteItems.RemoveAll(n => n.Id == note.Id);
+                _notesStore.DeleteContent(note.Id);
+                _notesStore.SaveAll(_noteItems);
+                _notesPanel?.Refresh(_noteItems);
+
+                if (_documentationModeEnabled)
+                    SetDocumentationMode(false, persistChange: false);
+            }
+            return Task.CompletedTask;
+        });
+
         // ── Notes Panel tour commands ──────────────────────────────────────
         _guidedTourCoordinator.CommandRegistry.Register("ShowNotesPanel", () =>
         {

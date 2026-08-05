@@ -23,6 +23,7 @@ internal sealed class GuidedTourController
     private FrmUltimateCallout?      _activeCallout;
     private FrmGuidedTourStepEditor? _activeEditor;
     private readonly List<string>    _tourInjectedThreadIds = new();
+    private readonly List<Func<Task>> _tourSessionCleanupCallbacks = new();
 
     // Callbacks wired by MainWindow
     private readonly Func<string, FrameworkElement?>      _elementLocator;
@@ -155,6 +156,14 @@ internal sealed class GuidedTourController
     /// <summary>Registers a thread ID that was created by a tour injection command and should be finalized when the tour ends.</summary>
     public void TrackInjectedThread(string threadId) =>
         _tourInjectedThreadIds.Add(threadId);
+
+    /// <summary>
+    /// Registers an async cleanup callback that runs whenever the active tour ends (regardless of exit path).
+    /// Callbacks are invoked in registration order after <c>commandsAfter</c> and before layout restoration.
+    /// Each callback is responsible for checking whether its cleanup is actually needed (idempotent).
+    /// </summary>
+    public void RegisterTourSessionCleanup(Func<Task> cleanup) =>
+        _tourSessionCleanupCallbacks.Add(cleanup);
 
     /// <summary>Starts the tour at step 0, saving the current layout as a restore point.</summary>
     public void StartTour(GuidedTour tour, List<GuidedTour>? allTours = null)
@@ -839,6 +848,11 @@ internal sealed class GuidedTourController
         if (wasActive)
             foreach (var cmd in commandsAfter ?? [])
                 await (_commandRegistry?.ExecuteAsync(cmd) ?? Task.CompletedTask);
+
+        // Run registered session cleanup callbacks (idempotent — each checks its own state).
+        if (wasActive)
+            foreach (var cleanup in _tourSessionCleanupCallbacks)
+                await cleanup();
 
         if (wasActive)
         {
