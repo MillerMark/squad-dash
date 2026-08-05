@@ -8,10 +8,31 @@ internal sealed record PlanPreflightRecoveryContent(
     string Summary,
     string ChangedFilesSummary,
     string RecoveryGuidance,
-    string TechnicalDetails)
+    string TechnicalDetails,
+    string? ClipboardTechnicalDetails = null)
 {
     internal string ClipboardText =>
-        $"{Title}\n\n{Summary}\n\n{RecoveryGuidance}\n\n{TechnicalDetails}";
+        $"{Title}\n\n{Summary}\n\n{RecoveryGuidance}\n\n{ClipboardTechnicalDetails ?? TechnicalDetails}";
+
+    private const int MaxVisibleChangedPaths = 3;
+
+    private static string FormatChangedPaths(IReadOnlyList<string> changedPaths, bool capForDisplay)
+    {
+        if (changedPaths.Count == 0)
+            return "No changed paths were reported.";
+
+        var visibleCount = capForDisplay
+            ? Math.Min(MaxVisibleChangedPaths, changedPaths.Count)
+            : changedPaths.Count;
+        var lines = changedPaths
+            .Take(visibleCount)
+            .Select(path => $"• {path}")
+            .ToList();
+        var remaining = changedPaths.Count - visibleCount;
+        if (remaining > 0)
+            lines.Add($"+ {remaining} more {(remaining == 1 ? "file" : "files")}");
+        return string.Join("\n", lines);
+    }
 
     internal static PlanPreflightRecoveryContent From(PlanPreflightBlockedException exception)
     {
@@ -19,13 +40,16 @@ internal sealed record PlanPreflightRecoveryContent(
             ? "the requested plan"
             : $"branch '{exception.TargetBranch}'";
         var count = exception.ChangedPaths.Count;
-        var files = count == 0
-            ? "No changed paths were reported."
-            : string.Join("\n", exception.ChangedPaths.Select(path => $"• {path}"));
+        var files = FormatChangedPaths(exception.ChangedPaths, capForDisplay: true);
+        var allFiles = FormatChangedPaths(exception.ChangedPaths, capForDisplay: false);
         var details =
             $"Condition: {exception.Condition}\n" +
             $"Target: {target}\n" +
             $"Changed files: {count}\n\n{files}";
+        var clipboardDetails =
+            $"Condition: {exception.Condition}\n" +
+            $"Target: {target}\n" +
+            $"Changed files: {count}\n\n{allFiles}";
 
         return new PlanPreflightRecoveryContent(
             "Plan not started",
@@ -35,7 +59,8 @@ internal sealed record PlanPreflightRecoveryContent(
             files,
             "Review these changes, then commit or stash them and select Retry. " +
             "SquadDash will not discard or carry uncommitted work automatically.",
-            details);
+            details,
+            clipboardDetails);
     }
 
     internal static PlanPreflightRecoveryContent FromRework(
@@ -44,14 +69,18 @@ internal sealed record PlanPreflightRecoveryContent(
         string taskTitle)
     {
         var count = exception.ChangedPaths.Count;
-        var files = count == 0
-            ? "No changed paths were reported."
-            : string.Join("\n", exception.ChangedPaths.Select(path => $"• {path}"));
+        var files = FormatChangedPaths(exception.ChangedPaths, capForDisplay: true);
+        var allFiles = FormatChangedPaths(exception.ChangedPaths, capForDisplay: false);
         var details =
             $"Condition: {exception.Condition}\n" +
             $"Plan: {planTitle}\n" +
             $"Reopened task: {taskTitle}\n" +
             $"Changed files: {count}\n\n{files}";
+        var clipboardDetails =
+            $"Condition: {exception.Condition}\n" +
+            $"Plan: {planTitle}\n" +
+            $"Reopened task: {taskTitle}\n" +
+            $"Changed files: {count}\n\n{allFiles}";
 
         return new PlanPreflightRecoveryContent(
             "Rework ready — execution paused",
@@ -60,7 +89,8 @@ internal sealed record PlanPreflightRecoveryContent(
             files,
             "Review these changes, then commit or stash them and select Resume Rework. " +
             "The change request and reopened task are already preserved; resuming will not submit them again.",
-            details);
+            details,
+            clipboardDetails);
     }
 
     internal static PlanPreflightRecoveryContent FromAmendment(
@@ -69,14 +99,18 @@ internal sealed record PlanPreflightRecoveryContent(
         string amendmentTitle)
     {
         var count = exception.ChangedPaths.Count;
-        var files = count == 0
-            ? "No changed paths were reported."
-            : string.Join("\n", exception.ChangedPaths.Select(path => $"• {path}"));
+        var files = FormatChangedPaths(exception.ChangedPaths, capForDisplay: true);
+        var allFiles = FormatChangedPaths(exception.ChangedPaths, capForDisplay: false);
         var details =
             $"Condition: {exception.Condition}\n" +
             $"Plan: {planTitle}\n" +
             $"Amendment: {amendmentTitle}\n" +
             $"Changed files: {count}\n\n{files}";
+        var clipboardDetails =
+            $"Condition: {exception.Condition}\n" +
+            $"Plan: {planTitle}\n" +
+            $"Amendment: {amendmentTitle}\n" +
+            $"Changed files: {count}\n\n{allFiles}";
 
         return new PlanPreflightRecoveryContent(
             "Amendment ready — execution paused",
@@ -85,7 +119,8 @@ internal sealed record PlanPreflightRecoveryContent(
             files,
             "Review these changes, then commit or stash them and select Resume Amendment. " +
             "The completed tasks and amendment instructions are already preserved.",
-            details);
+            details,
+            clipboardDetails);
     }
 }
 

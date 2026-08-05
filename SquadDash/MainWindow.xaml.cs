@@ -8778,8 +8778,7 @@ public partial class MainWindow : Window
         BlockCollection blocks,
         Func<Task<bool>>? retryOverride = null,
         Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent>? contentFactory = null,
-        string retryLabel = "Retry",
-        Action? viewPlan = null)
+        string retryLabel = "Retry")
     {
         foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
                      block.Tag is PlanPreflightRecoveryTag tag &&
@@ -8788,23 +8787,50 @@ public partial class MainWindow : Window
 
         var content = (contentFactory ?? PlanPreflightRecoveryContent.From)(exception);
         var stack = new StackPanel();
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition());
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var title = new TextBlock
         {
             Text = content.Title,
             FontWeight = FontWeights.SemiBold,
+            FontSize = _transcriptFontSize,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
-        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
-        stack.Children.Add(title);
+        header.Children.Add(title);
+
+        var copyTip = new ToolTip { Content = "Copy details", Placement = PlacementMode.Bottom };
+        var copyButton = new Button
+        {
+            Content = "📋",
+            ToolTip = copyTip,
+            FontSize = _transcriptFontSize,
+            Width = 26,
+            Height = 22,
+            Padding = new Thickness(0),
+            Margin = new Thickness(8, 0, 0, 0),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        copyButton.SetResourceReference(Control.ForegroundProperty, "PlanPreflightWarningText");
+        copyButton.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
+        System.Windows.Automation.AutomationProperties.SetName(copyButton, "Copy details");
+        Grid.SetColumn(copyButton, 1);
+        header.Children.Add(copyButton);
+        stack.Children.Add(header);
 
         var summary = new TextBlock
         {
             Text = content.Summary,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 6),
+            FontSize = _transcriptFontSize,
         };
         summary.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
-        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(summary);
 
         var files = new TextBlock
@@ -8812,9 +8838,9 @@ public partial class MainWindow : Window
             Text = content.ChangedFilesSummary,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6),
+            FontSize = _transcriptFontSize,
         };
         files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
-        files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         stack.Children.Add(files);
 
         var detailsText = new TextBlock
@@ -8822,13 +8848,21 @@ public partial class MainWindow : Window
             Text = content.TechnicalDetails,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(8, 4, 0, 6),
+            FontSize = _transcriptFontSize,
         };
         detailsText.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
+        var detailsHeader = new TextBlock
+        {
+            Text = "Technical details",
+            FontSize = _transcriptFontSize,
+        };
+        detailsHeader.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         var details = new Expander
         {
-            Header = "Technical details",
+            Header = detailsHeader,
             Content = detailsText,
             Margin = new Thickness(0, 0, 0, 6),
+            FontSize = _transcriptFontSize,
         };
         details.SetResourceReference(Expander.ForegroundProperty, "PlanPreflightWarningText");
         if (TryFindResource("TranscriptExpanderStyle") is Style transcriptExpanderStyle)
@@ -8845,21 +8879,19 @@ public partial class MainWindow : Window
         readiness.FontSize = _transcriptFontSize;
         stack.Children.Add(readiness);
 
-        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
-        var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _transcriptFontSize);
-        var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _transcriptFontSize);
-        var retryButton = TranscriptQuickReplyFactory.CreateButton(retryLabel, _transcriptFontSize);
-        var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _transcriptFontSize);
-        buttons.Children.Add(viewButton);
-        if (viewPlan is not null)
+        var utilities = new TextBlock
         {
-            var viewPlanButton = TranscriptQuickReplyFactory.CreateButton("View Plan", _transcriptFontSize);
-            viewPlanButton.Click += (_, _) => viewPlan();
-            buttons.Children.Add(viewPlanButton);
-        }
-        buttons.Children.Add(copyButton);
+            FontSize = _transcriptFontSize,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        var viewChangesLink = new Hyperlink(new Run("View changes")) { Cursor = Cursors.Hand };
+        viewChangesLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        utilities.Inlines.Add(viewChangesLink);
+        stack.Children.Add(utilities);
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var retryButton = TranscriptQuickReplyFactory.CreateButton(retryLabel, _transcriptFontSize);
         buttons.Children.Add(retryButton);
-        buttons.Children.Add(dismissButton);
         stack.Children.Add(buttons);
 
         var card = new Border
@@ -8879,20 +8911,19 @@ public partial class MainWindow : Window
         blocks.Add(container);
         sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 
-        viewButton.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
+        viewChangesLink.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
         copyButton.Click += (_, _) =>
         {
             SetClipboardTextWithRetry(content.ClipboardText);
             readiness.Text = "Details copied to the clipboard.";
-        };
-        dismissButton.Click += (_, _) =>
-        {
-            if (blocks.Contains(container)) blocks.Remove(container);
-            if (sourceActionsPanel is not null)
+            copyTip.Content = "Copied!";
+            var copyFeedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+            copyFeedbackTimer.Tick += (_, _) =>
             {
-                sourceActionsPanel.IsEnabled = true;
-                sourceActionsPanel.Visibility = Visibility.Visible;
-            }
+                copyTip.Content = "Copy details";
+                copyFeedbackTimer.Stop();
+            };
+            copyFeedbackTimer.Start();
         };
         retryButton.Click += async (_, _) =>
         {
@@ -8916,7 +8947,7 @@ public partial class MainWindow : Window
                 if (blocks.Contains(container)) blocks.Remove(container);
                 ShowTranscriptPlanPreflightRecovery(
                     plan, action, branchOverride, blocked, sourceActionsPanel, blocks,
-                    retryOverride, contentFactory, retryLabel, viewPlan);
+                    retryOverride, contentFactory, retryLabel);
             }
             catch (Exception ex)
             {
@@ -12010,12 +12041,7 @@ public partial class MainWindow : Window
                     exception,
                     pausedPlan.Title,
                     reopenedTaskTitle),
-                retryLabel: "Resume Rework",
-                viewPlan: () =>
-                {
-                    var latest = _planStore?.Load(pausedPlan.PlanId) ?? pausedPlan;
-                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(latest), latest);
-                });
+                retryLabel: "Resume Rework");
         }
         catch (Exception ex)
         {
@@ -12161,12 +12187,7 @@ public partial class MainWindow : Window
                     exception,
                     pausedPlan.Title,
                     amendmentTask.Title ?? amendmentTask.TaskId),
-                retryLabel: "Resume Amendment",
-                viewPlan: () =>
-                {
-                    var latest = _planStore?.Load(pausedPlan.PlanId) ?? pausedPlan;
-                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(latest), latest);
-                });
+                retryLabel: "Resume Amendment");
         }
         catch (Exception ex)
         {
@@ -44814,12 +44835,7 @@ public partial class MainWindow : Window
                         latest.Title,
                         taskTitle)
                     : null,
-                retryLabel: isAmendmentPause ? "Resume Amendment" : isReworkPause ? "Resume Rework" : "Resume Plan",
-                viewPlan: () =>
-                {
-                    var current = _planStore?.Load(latest.PlanId) ?? latest;
-                    OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(current), current);
-                });
+                retryLabel: isAmendmentPause ? "Resume Amendment" : isReworkPause ? "Resume Rework" : "Resume Plan");
         }
         catch (Exception ex)
         {

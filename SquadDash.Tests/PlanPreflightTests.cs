@@ -34,6 +34,37 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void RecoveryContent_CapsVisiblePathsButCopiesEveryPath()
+    {
+        var paths = new[]
+        {
+            "src/One.cs",
+            "src/Two.cs",
+            "src/Three.cs",
+            "src/Four.cs",
+            "src/Five.cs",
+        };
+        var exception = new PlanPreflightBlockedException(
+            "Uncommitted changes", paths, "feature/recovery");
+
+        var content = PlanPreflightRecoveryContent.FromAmendment(
+            exception,
+            "Build guided-tour fixtures",
+            "Clean up fixtures on every exit");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.ChangedFilesSummary, Does.Contain("src/One.cs"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain("src/Three.cs"));
+            Assert.That(content.ChangedFilesSummary, Does.Not.Contain("src/Four.cs"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain("+ 2 more files"));
+            Assert.That(content.TechnicalDetails, Does.Not.Contain("src/Five.cs"));
+            Assert.That(content.ClipboardText, Does.Contain("src/Four.cs"));
+            Assert.That(content.ClipboardText, Does.Contain("src/Five.cs"));
+        });
+    }
+
+    [Test]
     public void ReworkRecoveryContent_ExplainsThatReopenIsPreservedAndOffersResume()
     {
         var exception = new PlanPreflightBlockedException(
