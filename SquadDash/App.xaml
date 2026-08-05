@@ -10,6 +10,7 @@
                 <ResourceDictionary Source="Themes/Light.xaml" />
                 <ResourceDictionary Source="Themes/ToolIcons.xaml" />
                 <ResourceDictionary Source="Themes/ValidationShields.xaml" />
+                <ResourceDictionary Source="Themes/TaskStatusIcons.xaml" />
                 <ResourceDictionary Source="Themes/ImageEditorIcons.xaml" />
             </ResourceDictionary.MergedDictionaries>
 

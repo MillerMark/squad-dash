@@ -50,6 +50,13 @@
     <SolidColorBrush x:Key="NeedsRevalidationBorder" Color="#705500"/>
     <SolidColorBrush x:Key="NeedsRevalidationIcon"   Color="#FFE389"/>
 
+    <SolidColorBrush x:Key="TaskFailedFill"                Color="#FF7575"/>
+    <SolidColorBrush x:Key="TaskSucceededFill"             Color="#97FFBF"/>
+    <SolidColorBrush x:Key="TaskAwaitingHumanReviewFill"   Color="#705500"/>
+    <SolidColorBrush x:Key="TaskAwaitingHumanReviewIcon"   Color="#FFE389"/>
+    <SolidColorBrush x:Key="TaskPartiallyCompleteBorder"   Color="#3B7953"/>
+    <SolidColorBrush x:Key="TaskPartiallyCompleteFill"     Color="#97FFBF"/>
+
     <SolidColorBrush x:Key="ValidationFailedFill"    Color="#FF7575"/>
     <SolidColorBrush x:Key="ValidationFailedIcon"    Color="#000000"/>
 

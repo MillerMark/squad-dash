@@ -1452,23 +1452,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     return "• " + (label.Length > 60 ? label[..60] + "…" : label);
                 }).ToArray();
 
-            string? statusChipText = isTaskExecuting ? null : durableTask?.Status switch
+            string? taskIconKey = isTaskExecuting ? null : durableTask?.Status switch
             {
                 PlanTaskStatus.Complete   or
-                PlanTaskStatus.Superseded => "✓ ",
-                PlanTaskStatus.Failed     => "✖ ",
-                PlanTaskStatus.Partial    => "~ ",
-                PlanTaskStatus.HumanReviewRequired => "! ",
-                _                        => null,
-            };
-            string? statusChipFgKey = durableTask?.Status switch
-            {
-                PlanTaskStatus.Complete   or
-                PlanTaskStatus.Superseded => "PriorityLow",
-                PlanTaskStatus.Executing  => "ActivePanelTitle",
-                PlanTaskStatus.Failed     => "PriorityHigh",
-                PlanTaskStatus.Partial    => "PriorityMid",
-                PlanTaskStatus.HumanReviewRequired => "PriorityHigh",
+                PlanTaskStatus.Superseded => "TaskSucceeded",
+                PlanTaskStatus.Failed     => "TaskFailed",
+                PlanTaskStatus.Partial    => "TaskPartiallyComplete",
+                PlanTaskStatus.HumanReviewRequired => "TaskAwaitingHumanReview",
                 _                        => null,
             };
             string borderColorKey = durableTask?.Status switch
@@ -1522,64 +1512,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 titleRow.Children.Add(spinner);
                 spinner.Pulse(SpinnerActivityKind.Thinking);
             }
-            else if (statusChipText is "✓ " && statusChipFgKey is not null)
+            else if (taskIconKey is not null &&
+                     Application.Current?.TryFindResource(taskIconKey) is Viewbox)
             {
-                var squareSize = 14 * _scaleFactor;
-                var inset = 3.25 * _scaleFactor;
-                var canvas2 = new Canvas { Width = squareSize, Height = squareSize };
-
-                var square = new Rectangle
+                var iconViewbox = (Viewbox)Application.Current.FindResource(taskIconKey);
+                var iconSize = 14 * _scaleFactor;
+                iconViewbox.Width = iconSize;
+                iconViewbox.Height = iconSize;
+                var iconWrapper = new Border
                 {
-                    Width = squareSize,
-                    Height = squareSize,
-                    StrokeThickness = 1.5,
-                    Fill = Brushes.Transparent,
-                };
-                square.SetResourceReference(Shape.StrokeProperty, "SubtleBorder");
-                canvas2.Children.Add(square);
-
-                var line1 = new Line
-                {
-                    X1 = inset, Y1 = inset,
-                    X2 = squareSize - inset, Y2 = squareSize - inset,
-                    StrokeThickness = 2 * _scaleFactor,
-                };
-                line1.SetResourceReference(Shape.StrokeProperty, "ImportantText");
-                canvas2.Children.Add(line1);
-
-                var line2 = new Line
-                {
-                    X1 = squareSize - inset, Y1 = inset,
-                    X2 = inset, Y2 = squareSize - inset,
-                    StrokeThickness = 2 * _scaleFactor,
-                };
-                line2.SetResourceReference(Shape.StrokeProperty, "ImportantText");
-                canvas2.Children.Add(line2);
-
-                var chipWrapper = new Border
-                {
-                    Child = canvas2,
+                    Child = iconViewbox,
                     VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 1, 4, 0),
+                    Margin = new Thickness(0, 2, 4, 0),
                 };
-                Grid.SetColumn(chipWrapper, 0);
-                titleRow.Children.Add(chipWrapper);
-            }
-            else if (statusChipText is not null && statusChipFgKey is not null)
-            {
-                var chip = new TextBlock
-                {
-                    Text              = statusChipText,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin            = new Thickness(0, 1, 2, 0),
-                    FontWeight        = FontWeights.SemiBold,
-                };
-                chip.SetResourceReference(TextBlock.ForegroundProperty, statusChipFgKey);
-                chip.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                if (statusChipText is "! ")
-                    chip.LayoutTransform = new ScaleTransform(1.5, 1.5);
-                Grid.SetColumn(chip, 0);
-                titleRow.Children.Add(chip);
+                Grid.SetColumn(iconWrapper, 0);
+                titleRow.Children.Add(iconWrapper);
             }
             Grid.SetColumn(nodeTitle, 1);
             titleRow.Children.Add(nodeTitle);
