@@ -349,6 +349,8 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private string? _pendingApprovalCalloutMessageId;
     private (string PlanId, string GateId)? _deferredApprovalCallout;
+    private DispatcherTimer? _deferredApprovalCalloutTimer;
+    private bool _deferredApprovalCalloutEvaluationRunning;
     private readonly HashSet<string> _shownApprovalCalloutMessageIds = new(StringComparer.Ordinal);
     private FrmUltimateCallout? _approvalAttentionCallout;
     private DeveloperApprovalSimulator? _developerApprovalSimulator;
@@ -1909,6 +1911,10 @@ public partial class MainWindow : Window
     {
         try
         {
+            SquadDashTrace.Write("Approval",
+                $"MainWindow_Activated entered deferred={_deferredApprovalCallout is not null} "
+                + $"wpfIsActive={IsActive} {WindowHelper.DescribeForegroundOwnership()}.");
+
             // Re-sync scroll state on every activation so that an RDP reconnect —
             // which can leave the transcript viewport at the top without firing the
             // events that normally show/hide the scroll-to-bottom button — is corrected
@@ -1920,6 +1926,14 @@ public partial class MainWindow : Window
             // a lightweight async re-check on every activation.
             _ = RefreshBranchIfChangedAsync();
 
+            // WPF can raise Activated before Win32 GetForegroundWindow has finished moving
+            // foreground ownership during a mouse-click activation. Yield through the input
+            // transition, then revalidate using the real foreground process. The display path
+            // performs the same check again, so a quick switch away remains safe.
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+            SquadDashTrace.Write("Approval",
+                $"MainWindow_Activated settled deferred={_deferredApprovalCallout is not null} "
+                + $"wpfIsActive={IsActive} {WindowHelper.DescribeForegroundOwnership()}.");
             await TryShowDeferredApprovalCalloutAsync();
 
             if (!_pendingPowerShellInstallRecheck)
@@ -11235,14 +11249,14 @@ public partial class MainWindow : Window
 
             // Never hold startup or approval processing open waiting for foreground activation.
             // Remember only durable IDs; MainWindow_Activated will reload and revalidate them.
-            if (!IsActive)
+            if (!WindowHelper.IsCurrentProcessForeground())
             {
-                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
-                SquadDashTrace.Write("Approval", $"Callout deferred until activation plan={plan.PlanId} gate={gate.GateId}.");
+                DeferApprovalCallout(plan.PlanId, gate.GateId);
+                SquadDashTrace.Write("Approval", $"Callout deferred until SquadDash owns the foreground window plan={plan.PlanId} gate={gate.GateId}.");
                 return;
             }
 
-            _deferredApprovalCallout = null;
+            ClearDeferredApprovalCallout();
             _pendingApprovalCalloutMessageId = messageId;
 
             if (_inboxPanel?.PanelVisible == true)
@@ -11251,7 +11265,7 @@ public partial class MainWindow : Window
                 if (_approvalAttentionCallout is not null)
                     _shownApprovalCalloutMessageIds.Add(messageId);
                 else
-                    _deferredApprovalCallout = (plan.PlanId, gate.GateId);
+                    DeferApprovalCallout(plan.PlanId, gate.GateId);
                 return;
             }
 
@@ -11275,7 +11289,7 @@ public partial class MainWindow : Window
             if (menuTarget is null)
             {
                 _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
-                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
+                DeferApprovalCallout(plan.PlanId, gate.GateId);
                 SquadDashTrace.Write("Approval", "Inbox menu item was not rendered after opening the Panels menu; approval callout deferred.");
                 return;
             }
@@ -11290,7 +11304,7 @@ public partial class MainWindow : Window
                 _shownApprovalCalloutMessageIds.Add(messageId);
             if (menuCallout is null)
             {
-                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
+                DeferApprovalCallout(plan.PlanId, gate.GateId);
                 _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
             }
             else
@@ -11310,13 +11324,21 @@ public partial class MainWindow : Window
 
     private async Task TryShowDeferredApprovalCalloutAsync()
     {
+        SquadDashTrace.Write("Approval",
+            $"Deferred callout evaluation entered deferred={_deferredApprovalCallout is not null} "
+            + $"planStoreReady={_planStore is not null} {WindowHelper.DescribeForegroundOwnership()}.");
+
         if (_deferredApprovalCallout is not { } deferred || _planStore is null)
+        {
+            SquadDashTrace.Write("Approval", "Deferred callout evaluation skipped: no deferred request or plan store not ready.");
             return;
+        }
 
         var messageId = DurableApprovalRequestManager.BuildMessageId(deferred.PlanId);
         if (_shownApprovalCalloutMessageIds.Contains(messageId))
         {
-            _deferredApprovalCallout = null;
+            ClearDeferredApprovalCallout();
+            SquadDashTrace.Write("Approval", $"Deferred callout evaluation skipped: message already shown message={messageId}.");
             return;
         }
 
@@ -11326,12 +11348,56 @@ public partial class MainWindow : Window
             candidate.Status == PlanGateStatus.AwaitingApproval);
         if (plan is null || gate is null || plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval)
         {
-            _deferredApprovalCallout = null;
+            ClearDeferredApprovalCallout();
             SquadDashTrace.Write("Approval", $"Deferred callout no longer eligible plan={deferred.PlanId} gate={deferred.GateId}.");
             return;
         }
 
         await TryShowApprovalCalloutAsync(plan, gate);
+    }
+
+    private void DeferApprovalCallout(string planId, string gateId)
+    {
+        _deferredApprovalCallout = (planId, gateId);
+        if (_deferredApprovalCalloutTimer is null)
+        {
+            _deferredApprovalCalloutTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200)
+            };
+            _deferredApprovalCalloutTimer.Tick += async (_, _) =>
+            {
+                if (_deferredApprovalCalloutEvaluationRunning ||
+                    _deferredApprovalCallout is null ||
+                    !WindowHelper.IsCurrentProcessForeground())
+                    return;
+
+                _deferredApprovalCalloutEvaluationRunning = true;
+                try
+                {
+                    SquadDashTrace.Write("Approval",
+                        $"Deferred callout foreground watcher triggered {WindowHelper.DescribeForegroundOwnership()}.");
+                    await TryShowDeferredApprovalCalloutAsync();
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("Approval", $"Deferred callout foreground watcher failed: {ex.Message}");
+                }
+                finally
+                {
+                    _deferredApprovalCalloutEvaluationRunning = false;
+                }
+            };
+        }
+
+        if (!_deferredApprovalCalloutTimer.IsEnabled)
+            _deferredApprovalCalloutTimer.Start();
+    }
+
+    private void ClearDeferredApprovalCallout()
+    {
+        _deferredApprovalCallout = null;
+        _deferredApprovalCalloutTimer?.Stop();
     }
 
     private bool TryActivateValidationForNextIteration(Plan plan)
@@ -11393,11 +11459,11 @@ public partial class MainWindow : Window
         // Menu opening and row layout both yield to the dispatcher before reaching here.
         // SquadDash may lose foreground activation during those awaits, so this is the
         // authoritative display-time check rather than relying only on the caller's check.
-        if (!IsActive)
+        if (!WindowHelper.IsCurrentProcessForeground())
         {
             _approvalAttentionCallout?.Close();
             _approvalAttentionCallout = null;
-            SquadDashTrace.Write("Approval", "Callout suppressed because SquadDash is inactive at display time.");
+            SquadDashTrace.Write("Approval", "Callout suppressed because another process owns the foreground window at display time.");
             return;
         }
 
@@ -11418,6 +11484,8 @@ public partial class MainWindow : Window
         {
             _approvalAttentionCallout.ForceTopmost = true;
             _approvalAttentionCallout.Topmost = true;
+            SquadDashTrace.Write("Approval",
+                $"Approval callout displayed {WindowHelper.DescribeForegroundOwnership()}.");
         }
     }
 
@@ -17504,6 +17572,11 @@ public partial class MainWindow : Window
     {
         try
         {
+            SquadDashTrace.Write("Approval",
+                $"MainWindow_Deactivated entered calloutVisible={_approvalAttentionCallout is not null} "
+                + $"deferred={_deferredApprovalCallout is not null} wpfIsActive={IsActive} "
+                + $"{WindowHelper.DescribeForegroundOwnership()}.");
+
             // Approval callouts are intentionally topmost while SquadDash is active. Dismiss
             // them as soon as another application takes focus so they cannot cover that app.
             // If one was already displayed its in-memory shown marker prevents another cue.
