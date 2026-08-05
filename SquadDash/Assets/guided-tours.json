@@ -1551,13 +1551,14 @@
         "commandAfter": "",
         "commandsBefore": [
           "OpenMenu: PanelsMenuItem",
-          "HighlightMenuItem: ViewNotesMenuItem",
-          "ShowNotesPanel"
+          "HighlightMenuItem: ViewNotesMenuItem"
         ],
-        "commandsAfter": [],
+        "commandsAfter": [
+          "UnhighlightMenuItems"
+        ],
         "advanceTrigger": "",
-        "requiredContext": "TargetIsVisible",
-        "requiredContextValue": true,
+        "requiredContext": "IsPanelVisible: Notes",
+        "requiredContextValue": false,
         "targetOffsetX": 0.5,
         "targetOffsetY": 0.5
       },
@@ -1570,7 +1571,7 @@
         "commandBefore": "",
         "commandAfter": "",
         "commandsBefore": [
-          "UnhighlightMenuItems"
+          "ShowNotesPanel"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -1582,14 +1583,12 @@
       {
         "title": "Creating a New Note",
         "markdownText": "**Right-click** inside the panel to create a new note.\r\nWe\u0027ll create a sample note for you now.",
-        "targetControlId": "NotesListPanel",
+        "targetControlId": "NotesPanelBorder",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [
-          "CreateTourNote"
-        ],
+        "commandsBefore": [],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",
@@ -1615,13 +1614,15 @@
       },
       {
         "title": "Opening in the Editor",
-        "markdownText": "**Click** a note to open it in the **editor**.",
+        "markdownText": "This is the note we created.",
         "targetControlId": "DocMarkdownViewer",
         "calloutPlacement": "West",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
-        "commandsBefore": [],
+        "commandsBefore": [
+          "CreateTourNote"
+        ],
         "commandsAfter": [],
         "advanceTrigger": "",
         "requiredContext": "",

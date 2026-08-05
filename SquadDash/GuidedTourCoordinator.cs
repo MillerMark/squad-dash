@@ -100,6 +100,14 @@ internal sealed class GuidedTourCoordinator
     internal event Action<string>? PreferencePageSelected { add => _preferencePageSelected += value; remove => _preferencePageSelected -= value; }
     internal void RaisePreferencePageSelected(string page) => _preferencePageSelected?.Invoke(page);
 
+    private Action<string>? _toolPanelShown;
+    internal event Action<string>? ToolPanelShown { add => _toolPanelShown += value; remove => _toolPanelShown -= value; }
+    internal void RaiseToolPanelShown(string panelId) => _toolPanelShown?.Invoke(panelId);
+
+    private Action<string>? _toolPanelClosed;
+    internal event Action<string>? ToolPanelClosed { add => _toolPanelClosed += value; remove => _toolPanelClosed -= value; }
+    internal void RaiseToolPanelClosed(string panelId) => _toolPanelClosed?.Invoke(panelId);
+
     internal GuidedTourCoordinator(
         Dispatcher dispatcher,
         Func<bool> isIntelliSensePopupOpen,

@@ -7240,6 +7240,7 @@ public partial class MainWindow : Window
         SyncSendButton();
         LoopPanelBorder.Visibility = _loopPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("loop", _loopPanelVisible);
+        NotifyToolPanelVisibilityChanged("loop", _loopPanelVisible);
         UpdateMainGridSideMargins();
 
         bool running = IsLoopRunning;
@@ -7406,6 +7407,7 @@ public partial class MainWindow : Window
         if (TasksPanelBorder is null) return;
         TasksPanelBorder.Visibility = _tasksPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("tasks", _tasksPanelVisible);
+        NotifyToolPanelVisibilityChanged("tasks", _tasksPanelVisible);
         UpdateMainGridSideMargins();
         if (_tasksPanelVisible)
             LoadTasksPanel();
@@ -21430,6 +21432,28 @@ public partial class MainWindow : Window
             new SecondaryTranscriptCollapsedToOneAdvanceTrigger(
                 addHandler:    h => _guidedTourCoordinator.SecondaryTranscriptCollapsedToOne += h,
                 removeHandler: h => _guidedTourCoordinator.SecondaryTranscriptCollapsedToOne -= h));
+
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
+            "ToolPanelShown",
+            new ToolPanelVisibilityAdvanceTrigger(
+                addHandler:    h => _guidedTourCoordinator.ToolPanelShown += h,
+                removeHandler: h => _guidedTourCoordinator.ToolPanelShown -= h),
+            hasParameter: true);
+
+        _guidedTourCoordinator.AdvanceTriggerRegistry.Register(
+            "ToolPanelClosed",
+            new ToolPanelVisibilityAdvanceTrigger(
+                addHandler:    h => _guidedTourCoordinator.ToolPanelClosed += h,
+                removeHandler: h => _guidedTourCoordinator.ToolPanelClosed -= h),
+            hasParameter: true);
+    }
+
+    private void NotifyToolPanelVisibilityChanged(string panelId, bool visible)
+    {
+        if (visible)
+            _guidedTourCoordinator?.RaiseToolPanelShown(panelId);
+        else
+            _guidedTourCoordinator?.RaiseToolPanelClosed(panelId);
     }
 
     private void RegisterTourContexts()
@@ -43075,6 +43099,7 @@ public partial class MainWindow : Window
         if (ApprovalPanelBorder is null) return;
         ApprovalPanelBorder.Visibility = _approvalPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("approvals", _approvalPanelVisible);
+        NotifyToolPanelVisibilityChanged("approvals", _approvalPanelVisible);
         UpdateMainGridSideMargins();
         if (_approvalPanelVisible && _approvalPanel is null)
         {
@@ -44395,6 +44420,7 @@ public partial class MainWindow : Window
         if (NotesPanelBorder is null) return;
         NotesPanelBorder.Visibility = _notesPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("notes", _notesPanelVisible);
+        NotifyToolPanelVisibilityChanged("notes", _notesPanelVisible);
         UpdateMainGridSideMargins();
         if (_notesPanelVisible && _notesPanel is null)
         {
@@ -44447,6 +44473,7 @@ public partial class MainWindow : Window
         PlansPanelBorder.Visibility = _plansPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.EnsurePanelSlot("plans");
         _dockingService?.OnPanelVisibilityChanged("plans", _plansPanelVisible);
+        NotifyToolPanelVisibilityChanged("plans", _plansPanelVisible);
         UpdateMainGridSideMargins();
         if (!_plansPanelVisible) return;
 
@@ -44470,6 +44497,7 @@ public partial class MainWindow : Window
                     PlansPanelBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
                     _dockingService?.EnsurePanelSlot("plans");
                     _dockingService?.OnPanelVisibilityChanged("plans", visible);
+                    NotifyToolPanelVisibilityChanged("plans", visible);
                     UpdateMainGridSideMargins();
                 },
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
@@ -45062,6 +45090,7 @@ public partial class MainWindow : Window
         if (CodeHealthPanelBorder is null) return;
         CodeHealthPanelBorder.Visibility = _codeHealthPanelVisible ? Visibility.Visible : Visibility.Collapsed;
         _dockingService?.OnPanelVisibilityChanged("maintenance", _codeHealthPanelVisible);
+        NotifyToolPanelVisibilityChanged("maintenance", _codeHealthPanelVisible);
         UpdateMainGridSideMargins();
         if (!_codeHealthPanelVisible) return;
 
@@ -45185,6 +45214,7 @@ public partial class MainWindow : Window
                                         if (InboxPanelBorder is null) return;
                                         InboxPanelBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
                                         _dockingService?.OnPanelVisibilityChanged("inbox", visible);
+                                        NotifyToolPanelVisibilityChanged("inbox", visible);
                                         UpdateMainGridSideMargins();
                                     },
             flashPanel:             () => {
@@ -48362,6 +48392,7 @@ public partial class MainWindow : Window
                     {
                         InboxPanelBorder.Visibility = Visibility.Collapsed;
                         _dockingService?.OnPanelVisibilityChanged("inbox", false);
+                        NotifyToolPanelVisibilityChanged("inbox", false);
                         UpdateMainGridSideMargins();
                     }
                 }

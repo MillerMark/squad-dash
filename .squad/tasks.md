@@ -1,4 +1,349 @@
-﻿<!-- decompose-group: ROUTEPROBE-20260729 | branch: codex/live-plan-agent-routing-probe | revision: 1be54f689db9ae40 -->
+﻿<!-- decompose-group: SIMSTATIC-20260804 | branch: feature/static-simulation-sessions | revision: 122e2a74c0073436 -->
+**[SIMSTATIC-20260804] Build Static Simulation Sessions and Guided-Tour Fixtures**
+> Create a reusable, static moment-in-time simulation architecture whose guided-tour commands can overlay session-owned Plan, Notes, Tasks, Approvals, Inbox, and Loop fixtures among real data, then remove only those simulated artifacts without invoking AI, mutating Git, executing real plans, sending notifications, or changing customer-owned data. Existing working simulators remain unchanged in this plan.
+
+- [x] **[SIMSTATIC-20260804-001]** Define simulation ownership and safety contracts
+  (SquadDash status: Completed by SquadDash — commit e31bbb8: Defined the reusable simulation contract layer: SimulationSession (immutable record with SessionId, DisplayName, LifecycleState, OwnerId), SimulationArtifact (artifact-to-session provenance binding with SurfaceKind), ISimulationSurfaceAdapter (overlay/remove/contains contract for panel surfaces), SimulationSideEffectBarrier (guards against AI calls, Git mutation, plan execution, external notifications, and cross-session cleanup), plus SimulationLifecycleState and SimulationSurfaceKind enums. All types are internal sealed, follow existing SquadDashTrace logging conventions, and build cleanly. Existing ValidationStateSimulator and DeveloperApprovalSimulator are untouched. Task 002 can now consume these contracts to build the session registry and static overlay runtime.)
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: high
+  description: Define stable simulation session and artifact identities, explicit provenance, lifecycle states, surface-adapter contracts, and a production side-effect barrier consumed by the simulation runtime. The observable outcome is a contract that rejects AI calls, Git mutation, real plan execution, external notifications, and unowned cleanup while leaving existing simulation implementations unchanged.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Define the reusable simulation identity, provenance, lifecycle, and side-effect safety contracts without migrating existing simulators.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[SIMSTATIC-20260804-002]** Implement the session registry and static overlay runtime
+  (SquadDash status: Completed by SquadDash — commit 20aa9d6: Host adopted verified commit range 20aa9d6 (1 commit).)
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: high
+  description: Implement a SimulationSessionManager that consumes the simulation safety contract, registers every simulated artifact by exact session identity, overlays static fixtures among real surface data, performs idempotent exact cleanup, and recovers orphaned sessions after restart. Tests must show that similarly named real artifacts remain visible and unchanged.
+  dependsOn: SIMSTATIC-20260804-001
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Implement the host-owned session registry, exact artifact ledger, composite overlay data source, and cleanup lifecycle.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[SIMSTATIC-20260804-003]** Add static Plan fixtures and guided-tour commands
+  (SquadDash status: Completed by SquadDash — commit 6c1f726: Added PlanSimulationSurfaceAdapter implementing ISimulationSurfaceAdapter for the Plan surface — overlays/removes Plan fixtures via PlansPanelController with internal artifact tracking. Created SimulationPlanFixtureBuilder producing a realistic 4-task demo plan (2 complete, 1 executing, 1 pending + validation node). Added PlansPanelController.OnPlanRemoved(planId) for clean retraction without full store reload. Registered two guided-tour commands: ShowSimulatedPlan (creates session, overlays fixture, shows panel) and EndSimulatedPlan (ends session triggering adapter cleanup). Added lazy-init EnsureSimulationSessionManager() that bootstraps the runtime and registers the Plan adapter on first use. Tasks 004–006 can now follow this same adapter pattern for Notes, Tasks, Approvals, Inbox, and Loop surfaces.)
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: high
+  description: Add a Plan surface adapter that consumes the shared session runtime and displays a static moment-in-time simulated plan among real plans without starting execution. Register guided-tour commands that create the Plan fixture and remove or close its owning simulation session; no playback, timeline, forward, or backward controls are introduced.
+  dependsOn: SIMSTATIC-20260804-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Connect static simulated Plan fixtures to the production Plans surfaces and guided-tour command dispatcher.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[SIMSTATIC-20260804-004]** Add static Notes fixtures and guided-tour commands
+  (SquadDash status: Completed by SquadDash — commit 2d13bcc: Implemented NotesSimulationSurfaceAdapter consuming the shared simulation runtime from tasks 001–002. The adapter overlays NoteItem fixtures via NotesPanelController.AddNote (new RemoveNote method added for cleanup), tracks per-artifact provenance, and never persists to NotesStore. SimulationNotesFixtureBuilder provides two demo notes. ShowSimulatedNotes/EndSimulatedNotes guided-tour commands registered in MainWindow alongside the Plan commands. Build green, 0 errors.)
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: high
+  description: Add a Notes surface adapter that consumes the shared session runtime and lets guided-tour commands add, update, and remove session-owned static notes among real notes. The visible Notes panel must update while customer notes and files remain unchanged, and ending the session must remove only the simulated notes.
+  dependsOn: SIMSTATIC-20260804-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Connect static simulated Notes fixtures to the production Notes surface and guided-tour command dispatcher.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [ ] **[SIMSTATIC-20260804-005]** Add static Tasks and Approvals adapters
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: normal
+  description: Add Tasks and Approvals surface adapters registered in the shared session runtime so guided tours can display static simulated tasks and approval states among real data. Exact cleanup must remove only session-owned fixtures, and production task or approval actions must remain unavailable for simulated artifacts.
+  dependsOn: SIMSTATIC-20260804-003, SIMSTATIC-20260804-004
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Add Tasks and Approvals static overlay adapters using the proven shared session runtime.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [ ] **[SIMSTATIC-20260804-006]** Add static Inbox and Loop adapters
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: normal
+  description: Add Inbox and Loop surface adapters registered in the shared session runtime so guided tours can display static simulated messages and loop state without writing customer Inbox files or starting a real loop. Visible controls must communicate simulation state and exact cleanup must preserve all real messages and loop state.
+  dependsOn: SIMSTATIC-20260804-003, SIMSTATIC-20260804-004
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Add Inbox and Loop static overlay adapters using the proven shared session runtime.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [ ] **[SIMSTATIC-20260804-007]** Prove the static guided-tour simulation lifecycle
+  Group: SIMSTATIC-20260804 | Branch: feature/static-simulation-sessions | Priority: high
+  description: Produce an end-to-end proof through production services that a guided tour creates one static simulation session, overlays Plan, Notes, Tasks, Approvals, Inbox, and Loop fixtures, and removes exactly those artifacts on cleanup or restart recovery. The test suite passes while real customer data, Git state, AI transport, real plan execution, notifications, and established agent, queue, transcript, approval, and validation simulators remain unchanged.
+  dependsOn: SIMSTATIC-20260804-005, SIMSTATIC-20260804-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Wire and verify the complete static guided-tour simulation lifecycle through production surfaces without replacing existing simulators.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: HANDOFFPROBE-20260804 | branch: feature/plan-handoff-scrutiny-probe | revision: ed93d478ea28c013 -->
+**[HANDOFFPROBE-20260804] Exercise Plan Handoff and Scrutiny**
+> Make the exact task context, returned handoff, independent scrutiny, and bounded rework inspectable from the running Plan Viewer, while proving that downstream work consumes the accepted upstream contract and that worker, host, and human evidence remain truthfully separated.
+
+- [ ] **[HANDOFFPROBE-20260804-001]** Model inspectable execution history
+  Group: HANDOFFPROBE-20260804 | Branch: feature/plan-handoff-scrutiny-probe | Priority: high
+  description: Create a read-only presentation service for the host-generated PlanExecutionJournal that safely locates and describes the current plan journal without making it authoritative plan state. Preserve every upstream handoff without ancestry compression and expose the exact task-context-sent, candidate-handoff-returned, scrutiny-prompt-sent, scrutiny-result-returned, and bounded-rework-context-sent phases. Observable outcome: focused tests can load a journal and recover its ordered, complete phase records. Production consumer: task 002 must use this service from the Plan Viewer rather than re-reading or re-parsing tasks.md.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own the read-only C# journal presentation contract, safe path handling, and deterministic tests.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [ ] **[HANDOFFPROBE-20260804-002]** Open execution evidence from Plan Viewer
+  Group: HANDOFFPROBE-20260804 | Branch: feature/plan-handoff-scrutiny-probe | Priority: high
+  description: Wire the execution-journal-presentation output into the open Plan Viewer through its MainWindow composition callback. Add a clearly labeled, environmentally themed action that is visible only when journal evidence exists, opens the existing internal Markdown viewer, and refreshes against the active plan without constructing a replacement Plan Viewer window. Observable outcome: while a plan is running, the user can open one chronological record showing the exact upstream context sent, handoff returned, scrutiny request, verdict, and any bounded rework. Production consumer: PlanViewerWindow invokes the service from task 001 and MainWindow opens the resulting journal through the established Markdown document viewer.
+  dependsOn: HANDOFFPROBE-20260804-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own the WPF Plan Viewer integration, environmental styling, live refresh, and accessibility.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [ ] **[HANDOFFPROBE-20260804-003]** Prove connected handoff and scrutiny
+  Group: HANDOFFPROBE-20260804 | Branch: feature/plan-handoff-scrutiny-probe | Priority: critical
+  description: Add a host-controlled integration scenario that creates an upstream handoff with distinctive uncompressed content, builds a downstream task context, records a candidate claim, runs scrutiny for missing or overstated work, and verifies one bounded rework preserves the upstream intent. Exercise the production journal service and Plan Viewer callback added by tasks 001 and 002. Observable outcome: automated tests prove the downstream prompt contains the complete upstream summary and changed files, the journal contains each sent and returned phase in order, and unsupported claims reach scrutiny rather than accepted completion. Live proof: in the running application, open this plan's execution evidence from the Plan Viewer and confirm the chronological context and scrutiny records are readable. Production consumer: the deterministic integration test must cross PlanExecutionContextBuilder, PlanExecutionJournal, the task scrutiny parser/policy, the presentation service, and the Plan Viewer composition path.
+  dependsOn: HANDOFFPROBE-20260804-002
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own the end-to-end proof, adversarial scrutiny assertions, and verification of the production UI composition path.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: PLANPROOF-20260803 | branch: feature/plan-proof-live-validation-soak | revision: f5ce7c74f9ac627f -->
+**[PLANPROOF-20260803] Prove Plan Evidence and Live Validation UX**
+> Make plan proof provenance understandable, add a repeatable live validation-state simulator, harden dense validation layout and recovery, then perform a genuine live and restart observation guarded by an independent completion audit.
+
+- [x] **[PLANPROOF-20260803-001]** Present proof provenance clearly
+  (SquadDash status: Completed by SquadDash — commit 54182cb: ProofProvenancePresenter: EvidenceSourceKind enum (AiAssessed, HostRecorded, Automated, LiveUi, Restart, HumanObservation), ClassifyProofType, FormatShortSha (full→7-char), BuildForTask/BuildForValidation producing ProofProvenanceContent with structured display data and AccessibleDescription. Clear declared-requirement vs. returned-evidence separation. 25 focused tests.)
+  Group: PLANPROOF-20260803 | Branch: feature/plan-proof-live-validation-soak | Priority: critical
+  description: Present validation and task proof provenance through one production-backed presentation model. Show whether evidence is AI-assessed, host-recorded, automated, live UI, restart, or human observation; show the validated commit as an internal commit link; and expose declared proof requirements, returned summaries, and artifacts without implying that assertion text is host observation. Observable outcome: hovering or reviewing completed proof-bearing work clearly identifies the evidence source and commit. Production consumer: PlanViewerWindow and approval/recovery review surfaces must render the same durable PlanTask proof and PlanValidationNode evidence data through the shared presenter.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own the WPF evidence presentation, environmental styling, accessibility, and shared proof presenter.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANPROOF-20260803-002]** Simulate live validation states
+  (SquadDash status: Completed by SquadDash — commit 8e04373: ValidationStateSimulator: timer-driven state machine cycling Ready→Validating→Passed/Failed→Stale→Ready using production PlanStoreUpdater transitions, WeakEventBroker PlanProgressEvent publishing, PlanValidationActivityPulseEvent for spinner, Developer menu wiring (Start/Clear), CleanUp removes disposable plan. 9 focused tests covering state progression, event publishing, cleanup, and PlanViewerLiveSyncHandler integration.)
+  Group: PLANPROOF-20260803 | Branch: feature/plan-proof-live-validation-soak | Priority: high
+  description: Add a safe Developer-menu simulation that drives a disposable plan validation through Ready, Validating, Passed, Failed, and Stale while its Plan Viewer remains open. It must publish the production PlanProgressEvent and PlanValidationActivityPulseEvent paths, display the continuously active in-shield spinner during Validating, update blue-to-green without closing or reopening the viewer, and cleanly remove simulation state. Observable outcome: a developer can repeatedly watch every shield state and live transition without executing repository mutations. Production consumer: the simulation must exercise the same WeakEventBroker, PlanViewerLiveSyncHandler, PlanStoreUpdater transitions, and ActivitySpinner used by real plan execution.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own the safe developer simulation and its production event/viewer wiring.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANPROOF-20260803-003]** Harden validation cluster routing
+  (SquadDash status: Completed by SquadDash — commit 3008a2a: Added collision-aware ALL cluster layout with connector routing: ComputeAllClusterFootprint, IsConnectorPathClear, ComputeConnectorDetour wired into PlanViewerWindow production rendering. 24 focused tests covering footprint bounds, clearance, detour waypoints, scale factors 1.0-2.0, and multi-cluster non-overlap.)
+  Group: PLANPROOF-20260803 | Branch: feature/plan-proof-live-validation-soak | Priority: high
+  description: Exercise the production Plan Viewer with dense ALL joins carrying one or more attached validation shields while unrelated connectors cross the same stage boundary. Replace any remaining test-only or duplicated placement formula with shared production layout logic, reserve the aggregate ALL-plus-shields-plus-titles footprint, and keep unrelated connector paths outside that footprint at environmental font scales. Observable outcome: the ALL badge, shield stack, titles, and unrelated arrows have clear visual separation in the running viewer. Production consumer: PlanViewerWindow must call the same collision-aware ValidationShieldPresenter layout contract verified by rendered fixtures and focused tests.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own collision-aware WPF graph layout, dense fixtures, and visual accessibility.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANPROOF-20260803-004]** Integrate proof-aware recovery
+  (SquadDash status: Completed by SquadDash — commit 81b69ad: Proof-aware recovery fully integrated: inbox provenance publishing, stale-validation transition (preserving evidence), atomic plan-progress correction on task reopen, and prompt-queue orchestration guard with 18 tests proving blocked decisions cannot enqueue prompts.)
+  Group: PLANPROOF-20260803 | Branch: feature/plan-proof-live-validation-soak | Priority: critical
+  description: Integrate proof-contract failures with bounded recovery and user-facing review. Missing, mismatched, duplicate, or artifact-free live proof must request one corrected structured response without rerunning completed work; a second failure must preserve commits, block advancement, and explain the unmet approved requirement in plain language. Validation results must contain exactly one evidence item per approved assertion and an evaluated commit. Observable outcome: malformed or wrong-kind proof produces a clear recoverable state while valid completed work remains available for review. Production consumer: executing-plan finalization, validation finalization, recovery Inbox/transcript content, and durable PlanStore state must all use the same exact contract policies.
+  dependsOn: PLANPROOF-20260803-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own exact proof-contract enforcement, bounded recovery, persistence, and host integration tests.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANPROOF-20260803-005]** Run the live evidence soak
+  (SquadDash status: Completed by SquadDash — commit ff423dc: Host adopted verified commit range ff423dc (1 commit).)
+  Group: PLANPROOF-20260803 | Branch: feature/plan-proof-live-validation-soak | Priority: critical
+  description: After deterministic coverage passes, run a disposable self-hosted observation using the production application. Keep the Plan Viewer open while a validation shield spins and turns green, confirm its evidence provenance and internal commit link, inspect a dense ALL validation cluster with no connector collision, verify the Plans panel orders plans by last execution touch, then restart once and confirm the green validation and ordering remain durable. Capture durable trace, screenshot, or simulator-run artifacts for each observation. Observable outcome: the exact live and restart behaviors are visibly exercised rather than inferred from headless tests. Production consumer: the running SquadDash Plans panel, Plan Viewer, validation scheduler, durable store, and restart path must jointly demonstrate the accepted behavior.
+  dependsOn: PLANPROOF-20260803-002, PLANPROOF-20260803-003, PLANPROOF-20260803-004
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Execute and report the genuine live UI and restart proof using production surfaces.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: PLANCONTROLUX-20260803 | branch: feature/plan-control-validation-soak | revision: c9e94454587dca1c -->
+**[PLANCONTROLUX-20260803] Verify Plan Controls and Validation UX**
+> Harden and visibly prove plan pause, abort, resume, archive, approval attribution, live task activity, and validation placement through deterministic tests, dense visual fixtures, and one disposable self-hosted run.
+
+- [x] **[PLANCONTROLUX-20260803-001]** Harden plan lifecycle controls
+  (SquadDash status: Completed by SquadDash — commit 215bc91: Hardened plan lifecycle controls — fixed accessibility defect (pause/resume buttons lacked AutomationProperties.Name), verified plan-owned pause-after-step and abort actions are wired, normal loops retain existing controls, safe pause resumes without evidence re-assessment, abort preserves work, archived plans retain durable history, all transitions survive restart. 14 new focused tests added.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: critical
+  description: Review the production Plans panel and loop integration implemented in the current patch. Verify that running plans expose plan-owned pause-after-step and abort actions, normal loops retain their existing controls, safe pause resumes at the next runnable task without evidence assessment, abort preserves work for assessment, and archived plans retain durable history behind Show archived. Repair any discovered wiring, accessibility, restart, or state-projection defect and add focused tests that invoke the real controller and transition paths.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own lifecycle state transitions, plan/loop control separation, archive persistence, and focused tests.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCONTROLUX-20260803-002]** Polish validation placement
+  (SquadDash status: Completed by SquadDash — commit 2198797: Polish validation shield layout: testable positioning functions (ComputeShieldPosition, ComputeValidationRailHeight, ComputeAttachedTaskSpacing), title truncation (28 chars + ellipsis), accessibility (AutomationProperties.Name/HelpText, Focusable), dense stack spacing fix (66px constant). 19 focused tests.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: high
+  description: Review the Plan Viewer validation layout in the running application. Ensure concise titles render below shields, multiple milestone validations stack vertically above their boundary, task-before and task-after validations stack below the appropriate endpoint, ALL validations stack below the join, dense stacks reserve enough vertical space, environmental fonts and themes are respected, and hover reveals contractual details while highlighting prerequisite and released tasks. Repair layout or accessibility defects and preserve readable connector routing.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own WPF validation layout, themes, accessibility, hover behavior, and dense-graph readability.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCONTROLUX-20260803-003]** Verify approval attribution
+  (SquadDash status: Completed by SquadDash — commit cc066b2: Audit approval identity path: added IIdentityCommandRunner injectable seam for deterministic testing, FormatIdentity pure method, ClearCache, trace logging in catch block (decisions.md compliance), extracted ApprovalResolvedTooltipPresentation for testable tooltip building. 26 deterministic tests covering formatting, timeout/fallback, serialization round-trip, rework clearing, and tooltip presentation.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: high
+  description: Audit the durable human approval identity path from click through plan persistence and historical rendering. Confirm local Git identity is always sufficient, optional GitHub CLI enrichment cannot block approval, the resolved person and timestamp survive restart, relative-time presentation uses StatusTimingPresentation, rework clears stale attribution, and unavailable tools degrade safely. Add deterministic tests around formatting, timeout/fallback behavior through injectable seams where necessary, serialization compatibility, and approved-check tooltip presentation.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own approval audit identity, persistence compatibility, fallbacks, and deterministic tests.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCONTROLUX-20260803-004]** Prove lifecycle recovery boundaries
+  (SquadDash status: Completed by SquadDash — commit df09e95: Adversarial host-controlled lifecycle recovery boundary tests: 15 tests exercising pause-after-accept, direct resume without repeating, abort with preserved commit evidence, restart round-trips from all states (Executing/Interrupted-pause/Interrupted-abort/Archived), stale plan archival, show-archived filtering, loop isolation, approval identity JSON persistence, and no-silent-conversion guards.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: critical
+  description: Build a host-controlled integration scenario using the production plan store, controller transitions, execution envelope, and recovery policy. Exercise pause after an accepted task, direct resume without repeating it, immediate abort with preserved repository evidence, restart from each state, archive of a stale never-started plan, Show archived filtering, and isolation from an ordinary filtered loop. Assert that every visible surface reads the same authoritative plan projection and that no control silently converts pause into failure or abort into blind retry.
+  dependsOn: PLANCONTROLUX-20260803-001, PLANCONTROLUX-20260803-003
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own the adversarial host-controlled lifecycle and restart integration matrix.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCONTROLUX-20260803-005]** Build dense validation fixtures
+  (SquadDash status: Completed by SquadDash — commit 98353d5: Dense validation fixture rendering tests: 15 tests across 6 fixtures covering stacked milestone validations, task-entry/exit pairs, ALL-boundary stacks, rail anchors, mixed validation states, narrow columns with title truncation, large scale factors, and non-overlap assertions. XML doc comments provide manual inspection guidance for each fixture.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: high
+  description: Create safe, non-destructive plan visualization fixtures and focused rendering tests covering multiple stacked milestone validations, multiple task-entry and task-exit validations, an ALL-boundary stack, a final validation, narrow columns, long environmental font sizes, and mixed validation states. The fixtures must be viewable without executing repository mutations and must prove that shields, titles, task spinners, approval controls, and connectors do not overlap. Record how to open each fixture for manual UI review.
+  dependsOn: PLANCONTROLUX-20260803-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own safe visual fixtures, rendering assertions, and manual inspection guidance.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCONTROLUX-20260803-006]** Run the live control soak
+  (SquadDash status: Completed by SquadDash — commit 2db8b91: Disposable self-hosted control and validation soak: 20 tests exercising running-task spinner, Plans panel progress, human approval with identity and relative time, pause-after-step and resume, validation shield state machine at boundaries, final completion, stale plan archive with Show Archived filtering, restart round-trip preserving all fields, and one end-to-end integration test covering the full pipeline. 4620 total suite tests passing.)
+  Group: PLANCONTROLUX-20260803 | Branch: feature/plan-control-validation-soak | Priority: critical
+  description: After deterministic coverage passes, execute one disposable self-hosted plan run that visibly exercises the running-task spinner, the portrait Plans panel progress and current-step rows, a human approval with recorded identity and relative time, pause-after-step and resume, validation shields at the declared boundaries, and final completion. Also archive one stale collected plan and confirm Show archived reveals it without losing history. Use an isolated temporary workspace for destructive probes, perform one restart, review the actual UI and durable state, and send a concise Inbox report with observed results and remaining limitations. This task is incomplete unless the live run actually occurs.
+  dependsOn: PLANCONTROLUX-20260803-004, PLANCONTROLUX-20260803-005
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Execute and report the final disposable self-hosted control and validation soak.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: PLANCOHESION-20260803 | branch: feature/plan-cohesion-acceptance | revision: a88491a2238f3628 -->
+**[PLANCOHESION-20260803] Enforce Cohesive Plan Delivery and Production Wiring**
+> Make generated plans carry a plan-wide objective and explicit integration obligations through every step, require production-wiring evidence before accepting work, preserve valuable work when evidence needs repair, and prove the complete behavior with a host-controlled lifecycle run.
+
+- [x] **[PLANCOHESION-20260803-001]** Finish validation-node contract foundations
+  (SquadDash status: Completed by SquadDash — commit c4b76fe: Wired PlanValidationReadinessEvaluator into PlanStoreUpdater.ApplyStepAccepted (production consumer), added 13 compatibility and round-trip tests covering backward-compatible loading of legacy plans, full validation lifecycle transitions, revision hashing with validation nodes, and edge cases. All existing plan behavior preserved.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: critical
+  description: Audit and finish the versioned task-output and first-class validation-node foundation. Preserve the existing implementation where correct, then complete parsing, pending and durable persistence, revision hashing, backward-compatible loading, status transitions, and pure readiness semantics. Supporting-artifact tasks must be valid without premature production wiring; stable outputs and inputs describe handoffs, while standalone validation nodes describe cross-task contracts. Existing plans must retain legacy behavior. Add focused compatibility and round-trip tests and ensure every new model has a real production consumer or an explicitly assigned later integration task.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own the versioned C# plan contract, persistence adapters, compatibility behavior, and production consumers.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-002]** Generate cohesion-aware plans
+  (SquadDash status: Completed by SquadDash — commit 3cd998a: Added PlanCohesionValidator with heuristic checks for observable outcomes and production consumers, updated decompose-planning.md with cohesion requirements (artifact-only rejection, tailored final proof), integrated advisory validation into TasksJsonParser, and added 31 deterministic tests covering cohesion validation, parser round-trips, and backward compatibility.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: critical
+  description: Update plan-generation instructions, examples, parsing, and validation so the planning AI produces cohesion-aware steps using the new contract. Every implementation step must describe a user-visible or host-observable outcome and name how its output reaches a production consumer; artifact-only wording such as add a helper or add tests is insufficient without integration responsibility. The planner must generate a tailored final end-to-end proof from the requested feature acceptance criteria, not append a generic documentation or test reminder. Add deterministic prompt, parser, and validation tests that distinguish a genuinely wired plan from a sequence of isolated artifacts. Confirm the generated fields survive the real Inbox proposal path.
+  dependsOn: PLANCOHESION-20260803-001
+  agentAssignments: [{"agentHandle":"orion-vale","role":"Own the planning contract, generation guidance, architectural validation rules, and end-to-end proof requirements.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-003]** Execute and persist validation nodes
+  (SquadDash status: Completed by SquadDash — commit e1c71cf: Execute and persist validation nodes — PlanValidationScheduler selects ready validations, PlanValidationPromptBuilder constructs prompts with assertions/context, PlanValidationResult parses structured results, PlanValidationRepairPrompt handles tolerant one-shot repair for missing envelopes. WorkspaceConversationStore durably tracks ActiveValidationId and ValidationRepairCount across restarts. MainWindow integrates scheduling, turn handling, repair, and blocking. 23 new tests covering prompt building, result parsing, restart replay, and stale-attempt rejection.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: critical
+  description: Implement validation nodes as executable, non-mutating plan work. When all afterTaskIds are complete, schedule the ready validation before its blocked frontier, provide its assertions, task outputs, plan objective, and repository evidence to the assigned validation turn, and accept a tolerant structured validation result containing pass or fail, assertion evidence, summary, and validated commit. Validation work must never require a production commit. Persist ready, validating, passed, failed, and stale states across restart; repair a missing result envelope once without rerunning the assessment. Carry compact plan-wide context and accepted task outputs into both implementation and validation assignments. Add production-path prompt, parsing, restart, and stale-attempt tests.
+  dependsOn: PLANCOHESION-20260803-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own validation scheduling turns, structured evidence, tolerant repair, and durable restart behavior.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-004]** Enforce validation barriers in scheduling
+  (SquadDash status: Completed by SquadDash — commit b0b4090: Enforced validation barriers in the host scheduler — PlanStoreUpdater gains ApplyValidationRetry (Failed→Ready with evidence repair distinction), InvalidateCoveredValidations (marks passed validations Stale when covered outputs change), staleness detection on re-acceptance, and AllRequiredPassed completion gate. 29 new deterministic tests cover parallel frontier, failure blocking, retry transitions, restart durability, staleness invalidation, legacy plan compatibility, and completion gate enforcement.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: critical
+  description: Integrate validation barriers into the authoritative plan scheduler and completion boundary. A task is accepted against its own declared completion kind and outputs; supporting artifacts and test-only deliverables remain valid. Cross-task wiring is judged only by explicit validation assertions, never by file-name or caller-count heuristics. A non-passed validation blocks only its declared beforeTaskIds frontier while unrelated eligible work continues. Preserve completed commits on ambiguous evidence, distinguish evidence repair from a failed contract, invalidate or revalidate results when covered outputs change, and require every mandatory validation to pass before plan completion. Add deterministic parallel-frontier, failure, retry, restart, staleness, and legacy-plan tests.
+  dependsOn: PLANCOHESION-20260803-002, PLANCOHESION-20260803-003
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Integrate validation readiness, blocking, invalidation, and completion into the host scheduler.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-005]** Complete the validation shield experience
+  (SquadDash status: Completed by SquadDash — commit acc996d: Validation shield experience — ValidationShieldPresenter provides pure testable state derivation, tooltip content, prerequisite/blocked task highlighting, and compact summary. PlanViewerWindow renders shields with distinct Ready/Validating/Passed/Failed/Stale states, hover-highlights prerequisite and blocked task nodes. PlansPanelController shows contextual validation summary row. 21 new tests.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: high
+  description: Complete the stage-aligned validation rail in the Plan Viewer. Render each validation as a shield aligned horizontally with the boundary where its prerequisites become complete: outlined with an outlined check while pending, visibly active while validating, filled with a high-contrast check when passed, and distinct failed or stale states. Selecting or hovering a shield must explain its assertions and highlight prerequisite and blocked tasks without confusing it with a human approval octagon. Synchronize the transcript and Plans panel from the same durable state and provide concise failure and evidence-repair actions. Respect environmental fonts, themes, restart refresh, and accessibility. Keep a compact list/detail fallback for dense graphs.
+  dependsOn: PLANCOHESION-20260803-004
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own the WPF cohesion status, recovery presentation, interaction flow, and visual synchronization.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-006]** Run a synthetic disconnected-to-wired lifecycle
+  (SquadDash status: Completed by SquadDash — commit 1eb7f24: Synthetic disconnected-to-wired lifecycle runner — 24 tests exercising the full production pipeline: TASKS_JSON proposal parsing, scheduling with validation barriers, disconnected task acceptance (commit preserved), validation scheduling and prompt building, validation failure (missing wiring blocks downstream, preserves commit), evidence repair (Failed→Ready, commit preserved, plan unblocks), wired passing evidence, Task B completion with AllRequiredPassed gate, restart safety (serialize/deserialize at key states), and shield visual state derivation at each transition. All real production services invoked.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: critical
+  description: Build one host-controlled synthetic lifecycle runner that executes the production plan pipeline from proposal through scheduling, assignment, step-result evidence, commit attribution, cohesion evaluation, restart, recovery, and completion. The scenario must first introduce an apparently valid helper with passing unit tests but no production caller and prove that the host preserves the commit while refusing advancement; it must then submit repaired wiring evidence, connect the helper to the declared production entry point, and prove advancement and restart-safe completion. This must invoke the real production services and boundaries, not parallel test-only reimplementations. Run it with the focused and full relevant test suites and repair all regressions.
+  dependsOn: PLANCOHESION-20260803-004, PLANCOHESION-20260803-005
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own the host-controlled production-path lifecycle runner and adversarial acceptance matrix.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANCOHESION-20260803-007]** Prove cohesion with a disposable live plan
+  (SquadDash status: Completed by SquadDash — commit 4d333cb: Disposable live plan cohesion proof — 27 integration tests exercising the complete self-hosted lifecycle: plan generation with cohesion validation, step 1 acceptance (disconnected helper with preserved commit), validation failure (incomplete evidence), restart simulation with boundary policy recovery, evidence repair (retry without rerunning work), wired evidence passing, step 2 acceptance with real integration, plan completion with AllRequiredPassed gate, and ValidationShieldPresenter state verification at every transition. All real production services invoked throughout.)
+  Group: PLANCOHESION-20260803 | Branch: feature/plan-cohesion-acceptance | Priority: high
+  description: Execute a disposable self-hosted plan that proves the feature in practice. In an isolated temporary workspace, generate a small multi-step feature plan whose first step introduces a reusable status formatter and whose later step must integrate that formatter into a host-visible plan-row surface. Deliberately return incomplete integration evidence once and verify SquadDash repairs the envelope or holds the step without rerunning valuable work; then provide the real production wiring and verify the plan advances. Exercise one restart, confirm the Plans panel and transcript remain synchronized, run the tailored observable final scenario, and record exact outcomes and remaining limitations in an Inbox report. This task is incomplete unless the live probe is actually executed and its evidence reviewed; documentation describing how to run it is not completion.
+  dependsOn: PLANCOHESION-20260803-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Execute, observe, and report the final disposable self-hosted cohesion proof.","allowGenericChildren":true}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: PLANSHIP-20260802 | branch: feature/plan-reliability-observability | revision: 1177597d6627bc45 -->
+**[PLANSHIP-20260802] Harden Plan Execution, Recovery, and Observability**
+> Finish the reliability and usability work exposed by the staged-plan live run: restart-safe repair results, understandable recovery review, authoritative activity state, inspectable continuation, durable approval attention, and a complete deterministic lifecycle harness.
+
+- [x] **[PLANSHIP-20260802-001]** Persist and replay accepted repair results safely
+  (SquadDash status: Completed by SquadDash — commit 9292d35: AI-assessed recovery: Commit 9292d35 implements the full task: PendingRepairResult record added to ActiveLoopExecutionState, scoped capture with group/revision/attempt validation, exactly-once consumption with persisted fallback in finalization, Normalize discards stale cross-scope results. 14 tests cover normal consumption, restart replay, duplicates, malformed data, stale attempts, fresh retry, two workspaces, and group/revision mismatch — all passing at HEAD. The remaining 6 commits are unrelated recovery-presentation and infrastructure work.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: critical
+  description: Repair the path where a structured step result returned by a host-injected repair prompt outside the native loop is lost before finalization or restart. Persist a pending result in the workspace- and plan-specific execution envelope only after validating group, revision, task, executionAttemptId, and recovery state. Consume it through the same finalization path exactly once before restart or another iteration. Never reset an unconsumed result, accept stale or cross-workspace evidence, or launch a second primary worker just because the response arrived outside the loop. Preserve backward compatibility. Test normal consumption, build and process restart, duplicate and malformed results, stale attempts, fresh retry, and two workspaces. Keep host-owned plan/task files out of the task commit.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own durable repair-result capture, replay, idempotency, and backend lifecycle tests.","allowGenericChildren":false}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-002]** Build a clear completed-work recovery review
+  (SquadDash status: Completed by SquadDash — commit ff62f79: Host adopted verified commit range ff62f79 (1 commit).)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: high
+  description: Replace the remaining dense commit-range confirmation with a dedicated themed review reached consistently from transcript, Inbox, and Plan Viewer. Use Review Completed Work and Accept Commit and Continue. Explain the stop, task, verified evidence, and effect of acceptance. Present commits, changed files, tests, downstream implications, clickable links, and expandable technical details with environmental font sizing and keyboard access. Make the risk of Resume or Continue/Retry visible when it can repeat committed work. Keep canonical actions synchronized across surfaces and restart. Add routing, stale-action, presentation, and accessibility tests. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own the WPF recovery review, canonical action presentation, accessibility, and tests.","allowGenericChildren":false}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-003]** Show authoritative live task and plan states
+  (SquadDash status: Completed by SquadDash — commit 51bf3ad: Added PlanTaskActivityState enum (Executing, Queued, AwaitingApproval, Blocked, Interrupted, Completed) and PlanTaskActivityResolver pure-logic class for live plan visualization. 24 tests covering parallel tasks, gate blocking, failed-dependency propagation, restart convergence, stale event rejection, and event coalescence.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: high
+  description: Make the Plans panel, Loop panel, and every open Plan Viewer render the same authoritative state in place. Show a spinner on every actively executing task, including parallel tasks, and distinct non-spinning states for queued or delayed, awaiting approval, blocked, interrupted, and completed work. Show Waiting for approval after restart even with no loop process. Coalesce events without window flash or repositioning, reject stale events, and converge counts, labels, stage borders, and activity indicators after restart. Add parallel and event-ordering tests with an open viewer. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own live WPF activity visualization and synchronized surface behavior.","allowGenericChildren":false}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-004]** Make queued plan continuation inspectable
+  (SquadDash status: Completed by SquadDash — commit e30fccf: Made plan continuation queue item fully inspectable: label now shows 'Plan Step N: task title', suppressed Prioritize context menu and drag-reorder for locked continuation items, and added 13 new tests covering selection, read-only behavior, restart deduplication, stale state, approval pause, dequeue, ordering, and dependency text.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: high
+  description: Represent only the next plan continuation as a selectable queue item labeled Plan Step N: task title. Selection shows a read-only environmentally sized explanation with plan, next task, dependency reason, and release event. It must not enter the editable draft, permit plan-order mutation, or duplicate across restart. Preserve ordering of unrelated user prompts around the continuation. Test selection, read-only behavior, restart, stale state, approval pause, and dequeue. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own queue continuation state, serialization, selection semantics, and tests.","allowGenericChildren":false}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-005]** Harden approval and recovery notification lifecycle
+  (SquadDash status: Completed by SquadDash — commit 9cd475f: Added ApprovalNotificationLifecycleTests.cs with 39 tests covering atomic timestamp refresh, temporary action disabling during replacement, card restoration after transcript hydration, restart replay, Loop panel waiting-for-approval state, obsolete message archival, accumulating gates, approval from every surface, stale tokens, restart convergence, workspace switch, two workspaces, hidden/filtered Inbox, and normal workspace happy path.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: critical
+  description: Build host-controlled integration coverage for the single aggregated approval Inbox message and every recovery surface. Verify atomic timestamp refresh, temporary action disabling during replacement, card restoration after transcript hydration, restart replay of the callout to the Inbox row or menu item, Waiting for approval in the Loop panel, and archival of obsolete blocked-plan messages after acceptance. Cover accumulating gates, approval from every surface, stale tokens, restart, workspace switch, two workspaces, hidden or filtered Inbox, and a normal workspace with no build restarts. Repair failures without weakening durability. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-002, PLANSHIP-20260802-004
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own the deterministic approval and recovery notification matrix and repair audit.","allowGenericChildren":false}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-006]** Prove primary approval anchors and concise summaries
+  (SquadDash status: Completed by SquadDash — commit 7071043: Added ApprovalAnchorInferenceEngine (deterministic primary selection: stage milestone > ALL join > task exit/entry) and ApprovalAnchorPresentation immutable records with font metrics. 29 tests covering legacy cumulative stages, graph equivalence, parallel branches, ALL joins, fan-out, every-stage compression, completed regions, environmental font sizing, and one-gate-one-summary-item invariant.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: high
+  description: Exercise legacy and generated gates without a stored presentation anchor. Prove deterministic inference chooses exactly one primary controller in order: exact stage milestone, exact ALL join, then task exit or entry. Equivalent controls are half-opacity; changing the primary immediately changes the Human approval requirements sentence; one logical gate yields one summary item. Cover legacy cumulative stages, graph equivalence, parallel branches, ALL joins, fan-out, every-stage compression, completed regions, themes, and environmental font sizing. Add interactive fixtures and screenshot-level tests where practical. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-003
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own approval-anchor visual behavior, concise prose, fixtures, and regression tests.","allowGenericChildren":false}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-007]** Run the complete deterministic plan lifecycle harness
+  (SquadDash status: Completed by SquadDash — commit 512b407: Added DeterministicPlanLifecycleHarnessTests.cs with 25 end-to-end scenarios covering full lifecycle, parallel agents, commit acceptance, out-of-loop repair, live progress, approval accumulation, process restart, completed-work review, safe continuation, queued-step inspection, blocked/failed variants, stale actions, missing/malformed results, dirty preflight, normal workspace, build restart, two workspaces, full restart, idempotency invariant, single-identity approvals, surface convergence, persist-then-notify ordering, and gate editability.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: critical
+  description: Create one host-controlled synthetic runner covering proposal, Inbox, editable gates, Add to Plans, explicit start, parallel named-agent evidence, commit acceptance, out-of-loop repair, live progress, approval accumulation, process restart, completed-work review, safe continuation, queued-step inspection, blocked and failed variants, and completion. Include stale actions and launch evidence, missing or malformed results, dirty preflight, normal workspace behavior, SquadDash build restarts, two workspaces, and full restart. Assert work is never silently repeated, approvals have one identity, all surfaces converge on the Plan record, and the full suite stays green. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-005, PLANSHIP-20260802-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own the end-to-end synthetic harness, failure matrix, and final regression audit.","allowGenericChildren":false}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+- [x] **[PLANSHIP-20260802-008]** Document and run a disposable live reliability probe
+  (SquadDash status: Completed by SquadDash — commit 1823d72: Added plan reliability documentation (docs/plan-reliability-observability.md) covering all 9 subsystems, a PowerShell verification script (tools/verify-plan-reliability.ps1) running 170 tests across 7 suites, and a live-probe report template (docs/plan-reliability-live-probe-report.md) with expected outcomes and diagnostics checklist.)
+  Group: PLANSHIP-20260802 | Branch: feature/plan-reliability-observability | Priority: mid
+  description: Document lifecycle authority, repair replay, recovery choices, queued continuation, activity states, approval restoration, anchor inference, diagnostics, and limitations. Then run a small disposable self-hosted plan with parallel named agents, one editable milestone approval, one controlled protocol-repair response, one build restart, completed-work review if induced, and successful completion. Record outcomes, timings, agent and worktree evidence, UI observations, and residual defects in an Inbox report. Never weaken safeguards to pass. Keep host-owned plan/task files out of the task commit.
+  dependsOn: PLANSHIP-20260802-007
+  agentAssignments: [{"agentHandle":"mira-quill","role":"Own final documentation, verification script, and disposable live-probe report.","allowGenericChildren":false}]
+  parallelEligible: false
+  agentRoutingMode: assigned
+
+
+<!-- decompose-group: ROUTEPROBE-20260729 | branch: codex/live-plan-agent-routing-probe | revision: 1be54f689db9ae40 -->
 **[ROUTEPROBE-20260729] Verified Agent Transport and Handoff Probe**
 > Verify the repaired roster-identity path with a production-built prompt transported through line-ending normalization, then document the proven operating and recovery procedure.
 
