@@ -1761,7 +1761,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     Orientation = Orientation.Horizontal,
                     MaxWidth = NodeWidth - 8 * _scaleFactor,
-                    ClipToBounds = true,
+                    ClipToBounds = false,
                 };
                 foreach (var assignment in task.AgentAssignments!)
                 {
