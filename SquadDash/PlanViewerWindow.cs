@@ -1039,11 +1039,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     Text = displayTitle,
                     MaxWidth = (isStageValidation ? 280 : 136) * _scaleFactor,
-                    TextWrapping = isStageValidation ? TextWrapping.NoWrap : TextWrapping.Wrap,
-                    TextTrimming = isStageValidation ? TextTrimming.CharacterEllipsis : TextTrimming.None,
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    MaxHeight = isStageValidation ? double.PositiveInfinity : 32 * _scaleFactor,
                 };
                 title.SetResourceReference(TextBlock.ForegroundProperty,
                     validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
