@@ -2632,7 +2632,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private static Color ResolvePlanSpinnerColor()
     {
-        if (Application.Current?.TryFindResource("ActivePanelTitle") is SolidColorBrush brush)
+        if (Application.Current?.TryFindResource("ValidationValidatingBorder") is SolidColorBrush brush)
             return brush.Color;
         return Colors.SteelBlue;
     }
