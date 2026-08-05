@@ -2568,6 +2568,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 VerticalAlignment = VerticalAlignment.Center,
                 AccentColor = ResolvePlanActivityColor("ValidationValidatingSpinner", Colors.SteelBlue),
                 FontSize = spinnerSize,
+                MinimumOpacity = 1.0,
                 ToolTip = ToolTipHelper.MakeThemedToolTip("Validation is actively evaluating its contract."),
             };
             spinner.SetContinuousActive(true);

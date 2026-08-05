@@ -116,6 +116,12 @@ public sealed class ActivitySpinner : FrameworkElement
     private const double DotGlowHz = 0.4165;            // glow oscillation frequency (~2× slower than before)
     private const double DotBorderFraction = 0.15;      // white border = radius * 0.15
 
+    /// <summary>
+    /// Minimum opacity floor. Shield spinners set this to 1.0 so the accent color
+    /// renders at full opacity instead of being faded by the activity-state lerp.
+    /// </summary>
+    public double MinimumOpacity { get; set; }
+
     // Accent color — set from the agent's card; fallback to SteelBlue
     public Color AccentColor { get; set; } = Colors.SteelBlue;
 
@@ -326,6 +332,8 @@ public sealed class ActivitySpinner : FrameworkElement
         var opacityDiff = _targetOpacity - _spinnerOpacity;
         var opacityStep = Math.Min(Math.Abs(opacityDiff), OpacityLerpRate * dt) * Math.Sign(opacityDiff);
         _spinnerOpacity = Math.Clamp(_spinnerOpacity + opacityStep, 0.0, 1.0);
+        if (MinimumOpacity > 0)
+            _spinnerOpacity = Math.Max(_spinnerOpacity, MinimumOpacity);
 
         // Write-dot physics ──────────────────────────────────────────────────
         var maxDotRadius = Diameter / 2.0 * MaxDotRadiusFraction;
