@@ -348,6 +348,8 @@ public partial class MainWindow : Window
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private string? _pendingApprovalCalloutMessageId;
+    private (string PlanId, string GateId)? _deferredApprovalCallout;
+    private readonly HashSet<string> _shownApprovalCalloutMessageIds = new(StringComparer.Ordinal);
     private FrmUltimateCallout? _approvalAttentionCallout;
     private DeveloperApprovalSimulator? _developerApprovalSimulator;
     private ValidationStateSimulator? _validationStateSimulator;
@@ -1917,6 +1919,8 @@ public partial class MainWindow : Window
             // an external VCS tool).  The FileSystemWatcher can miss those events, so do
             // a lightweight async re-check on every activation.
             _ = RefreshBranchIfChangedAsync();
+
+            await TryShowDeferredApprovalCalloutAsync();
 
             if (!_pendingPowerShellInstallRecheck)
                 return;
@@ -11225,44 +11229,29 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Wait until the main window is active so the callout doesn't appear
-            // over a different application that was in front during startup.
+            var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+            if (_shownApprovalCalloutMessageIds.Contains(messageId))
+                return;
+
+            // Never hold startup or approval processing open waiting for foreground activation.
+            // Remember only durable IDs; MainWindow_Activated will reload and revalidate them.
             if (!IsActive)
             {
-                var tcs = new TaskCompletionSource<bool>();
-                EventHandler? handler = null;
-                handler = (_, _) =>
-                {
-                    Activated -= handler;
-                    tcs.TrySetResult(true);
-                };
-                Activated += handler;
-
-                // Also handle the case where the window never activates (e.g. it closes).
-                EventHandler? closedHandler = null;
-                closedHandler = (_, _) =>
-                {
-                    Activated -= handler;
-                    Closed -= closedHandler;
-                    tcs.TrySetResult(false);
-                };
-                Closed += closedHandler;
-
-                var activated = await tcs.Task;
-                Closed -= closedHandler;
-                if (!activated)
-                    return;
-
-                // Let layout settle after activation.
-                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
+                SquadDashTrace.Write("Approval", $"Callout deferred until activation plan={plan.PlanId} gate={gate.GateId}.");
+                return;
             }
 
-            var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+            _deferredApprovalCallout = null;
             _pendingApprovalCalloutMessageId = messageId;
 
             if (_inboxPanel?.PanelVisible == true)
             {
                 await ShowPendingApprovalInboxRowCalloutAsync();
+                if (_approvalAttentionCallout is not null)
+                    _shownApprovalCalloutMessageIds.Add(messageId);
+                else
+                    _deferredApprovalCallout = (plan.PlanId, gate.GateId);
                 return;
             }
 
@@ -11286,6 +11275,7 @@ public partial class MainWindow : Window
             if (menuTarget is null)
             {
                 _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
                 SquadDashTrace.Write("Approval", "Inbox menu item was not rendered after opening the Panels menu; approval callout deferred.");
                 return;
             }
@@ -11296,8 +11286,11 @@ public partial class MainWindow : Window
                 menuTarget,
                 placement: CalloutPlacement.East);
             var menuCallout = _approvalAttentionCallout;
+            if (menuCallout is not null)
+                _shownApprovalCalloutMessageIds.Add(messageId);
             if (menuCallout is null)
             {
+                _deferredApprovalCallout = (plan.PlanId, gate.GateId);
                 _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
             }
             else
@@ -11313,6 +11306,32 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("Approval", $"Callout display failed: {ex.Message}");
         }
+    }
+
+    private async Task TryShowDeferredApprovalCalloutAsync()
+    {
+        if (_deferredApprovalCallout is not { } deferred || _planStore is null)
+            return;
+
+        var messageId = DurableApprovalRequestManager.BuildMessageId(deferred.PlanId);
+        if (_shownApprovalCalloutMessageIds.Contains(messageId))
+        {
+            _deferredApprovalCallout = null;
+            return;
+        }
+
+        var plan = _planStore.Load(deferred.PlanId);
+        var gate = plan?.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, deferred.GateId, StringComparison.Ordinal) &&
+            candidate.Status == PlanGateStatus.AwaitingApproval);
+        if (plan is null || gate is null || plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval)
+        {
+            _deferredApprovalCallout = null;
+            SquadDashTrace.Write("Approval", $"Deferred callout no longer eligible plan={deferred.PlanId} gate={deferred.GateId}.");
+            return;
+        }
+
+        await TryShowApprovalCalloutAsync(plan, gate);
     }
 
     private bool TryActivateValidationForNextIteration(Plan plan)
