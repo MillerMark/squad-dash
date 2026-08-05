@@ -874,8 +874,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Compute a uniform band height from the tallest stage (most tasks), extending by the
         // octagon control height above and below so the band visually connects to the stop.
+        // Use the avatar top (position.Y - avatarChipSize) as the visual ceiling so the band
+        // extends up to cover the agent avatar area.
         var octagonSize = 16 * _scaleFactor;
-        var globalBandTop = columns.SelectMany(col => col).Min(task => positions[task.Id].Y) - octagonSize;
+        var globalBandTop = columns.SelectMany(col => col).Min(task =>
+        {
+            var hasAvatars = _resolveAgentAvatar is not null &&
+                             task.AgentAssignments is { Count: > 0 };
+            var avatarHeight = hasAvatars
+                ? Math.Round(BaseNodeHeight * 0.375 * _scaleFactor)
+                : 0.0;
+            return positions[task.Id].Y - avatarHeight;
+        }) - octagonSize;
         var globalBandBottom = columns.SelectMany(col => col).Max(task => positions[task.Id].Y + NodeHeight) + octagonSize;
 
         for (var columnIndex = 0; columnIndex < columns.Length - 1; columnIndex++)
