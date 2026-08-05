@@ -9304,8 +9304,16 @@ public partial class MainWindow : Window
 
     private (ImageSource? Image, string Initial, Brush Accent)? ResolveAgentAvatarForPlanViewer(string agentHandle)
     {
+        // Plan agent handles may use the folder slug ("fact-checker") or a name-based
+        // slug ("verity-cross"). Try AccentStorageKey first, then humanized name match.
         var card = _agents.FirstOrDefault(a =>
             string.Equals(a.AccentStorageKey, agentHandle, StringComparison.OrdinalIgnoreCase));
+        if (card is null)
+        {
+            var humanized = AgentThreadRegistry.HumanizeAgentName(agentHandle);
+            card = _agents.FirstOrDefault(a =>
+                string.Equals(a.Name, humanized, StringComparison.OrdinalIgnoreCase));
+        }
         if (card is null) return null;
         return (card.AgentImageSource, card.Initial, card.EffectiveAccentBrush);
     }
