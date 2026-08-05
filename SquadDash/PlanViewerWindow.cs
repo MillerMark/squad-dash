@@ -1010,10 +1010,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var stackIndex = stackIndexes.GetValueOrDefault(stackKey);
                 stackIndexes[stackKey] = stackIndex + 1;
 
+                var isStageValidation = anchor.Kind == "stage";
+                var validationWidth = isStageValidation ? 288 * _scaleFactor : 144 * _scaleFactor;
+
                 var visual = new StackPanel
                 {
                     Orientation = Orientation.Vertical,
-                    Width = 144 * _scaleFactor,
+                    Width = validationWidth,
                     Background = Brushes.Transparent,
                     Cursor = Cursors.Hand,
                     Focusable = true,
@@ -1032,11 +1035,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var title = new TextBlock
                 {
                     Text = displayTitle,
-                    MaxWidth = 136 * _scaleFactor,
-                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = (isStageValidation ? 280 : 136) * _scaleFactor,
+                    TextWrapping = isStageValidation ? TextWrapping.NoWrap : TextWrapping.Wrap,
+                    TextTrimming = isStageValidation ? TextTrimming.CharacterEllipsis : TextTrimming.None,
                     TextAlignment = TextAlignment.Center,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    MaxHeight = 32 * _scaleFactor,
+                    MaxHeight = isStageValidation ? double.PositiveInfinity : 32 * _scaleFactor,
                 };
                 title.SetResourceReference(TextBlock.ForegroundProperty,
                     validationStatus == PlanValidationStatus.Failed ? "PriorityCritical" : "LabelText");
