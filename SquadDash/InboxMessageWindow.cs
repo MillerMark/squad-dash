@@ -328,7 +328,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// <summary>Shows a persistent, contextual recovery card for a blocked plan action.</summary>
     internal void ShowPlanPreflightRecovery(
         PlanPreflightBlockedException exception,
-        Action retry,
+        Func<Task<bool>> retry,
         Action viewChanges,
         Func<Task<bool>>? isWorkspaceClean = null)
     {
@@ -364,6 +364,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         };
         files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         stack.Children.Add(files);
 
         var details = new Expander
@@ -395,9 +398,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = BuildRecoveryButton("View Changes");
         var copyButton = BuildRecoveryButton("Copy Details");
-        var retryButton = BuildRecoveryButton("Retry");
+        var retryButton = BuildRecoveryButton(exception.RequiresRepositoryInitialization
+            ? "Initialize repository and start plan"
+            : "Retry");
         var dismissButton = BuildRecoveryButton("Keep Plan Pending");
-        buttons.Children.Add(viewButton);
+        if (!exception.RequiresRepositoryInitialization)
+            buttons.Children.Add(viewButton);
         buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
@@ -416,11 +422,27 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 readiness.Text = "The clipboard is busy. Try Copy Details again.";
             }
         };
-        retryButton.Click += (_, _) =>
+        retryButton.Click += async (_, _) =>
         {
             buttons.IsEnabled = false;
-            readiness.Text = "Checking the workspace and retrying…";
-            retry();
+            readiness.Text = exception.RequiresRepositoryInitialization
+                ? "Initializing the repository…"
+                : "Checking the workspace and retrying…";
+            try
+            {
+                if (await retry())
+                    return;
+                buttons.IsEnabled = true;
+                readiness.Text = exception.RequiresRepositoryInitialization
+                    ? "The repository was not initialized. Review the transcript and try again."
+                    : "The plan did not start. Review the workspace and retry.";
+            }
+            catch (Exception ex)
+            {
+                buttons.IsEnabled = true;
+                readiness.Text = "Retry failed. Review the error details and try again.";
+                SquadDashTrace.Write(TraceCategory.General, $"Inbox plan retry failed: {ex}");
+            }
         };
         dismissButton.Click += (_, _) => ClearPlanPreflightRecovery();
 
@@ -436,7 +458,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _preflightRecoveryHost.Content = card;
         _preflightRecoveryHost.Visibility = Visibility.Visible;
 
-        if (isWorkspaceClean is not null)
+        if (isWorkspaceClean is not null && !exception.RequiresRepositoryInitialization)
         {
             var pollInFlight = false;
             _preflightPollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };

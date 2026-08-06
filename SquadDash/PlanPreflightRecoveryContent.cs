@@ -36,6 +36,21 @@ internal sealed record PlanPreflightRecoveryContent(
 
     internal static PlanPreflightRecoveryContent From(PlanPreflightBlockedException exception)
     {
+        if (exception.RequiresRepositoryInitialization)
+        {
+            var repositoryTarget = string.IsNullOrWhiteSpace(exception.TargetBranch)
+                ? "the selected plan action"
+                : $"branch '{exception.TargetBranch}'";
+            return new PlanPreflightRecoveryContent(
+                "Git repository required",
+                "This workspace does not have an active Git branch, so SquadDash paused before starting the plan. " +
+                "No plan work was started.",
+                string.Empty,
+                "Select Initialize repository and start plan. SquadDash will initialize Git, create the initial " +
+                "commit, and then continue the interrupted plan action automatically.",
+                $"Condition: {exception.Condition}\nTarget: {repositoryTarget}");
+        }
+
         var target = string.IsNullOrWhiteSpace(exception.TargetBranch)
             ? "the requested plan"
             : $"branch '{exception.TargetBranch}'";

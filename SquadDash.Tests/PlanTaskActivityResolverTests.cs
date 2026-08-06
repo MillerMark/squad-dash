@@ -66,6 +66,17 @@ internal sealed class PlanTaskActivityResolverTests
     }
 
     [Test]
+    public void VerificationPendingTask_ResolvesWithoutActiveSpinnerState()
+    {
+        var tasks = new[] { MakeTask("t1", PlanTaskStatus.VerificationPending) };
+        var plan = MakePlan(tasks: tasks);
+
+        var result = PlanTaskActivityResolver.Resolve(plan);
+
+        Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.VerificationPending));
+    }
+
+    [Test]
     public void PendingTaskNamedByExecutingProgress_ResolvesToExecuting()
     {
         var tasks = new[] { MakeTask("t1", PlanTaskStatus.Pending) };
@@ -254,6 +265,7 @@ internal sealed class PlanTaskActivityResolverTests
     }
 
     [TestCase(PlanTaskStatus.Executing)]
+    [TestCase(PlanTaskStatus.VerificationPending)]
     [TestCase(PlanTaskStatus.Verifying)]
     [TestCase("scrutinizing")]
     [TestCase(PlanTaskStatus.Reworking)]
@@ -270,6 +282,33 @@ internal sealed class PlanTaskActivityResolverTests
         var result = PlanTaskActivityResolver.Resolve(plan);
 
         Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.Interrupted));
+    }
+
+    [TestCase("PLAN-TEST", "PLAN-TEST", "t1", "t1", true)]
+    [TestCase("PLAN-TEST", "OTHER", "t1", "t1", false)]
+    [TestCase("PLAN-TEST", "PLAN-TEST", "t2", "t1", false)]
+    [TestCase("PLAN-TEST", null, null, "t1", false)]
+    public void ActivityPulsePolicy_RequiresMatchingLiveRound(
+        string persistedPlanId,
+        string? livePlanId,
+        string? liveTargetId,
+        string targetId,
+        bool expected)
+    {
+        Assert.That(
+            PlanTaskActivityPulsePolicy.MatchesLiveTarget(
+                persistedPlanId, livePlanId, liveTargetId, targetId),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase(PlanTaskActivityState.VerificationPending, "Step 2 - Verification pending")]
+    [TestCase(PlanTaskActivityState.Verifying, "Step 2 - Verifying")]
+    [TestCase(PlanTaskActivityState.Queued, "Step 2")]
+    public void StepLabel_DescribesVerificationPhase(
+        PlanTaskActivityState activityState,
+        string expected)
+    {
+        Assert.That(PlanTaskActivityPresentation.BuildStepLabel("2", activityState), Is.EqualTo(expected));
     }
 
     // ── Plan-level resolution ────────────────────────────────────────────────

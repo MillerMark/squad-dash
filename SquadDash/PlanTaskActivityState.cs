@@ -12,6 +12,9 @@ internal enum PlanTaskActivityState
     /// <summary>Candidate work is being independently checked before acceptance.</summary>
     Verifying,
 
+    /// <summary>Candidate work is saved and waiting for its verification turn.</summary>
+    VerificationPending,
+
     /// <summary>A single bounded automatic correction is in progress.</summary>
     Reworking,
 
@@ -29,4 +32,16 @@ internal enum PlanTaskActivityState
 
     /// <summary>Task completed successfully (checkmark indicator).</summary>
     Completed,
+}
+
+internal static class PlanTaskActivityPresentation
+{
+    internal static string BuildStepLabel(
+        string stepLabel,
+        PlanTaskActivityState activityState) => activityState switch
+    {
+        PlanTaskActivityState.VerificationPending => $"Step {stepLabel} - Verification pending",
+        PlanTaskActivityState.Verifying => $"Step {stepLabel} - Verifying",
+        _ => $"Step {stepLabel}",
+    };
 }

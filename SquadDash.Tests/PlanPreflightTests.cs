@@ -10,6 +10,29 @@ namespace SquadDash.Tests;
 internal sealed class PlanPreflightTests
 {
     [Test]
+    public void RepositoryRequired_OffersInitializationAndAutomaticPlanContinuation()
+    {
+        var exception = new PlanPreflightBlockedException(
+            PlanPreflightBlockedException.RepositoryInitializationRequiredCondition,
+            [],
+            "feature/calculator");
+
+        var content = PlanPreflightRecoveryContent.From(exception);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(exception.RequiresRepositoryInitialization, Is.True);
+            Assert.That(content.Title, Is.EqualTo("Git repository required"));
+            Assert.That(content.Summary, Does.Contain("does not have an active Git branch"));
+            Assert.That(content.Summary, Does.Contain("No plan work was started"));
+            Assert.That(content.ChangedFilesSummary, Is.Empty);
+            Assert.That(content.RecoveryGuidance, Does.Contain("Initialize repository and start plan"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("continue the interrupted plan action automatically"));
+            Assert.That(content.TechnicalDetails, Does.Contain("feature/calculator"));
+        });
+    }
+
+    [Test]
     public void RecoveryContent_ExplainsThatPlanDidNotStartAndListsEveryPath()
     {
         var exception = new PlanPreflightBlockedException(

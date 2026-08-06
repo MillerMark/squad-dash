@@ -70,12 +70,15 @@ internal static class PlanTaskActivityResolver
         // interruption. The plan lifecycle is authoritative for whether work is live; never
         // animate a task when there is no executing plan turn to drive it.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
-            (task.Status is PlanTaskStatus.Executing or PlanTaskStatus.Reworking ||
+            (task.Status is PlanTaskStatus.Executing or PlanTaskStatus.Reworking or PlanTaskStatus.VerificationPending ||
              PlanTaskStatus.IsVerifying(task.Status) ||
              string.Equals(plan.Progress.ExecutingTaskId, task.TaskId, StringComparison.Ordinal)))
             return plan.LifecycleStatus == PlanLifecycleStatus.Blocked
                 ? PlanTaskActivityState.Blocked
                 : PlanTaskActivityState.Interrupted;
+
+        if (task.Status is PlanTaskStatus.VerificationPending)
+            return PlanTaskActivityState.VerificationPending;
 
         if (PlanTaskStatus.IsVerifying(task.Status))
             return PlanTaskActivityState.Verifying;

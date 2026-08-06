@@ -9,3 +9,16 @@ internal sealed record PlanTaskActivityPulseEvent(
     string PlanId,
     string TaskId,
     SpinnerActivityKind Kind);
+
+internal static class PlanTaskActivityPulsePolicy
+{
+    internal static bool MatchesLiveTarget(
+        string? persistedPlanId,
+        string? livePlanId,
+        string? liveTargetId,
+        string? targetId) =>
+        !string.IsNullOrWhiteSpace(persistedPlanId) &&
+        string.Equals(persistedPlanId, livePlanId, StringComparison.Ordinal) &&
+        !string.IsNullOrWhiteSpace(targetId) &&
+        string.Equals(targetId, liveTargetId, StringComparison.Ordinal);
+}

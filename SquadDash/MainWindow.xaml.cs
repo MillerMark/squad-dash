@@ -6274,22 +6274,35 @@ public partial class MainWindow : Window
     private void OnNativeLoopIterationStarted(int iteration)
     {
         _loopCurrentIteration = iteration;
-        var activeValidationId = _conversationManager.ConversationState
-            .ActiveLoopExecution?.ActiveValidationId;
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var activeValidationId = activeExecution?.ActiveValidationId;
+        var activeVerificationTaskId = activeExecution?.ActiveVerificationTaskId;
         if (_activeDecomposeGroupId is not null && activeValidationId is null)
             TrackFirstEligiblePlanStep(_activeDecomposeGroupId);
         else if (activeValidationId is not null)
             _CodeHealthGroupRunner?.ClearCurrentStep();
-        var activeValidation = activeValidationId is null || _activeDecomposeGroupId is null
+        var activePlan = _activeDecomposeGroupId is null
             ? null
-            : _planStore?.Load(_activeDecomposeGroupId)?.Validations?.FirstOrDefault(validation =>
+            : _planStore?.Load(_activeDecomposeGroupId);
+        var activeValidation = activeValidationId is null
+            ? null
+            : activePlan?.Validations?.FirstOrDefault(validation =>
                 string.Equals(validation.ValidationId, activeValidationId, StringComparison.Ordinal));
+        var activeVerificationTask = activeVerificationTaskId is null
+            ? null
+            : activePlan?.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, activeVerificationTaskId, StringComparison.Ordinal));
         _loopRoundExecutionIdentity = new LoopRoundExecutionIdentity(
             _activeDecomposeGroupId,
-            _conversationManager.ConversationState.ActiveLoopExecution?.DecomposeRevision
+            activeExecution?.DecomposeRevision
                 ?? _CodeHealthGroupRunner?.CurrentRevision,
-            activeValidation?.ValidationId ?? _CodeHealthGroupRunner?.CurrentStepId,
-            activeValidation?.Title ?? _CodeHealthGroupRunner?.GetCurrentStepTitle());
+            activeValidation?.ValidationId
+                ?? activeVerificationTask?.TaskId
+                ?? activeVerificationTaskId
+                ?? _CodeHealthGroupRunner?.CurrentStepId,
+            activeValidation?.Title
+                ?? activeVerificationTask?.Title
+                ?? _CodeHealthGroupRunner?.GetCurrentStepTitle());
         _loopIsWaiting = false;
         _loopRoundStartedAt = DateTimeOffset.Now;
         _loopPlanStartedAt ??= _loopRoundStartedAt;
@@ -8918,6 +8931,9 @@ public partial class MainWindow : Window
             FontSize = _transcriptFontSize,
         };
         files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
+        files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         stack.Children.Add(files);
 
         var detailsText = new TextBlock
@@ -8963,11 +8979,18 @@ public partial class MainWindow : Window
         };
         var viewChangesLink = new Hyperlink(new Run("View changes")) { Cursor = Cursors.Hand };
         viewChangesLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-        utilities.Inlines.Add(viewChangesLink);
+        if (!exception.RequiresRepositoryInitialization)
+            utilities.Inlines.Add(viewChangesLink);
+        else
+            utilities.Visibility = Visibility.Collapsed;
         stack.Children.Add(utilities);
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
-        var retryButton = TranscriptQuickReplyFactory.CreateButton(retryLabel, _transcriptFontSize);
+        var retryButton = TranscriptQuickReplyFactory.CreateButton(
+            exception.RequiresRepositoryInitialization
+                ? "Initialize repository and start plan"
+                : retryLabel,
+            _transcriptFontSize);
         buttons.Children.Add(retryButton);
         stack.Children.Add(buttons);
 
@@ -9005,9 +9028,18 @@ public partial class MainWindow : Window
         retryButton.Click += async (_, _) =>
         {
             buttons.IsEnabled = false;
-            readiness.Text = "Checking the workspace and retrying…";
+            readiness.Text = exception.RequiresRepositoryInitialization
+                ? "Initializing the repository…"
+                : "Checking the workspace and retrying…";
             try
             {
+                if (exception.RequiresRepositoryInitialization &&
+                    !await InitializeRepositoryForPlanAsync())
+                {
+                    buttons.IsEnabled = true;
+                    readiness.Text = "The repository was not initialized. Review the transcript and try again.";
+                    return;
+                }
                 var succeeded = retryOverride is null
                     ? await ApplyDecomposeDecisionAsync(plan, action, branchOverride)
                     : await retryOverride();
@@ -9061,7 +9093,8 @@ public partial class MainWindow : Window
             }
             finally { pollInFlight = false; }
         };
-        timer.Start();
+        if (!exception.RequiresRepositoryInitialization)
+            timer.Start();
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
@@ -9128,7 +9161,10 @@ public partial class MainWindow : Window
         {
             var active = ReadGitBranch(workspace);
             if (string.IsNullOrWhiteSpace(active) || active.StartsWith("(detached", StringComparison.Ordinal))
-                throw new InvalidOperationException("There is no active Git branch for this workspace.");
+                throw new PlanPreflightBlockedException(
+                    PlanPreflightBlockedException.RepositoryInitializationRequiredCondition,
+                    [],
+                    targetBranch: null);
             effective = effective with { Branch = active };
         }
         else if (action == "execute-new-branch")
@@ -9420,7 +9456,13 @@ public partial class MainWindow : Window
             isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
             broker: _broker,
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
-            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer)
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
+            isTaskActivityActive: taskId => PlanTaskActivityPulsePolicy.MatchesLiveTarget(
+                groupId,
+                _loopRoundExecutionIdentity?.PlanId,
+                _loopRoundExecutionIdentity?.TaskId,
+                taskId),
+            initializeRepository: InitializeRepositoryForPlanAsync)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -9574,6 +9616,15 @@ public partial class MainWindow : Window
                 ?? throw new InvalidOperationException($"Task {verificationTaskId} has no persisted candidate handoff to verify.");
             var plan = _planStore?.Load(_activeDecomposeGroupId)
                 ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} could not be loaded for verification.");
+            if (!PlanTaskStatus.IsVerifying(plan.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, verificationTaskId, StringComparison.Ordinal))?.Status))
+            {
+                plan = PlanStoreUpdater.ApplyTaskVerificationStarted(plan, verificationTaskId);
+                if (!TryPublishPlanProgress(plan, out var verificationStartError))
+                    throw new InvalidOperationException(
+                        $"Task {verificationTaskId} verification started, but its active state could not be persisted: " +
+                        verificationStartError);
+            }
             var task = plan.Tasks.FirstOrDefault(candidate =>
                 string.Equals(candidate.TaskId, verificationTaskId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing verification task {verificationTaskId}.");
@@ -10425,7 +10476,7 @@ public partial class MainWindow : Window
             var verificationPlan = _planStore?.Load(groupId);
             if (verificationPlan is not null)
             {
-                var updated = PlanStoreUpdater.ApplyTaskVerificationStarted(
+                var updated = PlanStoreUpdater.ApplyTaskVerificationPending(
                     verificationPlan, taskId, result, changedFiles);
                 if (!TryPublishPlanProgress(updated, out var verificationProgressError))
                 {
@@ -40493,8 +40544,13 @@ public partial class MainWindow : Window
         if (execution?.DecomposeGroupId is not { } planId)
             return;
 
+        var liveRound = _loopRoundExecutionIdentity;
+
         if (execution.ActiveValidationId is { } validationId)
         {
+            if (!PlanTaskActivityPulsePolicy.MatchesLiveTarget(
+                    planId, liveRound?.PlanId, liveRound?.TaskId, validationId))
+                return;
             _broker.Publish(new PlanValidationActivityPulseEvent(planId, validationId, kind));
             return;
         }
@@ -40503,6 +40559,10 @@ public partial class MainWindow : Window
             ?? execution.PlanExecutionAttempt?.TaskId
             ?? _planStore?.Load(planId)?.Progress.ExecutingTaskId;
         if (string.IsNullOrWhiteSpace(taskId))
+            return;
+
+        if (!PlanTaskActivityPulsePolicy.MatchesLiveTarget(
+                planId, liveRound?.PlanId, liveRound?.TaskId, taskId))
             return;
 
         _broker.Publish(new PlanTaskActivityPulseEvent(planId, taskId, kind));
@@ -45006,7 +45066,7 @@ public partial class MainWindow : Window
 
     private void NoRepoPromptStrip_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        const string prompt = "Initialize a git repository and create an initial commit";
+        const string prompt = RepositoryInitializationPrompt;
         if (_isPromptRunning || IsNativeLoopRunning)
         {
             _promptQueue.EnqueueAtFront(prompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
@@ -45485,6 +45545,34 @@ public partial class MainWindow : Window
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
         _docsPanelState = state with { PlansPanelVisible = _plansPanelVisible };
         _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+    }
+
+    private const string RepositoryInitializationPrompt =
+        "Initialize a git repository and create an initial commit";
+
+    private async Task<bool> InitializeRepositoryForPlanAsync()
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.IsNullOrWhiteSpace(activeBranch) &&
+            !activeBranch.StartsWith("(detached", StringComparison.Ordinal))
+            return true;
+
+        if (_isPromptRunning || IsNativeLoopRunning)
+            return false;
+
+        await _pec.ExecutePromptAsync(
+            RepositoryInitializationPrompt,
+            addToHistory: true,
+            clearPromptBox: true);
+        UpdateBranchIndicator();
+
+        activeBranch = ReadGitBranch(workspace);
+        return !string.IsNullOrWhiteSpace(activeBranch) &&
+               !activeBranch.StartsWith("(detached", StringComparison.Ordinal);
     }
 
     private async Task StartOrResumeDurablePlanAsync(Plan plan)
@@ -46487,9 +46575,18 @@ public partial class MainWindow : Window
 
         window.ShowPlanPreflightRecovery(
             exception,
-            retry: () => DispatchInboxAction(action, message),
+            retry: async () =>
+            {
+                if (exception.RequiresRepositoryInitialization &&
+                    !await InitializeRepositoryForPlanAsync())
+                    return false;
+                DispatchInboxAction(action, message);
+                return true;
+            },
             viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
-            isWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync);
+            isWorkspaceClean: exception.RequiresRepositoryInitialization
+                ? null
+                : IsPlanPreflightWorkspaceCleanAsync);
         if (window.WindowState == WindowState.Minimized)
             window.WindowState = WindowState.Normal;
         window.Activate();
@@ -48218,7 +48315,10 @@ public partial class MainWindow : Window
     {
         var activeBranch = ReadGitBranch(workspace);
         if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
-            throw new InvalidOperationException("There is no active Git branch for this workspace.");
+            throw new PlanPreflightBlockedException(
+                PlanPreflightBlockedException.RepositoryInitializationRequiredCondition,
+                [],
+                targetBranch);
 
         var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
         if (!string.IsNullOrWhiteSpace(dirty) &&

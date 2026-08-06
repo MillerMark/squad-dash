@@ -39,8 +39,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
+    private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
+    private readonly Func<string, bool>? _isTaskActivityActive;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -79,7 +81,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
         WeakEventBroker? broker = null,
         Action<string>? onOpenCommit = null,
-        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
+        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
+        Func<string, bool>? isTaskActivityActive = null,
+        Func<Task<bool>>? initializeRepository = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -107,8 +111,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onApproveGate      = onApproveGate;
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
+        _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _resolveAgentAvatar = resolveAgentAvatar;
+        _isTaskActivityActive = isTaskActivityActive;
 
         Title     = plan.Group.GroupTitle;
         Width     = 1200;
@@ -254,6 +260,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             recoveryHost,
                             async () =>
                             {
+                                if (blocked.RequiresRepositoryInitialization &&
+                                    (_initializeRepository is null || !await _initializeRepository()))
+                                    return false;
                                 if (!await applyAction(capturedAction)) return false;
                                 Close();
                                 return true;
@@ -1547,10 +1556,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var position = positions[task.Id];
             var durableTask = durablePlan?.Tasks.FirstOrDefault(t =>
                 string.Equals(t.TaskId, task.Id, StringComparison.Ordinal));
-            var isTaskExecuting = taskActivityById.TryGetValue(task.Id, out var activityState) &&
-                                  activityState is PlanTaskActivityState.Executing or
-                                      PlanTaskActivityState.Verifying or
-                                      PlanTaskActivityState.Reworking;
+            var activityState = taskActivityById.TryGetValue(task.Id, out var resolvedActivityState)
+                ? resolvedActivityState
+                : PlanTaskActivityState.Queued;
+            var isTaskExecuting = activityState is PlanTaskActivityState.Executing or
+                PlanTaskActivityState.Verifying or
+                PlanTaskActivityState.Reworking;
             var prereqLines = task.DependsOn.Count == 0
                 ? ["None — this task can start immediately."]
                 : task.DependsOn.Select(id =>
@@ -1569,7 +1580,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskStatus.HumanReviewRequired => "TaskAwaitingHumanReview",
                 _                        => null,
             };
-            string borderColorKey = PlanTaskStatus.IsVerifying(durableTask?.Status)
+            string borderColorKey = durableTask?.Status == PlanTaskStatus.VerificationPending
+                ? "PriorityMid"
+                : PlanTaskStatus.IsVerifying(durableTask?.Status)
                 ? "ActivePanelBorder"
                 : durableTask?.Status switch
             {
@@ -1597,12 +1610,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var titleRow = new Grid();
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             if (isTaskExecuting)
             {
+                var spinnerOnRight = activityState == PlanTaskActivityState.Verifying;
                 var spinner = new ActivitySpinner
                 {
                     VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(-5, 1, 2, 0),
+                    Margin = spinnerOnRight
+                        ? new Thickness(4, 1, -5, 0)
+                        : new Thickness(-5, 1, 2, 0),
                     AccentColor = activityState == PlanTaskActivityState.Reworking
                         ? ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange)
                         : ResolvePlanSpinnerColor(),
@@ -1616,10 +1633,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }),
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
-                Grid.SetColumn(spinner, 0);
+                Grid.SetColumn(spinner, spinnerOnRight ? 2 : 0);
                 _taskSpinnersById[task.Id] = spinner;
                 titleRow.Children.Add(spinner);
-                spinner.Pulse(SpinnerActivityKind.Thinking);
+                if (_isTaskActivityActive?.Invoke(task.Id) ?? true)
+                    spinner.Pulse(SpinnerActivityKind.Thinking);
             }
             else if (taskIconKey is not null &&
                      Application.Current?.TryFindResource(taskIconKey) is Viewbox)
@@ -1699,7 +1717,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var stepLabel = new TextBlock
             {
-                Text = $"Step {taskOrdinalById[task.Id]}",
+                Text = PlanTaskActivityPresentation.BuildStepLabel(
+                    taskOrdinalById[task.Id], activityState),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(20 * _scaleFactor, 5, 20 * _scaleFactor, 0),
             };
@@ -2358,6 +2377,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         files.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         files.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         stack.Children.Add(files);
 
         var detailText = new TextBlock
@@ -2391,9 +2413,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _quickReplyFontSize);
         var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _quickReplyFontSize);
-        var retryButton = TranscriptQuickReplyFactory.CreateButton("Retry", _quickReplyFontSize);
+        var retryButton = TranscriptQuickReplyFactory.CreateButton(
+            exception.RequiresRepositoryInitialization
+                ? "Initialize repository and start plan"
+                : "Retry",
+            _quickReplyFontSize);
         var dismissButton = TranscriptQuickReplyFactory.CreateButton("Keep Plan Pending", _quickReplyFontSize);
-        buttons.Children.Add(viewButton);
+        if (!exception.RequiresRepositoryInitialization)
+            buttons.Children.Add(viewButton);
         buttons.Children.Add(copyButton);
         buttons.Children.Add(retryButton);
         buttons.Children.Add(dismissButton);
@@ -2442,7 +2469,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         retryButton.Click += async (_, _) =>
         {
             buttons.IsEnabled = false;
-            readiness.Text = "Checking the workspace and retrying…";
+            readiness.Text = exception.RequiresRepositoryInitialization
+                ? "Initializing the repository…"
+                : "Checking the workspace and retrying…";
             try
             {
                 if (await retry()) return;
@@ -2462,7 +2491,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         };
 
-        if (_isPreflightWorkspaceClean is not null)
+        if (_isPreflightWorkspaceClean is not null && !exception.RequiresRepositoryInitialization)
         {
             var pollInFlight = false;
             _preflightPollTimer = new System.Windows.Threading.DispatcherTimer

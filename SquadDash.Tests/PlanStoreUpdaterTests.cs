@@ -248,6 +248,38 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyExecutionStarted_ResumePreservesPendingVerificationBoundary()
+    {
+        var group = MakeGroup(2);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var existing = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", items, "GROUP-001-001");
+        var candidate = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", "rev1", "complete", "abcdef1",
+            "Candidate work", null,
+            new DecomposeStepVerification("passed", "dotnet test", "green"));
+        existing = PlanStoreUpdater.ApplyTaskVerificationPending(
+            existing, "GROUP-001-001", candidate, ["src/Candidate.cs"]);
+
+        var resumed = PlanStoreUpdater.ApplyExecutionStarted(
+            existing, group, "rev1", items, "GROUP-001-001");
+        var repaired = PlanStoreUpdater.RepairInconsistentState(resumed, items);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.VerificationPending));
+            Assert.That(resumed.Tasks[0].Handoff?.ChangedFiles, Does.Contain("src/Candidate.cs"));
+            Assert.That(repaired.Progress.ExecutingTaskId, Is.EqualTo("GROUP-001-001"));
+            Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(resumed),
+                Is.Null,
+                "Pending verification must not be scheduled as fresh implementation work.");
+            Assert.That(PlanApprovalControlLockPolicy.IsTaskEntryLocked(resumed, "GROUP-001-001"),
+                Is.True,
+                "A task with candidate work awaiting verification has already crossed its editable entry boundary.");
+        });
+    }
+
+    [Test]
     public void ApplyExecutionStarted_NewRevision_ReplacesStaleStagedGateDefinition()
     {
         var originalGroup = MakeApprovalWindowGroup();

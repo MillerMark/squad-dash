@@ -17,9 +17,9 @@ internal static class PlanApprovalControlLockPolicy
 
     /// <summary>Task statuses that represent started or completed work.</summary>
     private static bool IsTaskStartedOrCompleted(string? status) =>
-        status is PlanTaskStatus.Executing or PlanTaskStatus.Complete
-            or PlanTaskStatus.Partial or PlanTaskStatus.Failed
-            or PlanTaskStatus.Superseded;
+        PlanTaskStatus.IsWorkInProgress(status) ||
+        status is PlanTaskStatus.Complete or PlanTaskStatus.Partial
+            or PlanTaskStatus.Failed or PlanTaskStatus.Superseded;
 
     /// <summary>Gate statuses that represent a traversed (already resolved) gate.</summary>
     private static bool IsGateTraversed(string? status) =>

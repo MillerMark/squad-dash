@@ -10,6 +10,8 @@ namespace SquadDash;
 /// </summary>
 internal sealed class PlanPreflightBlockedException : Exception
 {
+    internal const string RepositoryInitializationRequiredCondition = "Git repository required";
+
     /// <summary>Human-readable name of the blocking condition, e.g. "Uncommitted changes".</summary>
     public string Condition { get; }
 
@@ -18,6 +20,12 @@ internal sealed class PlanPreflightBlockedException : Exception
 
     /// <summary>The branch that was the switch target when the block was detected.</summary>
     public string? TargetBranch { get; }
+
+    internal bool RequiresRepositoryInitialization =>
+        string.Equals(
+            Condition,
+            RepositoryInitializationRequiredCondition,
+            StringComparison.Ordinal);
 
     public PlanPreflightBlockedException(
         string condition,

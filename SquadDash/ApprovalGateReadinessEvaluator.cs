@@ -100,7 +100,7 @@ internal static class ApprovalGateReadinessEvaluator
         foreach (var task in plan.Tasks)
         {
             if (task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded
-                or PlanTaskStatus.Failed or PlanTaskStatus.Executing)
+                or PlanTaskStatus.Failed || PlanTaskStatus.IsWorkInProgress(task.Status))
                 continue;
             if (blockedIds.Contains(task.TaskId))
                 continue;

@@ -31,11 +31,14 @@ internal static class PlanTaskStatus
 {
     internal const string Pending    = "pending";
     internal const string Executing  = "executing";
+    internal const string VerificationPending = "verification-pending";
     internal const string Verifying = "verifying";
     private const string LegacyVerifyingValue = "scrutinizing";
     internal static bool IsVerifying(string? status) =>
         status is Verifying or LegacyVerifyingValue;
     internal const string Reworking = "reworking";
+    internal static bool IsWorkInProgress(string? status) =>
+        status is Executing or VerificationPending or Reworking || IsVerifying(status);
     internal const string HumanReviewRequired = "human-review-required";
     internal const string Complete   = "complete";
     internal const string Partial    = "partial";

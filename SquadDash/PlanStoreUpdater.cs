@@ -109,7 +109,7 @@ internal static class PlanStoreUpdater
         };
     }
 
-    internal static Plan ApplyTaskVerificationStarted(
+    internal static Plan ApplyTaskVerificationPending(
         Plan existing,
         string taskId,
         DecomposeStepResult candidate,
@@ -123,7 +123,7 @@ internal static class PlanStoreUpdater
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal)
                     ? task with
                     {
-                        Status = PlanTaskStatus.Verifying,
+                        Status = PlanTaskStatus.VerificationPending,
                         Handoff = new PlanTaskHandoff(
                             candidate.Commit ?? string.Empty,
                             candidate.Summary,
@@ -132,6 +132,21 @@ internal static class PlanStoreUpdater
                             now,
                             candidate.DeferredWork),
                     }
+                    : task).ToArray(),
+            Progress = existing.Progress with { ExecutingTaskId = taskId },
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+    }
+
+    internal static Plan ApplyTaskVerificationStarted(Plan existing, string taskId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = existing.Tasks.Select(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)
+                    ? task with { Status = PlanTaskStatus.Verifying }
                     : task).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },
             Timestamps = existing.Timestamps with { LastRunAt = now },
@@ -1461,7 +1476,7 @@ internal static class PlanStoreUpdater
         {
             var pointedTask = plan.Tasks.FirstOrDefault(t =>
                 string.Equals(t.TaskId, plan.Progress.ExecutingTaskId, StringComparison.Ordinal));
-            if (pointedTask is null || pointedTask.Status != PlanTaskStatus.Executing)
+            if (pointedTask is null || !PlanTaskStatus.IsWorkInProgress(pointedTask.Status))
                 return plan with { Progress = plan.Progress with { ExecutingTaskId = null } };
         }
 
@@ -1713,7 +1728,7 @@ internal static class PlanStoreUpdater
                 Description        = sub.Description,
                 DependsOn          = sub.DependsOn,
                 Priority           = sub.Priority,
-                Status             = MapTaskStatus(item),
+                Status             = ReconcileProjectedTaskStatus(durable.Status, item),
                 ParentTaskId       = sub.ParentTaskId,
                 AgentAssignments   = MapAgentAssignments(sub.AgentAssignments),
                 ParallelEligible   = sub.ParallelEligible,
@@ -1742,8 +1757,17 @@ internal static class PlanStoreUpdater
         return existing.Select(pt =>
         {
             byId.TryGetValue(pt.TaskId, out var item);
-            return pt with { Status = MapTaskStatus(item) };
+            return pt with { Status = ReconcileProjectedTaskStatus(pt.Status, item) };
         }).ToList();
+    }
+
+    private static string ReconcileProjectedTaskStatus(string durableStatus, TaskItem? item)
+    {
+        var projectedStatus = MapTaskStatus(item);
+        if (projectedStatus == PlanTaskStatus.Pending &&
+            durableStatus is PlanTaskStatus.VerificationPending or PlanTaskStatus.Verifying)
+            return durableStatus;
+        return projectedStatus;
     }
 
     private static IReadOnlyList<PlanTask> ApplyAcceptedResult(

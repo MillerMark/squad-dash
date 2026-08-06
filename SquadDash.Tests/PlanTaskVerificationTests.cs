@@ -252,19 +252,23 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
-    public void StoreUpdater_DoesNotMarkCandidateCompleteBeforeVerification()
+    public void StoreUpdater_DistinguishesPendingVerificationFromActiveVerification()
     {
         var plan = MakePlan();
         var candidate = new DecomposeStepResult(
             "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
             new DecomposeStepVerification("passed", "dotnet test", "green"));
 
-        var verifying = PlanStoreUpdater.ApplyTaskVerificationStarted(
+        var pending = PlanStoreUpdater.ApplyTaskVerificationPending(
             plan, "P-2", candidate, ["src/Consumer.cs"]);
+        var verifying = PlanStoreUpdater.ApplyTaskVerificationStarted(pending, "P-2");
 
+        Assert.That(pending.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.VerificationPending));
+        Assert.That(pending.Progress.CompletedCount, Is.EqualTo(1));
+        Assert.That(pending.Tasks[1].Handoff?.ChangedFiles, Does.Contain("src/Consumer.cs"));
         Assert.That(verifying.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Verifying));
         Assert.That(verifying.Progress.CompletedCount, Is.EqualTo(1));
-        Assert.That(verifying.Tasks[1].Handoff?.ChangedFiles, Does.Contain("src/Consumer.cs"));
+        Assert.That(verifying.Tasks[1].Handoff, Is.SameAs(pending.Tasks[1].Handoff));
     }
 
     [Test]
@@ -279,7 +283,7 @@ internal sealed class PlanTaskVerificationTests
                 new PlanTaskDeferredWork("Polish labels", "Owned by later UX task", ["P-3"]),
             ]);
 
-        var verifying = PlanStoreUpdater.ApplyTaskVerificationStarted(
+        var verifying = PlanStoreUpdater.ApplyTaskVerificationPending(
             plan, "P-2", candidate, ["src/Consumer.cs"]);
 
         Assert.That(verifying.Tasks[1].Handoff!.DeferredWork!.Single().OwnerTaskIds,
