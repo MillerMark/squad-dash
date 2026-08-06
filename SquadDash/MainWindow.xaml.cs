@@ -9287,8 +9287,9 @@ public partial class MainWindow : Window
         Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
             ? p => _ = StartOrResumeDurablePlanAsync(p)
             : null;
-        Action<Plan>? onResumePlan = durablePlan is not null &&
-                                      PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan)
+        var isSafelyResumable = durablePlan is not null &&
+                                PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
+        Action<Plan>? onResumePlan = isSafelyResumable
             ? p => _ = StartOrResumeDurablePlanAsync(p)
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
@@ -9296,7 +9297,7 @@ public partial class MainWindow : Window
                                       !string.IsNullOrWhiteSpace(interruptedTaskId) &&
                                       CompletedWorkReviewPresentationBuilder.Build(durablePlan, interruptedTaskId!) is not null;
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
-            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
                 ? hasRecordedTaskEvidence
                     ? AdoptVerifiedCommitRangeAsync
                     : AssessInterruptedPlanFromDurableAsync

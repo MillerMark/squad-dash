@@ -276,7 +276,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Orientation = Orientation.Horizontal,
                 Margin      = new Thickness(0, 0, 0, 8),
             };
-            if (onAdoptVerifiedCommitRange is not null)
+            // Safe continuation owns the recovery choice. A ready validation is simply the next
+            // scheduler boundary and must not create a duplicate "Resume Validation" action.
+            if (onAdoptVerifiedCommitRange is not null && onResumePlan is null)
             {
                 var capturedPlan = durablePlan;
                 var capturedAction = onAdoptVerifiedCommitRange;
