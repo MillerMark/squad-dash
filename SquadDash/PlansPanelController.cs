@@ -26,6 +26,8 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _archivePlan;
     private readonly Action<Plan>? _pausePlan;
     private readonly Action<Plan>? _abortPlan;
+    private readonly Action<Plan>? _attachFollowUp;
+    private readonly Action<Plan>? _addToNewChat;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -64,6 +66,8 @@ internal sealed class PlansPanelController
         Action<Plan>? archivePlan          = null,
         Action<Plan>? pausePlan            = null,
         Action<Plan>? abortPlan            = null,
+        Action<Plan>? attachFollowUp       = null,
+        Action<Plan>? addToNewChat         = null,
         Func<bool>?   isPromptRunning      = null)
     {
         _activePanel          = activePanel;
@@ -79,6 +83,8 @@ internal sealed class PlansPanelController
         _archivePlan          = archivePlan;
         _pausePlan            = pausePlan;
         _abortPlan            = abortPlan;
+        _attachFollowUp       = attachFollowUp;
+        _addToNewChat         = addToNewChat;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -463,6 +469,25 @@ internal sealed class PlansPanelController
         openItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         openItem.Click += (_, _) => _openPlan(plan);
         menu.Items.Add(openItem);
+
+        if (_attachFollowUp is not null || _addToNewChat is not null)
+        {
+            menu.Items.Add(new Separator());
+            if (_attachFollowUp is not null)
+            {
+                var attachItem = new MenuItem { Header = "Add to Chat" };
+                attachItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                attachItem.Click += (_, _) => _attachFollowUp(plan);
+                menu.Items.Add(attachItem);
+            }
+            if (_addToNewChat is not null)
+            {
+                var newChatItem = new MenuItem { Header = "Add to New Chat" };
+                newChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                newChatItem.Click += (_, _) => _addToNewChat(plan);
+                menu.Items.Add(newChatItem);
+            }
+        }
 
         if (plan.LifecycleStatus == PlanLifecycleStatus.Approved && _startPlan is not null)
         {

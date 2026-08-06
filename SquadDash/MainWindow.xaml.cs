@@ -44099,6 +44099,25 @@ public partial class MainWindow : Window
         return sb.ToString().TrimEnd();
     }
 
+    private static string BuildPlanContentBody(Plan plan)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Plan ID: {plan.PlanId}");
+        sb.AppendLine($"Title: {plan.Title}");
+        sb.AppendLine($"Branch: {plan.Branch}");
+        sb.AppendLine($"Status: {plan.LifecycleStatus}");
+        sb.AppendLine($"Progress: {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks complete");
+        if (!string.IsNullOrWhiteSpace(plan.Summary))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Summary:");
+            sb.AppendLine(plan.Summary.Trim());
+        }
+        sb.AppendLine();
+        sb.AppendLine($"File: .squad/plans/{plan.PlanId}.json");
+        return sb.ToString().TrimEnd();
+    }
+
     private static string BuildApprovalContentBlock(CommitApprovalItem item)
     {
         var sb = new System.Text.StringBuilder();
@@ -45276,7 +45295,13 @@ public partial class MainWindow : Window
                 archivePlan: ArchivePlan,
                 pausePlan: RequestPlanPauseAfterCurrentStep,
                 abortPlan: AbortCurrentPlanWork,
-                isPromptRunning: () => _isPromptRunning);
+                isPromptRunning: () => _isPromptRunning,
+                attachFollowUp: plan => AttachContextFollowUp(
+                    $"Plan: {plan.Title}",
+                    BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan))),
+                addToNewChat: plan => { AddEmptyQueueSlot(); AttachContextFollowUp(
+                    $"Plan: {plan.Title}",
+                    BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan))); });
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
