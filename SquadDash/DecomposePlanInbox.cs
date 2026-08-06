@@ -141,7 +141,7 @@ internal static class DecomposePlanInbox
         var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(reason);
         var status = PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommitEvidence);
         var body = $"**{status}**\n\n" +
-                   $"**Why it stopped:** **{compactReason}**\n\n" +
+                   $"Why it stopped: **{compactReason}**\n\n" +
                    $"Plan: **{plan.Group.GroupTitle}**  \n" +
                    $"Attempted task: \"{taskTitle}\"\n";
 

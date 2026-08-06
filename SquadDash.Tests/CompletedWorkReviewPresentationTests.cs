@@ -262,7 +262,9 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(message.Body, Does.StartWith(
                 "**Plan execution stopped unexpectedly after producing committed work. Recovery is available.**"));
-            Assert.That(message.Body, Does.Contain("**Why it stopped:** **Worker stopped.**"));
+            Assert.That(message.Body, Does.Contain("Why it stopped: **Worker stopped.**"));
+            Assert.That(message.Body, Does.Not.Contain("**Why it stopped:**"));
+            Assert.That(message.Body, Does.Contain($"Plan: **{message.Subject["Blocked plan: ".Length..]}**"));
             Assert.That(message.Body, Does.Contain("Commits: `abc1234`"));
             Assert.That(message.Body, Does.Contain("Tests: 14 tests passed."));
             Assert.That(message.Body, Does.Not.Contain("dotnet test"));

@@ -1387,6 +1387,7 @@ internal static class PlanStoreUpdater
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
         plan = RepairLegacyAmendmentTopology(plan);
+        plan = RepairLegacyAmendmentDisplayLabels(plan);
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1443,6 +1444,58 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    /// <summary>
+    /// Repairs labels produced by the original amendment implementation, which appended the new
+    /// task number and then shifted the mutable suffix by that number. A repair is safe only when
+    /// the prefix is the canonical accepted sequence and no non-amendment task after the insertion
+    /// has been accepted. Once later work is accepted, its displayed identity is history.
+    /// </summary>
+    private static Plan RepairLegacyAmendmentDisplayLabels(Plan plan)
+    {
+        var firstAmendmentIndex = plan.Tasks.ToList().FindIndex(task =>
+            !string.IsNullOrWhiteSpace(task.AmendmentGateId));
+        if (firstAmendmentIndex < 0) return plan;
+
+        for (var index = 0; index < firstAmendmentIndex; index++)
+        {
+            if (!string.Equals(plan.Tasks[index].DisplayStepLabel, (index + 1).ToString(),
+                    StringComparison.Ordinal))
+                return plan;
+        }
+
+        if (plan.Tasks.Skip(firstAmendmentIndex + 1).Any(task =>
+                string.IsNullOrWhiteSpace(task.AmendmentGateId) &&
+                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded))
+            return plan;
+
+        var numericLabels = new int[plan.Tasks.Count - firstAmendmentIndex];
+        for (var offset = 0; offset < numericLabels.Length; offset++)
+        {
+            if (!int.TryParse(plan.Tasks[firstAmendmentIndex + offset].DisplayStepLabel,
+                    out numericLabels[offset]))
+                return plan;
+            if (offset > 0 && numericLabels[offset] != numericLabels[offset - 1] + 1)
+                return plan;
+        }
+
+        var expectedFirstLabel = firstAmendmentIndex + 1;
+        if (numericLabels[0] <= expectedFirstLabel) return plan;
+
+        var tasks = plan.Tasks.Select((task, index) => index < firstAmendmentIndex
+            ? task
+            : task with { DisplayStepLabel = (index + 1).ToString() }).ToArray();
+        var preliminary = plan with { Tasks = tasks };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates.Select(gate =>
+                gate with { PlanRevision = revision }).ToArray(),
+        };
     }
 
     /// <summary>

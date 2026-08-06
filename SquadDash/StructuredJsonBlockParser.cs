@@ -66,6 +66,47 @@ internal static class StructuredJsonBlockParser
         }
     }
 
+    /// <summary>
+    /// Accepts a response whose entire meaningful content is one JSON object, optionally wrapped
+    /// in a Markdown code fence. This is intentionally narrower than searching arbitrary prose so
+    /// protocol parsers remain deterministic when a model omits only the requested marker.
+    /// </summary>
+    internal static bool TryExtractSingleObject<T>(
+        string? text,
+        out StructuredJsonBlockExtraction<T>? extraction)
+    {
+        extraction = null;
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+        if (normalized.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineEnd = normalized.IndexOf('\n');
+            if (firstLineEnd < 0) return false;
+            normalized = normalized[(firstLineEnd + 1)..].Trim();
+            if (normalized.EndsWith("```", StringComparison.Ordinal))
+                normalized = normalized[..^3].TrimEnd();
+        }
+
+        if (!normalized.StartsWith('{') || !TryFindJsonObjectEnd(normalized, 0, out var braceEnd) ||
+            !string.IsNullOrWhiteSpace(normalized[(braceEnd + 1)..]))
+            return false;
+
+        var jsonText = normalized[..(braceEnd + 1)];
+        try
+        {
+            var payload = JsonSerializer.Deserialize<T>(jsonText, ParseOptions);
+            if (payload is null) return false;
+            extraction = new StructuredJsonBlockExtraction<T>(
+                payload, jsonText, string.Empty, string.Empty, string.Empty, -1, 0, braceEnd);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private static bool TryFindJsonObjectEnd(string text, int braceStart, out int braceEnd)
     {
         braceEnd = -1;

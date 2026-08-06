@@ -125,7 +125,8 @@ internal sealed class PlanTaskScrutinyTests
             "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
             new DecomposeStepVerification("passed", "dotnet test", "green"));
 
-        var prompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(plan, task, candidate);
+        var prompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(
+            plan, task, candidate, "The production approval actions are still enabled.");
 
         Assert.Multiple(() =>
         {
@@ -133,7 +134,38 @@ internal sealed class PlanTaskScrutinyTests
             Assert.That(prompt, Does.Contain("Do not inspect files again"));
             Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
             Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
+            Assert.That(prompt, Does.Contain("production approval actions are still enabled"));
         });
+    }
+
+    [Test]
+    public void Parser_AcceptsSingleBareObjectWhenMarkerIsOmitted()
+    {
+        var json = """
+            ```json
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"rework-required","summary":"approval actions remain enabled",
+             "claimFindings":[],"missingOrOverstatedWork":["missing action guard"],
+             "testAssessment":"missing production action test",
+             "reworkInstructions":["guard approve and reject actions"]}
+            ```
+            """;
+
+        var parsed = PlanTaskScrutinyResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskScrutinyVerdict.ReworkRequired));
+        });
+    }
+
+    [Test]
+    public void Parser_DoesNotInferResultFromProseContainingAnEmbeddedObject()
+    {
+        var response = "Review complete. {\"planId\":\"P\"}";
+
+        Assert.That(PlanTaskScrutinyResultParser.TryParse(response, out _, out _), Is.False);
     }
 
     [Test]

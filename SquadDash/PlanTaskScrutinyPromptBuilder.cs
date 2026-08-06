@@ -43,11 +43,22 @@ internal static class PlanTaskScrutinyPromptBuilder
     internal static string BuildEnvelopeRepair(
         Plan plan,
         PlanTask task,
-        DecomposeStepResult candidate)
+        DecomposeStepResult candidate,
+        string? priorFindings = null)
     {
         var builder = new StringBuilder();
         builder.AppendLine("Your scrutiny completed, but the response omitted the required structured result.");
         builder.AppendLine("Do not inspect files again, run tools, modify the repository, or launch workers.");
+        builder.AppendLine("Convert the findings already reached into the required result. Do not omit, soften, or reinterpret a discrepancy.");
+        if (!string.IsNullOrWhiteSpace(priorFindings))
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Findings from the completed scrutiny pass");
+            builder.AppendLine(priorFindings.Length <= 6000
+                ? priorFindings.Trim()
+                : priorFindings[^6000..].Trim());
+        }
+        builder.AppendLine();
         builder.AppendLine("Return only the corrected PLAN_TASK_SCRUTINY_JSON object below. Do not add prose before or after it.");
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();

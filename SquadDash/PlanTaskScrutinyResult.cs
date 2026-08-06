@@ -48,8 +48,10 @@ internal static class PlanTaskScrutinyResultParser
     {
         result = null;
         error = null;
-        if (!StructuredJsonBlockParser.TryExtractObject<PlanTaskScrutinyResult>(text, Marker, out var extraction) ||
-            extraction?.Payload is not { } parsed)
+        var extracted = StructuredJsonBlockParser.TryExtractObject<PlanTaskScrutinyResult>(
+            text, Marker, out var extraction) ||
+            StructuredJsonBlockParser.TryExtractSingleObject<PlanTaskScrutinyResult>(text, out extraction);
+        if (!extracted || extraction?.Payload is not { } parsed)
         {
             error = $"The response did not contain a valid {Marker} payload.";
             return false;

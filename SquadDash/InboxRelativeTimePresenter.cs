@@ -174,3 +174,90 @@ internal static class InboxCommitLinkPresenter
                 foreach (var nested in EnumerateRuns(child)) yield return nested;
     }
 }
+
+/// <summary>
+/// Makes the bold plan title in a plan Inbox message invoke the same host-owned visualizer action
+/// as its plan attachment. This deliberately does not launch an application URI.
+/// </summary>
+internal static class InboxPlanLinkPresenter
+{
+    internal static void Attach(
+        FlowDocument document,
+        InboxMessage message,
+        Action<InboxAttachment>? openPlan)
+    {
+        if (openPlan is null) return;
+        var attachment = message.Attachments.FirstOrDefault(candidate =>
+            !string.IsNullOrWhiteSpace(candidate.PlanGroupId));
+        if (attachment is null) return;
+
+        var prefix = "Blocked plan: ";
+        var title = message.Subject.StartsWith(prefix, StringComparison.Ordinal)
+            ? message.Subject[prefix.Length..].Trim()
+            : null;
+        if (string.IsNullOrWhiteSpace(title)) return;
+
+        foreach (var run in EnumerateRuns(document).ToArray())
+        {
+            if (!string.Equals(run.Text?.Trim(), title, StringComparison.Ordinal) ||
+                run.FontWeight != FontWeights.Bold)
+                continue;
+
+            var link = new Hyperlink(new Run(title) { FontWeight = FontWeights.Bold })
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Open this plan in the Plan Viewer"),
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            link.Click += (_, _) => openPlan(attachment);
+
+            switch (run.Parent)
+            {
+                case Paragraph paragraph:
+                    paragraph.Inlines.InsertBefore(run, link);
+                    paragraph.Inlines.Remove(run);
+                    break;
+                case Span span when span is not Hyperlink:
+                    span.Inlines.InsertBefore(run, link);
+                    span.Inlines.Remove(run);
+                    break;
+            }
+            return;
+        }
+    }
+
+    private static IEnumerable<Run> EnumerateRuns(FlowDocument document)
+    {
+        foreach (var block in document.Blocks)
+            foreach (var run in EnumerateRuns(block))
+                yield return run;
+    }
+
+    private static IEnumerable<Run> EnumerateRuns(Block block)
+    {
+        switch (block)
+        {
+            case Paragraph paragraph:
+                foreach (var inline in paragraph.Inlines)
+                    foreach (var run in EnumerateRuns(inline)) yield return run;
+                break;
+            case Section section:
+                foreach (var child in section.Blocks)
+                    foreach (var run in EnumerateRuns(child)) yield return run;
+                break;
+            case List list:
+                foreach (var item in list.ListItems)
+                    foreach (var child in item.Blocks)
+                        foreach (var run in EnumerateRuns(child)) yield return run;
+                break;
+        }
+    }
+
+    private static IEnumerable<Run> EnumerateRuns(Inline inline)
+    {
+        if (inline is Run run) yield return run;
+        if (inline is Span span)
+            foreach (var child in span.Inlines)
+                foreach (var nested in EnumerateRuns(child)) yield return nested;
+    }
+}

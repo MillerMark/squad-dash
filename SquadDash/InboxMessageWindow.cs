@@ -36,6 +36,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action? _onMarkedUnread;
     private readonly Action? _onRepliedInChat;
     private readonly Action<double>? _onFontSizeChanged;
+    private readonly Action<InboxAttachment>? _openDecomposePlan;
     private double _bodyFontSize;
     private bool _markedRead;
 
@@ -62,6 +63,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _onMarkedUnread         = onMarkedUnread;
         _onRepliedInChat        = onRepliedInChat;
         _onFontSizeChanged      = onFontSizeChanged;
+        _openDecomposePlan      = openDecomposePlan;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
         Title                   = message.Subject;
@@ -199,6 +201,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var doc = MarkdownFlowDocumentBuilder.Build(message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         InboxCommitLinkPresenter.Attach(doc, openCommit);
+        InboxPlanLinkPresenter.Attach(doc, message, openDecomposePlan);
 
         _bodyViewer = new FlowDocumentScrollViewer
         {
@@ -511,6 +514,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var doc = MarkdownFlowDocumentBuilder.Build(_message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
+        InboxPlanLinkPresenter.Attach(doc, _message, _openDecomposePlan);
         _bodyViewer.Document = doc;
     }
 
@@ -1057,6 +1061,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var doc = MarkdownFlowDocumentBuilder.Build(updatedMessage.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
+        InboxPlanLinkPresenter.Attach(doc, updatedMessage, _openDecomposePlan);
         _bodyViewer.Document = doc;
 
         // Replace action buttons

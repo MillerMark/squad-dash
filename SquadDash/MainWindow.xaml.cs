@@ -380,6 +380,7 @@ public partial class MainWindow : Window
     private string?                 _capturedValidationResultError;
     private PlanTaskScrutinyResult? _capturedTaskScrutinyResult;
     private string?                 _capturedTaskScrutinyResultError;
+    private string?                 _capturedTaskScrutinyRawResponse;
     private string?                 _decomposeIterationBaselineCommit;
     private string?                 _decomposeContinuationTaskId;
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
@@ -6136,9 +6137,13 @@ public partial class MainWindow : Window
                 currentRevision,
                 currentTaskId))
         {
-            var stepNumber = (_planStore?.Load(_activeDecomposeGroupId!)?.Progress.CompletedCount ?? 0) + 1;
-            ScheduleDecomposeSystemEntry(
-                $"Validating completed work for Step {stepNumber}. The implementation will not be run again.");
+            var validatingPlan = _planStore?.Load(_activeDecomposeGroupId!);
+            ScheduleDecomposeSystemEntry(validatingPlan is null
+                ? "Validating completed work. The implementation will not be run again."
+                : PlanLoopTranscriptPresentation.BuildValidatingMessage(
+                    validatingPlan,
+                    currentTaskId,
+                    _CodeHealthGroupRunner?.GetCurrentStepTitle()));
             await FinalizeExecutingPlanIterationAsync();
             return;
         }
@@ -6162,6 +6167,7 @@ public partial class MainWindow : Window
         {
             displayPrompt = PlanLoopTranscriptPresentation.BuildExecutingPrompt(
                 executingPlan,
+                _CodeHealthGroupRunner?.CurrentStepId,
                 _CodeHealthGroupRunner?.GetCurrentStepTitle(),
                 loopMdPath);
         }
@@ -9407,6 +9413,8 @@ public partial class MainWindow : Window
     {
         if (_activeDecomposeGroupId is null) return;
 
+        _capturedTaskScrutinyRawResponse = rawResponse;
+
         if (PlanTaskScrutinyResultParser.TryParse(rawResponse, out var scrutinyResult, out var scrutinyError))
         {
             _capturedTaskScrutinyResult = scrutinyResult;
@@ -9497,6 +9505,8 @@ public partial class MainWindow : Window
         _capturedTaskScrutinyResultError = null;
 
         var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExec?.ScrutinyEnvelopeRepairCount is not > 0)
+            _capturedTaskScrutinyRawResponse = null;
         if (activeExec?.ActiveScrutinyTaskId is { } scrutinyTaskId)
         {
             var pending = activeExec.PendingTaskScrutiny
@@ -9512,7 +9522,8 @@ public partial class MainWindow : Window
             string scrutinyPrompt;
             if (isEnvelopeRepair)
             {
-                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(plan, task, candidate);
+                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(
+                    plan, task, candidate, _capturedTaskScrutinyRawResponse);
             }
             else
             {
@@ -10212,10 +10223,14 @@ public partial class MainWindow : Window
                         executionAttempt.AttemptId,
                         expectedAssignments,
                         repairError);
-                    var stepNumber = (_planStore?.Load(groupId)?.Progress.CompletedCount ?? 0) + 1;
+                    var repairPlan = _planStore?.Load(groupId);
+                    var stepIdentity = repairPlan is null
+                        ? "The current step"
+                        : PlanLoopTranscriptPresentation.BuildTaskIdentity(
+                            repairPlan, taskId, _CodeHealthGroupRunner.GetCurrentStepTitle());
                     var workState = taskCommitEvidence is not null
-                        ? $"Step {stepNumber} work is committed but not yet accepted. "
-                        : $"The assigned worker completed Step {stepNumber}, but the step is not yet accepted. ";
+                        ? $"{stepIdentity} work is committed but not yet accepted. "
+                        : $"The assigned worker completed {stepIdentity}, but the step is not yet accepted. ";
                     ScheduleDecomposeSystemEntry(
                         workState +
                         "SquadDash is validating the result envelope without relaunching workers. " +
@@ -10251,9 +10266,13 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    var stepNumber = (_planStore?.Load(groupId)?.Progress.CompletedCount ?? 0) + 1;
+                    var repairPlan = _planStore?.Load(groupId);
+                    var stepIdentity = repairPlan is null
+                        ? "The current step"
+                        : PlanLoopTranscriptPresentation.BuildTaskIdentity(
+                            repairPlan, taskId, _CodeHealthGroupRunner.GetCurrentStepTitle());
                     ScheduleDecomposeSystemEntry(
-                        $"Step {stepNumber} is not yet accepted. " +
+                        $"{stepIdentity} is not yet accepted. " +
                         "SquadDash is requesting the missing result envelope without repeating the task. " +
                         $"Technical detail: {repairError}");
                 }
@@ -10483,6 +10502,8 @@ public partial class MainWindow : Window
                 "Test adequacy could not be independently classified.",
                 []);
         }
+
+        _capturedTaskScrutinyRawResponse = null;
 
         var plan = _planStore.Load(groupId);
         if (plan is null) return;

@@ -1200,6 +1200,69 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void RepairInconsistentState_ResequencesLegacyAmendmentAndUnacceptedSuffix()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("P-1", "One", "One", [], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "1"),
+            new PlanTask("P-2", "Two", "Two", ["P-1"], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "2"),
+            new PlanTask("P-3", "Three", "Three", ["P-2"], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "3"),
+            new PlanTask("P-4", "Four", "Four", ["P-3"], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "4"),
+            new PlanTask("P-AMD-001", "Amendment", "Amend", ["P-4"], "high", PlanTaskStatus.Complete,
+                AmendmentGateId: "P-G", DisplayStepLabel: "8"),
+            new PlanTask("P-5", "Five", "Five", ["P-AMD-001"], "high",
+                PlanTaskStatus.HumanReviewRequired, DisplayStepLabel: "9"),
+            new PlanTask("P-6", "Six", "Six", ["P-5"], "high", PlanTaskStatus.Pending,
+                DisplayStepLabel: "10"),
+            new PlanTask("P-7", "Seven", "Seven", ["P-6"], "high", PlanTaskStatus.Pending,
+                DisplayStepLabel: "11"),
+        };
+        var plan = new Plan(
+            "P", "old", PlanSource.Inbox, PlanLifecycleStatus.Interrupted, "Plan", "feature/p",
+            "Summary", tasks,
+            [new PlanApprovalGate("P-G", "Review", ["P-4", "P-AMD-001"], ["P-5"],
+                PlanGateStatus.Approved, PlanRevision: "old")],
+            new PlanProgress(5, 8), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.Tasks.Select(task => task.DisplayStepLabel),
+                Is.EqualTo(new[] { "1", "2", "3", "4", "5", "6", "7", "8" }));
+            Assert.That(repaired.Revision, Is.Not.EqualTo("old"));
+            Assert.That(repaired.ApprovalGates[0].PlanRevision, Is.EqualTo(repaired.Revision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(repaired), Is.True);
+        });
+    }
+
+    [Test]
+    public void RepairInconsistentState_DoesNotRelabelAcceptedTaskAfterAmendment()
+    {
+        var tasks = new[]
+        {
+            new PlanTask("P-1", "One", "One", [], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "1"),
+            new PlanTask("P-AMD-001", "Amendment", "Amend", ["P-1"], "high", PlanTaskStatus.Complete,
+                AmendmentGateId: "P-G", DisplayStepLabel: "4"),
+            new PlanTask("P-2", "Two", "Two", ["P-AMD-001"], "high", PlanTaskStatus.Complete,
+                DisplayStepLabel: "5"),
+        };
+        var plan = new Plan(
+            "P", "old", PlanSource.Inbox, PlanLifecycleStatus.Interrupted, "Plan", "feature/p",
+            "Summary", tasks, [], new PlanProgress(3, 3), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.That(repaired.Tasks.Select(task => task.DisplayStepLabel),
+            Is.EqualTo(new[] { "1", "4", "5" }));
+    }
+
+    [Test]
     public void ConvertUnstartedGateReworkToAmendment_RestoresAcceptedAttemptBeforeAddingWork()
     {
         var group = MakeApprovalWindowGroup();
