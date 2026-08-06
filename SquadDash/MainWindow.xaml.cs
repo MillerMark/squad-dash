@@ -45462,7 +45462,8 @@ public partial class MainWindow : Window
                 abortPlan: AbortCurrentPlanWork,
                 isPromptRunning: () => _isPromptRunning,
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
-                addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); });
+                addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); },
+                getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "plans", plan.PlanId + ".json"));
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch

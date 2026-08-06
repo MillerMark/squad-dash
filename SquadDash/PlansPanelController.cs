@@ -32,6 +32,7 @@ internal sealed class PlansPanelController
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
     private readonly Func<bool>?   _isPromptRunning;
+    private readonly Func<Plan, string>? _getPlanFilePath;
 
     private readonly PlansPanelViewModel _viewModel = new();
     internal PlansPanelViewModel ViewModel => _viewModel;
@@ -68,7 +69,8 @@ internal sealed class PlansPanelController
         Action<Plan>? abortPlan            = null,
         Action<Plan>? attachFollowUp       = null,
         Action<Plan>? addToNewChat         = null,
-        Func<bool>?   isPromptRunning      = null)
+        Func<bool>?   isPromptRunning      = null,
+        Func<Plan, string>? getPlanFilePath = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -89,6 +91,7 @@ internal sealed class PlansPanelController
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
         _isPromptRunning      = isPromptRunning;
+        _getPlanFilePath      = getPlanFilePath;
 
         _viewModel.ShowCompleted = initialShowCompleted;
         _viewModel.ShowArchived = initialShowArchived;
@@ -582,6 +585,19 @@ internal sealed class PlansPanelController
             archiveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             archiveItem.Click += (_, _) => _archivePlan(plan);
             menu.Items.Add(archiveItem);
+        }
+
+        if (_getPlanFilePath is not null)
+        {
+            menu.Items.Add(new Separator());
+            var copyPathItem = new MenuItem { Header = "Copy full path" };
+            copyPathItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            copyPathItem.Click += (_, _) =>
+            {
+                var path = _getPlanFilePath(plan);
+                Clipboard.SetText(path);
+            };
+            menu.Items.Add(copyPathItem);
         }
 
         row.ContextMenu = menu;
