@@ -494,6 +494,8 @@
     <Compile Include="..\SquadDash\SimulationPlanFixtureBuilder.cs" Link="Source\SimulationPlanFixtureBuilder.cs" />
     <Compile Include="..\SquadDash\NotesSimulationSurfaceAdapter.cs" Link="Source\NotesSimulationSurfaceAdapter.cs" />
     <Compile Include="..\SquadDash\SimulationNotesFixtureBuilder.cs" Link="Source\SimulationNotesFixtureBuilder.cs" />
+    <Compile Include="..\SquadDash\LoopSimulationSurfaceAdapter.cs" Link="Source\LoopSimulationSurfaceAdapter.cs" />
+    <Compile Include="..\SquadDash\SimulationLoopFixtureBuilder.cs" Link="Source\SimulationLoopFixtureBuilder.cs" />
   </ItemGroup>
 
   <!-- Callouts -->
