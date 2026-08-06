@@ -55,6 +55,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private record SelectedElementIdentity(string Kind, string Id);
     private SelectedElementIdentity? _selectedElement;
+    private (Border border, Thickness original)? _selectionBorderState;
+    private FrameworkElement? _selectionGlowElement;
 
     internal string? CurrentRevision => _plan?.Revision;
 
@@ -3611,10 +3613,69 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     // Task 002 implements visual feedback
-    private void ApplySelectionVisual() { }
+    private void ApplySelectionVisual()
+    {
+        ClearSelectionVisual();
+        if (_selectedElement is null || _graphCanvas is null)
+            return;
+
+        var tag = $"{_selectedElement.Kind}:{_selectedElement.Id}";
+        FrameworkElement? target = null;
+        foreach (UIElement child in _graphCanvas.Children)
+        {
+            if (child is FrameworkElement fe && fe.Tag is string t && t == tag)
+            {
+                target = fe;
+                break;
+            }
+        }
+        if (target is null)
+            return;
+
+        if (_selectedElement.Kind is "task" or "gate" && target is Border border)
+        {
+            _selectionBorderState = (border, border.BorderThickness);
+            border.BorderThickness = new Thickness(
+                border.BorderThickness.Left * 2,
+                border.BorderThickness.Top * 2,
+                border.BorderThickness.Right * 2,
+                border.BorderThickness.Bottom * 2);
+        }
+        else
+        {
+            var glow = new Border
+            {
+                Width = target.ActualWidth > 0 ? target.ActualWidth : target.Width,
+                Height = target.ActualHeight > 0 ? target.ActualHeight : target.Height,
+                Background = target is Border b ? b.Background : Brushes.Gray,
+                CornerRadius = target is Border cb ? cb.CornerRadius : new CornerRadius(4),
+                Opacity = 0.5,
+                IsHitTestVisible = false,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(1.1, 1.1),
+            };
+            Canvas.SetLeft(glow, Canvas.GetLeft(target));
+            Canvas.SetTop(glow, Canvas.GetTop(target));
+            Panel.SetZIndex(glow, Panel.GetZIndex(target) - 1);
+            _graphCanvas.Children.Add(glow);
+            _selectionGlowElement = glow;
+        }
+    }
 
     // Task 002 implements visual feedback clearing
-    private void ClearSelectionVisual() { }
+    private void ClearSelectionVisual()
+    {
+        if (_selectionBorderState is var (border, original))
+        {
+            border.BorderThickness = original;
+            _selectionBorderState = null;
+        }
+        if (_selectionGlowElement is not null && _graphCanvas is not null)
+        {
+            _graphCanvas.Children.Remove(_selectionGlowElement);
+            _selectionGlowElement = null;
+        }
+    }
 
     // Tasks 004/005 populate the detail panel
     private void RefreshDetailPanel() { }
