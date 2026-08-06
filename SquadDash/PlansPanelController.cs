@@ -475,7 +475,9 @@ internal sealed class PlansPanelController
 
         if (_attachFollowUp is not null || _addToNewChat is not null)
         {
-            menu.Items.Add(new Separator());
+            var sep1 = new Separator();
+            sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            menu.Items.Add(sep1);
             if (_attachFollowUp is not null)
             {
                 var attachItem = new MenuItem { Header = "Add to Chat" };
@@ -589,7 +591,9 @@ internal sealed class PlansPanelController
 
         if (_getPlanFilePath is not null)
         {
-            menu.Items.Add(new Separator());
+            var sep2 = new Separator();
+            sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+            menu.Items.Add(sep2);
             var copyPathItem = new MenuItem { Header = "Copy full path" };
             copyPathItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             copyPathItem.Click += (_, _) =>
