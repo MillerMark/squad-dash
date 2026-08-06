@@ -369,6 +369,10 @@ public partial class MainWindow : Window
     private string? _simulatedTasksSessionId;
     private ApprovalsSimulationSurfaceAdapter? _approvalsSimulationSurfaceAdapter;
     private string? _simulatedApprovalsSessionId;
+    private InboxSimulationSurfaceAdapter? _inboxSimulationSurfaceAdapter;
+    private string? _simulatedInboxSessionId;
+    private LoopSimulationSurfaceAdapter? _loopSimulationSurfaceAdapter;
+    private string? _simulatedLoopSessionId;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -21541,6 +21545,26 @@ public partial class MainWindow : Window
             }
         });
 
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            if (_simulatedInboxSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedInboxSessionId;
+                _simulatedInboxSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            if (_simulatedLoopSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedLoopSessionId;
+                _simulatedLoopSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
         _guidedTourController.RegisterTourSessionCleanup(() =>
         {
             if (_tourNoteItem is not null && _notesStore is not null)
@@ -21658,6 +21682,39 @@ public partial class MainWindow : Window
                 _approvalPanel, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_approvalsSimulationSurfaceAdapter);
             _approvalPanel.IsSimulatedItem = id => _approvalsSimulationSurfaceAdapter.IsSimulatedItem(id);
+        }
+
+        if (_inboxPanel is not null)
+        {
+            _inboxSimulationSurfaceAdapter = new InboxSimulationSurfaceAdapter(
+                _inboxPanel, Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_inboxSimulationSurfaceAdapter);
+        }
+
+        {
+            _loopSimulationSurfaceAdapter = new LoopSimulationSurfaceAdapter(
+                applyState: state =>
+                {
+                    _loopPanelVisible = true;
+                    LoopStatusLabel.Text = state.StatusText;
+                    LoopStatusLabel.Visibility = Visibility.Visible;
+                    StartLoopButton.Visibility = Visibility.Collapsed;
+                    StopLoopButton.IsEnabled = false;
+                    AbortLoopButton.Visibility = Visibility.Collapsed;
+                    SyncLoopPanel();
+                },
+                clearState: () =>
+                {
+                    LoopStatusLabel.Text = string.Empty;
+                    LoopStatusLabel.Visibility = Visibility.Collapsed;
+                    StartLoopButton.Visibility = Visibility.Visible;
+                    StartLoopButton.IsEnabled = true;
+                    StopLoopButton.IsEnabled = false;
+                    AbortLoopButton.Visibility = Visibility.Collapsed;
+                    SyncLoopPanel();
+                },
+                Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_loopSimulationSurfaceAdapter);
         }
     }
 
@@ -23124,6 +23181,93 @@ public partial class MainWindow : Window
 
             var sessionId = _simulatedApprovalsSessionId;
             _simulatedApprovalsSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Simulated Inbox tour commands ─────────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedInbox", async () =>
+        {
+            EnsureSimulationSessionManager();
+            EnsureInboxPanelCreated();
+
+            if (_simulatedInboxSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Inbox", "guided-tour");
+            _simulatedInboxSessionId = session.SessionId;
+
+            var codeReview = SimulationInboxFixtureBuilder.BuildCodeReviewMessage();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Inbox,
+                "sim-inbox-artifact-001",
+                codeReview.Subject,
+                codeReview);
+
+            var planProposal = SimulationInboxFixtureBuilder.BuildPlanProposalMessage();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Inbox,
+                "sim-inbox-artifact-002",
+                planProposal.Subject,
+                planProposal);
+
+            var statusUpdate = SimulationInboxFixtureBuilder.BuildStatusUpdateMessage();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Inbox,
+                "sim-inbox-artifact-003",
+                statusUpdate.Subject,
+                statusUpdate);
+
+            Dispatcher.Invoke(() => ShowInboxPanel());
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedInbox", async () =>
+        {
+            if (_simulatedInboxSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedInboxSessionId;
+            _simulatedInboxSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Simulated Loop tour commands ──────────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedLoop", async () =>
+        {
+            EnsureSimulationSessionManager();
+
+            if (_simulatedLoopSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Loop", "guided-tour");
+            _simulatedLoopSessionId = session.SessionId;
+
+            var loopState = SimulationLoopFixtureBuilder.BuildActiveLoopState();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Loop,
+                "sim-loop-artifact-001",
+                loopState.StatusText,
+                loopState);
+
+            Dispatcher.Invoke(() =>
+            {
+                _loopPanelVisible = true;
+                SyncLoopPanel();
+            });
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedLoop", async () =>
+        {
+            if (_simulatedLoopSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedLoopSessionId;
+            _simulatedLoopSessionId = null;
             await _simulationSessionManager.EndSessionAsync(sessionId);
         });
 

@@ -53,6 +53,8 @@ internal sealed class InboxPanelController
     private string? _lastSingleClickId;
     private bool _listHasFocus;
 
+    private readonly Dictionary<string, Border> _simulatedRows = new(StringComparer.Ordinal);
+
     private readonly InboxPanelViewModel _viewModel = new();
     internal InboxPanelViewModel ViewModel => _viewModel;
 
@@ -1172,4 +1174,37 @@ internal sealed class InboxPanelController
         s.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
         return s;
     }
+
+    // ── Simulation support ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Adds a simulated message row to the inbox list without persisting to <see cref="InboxStore"/>.
+    /// Context-menu actions (archive, delete, mark read) are suppressed for simulated items.
+    /// </summary>
+    internal void AddSimulatedMessage(string artifactId, InboxMessage message)
+    {
+        var row = BuildRow(message);
+        row.ContextMenu = null; // suppress all context actions on simulated messages
+        _simulatedRows[artifactId] = row;
+        _listPanel.Children.Insert(0, row);
+    }
+
+    /// <summary>Removes a previously-overlaid simulated message row by artifact ID.</summary>
+    internal void RemoveSimulatedMessage(string artifactId)
+    {
+        if (_simulatedRows.TryGetValue(artifactId, out var row))
+        {
+            _simulatedRows.Remove(artifactId);
+            _listPanel.Children.Remove(row);
+        }
+    }
+
+    /// <summary>
+    /// Checks whether the given message ID belongs to a simulated artifact,
+    /// meaning production actions must be blocked.
+    /// </summary>
+    internal bool IsSimulatedMessage(string messageId)
+        => _simulatedRows.Values.Any(row =>
+            row.Tag is InboxMessage msg &&
+            string.Equals(msg.Id, messageId, StringComparison.Ordinal));
 }
