@@ -3680,7 +3680,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         RefreshDetailPanel();
     }
 
-    // Task 002 implements visual feedback
+    // Applies selection indicator: border doubling for task/gate, glow-behind for others.
+    // Always clears previous selection first to ensure single-selection invariant.
     private void ApplySelectionVisual()
     {
         ClearSelectionVisual();
@@ -3730,7 +3731,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    // Task 002 implements visual feedback clearing
+    // Restores previous element to its default visual state.
     private void ClearSelectionVisual()
     {
         if (_selectionBorderState is var (border, original))
@@ -3745,7 +3746,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    // Tasks 004/005 populate the detail panel
+    // Routes selection to the appropriate detail populator for all element kinds:
+    // task, validation, gate, milestone, stage. Clears panel when nothing is selected.
     private void RefreshDetailPanel()
     {
         if (_detailDocument is null)
