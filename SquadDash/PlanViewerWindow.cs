@@ -51,6 +51,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         new(StringComparer.Ordinal);
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
+    private Canvas? _graphCanvas;
+
+    private record SelectedElementIdentity(string Kind, string Id);
+    private SelectedElementIdentity? _selectedElement;
 
     internal string? CurrentRevision => _plan?.Revision;
 
@@ -540,6 +544,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment   = VerticalAlignment.Top,
         };
+        _graphCanvas = canvas;
+        canvas.MouseLeftButtonDown += (_, e) =>
+        {
+            if (e.OriginalSource == canvas)
+            {
+                _selectedElement = null;
+                ClearSelectionVisual();
+                RefreshDetailPanel();
+            }
+        };
         var scroll = new ScrollViewer
         {
             Content = canvas,
@@ -758,6 +772,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             UIElement headerElement = titleBlock;
 
+            headerElement.SetValue(FrameworkElement.TagProperty, $"stage:{column.Key}");
+            if (headerElement is FrameworkElement headerFe)
+            {
+                headerFe.Cursor = Cursors.Hand;
+                WireSelectionClick(headerFe);
+            }
+
             Canvas.SetLeft(headerElement, x);
             Canvas.SetTop(headerElement, graphTop - 36 * _scaleFactor);
             canvas.Children.Add(headerElement);
@@ -953,6 +974,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ToolTip      = "Stage milestone boundary",
             };
             milestoneBand.SetResourceReference(Border.BackgroundProperty, "ActivePanelBorder");
+            milestoneBand.Tag = $"milestone:{columnIndex}";
+            milestoneBand.Cursor = Cursors.Hand;
+            WireSelectionClick(milestoneBand);
             Canvas.SetLeft(milestoneBand, boundaryX - 12 * _scaleFactor);
             Canvas.SetTop(milestoneBand, globalBandTop);
             Panel.SetZIndex(milestoneBand, -2);
@@ -1086,6 +1110,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 titleBorder.SetResourceReference(Border.BackgroundProperty, "ValidationTitleBackdrop");
                 visual.Children.Add(titleBorder);
+                visual.Tag = $"validation:{validation.ValidationId}";
+                WireSelectionClick(visual);
 
                 var taskPositionMap = positions.ToDictionary(
                     entry => entry.Key,
@@ -1443,6 +1469,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
+            badge.Tag = $"gate:{gi}";
+            badge.Cursor = Cursors.Hand;
+            WireSelectionClick(badge);
             Canvas.SetLeft(badge, gate.Center.X - badgeHalf);
             Canvas.SetTop(badge, gate.Center.Y - 17 * _scaleFactor);
             Panel.SetZIndex(badge, 10);
@@ -1658,6 +1687,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
+            border.Tag = $"task:{task.Id}";
+            WireSelectionClick(border);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
 
@@ -3561,5 +3592,47 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var D = Lerp(A,  B,  t); var E = Lerp(B,  C,  t); var F = Lerp(D,  E,  t);
         lp0 = p0; lp1 = A; lp2 = D; lp3 = F;
         rp0 = F;  rp1 = E; rp2 = C; rp3 = p3;
+    }
+
+    private void SelectElement(string kind, string id)
+    {
+        var identity = new SelectedElementIdentity(kind, id);
+        if (_selectedElement == identity)
+        {
+            _selectedElement = null;
+            ClearSelectionVisual();
+        }
+        else
+        {
+            _selectedElement = identity;
+            ApplySelectionVisual();
+        }
+        RefreshDetailPanel();
+    }
+
+    // Task 002 implements visual feedback
+    private void ApplySelectionVisual() { }
+
+    // Task 002 implements visual feedback clearing
+    private void ClearSelectionVisual() { }
+
+    // Tasks 004/005 populate the detail panel
+    private void RefreshDetailPanel() { }
+
+    private void WireSelectionClick(FrameworkElement element)
+    {
+        element.MouseLeftButtonDown += (sender, e) =>
+        {
+            if (e.OriginalSource is System.Windows.Controls.Primitives.ButtonBase
+                || (e.OriginalSource is FrameworkElement src && src.TemplatedParent is System.Windows.Controls.Primitives.ButtonBase))
+                return;
+            if (sender is FrameworkElement fe && fe.Tag is string tag)
+            {
+                var parts = tag.Split(':', 2);
+                if (parts.Length == 2)
+                    SelectElement(parts[0], parts[1]);
+                e.Handled = true;
+            }
+        };
     }
 }
