@@ -3787,7 +3787,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
             }
         }
-        // Other kinds (validation, gate, milestone, stage) handled by task 005
+        else if (_selectedElement.Kind == "validation")
+        {
+            var validation = _durablePlan?.Validations?.FirstOrDefault(v =>
+                string.Equals(v.ValidationId, _selectedElement.Id, StringComparison.Ordinal));
+            if (validation is not null)
+                PopulateValidationDetail(validation, _durablePlan);
+        }
+        else if (_selectedElement.Kind == "gate")
+        {
+            if (int.TryParse(_selectedElement.Id, out var gateIndex))
+            {
+                var durableGates = _durablePlan?.ApprovalGates;
+                if (durableGates is not null && gateIndex >= 0 && gateIndex < durableGates.Count)
+                {
+                    PopulateGateDetail(durableGates[gateIndex], _durablePlan);
+                }
+                else
+                {
+                    var decomposedGates = _plan?.Group.ApprovalGates;
+                    if (decomposedGates is not null && gateIndex >= 0 && gateIndex < decomposedGates.Count)
+                    {
+                        var dg = decomposedGates[gateIndex];
+                        var minimalGate = new PlanApprovalGate(
+                            dg.GateId, dg.Message, dg.AfterTaskIds ?? [], dg.BeforeTaskIds ?? [],
+                            PlanGateStatus.Pending);
+                        PopulateGateDetail(minimalGate, null);
+                    }
+                }
+            }
+        }
+        else if (_selectedElement.Kind == "milestone")
+        {
+            if (int.TryParse(_selectedElement.Id, out var columnIndex))
+                PopulateMilestoneDetail(columnIndex);
+        }
+        else if (_selectedElement.Kind == "stage")
+        {
+            if (int.TryParse(_selectedElement.Id, out var stageIndex))
+                PopulateStageDetail(stageIndex);
+        }
     }
 
     private void PopulateTaskDetail(PlanTask task, Plan plan)
@@ -4024,6 +4063,340 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             _detailDocument.Blocks.Add(proofList);
         }
+    }
+
+    private void PopulateValidationDetail(PlanValidationNode validation, Plan? plan)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var titlePara = new Paragraph(new Run(validation.Title) { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Validation ID (monospace, subtle)
+        var idPara = new Paragraph(new Run(validation.ValidationId) { FontFamily = new FontFamily("Consolas") });
+        idPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        idPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        idPara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(idPara);
+
+        // Status with color indicator
+        var statusColorKey = validation.Status switch
+        {
+            "passed" or "complete" => "PriorityLow",
+            "failed" => "PriorityHigh",
+            "executing" or "running" => "ActivePanelBorder",
+            _ => "SubtleText",
+        };
+        var statusRun = new Run($"● {validation.Status ?? "unknown"}");
+        statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+        var statusPara = new Paragraph(statusRun);
+        statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        statusPara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(statusPara);
+
+        // Mode
+        if (!string.IsNullOrWhiteSpace(validation.Mode))
+        {
+            var modePara = new Paragraph();
+            modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
+            modePara.Inlines.Add(new Run(validation.Mode));
+            modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            modePara.Margin = new Thickness(0, 0, 0, 8);
+            _detailDocument.Blocks.Add(modePara);
+        }
+
+        // Description
+        if (!string.IsNullOrWhiteSpace(validation.Description))
+        {
+            var descPara = new Paragraph(new Run(validation.Description));
+            descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            descPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(descPara);
+        }
+
+        // Assertions list
+        if (validation.Assertions is { Count: > 0 })
+        {
+            AddSectionHeader("Assertions");
+            var assertList = new List();
+            assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            assertList.MarkerStyle = TextMarkerStyle.None;
+            assertList.Margin = new Thickness(0, 0, 0, 12);
+            for (int i = 0; i < validation.Assertions.Count; i++)
+            {
+                var assertion = validation.Assertions[i];
+                var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
+                var indicator = hasEvidence
+                    ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
+                    : "• ";
+                var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
+                var para = new Paragraph();
+                var indicatorRun = new Run(indicator);
+                indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
+                para.Inlines.Add(indicatorRun);
+                para.Inlines.Add(new Run(assertion));
+                assertList.ListItems.Add(new ListItem(para));
+            }
+            _detailDocument.Blocks.Add(assertList);
+        }
+
+        // After Task IDs
+        AddTaskIdList("After Tasks", validation.AfterTaskIds, plan);
+
+        // Before Task IDs
+        AddTaskIdList("Before Tasks", validation.BeforeTaskIds, plan);
+    }
+
+    private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var titlePara = new Paragraph(new Run("Approval Gate") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Gate ID (monospace)
+        var idPara = new Paragraph(new Run(gate.GateId) { FontFamily = new FontFamily("Consolas") });
+        idPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        idPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        idPara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(idPara);
+
+        // Message
+        if (!string.IsNullOrWhiteSpace(gate.Message))
+        {
+            var msgPara = new Paragraph(new Run(gate.Message));
+            msgPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            msgPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            msgPara.Margin = new Thickness(0, 0, 0, 8);
+            _detailDocument.Blocks.Add(msgPara);
+        }
+
+        // Status (color-coded)
+        var gateStatusColor = gate.Status switch
+        {
+            PlanGateStatus.Approved or PlanGateStatus.Skipped => "PriorityLow",
+            "rework-requested" => "PriorityHigh",
+            _ => "SubtleText",
+        };
+        var gateStatusText = gate.Status switch
+        {
+            PlanGateStatus.Pending => "Pending",
+            PlanGateStatus.AwaitingApproval => "Awaiting Approval",
+            PlanGateStatus.Approved => "Approved",
+            PlanGateStatus.Skipped => "Skipped",
+            _ => gate.Status ?? "Unknown",
+        };
+        var statusRun = new Run($"● {gateStatusText}");
+        statusRun.SetResourceReference(TextElement.ForegroundProperty, gateStatusColor);
+        var statusPara = new Paragraph(statusRun);
+        statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        statusPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(statusPara);
+
+        // After Task IDs
+        AddTaskIdList("After Tasks", gate.AfterTaskIds, plan);
+
+        // Before Task IDs
+        AddTaskIdList("Before Tasks", gate.BeforeTaskIds, plan);
+
+        // Resolution note
+        if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
+        {
+            AddSectionHeader("Resolution Note");
+            var notePara = new Paragraph(new Run(gate.ResolutionNote));
+            notePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            notePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            notePara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(notePara);
+        }
+
+        // Resolved By
+        if (!string.IsNullOrWhiteSpace(gate.ResolvedBy))
+        {
+            AddSectionHeader("Resolved By");
+            var resolvedByPara = new Paragraph(new Run(gate.ResolvedBy));
+            resolvedByPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            resolvedByPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            resolvedByPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(resolvedByPara);
+        }
+
+        // Rework Count
+        if (gate.ReworkCount > 0)
+        {
+            AddSectionHeader("Rework Count");
+            var reworkPara = new Paragraph(new Run(gate.ReworkCount.ToString()));
+            reworkPara.SetResourceReference(TextElement.ForegroundProperty, "PriorityMid");
+            reworkPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            reworkPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(reworkPara);
+        }
+
+        // Last Rework Instructions
+        if (!string.IsNullOrWhiteSpace(gate.LastReworkInstructions))
+        {
+            AddSectionHeader("Last Rework Instructions");
+            var instrPara = new Paragraph(new Run(gate.LastReworkInstructions));
+            instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            instrPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(instrPara);
+        }
+    }
+
+    private void PopulateMilestoneDetail(int columnIndex)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var titlePara = new Paragraph(new Run("Milestone Boundary") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Position
+        var posPara = new Paragraph();
+        posPara.Inlines.Add(new Run("Position: ") { FontWeight = FontWeights.SemiBold });
+        posPara.Inlines.Add(new Run($"Between Stage {columnIndex + 1} and Stage {columnIndex + 2}"));
+        posPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+        posPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        posPara.Margin = new Thickness(0, 0, 0, 12);
+        _detailDocument.Blocks.Add(posPara);
+
+        // Resolve tasks and levels
+        var (planTasks, levels) = ResolveTasksAndLevels();
+        if (planTasks is null)
+            return;
+
+        var columns = planTasks.GroupBy(t => levels[t.TaskId]).OrderBy(g => g.Key).ToArray();
+
+        // Tasks before milestone (columns 0..columnIndex)
+        var tasksBefore = columns.Where(g => g.Key <= columnIndex).SelectMany(g => g).ToArray();
+        if (tasksBefore.Length > 0)
+        {
+            AddSectionHeader($"Tasks Before (Stage {columnIndex + 1} and earlier)");
+            AddTaskStatusList(tasksBefore);
+        }
+
+        // Tasks after milestone (columns > columnIndex)
+        var tasksAfter = columns.Where(g => g.Key > columnIndex).SelectMany(g => g).ToArray();
+        if (tasksAfter.Length > 0)
+        {
+            AddSectionHeader($"Tasks After (Stage {columnIndex + 2} and later)");
+            AddTaskStatusList(tasksAfter);
+        }
+    }
+
+    private void PopulateStageDetail(int stageIndex)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var stageTitle = $"Stage {stageIndex + 1}";
+        var titlePara = new Paragraph(new Run(stageTitle) { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Resolve tasks and levels
+        var (planTasks, levels) = ResolveTasksAndLevels();
+        if (planTasks is null)
+            return;
+
+        var stageTasks = planTasks.Where(t => levels[t.TaskId] == stageIndex).ToArray();
+        if (stageTasks.Length == 0)
+            return;
+
+        AddSectionHeader($"Tasks ({stageTasks.Length})");
+        AddTaskStatusList(stageTasks);
+    }
+
+    private (IReadOnlyList<PlanTask>? Tasks, Dictionary<string, int> Levels) ResolveTasksAndLevels()
+    {
+        var sourceTasks = _plan?.Group.Tasks;
+        if (_durablePlan?.Tasks is { Count: > 0 } durableTasks)
+        {
+            var decomposed = durableTasks.Select(t =>
+                new DecomposedSubTask(t.TaskId, t.Description ?? "", t.DependsOn ?? [], t.Priority ?? "normal", t.Title)).ToArray();
+            var byId = decomposed.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var levels = CalculateLevels(decomposed, byId);
+            return (durableTasks, levels);
+        }
+        if (sourceTasks is { Count: > 0 })
+        {
+            var byId = sourceTasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var levels = CalculateLevels(sourceTasks, byId);
+            var planTasks = sourceTasks.Select(t => new PlanTask(
+                t.Id, t.Title, t.Description, t.DependsOn, t.Priority, PlanTaskStatus.Pending)).ToArray();
+            return (planTasks, levels);
+        }
+        return (null, new Dictionary<string, int>());
+    }
+
+    private void AddTaskStatusList(IReadOnlyList<PlanTask> tasks)
+    {
+        if (_detailDocument is null) return;
+        var list = new List();
+        list.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        list.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        list.MarkerStyle = TextMarkerStyle.Disc;
+        list.Margin = new Thickness(0, 0, 0, 12);
+        foreach (var task in tasks)
+        {
+            var statusColor = GetTaskStatusColorKey(task.Status);
+            var para = new Paragraph();
+            para.Inlines.Add(new Run(task.Title ?? task.TaskId));
+            var statusSuffix = new Run($" ({FormatTaskStatus(task.Status)})");
+            statusSuffix.SetResourceReference(TextElement.ForegroundProperty, statusColor);
+            para.Inlines.Add(statusSuffix);
+            list.ListItems.Add(new ListItem(para));
+        }
+        _detailDocument.Blocks.Add(list);
+    }
+
+    private void AddTaskIdList(string header, IReadOnlyList<string>? taskIds, Plan? plan)
+    {
+        if (taskIds is not { Count: > 0 } || _detailDocument is null)
+            return;
+
+        AddSectionHeader(header);
+        var list = new List();
+        list.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        list.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        list.MarkerStyle = TextMarkerStyle.Disc;
+        list.Margin = new Thickness(0, 0, 0, 12);
+        foreach (var taskId in taskIds)
+        {
+            var task = plan?.Tasks?.FirstOrDefault(t => t.TaskId == taskId);
+            var title = task?.Title ?? taskId;
+            list.ListItems.Add(new ListItem(new Paragraph(new Run(title))));
+        }
+        _detailDocument.Blocks.Add(list);
     }
 
     private void AddSectionHeader(string text)
