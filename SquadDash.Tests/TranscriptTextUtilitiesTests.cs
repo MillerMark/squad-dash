@@ -170,6 +170,30 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void InspectableProtocolJson_RetainsStrippedPayloadAsMetadata()
+    {
+        const string text = """
+            Implemented and verified the assigned step.
+
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId": "PLAN-20260725",
+              "summary": "A closing brace inside a string: } is preserved"
+            }
+            """;
+
+        var blocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(blocks[0].Marker, Is.EqualTo("DECOMPOSE_STEP_RESULT_JSON"));
+            Assert.That(blocks[0].Json, Does.Contain("\"groupId\": \"PLAN-20260725\""));
+            Assert.That(blocks[0].Json, Does.Contain("A closing brace inside a string: } is preserved"));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_PlanValidationResult_StripsPayloadAndPreservesAssessment()
     {
         const string text = """

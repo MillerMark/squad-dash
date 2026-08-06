@@ -73,6 +73,25 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void TryParse_ProofEvidenceWithDetailInsteadOfSummary_ReportsSchemaError()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId": "g1", "taskId": "t1", "revision": "r1", "status": "complete",
+              "commit": "abc1234", "summary": "did the work", "remainingWork": [],
+              "verification": { "status": "passed", "command": "dotnet test", "summary": "all pass" },
+              "proofEvidence": [
+                { "requirementId": "build", "proofType": "build", "detail": "0 errors" }
+              ]
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Is.EqualTo("Proof evidence requires requirementId, proofType, and summary."));
+    }
+
+    [Test]
     public void TryParse_MissingGroupId_ReturnsFalse()
     {
         var text = """
@@ -210,5 +229,24 @@ public class DecomposeEnvelopeRepairTests
     {
         var prompt = DecomposeEnvelopeRepairPrompt.Build("g1", "t1", "r1", "the specific reason");
         Assert.That(prompt, Does.Contain("the specific reason"));
+    }
+
+    [Test]
+    public void RepairPrompt_SchemaInvalid_ExplainsCorrectionWithoutRepeatingWork()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "Proof evidence requires requirementId, proofType, and summary.",
+            envelopeWasPresent: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("did not match the required schema"));
+            Assert.That(prompt, Does.Contain("Proof evidence requires requirementId, proofType, and summary."));
+            Assert.That(prompt, Does.Contain("Correct the validation error"));
+            Assert.That(prompt, Does.Contain("Do not re-run any tools"));
+        });
     }
 }

@@ -499,7 +499,8 @@ internal sealed class WorkspaceConversationStore {
         var responseSegments = turn.GetResponseSegments()
             .Select(segment => new TranscriptResponseSegmentRecord(
                 TranscriptTextUtilities.RepairFusedProseBoundaries(segment.Text).TrimEnd()) {
-                Sequence = NormalizeSequence(segment.Sequence)
+                Sequence = NormalizeSequence(segment.Sequence),
+                ProtocolJsonBlocks = segment.ProtocolJsonBlocks
             })
             .ToArray();
 
@@ -1165,7 +1166,12 @@ internal sealed record TranscriptToolRecord(
 internal sealed record TranscriptResponseSegmentRecord(
     string Text) {
     public int? Sequence { get; init; }
+    public IReadOnlyList<TranscriptProtocolJsonBlock>? ProtocolJsonBlocks { get; init; }
 }
+
+internal sealed record TranscriptProtocolJsonBlock(
+    string Marker,
+    string Json);
 
 internal sealed record TranscriptThreadRecord(
     string ThreadId,

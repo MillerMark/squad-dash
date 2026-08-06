@@ -10065,13 +10065,17 @@ public partial class MainWindow : Window
         if (routingPolicy != PlanAgentRoutingPolicy.Off &&
             string.Equals(persistedTask?.AgentRoutingMode, "generic", StringComparison.Ordinal))
         {
-            assignmentEvidenceError = PlanAgentAssignmentValidator.ValidateGeneric(
+            assignmentEvidenceError = PlanAgentAssignmentValidator.ValidateGenericEvidence(
                 taskId,
                 revision,
-                executionAttempt,
-                result?.ExecutionAttemptId,
-                result?.AgentExecutions);
+                executionAttempt);
             assignmentError = assignmentEvidenceError;
+            if (assignmentEvidenceError is null && result is not null)
+                assignmentError = PlanAgentAssignmentValidator.ValidateGenericWrapUp(
+                    taskId,
+                    executionAttempt,
+                    result.ExecutionAttemptId,
+                    result.AgentExecutions);
         }
         else
         {
@@ -10081,7 +10085,12 @@ public partial class MainWindow : Window
                 routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
                 executionAttempt);
             assignmentError = assignmentEvidenceError;
-            if (assignmentEvidenceError is null && routingPolicy != PlanAgentRoutingPolicy.Off)
+            // A schema-invalid result has already produced a precise parser error. Do not
+            // discard it by validating wrap-up fields on the deliberately cleared result;
+            // doing so turns every schema error into a misleading "wrong attempt ID" error.
+            if (assignmentEvidenceError is null &&
+                routingPolicy != PlanAgentRoutingPolicy.Off &&
+                result is not null)
                 assignmentError = PlanAgentAssignmentValidator.ValidateWrapUp(
                     taskId,
                     expectedAssignments,
@@ -10243,7 +10252,16 @@ public partial class MainWindow : Window
                         RecoveryAttemptId = executionAttempt?.AttemptId,
                         RepairRequestCount = activeExecution.RepairRequestCount + 1
                     });
-                var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(groupId, taskId, revision, repairError);
+                var resultEnvelopeWasPresent =
+                    _capturedTaskVerificationRawResponse?.Contains(
+                        DecomposeStepResultParser.Marker,
+                        StringComparison.Ordinal) == true;
+                var repairPrompt = DecomposeEnvelopeRepairPrompt.Build(
+                    groupId,
+                    taskId,
+                    revision,
+                    repairError,
+                    resultEnvelopeWasPresent);
                 if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
                 {
                     var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
@@ -10331,10 +10349,13 @@ public partial class MainWindow : Window
                         ? "The current step"
                         : PlanLoopTranscriptPresentation.BuildTaskIdentity(
                             repairPlan, taskId, _CodeHealthGroupRunner.GetCurrentStepTitle());
-                    ScheduleDecomposeSystemEntry(
-                        $"{stepIdentity} is not yet accepted. " +
-                        "SquadDash is requesting the missing result envelope without repeating the task. " +
-                        $"Technical detail: {repairError}");
+                    ScheduleDecomposeSystemEntry(resultEnvelopeWasPresent
+                        ? "⚙ The task result JSON did not match the required schema. " +
+                          "SquadDash is asking the AI to correct it once without repeating the work. " +
+                          $"Technical detail: {repairError}"
+                        : $"{stepIdentity} is not yet accepted. " +
+                          "SquadDash is requesting the missing result envelope without repeating the task. " +
+                          $"Technical detail: {repairError}");
                 }
                 EnqueuePrompt(repairPrompt, isSystemInjected: true);
                 return;
@@ -33518,10 +33539,15 @@ public partial class MainWindow : Window
         var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
             SanitizeResponseText(rawText),
             _workspacePaths.ApplicationRoot);
+        var protocolJsonBlocks = entry.ProtocolJsonBlocks ??
+                                 TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(rawText);
 
         var newBlocks = BuildResponseBlocks(entry, sanitizedText, entry.AllowQuickReplies).ToList();
         if (newBlocks.Count == 0)
             newBlocks.Add(CreateTranscriptParagraph(bottomMargin: 18));
+
+        foreach (var protocolJsonBlock in protocolJsonBlocks)
+            newBlocks.Add(BuildProtocolJsonIndicatorParagraph(protocolJsonBlock));
 
         // Only add the "✉ Sent to Inbox" indicator after a confirmed save.  InboxMessageId is
         // set only when TrySaveInboxMessageFromResponse succeeds, so this never fires for
@@ -33630,6 +33656,36 @@ public partial class MainWindow : Window
         }
 
         return para;
+    }
+
+    private Paragraph BuildProtocolJsonIndicatorParagraph(TranscriptProtocolJsonBlock protocolBlock)
+    {
+        var paragraph = CreateTranscriptParagraph(bottomMargin: 6);
+        paragraph.Margin = new Thickness(0, 4, 0, 6);
+
+        var button = new Button
+        {
+            Content = "{ }  JSON received",
+            Padding = new Thickness(9, 3, 9, 3),
+            MinHeight = 26,
+            ToolTip = $"View {protocolBlock.Marker}",
+        };
+        button.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        button.Click += (_, _) =>
+        {
+            var viewer = new ProtocolJsonViewerWindow(protocolBlock.Marker, protocolBlock.Json)
+            {
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            };
+            viewer.Show();
+        };
+
+        paragraph.Inlines.Add(new InlineUIContainer(button)
+        {
+            BaselineAlignment = BaselineAlignment.Center,
+        });
+        return paragraph;
     }
 
     private IEnumerable<Block> BuildResponseBlocks(
@@ -35697,6 +35753,7 @@ public partial class MainWindow : Window
     {
         var entry = CreateResponseEntry(turn, responseSegment.Sequence);
         entry.AllowQuickReplies = allowQuickReplies;
+        entry.ProtocolJsonBlocks = responseSegment.ProtocolJsonBlocks;
         entry.RawTextBuilder.Append(responseSegment.Text);
         RenderResponseEntry(entry);
     }

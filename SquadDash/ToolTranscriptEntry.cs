@@ -168,6 +168,7 @@ internal sealed class TranscriptResponseEntry {
     public bool HasPendingRender { get; set; }
     public DateTimeOffset? LastRenderedAt { get; set; }
     public string? InboxMessageId { get; set; }
+    public IReadOnlyList<TranscriptProtocolJsonBlock>? ProtocolJsonBlocks { get; set; }
 }
 
 internal sealed class ToolTranscriptEntry : ICopyable {

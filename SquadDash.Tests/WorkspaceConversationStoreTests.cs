@@ -72,7 +72,12 @@ internal sealed class WorkspaceConversationStoreTests {
                         ],
                         [
                             new TranscriptResponseSegmentRecord("First streamed response segment.") {
-                                Sequence = 4
+                                Sequence = 4,
+                                ProtocolJsonBlocks = [
+                                    new TranscriptProtocolJsonBlock(
+                                        "PLAN_TASK_RESULT_JSON",
+                                        "{\"taskId\":\"PVINSPCTR-20260806-001\"}")
+                                ]
                             },
                             new TranscriptResponseSegmentRecord("Second streamed response segment.") {
                                 Sequence = 6
@@ -105,6 +110,11 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(loaded.Turns[0].GetResponseSegments(), Has.Count.EqualTo(2));
             Assert.That(loaded.Turns[0].GetResponseSegments()[0].Text, Is.EqualTo("First streamed response segment."));
             Assert.That(loaded.Turns[0].GetResponseSegments()[0].Sequence, Is.EqualTo(4));
+            Assert.That(loaded.Turns[0].GetResponseSegments()[0].ProtocolJsonBlocks, Has.Count.EqualTo(1));
+            Assert.That(loaded.Turns[0].GetResponseSegments()[0].ProtocolJsonBlocks![0].Marker,
+                Is.EqualTo("PLAN_TASK_RESULT_JSON"));
+            Assert.That(loaded.Turns[0].GetResponseSegments()[0].ProtocolJsonBlocks![0].Json,
+                Is.EqualTo("{\"taskId\":\"PVINSPCTR-20260806-001\"}"));
             Assert.That(loaded.Turns[0].GetResponseSegments()[1].Text, Is.EqualTo("Second streamed response segment."));
             Assert.That(loaded.Turns[0].GetResponseSegments()[1].Sequence, Is.EqualTo(6));
             Assert.That(loaded.Turns[0].StartedAt, Is.EqualTo(startedAt.ToUniversalTime()));

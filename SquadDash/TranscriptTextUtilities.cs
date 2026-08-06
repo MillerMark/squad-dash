@@ -6,6 +6,21 @@ namespace SquadDash;
 
 internal static class TranscriptTextUtilities
 {
+    private static readonly string[] InspectableProtocolMarkers =
+    [
+        "TASKS_JSON:",
+        DecomposeStepResultParser.Marker,
+        DecomposeRecoveryDecisionParser.Marker,
+        DecomposeDecisionParser.Marker,
+        PlanRecoveryAssessmentParser.Marker,
+        PlanRecoveryOptionsParser.Marker,
+        PlanGateResponseParser.Marker,
+        PlanGateApprovalParser.Marker,
+        PlanValidationResultParser.Marker,
+        PlanTaskVerificationResultParser.Marker,
+        PlanTaskVerificationResultParser.LegacyMarker,
+    ];
+
     private static readonly Regex WhitespaceNormRegex = new(
         @"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex WordApostropheRegex = new(
@@ -24,6 +39,31 @@ internal static class TranscriptTextUtilities
     {
         var sanitized = SanitizeResponseText(text);
         return string.IsNullOrWhiteSpace(sanitized) ? null : sanitized;
+    }
+
+    internal static IReadOnlyList<TranscriptProtocolJsonBlock> ExtractInspectableProtocolJsonBlocks(
+        string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+
+        var blocks = new List<TranscriptProtocolJsonBlock>();
+        foreach (var marker in InspectableProtocolMarkers.Distinct(StringComparer.Ordinal))
+        {
+            var markerIndex = FindTopLevelSentinelIndex(text, marker);
+            if (markerIndex < 0)
+                continue;
+
+            var braceStart = text.IndexOf('{', markerIndex + marker.Length);
+            if (braceStart < 0 || !TryFindBalancedJsonObjectEnd(text, braceStart, out var braceEnd))
+                continue;
+
+            blocks.Add(new TranscriptProtocolJsonBlock(
+                marker.TrimEnd(':'),
+                text[braceStart..(braceEnd + 1)]));
+        }
+
+        return blocks;
     }
 
     internal static string GetSanitizedTurnResponseText(TranscriptTurnView? turn)
@@ -281,19 +321,7 @@ internal static class TranscriptTextUtilities
 
     private static string StripHostOwnedJsonBlocks(string text)
     {
-        foreach (var marker in new[]
-                 {
-                     DecomposeStepResultParser.Marker,
-                     DecomposeRecoveryDecisionParser.Marker,
-                     DecomposeDecisionParser.Marker,
-                     PlanRecoveryAssessmentParser.Marker,
-                     PlanRecoveryOptionsParser.Marker,
-                     PlanGateResponseParser.Marker,
-                     PlanGateApprovalParser.Marker,
-                     PlanValidationResultParser.Marker,
-                     PlanTaskVerificationResultParser.Marker,
-                     PlanTaskVerificationResultParser.LegacyMarker,
-                 })
+        foreach (var marker in InspectableProtocolMarkers)
             text = StripTopLevelJsonBlock(text, marker);
         return text;
     }

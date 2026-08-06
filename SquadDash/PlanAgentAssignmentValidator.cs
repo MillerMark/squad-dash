@@ -14,12 +14,20 @@ internal static class PlanAgentAssignmentValidator
         string? reportedAttemptId,
         IReadOnlyList<DecomposeAgentExecution>? reported)
     {
+        var evidenceError = ValidateGenericEvidence(taskId, revision, attempt);
+        return evidenceError ?? ValidateGenericWrapUp(taskId, attempt, reportedAttemptId, reported);
+    }
+
+    internal static string? ValidateGenericEvidence(
+        string taskId,
+        string revision,
+        PlanExecutionAttemptState? attempt)
+    {
         if (attempt is null || !attempt.AllowsGenericPrimary)
             return $"Task {taskId} explicitly authorizes generic routing but has no host-owned execution attempt.";
         if (!string.Equals(attempt.TaskId, taskId, StringComparison.Ordinal) ||
-            !string.Equals(attempt.Revision, revision, StringComparison.Ordinal) ||
-            !string.Equals(attempt.AttemptId, reportedAttemptId, StringComparison.Ordinal))
-            return $"Task {taskId} reported stale or incorrect generic execution-attempt evidence.";
+            !string.Equals(attempt.Revision, revision, StringComparison.Ordinal))
+            return $"Task {taskId} has stale generic execution-attempt evidence from another task or revision.";
         if (!string.Equals(attempt.Status, "active", StringComparison.Ordinal))
             return $"Task {taskId} execution attempt {attempt.AttemptId} is not active.";
         if (string.IsNullOrWhiteSpace(attempt.GenericPrimaryToolCallId))
@@ -28,6 +36,17 @@ internal static class PlanAgentAssignmentValidator
             return $"Task {taskId}'s generic primary worker did not complete successfully in the current attempt.";
         if (attempt.GenericChildToolCallIds is { Count: > 0 })
             return $"Task {taskId}'s generic primary worker launched prohibited child workers.";
+        return null;
+    }
+
+    internal static string? ValidateGenericWrapUp(
+        string taskId,
+        PlanExecutionAttemptState? attempt,
+        string? reportedAttemptId,
+        IReadOnlyList<DecomposeAgentExecution>? reported)
+    {
+        if (attempt is null || !string.Equals(attempt.AttemptId, reportedAttemptId, StringComparison.Ordinal))
+            return $"Task {taskId} reported stale or incorrect generic execution-attempt evidence.";
         if (reported is { Count: > 0 })
             return $"Task {taskId} reported roster agent executions for an explicitly generic task.";
         return null;

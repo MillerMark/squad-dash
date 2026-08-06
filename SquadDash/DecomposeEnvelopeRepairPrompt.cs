@@ -2,13 +2,18 @@ namespace SquadDash;
 
 internal static class DecomposeEnvelopeRepairPrompt
 {
-    internal static string Build(string groupId, string taskId, string revision, string reason)
+    internal static string Build(
+        string groupId,
+        string taskId,
+        string revision,
+        string reason,
+        bool envelopeWasPresent = false)
     {
         return $$"""
-            SquadDash detected that your previous response completed normally but was missing the required DECOMPOSE_STEP_RESULT_JSON envelope.
-            Reason: {{reason}}
+            SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not match the required schema" : "was missing or invalid")}}.
+            Validation error: {{reason}}
 
-            Please provide ONLY the result envelope now, based on the work you just completed. Do not re-run any tools, re-examine files, or repeat previous work.
+            Correct the validation error and provide ONLY the result envelope now, based on the work you just completed. Do not re-run any tools, re-examine files, or repeat previous work.
 
             Required format:
             DECOMPOSE_STEP_RESULT_JSON:

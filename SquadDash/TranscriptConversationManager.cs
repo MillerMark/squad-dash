@@ -1194,12 +1194,15 @@ internal sealed class TranscriptConversationManager {
     private static TranscriptResponseSegmentRecord BuildTranscriptResponseSegmentRecord(
         TranscriptResponseEntry entry,
         string? applicationRoot) {
-        var text = MainWindow.SanitizeResponseText(entry.RawTextBuilder.ToString());
+        var rawText = entry.RawTextBuilder.ToString();
+        var text = MainWindow.SanitizeResponseText(rawText);
         if (!string.IsNullOrWhiteSpace(applicationRoot))
             text = AgentArtifactBlockExpander.ExpandDisplayArtifacts(text, applicationRoot);
+        var protocolJsonBlocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(rawText);
 
         return new TranscriptResponseSegmentRecord(text) {
-            Sequence = entry.Sequence
+            Sequence = entry.Sequence,
+            ProtocolJsonBlocks = protocolJsonBlocks.Count > 0 ? protocolJsonBlocks : null
         };
     }
 
