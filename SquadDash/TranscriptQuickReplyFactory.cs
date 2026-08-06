@@ -120,6 +120,27 @@ internal static class TranscriptQuickReplyFactory
         }
     }
 
+    /// <summary>
+    /// Removes only the actionable controls from an existing recovery surface for one plan.
+    /// The explanatory narrative and plan link remain in the transcript while a newer,
+    /// more specific recovery card becomes the single owner of the next action.
+    /// </summary>
+    internal static void RemoveDecomposeRecoveryActions(BlockCollection blocks, string groupId)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            if (block is BlockUIContainer { Tag: DecomposeRecoveryTag tag } &&
+                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal))
+            {
+                blocks.Remove(block);
+                continue;
+            }
+
+            if (block is Section section)
+                RemoveDecomposeRecoveryActions(section.Blocks, groupId);
+        }
+    }
+
     internal static IEnumerable<Button> EnumerateButtons(DependencyObject root)
     {
         if (root is Button button)

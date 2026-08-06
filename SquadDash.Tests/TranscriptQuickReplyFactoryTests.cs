@@ -132,4 +132,35 @@ internal sealed class TranscriptQuickReplyFactoryTests
         Assert.That(historySection.Blocks.OfType<Paragraph>().Single().Inlines
             .OfType<Run>().Single().Text, Is.EqualTo("Historical narrative"));
     }
+
+    [Test]
+    public void RemoveDecomposeRecoveryActions_PreservesNarrativeAndUnrelatedPlanActions()
+    {
+        var document = new FlowDocument();
+        var recoverySurface = new Section
+        {
+            Tag = new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+        };
+        var explanation = new Paragraph(new Run("Why Plan A stopped"));
+        var planAActions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"));
+        var planBActions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new DecomposeRecoveryTag("PLAN-B", "revision-b", "TASK-B"));
+        recoverySurface.Blocks.Add(explanation);
+        recoverySurface.Blocks.Add(planAActions);
+        document.Blocks.Add(recoverySurface);
+        document.Blocks.Add(planBActions);
+
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(document.Blocks, "PLAN-A");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.Blocks.Contains(recoverySurface), Is.True);
+            Assert.That(recoverySurface.Blocks.Contains(explanation), Is.True);
+            Assert.That(recoverySurface.Blocks.Contains(planAActions), Is.False);
+            Assert.That(document.Blocks.Contains(planBActions), Is.True);
+        });
+    }
 }

@@ -8784,6 +8784,13 @@ public partial class MainWindow : Window
                      string.Equals(tag.GroupId, plan.Group.GroupId, StringComparison.Ordinal)).ToArray())
             blocks.Remove(existing);
 
+        // Resuming from the Plan Viewer does not click (and therefore does not collapse) the
+        // older transcript recovery button. The preflight card now owns the one valid retry,
+        // so retire only that plan's older actions while preserving its explanation and link.
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
+            CoordinatorThread.Document.Blocks,
+            plan.Group.GroupId);
+
         var content = (contentFactory ?? PlanPreflightRecoveryContent.From)(exception);
         var stack = new StackPanel();
         var header = new Grid();
