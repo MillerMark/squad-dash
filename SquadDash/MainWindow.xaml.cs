@@ -13537,6 +13537,7 @@ public partial class MainWindow : Window
         if (!writer.MarkTaskComplete(tasksPath, taskId, terminalCommit, summary))
             throw new InvalidOperationException($"Task {taskId} could not be marked complete in tasks.md.");
 
+        Plan? acceptedPlan = null;
         try
         {
             var freshParsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
@@ -13574,7 +13575,8 @@ public partial class MainWindow : Window
                 PlanRecoveryState.PendingRecovery,
                 0)) with
             {
-                Reason = $"Preserved work for {taskId} was adopted as {rangeLabel}.",
+                Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                    $"Preserved work for {taskId} was adopted as {rangeLabel}."),
                 InterruptedTaskId = nextTaskId,
                 LastCompletedTaskId = taskId,
                 LastCommit = terminalCommit,
@@ -13589,6 +13591,7 @@ public partial class MainWindow : Window
             };
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
+            acceptedPlan = updated;
         }
         catch
         {
@@ -13600,10 +13603,11 @@ public partial class MainWindow : Window
         ShowSystemTranscriptEntry(combinedAmendmentGate is null
             ? $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task."
             : $"✓ Accepted verified amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task.");
-        await StartBackloggedDecomposeGroupAsync(
-            currentGroup with { HostRevision = currentRevision },
-            continuationTaskId: null,
-            continuationPaths: []);
+        // Continue from the canonical durable plan. tasks.md is intentionally a lossy UI/task
+        // projection and does not contain outputs, inputs, approval gates, or validation nodes;
+        // sending that projection back through TASKS_JSON validation can reject valid plans after
+        // their completed work has already been accepted.
+        await StartOrResumeDurablePlanAsync(acceptedPlan!);
         return true;
     }
 

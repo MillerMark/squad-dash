@@ -131,12 +131,17 @@ internal static class PlanRecoveryResumePolicy
         "Rework was prepared, but no new task work started because workspace preflight was blocked.";
     internal const string AmendmentPreflightReasonPrefix =
         "An approval amendment was prepared, but no amendment work started because workspace preflight was blocked.";
+    internal const string AcceptedWorkContinuationReasonPrefix =
+        "Completed work was accepted and no new task work has started.";
 
     internal static string BuildReworkPreflightReason(string details) =>
         $"{ReworkPreflightReasonPrefix} {details}".Trim();
 
     internal static string BuildAmendmentPreflightReason(string details) =>
         $"{AmendmentPreflightReasonPrefix} {details}".Trim();
+
+    internal static string BuildAcceptedWorkContinuationReason(string details) =>
+        $"{AcceptedWorkContinuationReasonPrefix} {details}".Trim();
 
     internal static bool HasPendingRework(Plan plan) => plan.Tasks.Any(task =>
         task.Status == PlanTaskStatus.Pending &&
@@ -158,11 +163,30 @@ internal static class PlanRecoveryResumePolicy
             AmendmentPreflightReasonPrefix,
             StringComparison.OrdinalIgnoreCase) == true;
 
+    internal static bool IsAcceptedWorkContinuation(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
+            plan.Progress.ExecutingTaskId is not null ||
+            plan.InterruptionData is not { } interruption ||
+            string.IsNullOrWhiteSpace(interruption.LastCompletedTaskId) ||
+            string.IsNullOrWhiteSpace(interruption.InterruptedTaskId) ||
+            string.Equals(interruption.LastCompletedTaskId, interruption.InterruptedTaskId, StringComparison.Ordinal))
+            return false;
+
+        return plan.Tasks.Any(task =>
+                   string.Equals(task.TaskId, interruption.LastCompletedTaskId, StringComparison.Ordinal) &&
+                   task.Status == PlanTaskStatus.Complete) &&
+               plan.Tasks.Any(task =>
+                   string.Equals(task.TaskId, interruption.InterruptedTaskId, StringComparison.Ordinal) &&
+                   task.Status == PlanTaskStatus.Pending);
+    }
+
     internal static bool IsSafelyResumable(Plan plan) =>
         plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
         (plan.InterruptionData?.Reason.StartsWith(
              "Paused by user",
              StringComparison.OrdinalIgnoreCase) == true ||
          IsReworkPreflightPause(plan) ||
-         IsAmendmentPreflightPause(plan));
+         IsAmendmentPreflightPause(plan) ||
+         IsAcceptedWorkContinuation(plan));
 }

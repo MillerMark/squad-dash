@@ -119,6 +119,34 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void AcceptedWorkContinuation_IsSafelyResumableWithoutRepeatingCompletedTask()
+    {
+        var completed = new PlanTask(
+            "P-1", "Accepted amendment", "Description", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef1");
+        var next = new PlanTask(
+            "P-2", "Next task", "Description", [completed.TaskId], "normal", PlanTaskStatus.Pending);
+        var interruption = new PlanInterruptionData(
+            "Preserved work for P-1 was adopted as abcdef1.",
+            PlanRecoveryState.PendingRecovery,
+            0,
+            InterruptedTaskId: next.TaskId,
+            LastCompletedTaskId: completed.TaskId,
+            LastCommit: "abcdef1");
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [completed, next], [],
+            new PlanProgress(1, 2), new PlanTimestamps(System.DateTimeOffset.UtcNow),
+            InterruptionData: interruption);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryResumePolicy.IsAcceptedWorkContinuation(plan), Is.True);
+            Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(plan), Is.True);
+        });
+    }
+
+    [Test]
     public void PlanPreflightBlockedException_Properties_StoredCorrectly()
     {
         var paths = new List<string> { "src/Foo.cs", "src/Bar.cs" };
