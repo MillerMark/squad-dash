@@ -30,6 +30,13 @@ internal static class PlanExecutionContextBuilder
                         builder.AppendLine($"  - Changed files: {string.Join(", ", handoff.ChangedFiles.Select(path => $"`{path}`"))}");
                     if (!string.IsNullOrWhiteSpace(handoff.Verification?.Summary))
                         builder.AppendLine($"  - Verification: {handoff.Verification.Summary}");
+                    if (handoff.DeferredWork is { Count: > 0 })
+                    {
+                        builder.AppendLine("  - Declared downstream ownership:");
+                        foreach (var deferred in handoff.DeferredWork)
+                            builder.AppendLine(
+                                $"    - {deferred.Requirement} → {string.Join(", ", deferred.OwnerTaskIds.Select(id => $"`{id}`"))} ({deferred.Reason})");
+                    }
                 }
                 else if (!string.IsNullOrWhiteSpace(ancestor.CompletionSummary))
                     builder.AppendLine($"  - Earlier accepted summary: {ancestor.CompletionSummary}");
@@ -43,6 +50,10 @@ internal static class PlanExecutionContextBuilder
         builder.AppendLine();
         builder.AppendLine("Implement this task as part of that larger intent. Preserve accepted upstream contracts, " +
                            "integrate with their actual production surfaces, and do not claim work that the repository evidence does not support.");
+        builder.AppendLine("Every explicit requirement in this task contract is owned by this task unless the approved plan clearly assigns it " +
+                           "to a named downstream task. If you deliberately defer such work, declare it in the result handoff's `deferredWork` " +
+                           "array with the exact requirement, reason, and downstream `ownerTaskIds`. Otherwise return `deferredWork: []`. " +
+                           "Never silently omit a requirement or assume a later task will absorb it.");
         return builder.ToString().TrimEnd();
     }
 

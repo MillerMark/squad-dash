@@ -35,10 +35,19 @@ internal static class PlanRecoveryOptionsParser
     internal static bool TryParse(string? text, out PlanRecoveryOptionsResponse? response)
     {
         response = null;
-        if (!StructuredJsonBlockParser.TryExtractObject<PlanRecoveryOptionsResponse>(text, Marker, out var extraction)
+        if (!StructuredJsonBlockParser.TryExtractProtocolObject<PlanRecoveryOptionsResponse>(text, Marker, out var extraction)
             || extraction is null)
             return false;
-        response = extraction.Payload;
+        response = extraction.Payload with
+        {
+            Options = (extraction.Payload.Options ?? [])
+                .Where(option => option is not null)
+                .Select(option => option with
+                {
+                    Action = option.Action?.Trim().ToLowerInvariant() ?? string.Empty,
+                })
+                .ToArray(),
+        };
         return response is not null
             && !string.IsNullOrWhiteSpace(response.GroupId)
             && !string.IsNullOrWhiteSpace(response.TaskId)

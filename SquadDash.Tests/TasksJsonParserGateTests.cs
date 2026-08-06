@@ -39,6 +39,32 @@ internal sealed class TasksJsonParserGateTests
     }
 
     [Test]
+    public void PlanSchema_AllowsTrailingCommasAndCommentsWithoutRelaxingRequiredFields()
+    {
+        var json = """
+            TASKS_JSON:
+            {
+              "groupId": "PLANS-20260101",
+              "groupTitle": "Tolerant plan",
+              "branch": "feature/tolerant-plan",
+              "summary": "Accept harmless JSON formatting variations.",
+              "tasks": [
+                {
+                  "id": "PLANS-20260101-001",
+                  "title": "Implement feature",
+                  "description": "Implement the complete feature.",
+                  "dependsOn": [],
+                  "priority": "high",
+                },
+              ], // comments and trailing commas are representation-only
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(json, out var group), Is.True);
+        Assert.That(group!.Tasks, Has.Count.EqualTo(1));
+    }
+
+    [Test]
     public void GateWithEmptyGateId_Fails()
     {
         var json = """

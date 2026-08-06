@@ -19,7 +19,7 @@ internal static class PlanAssignmentWrapUpRepairPrompt
             SquadDash verified the host-observed assigned workers, but the coordinator result omitted or misstated its structured wrap-up.
             Reason: {{reason}}
 
-            Do not launch another worker and do not run more tools. Return only the corrected DECOMPOSE_STEP_RESULT_JSON for group {{groupId}}, task {{taskId}}, revision {{revision}}. Set `executionAttemptId` to `{{attemptId}}` and set `agentExecutions` to [{{reports}}]. Preserve the commit, summary, remaining work, and verification facts from your previous response.
+            Do not launch another worker and do not run more tools. Return only the corrected DECOMPOSE_STEP_RESULT_JSON for group {{groupId}}, task {{taskId}}, revision {{revision}}. Set `executionAttemptId` to `{{attemptId}}` and set `agentExecutions` to [{{reports}}]. Preserve the commit, summary, remaining work, declared deferred work, and verification facts from your previous response.
             """;
     }
 }

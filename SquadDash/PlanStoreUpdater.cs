@@ -129,7 +129,8 @@ internal static class PlanStoreUpdater
                             candidate.Summary,
                             changedFiles,
                             candidate.Verification,
-                            now),
+                            now,
+                            candidate.DeferredWork),
                     }
                     : task).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },

@@ -30,6 +30,49 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void TryParse_BareObjectNormalizesNullCollectionsAndStatusCasing()
+    {
+        var text = """
+            ```json
+            {
+              "groupId": "g1", "taskId": "t1", "revision": "r1",
+              "status": " Complete ", "commit": "abc1234", "summary": "did the work",
+              "remainingWork": null, "deferredWork": null,
+              "verification": { "status": "Passed", "command": "dotnet test", "summary": "all pass" }
+            }
+            ```
+            """;
+
+        var parsed = DecomposeStepResultParser.TryParse(text, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result!.Status, Is.EqualTo("complete"));
+            Assert.That(result.RemainingWork, Is.Empty);
+            Assert.That(result.DeferredWork, Is.Empty);
+            Assert.That(result.Verification!.Status, Is.EqualTo("passed"));
+        });
+    }
+
+    [Test]
+    public void TryParse_DeferredWorkRequiresNamedOwner()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId": "g1", "taskId": "t1", "revision": "r1", "status": "complete",
+              "commit": "abc1234", "summary": "did the work", "remainingWork": [],
+              "deferredWork": [{"requirement":"Later wiring","reason":"Later task","ownerTaskIds":[]}],
+              "verification": { "status": "passed", "command": "dotnet test", "summary": "all pass" }
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("at least one named owner task"));
+    }
+
+    [Test]
     public void TryParse_MissingGroupId_ReturnsFalse()
     {
         var text = """

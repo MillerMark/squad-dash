@@ -278,6 +278,13 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "commit": "Git commit SHA",
   "summary": "concise outcome",
   "remainingWork": [],
+  "deferredWork": [
+    {
+      "requirement": "exact current-task requirement deliberately owned downstream",
+      "reason": "why it belongs to the named downstream contract",
+      "ownerTaskIds": ["GROUP-YYYYMMDD-LATER-TASK"]
+    }
+  ],
   "verification": {
     "status": "passed",
     "command": "exact command that ran",
@@ -307,6 +314,10 @@ before changing any plan status. `executionAttemptId` and `agentExecutions` are 
 SquadDash supplies a verified roster assignment context for the current attempt. Report the supplied
 attempt ID and the observable requested/actual roster handles. Do not report tool-call IDs or child
 lineage: SquadDash owns and validates that internal evidence directly.
+Every explicit current-task requirement is owned by the current task unless the approved graph
+clearly assigns it to a named downstream task. Report every deliberate deferral in `deferredWork`;
+use an empty array when there are none. A complete result may not silently omit a requirement or
+invent downstream ownership that is absent from the approved task contracts.
 
 ## PLAN_GATE_APPROVAL_JSON schema
 

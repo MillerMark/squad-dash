@@ -57,7 +57,7 @@ internal static class PlanRecoveryAssessmentParser
     {
         response = null;
         error = null;
-        if (!StructuredJsonBlockParser.TryExtractObject<PlanRecoveryAssessmentResponse>(
+        if (!StructuredJsonBlockParser.TryExtractProtocolObject<PlanRecoveryAssessmentResponse>(
                 text, Marker, out var extraction) || extraction is null)
         {
             error = $"The response did not contain a valid {Marker} payload.";
@@ -65,6 +65,21 @@ internal static class PlanRecoveryAssessmentParser
         }
 
         response = extraction.Payload;
+        response = response with
+        {
+            Classification = response.Classification?.Trim().ToLowerInvariant() ?? string.Empty,
+            RemainingWork = (response.RemainingWork ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .ToArray(),
+            Commits = (response.Commits ?? [])
+                .Where(commit => commit is not null)
+                .Select(commit => commit with
+                {
+                    Relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty,
+                })
+                .ToArray(),
+        };
         if (response is null ||
             string.IsNullOrWhiteSpace(response.RecoveryAssessmentId) ||
             string.IsNullOrWhiteSpace(response.PlanId) ||
@@ -72,8 +87,7 @@ internal static class PlanRecoveryAssessmentParser
             string.IsNullOrWhiteSpace(response.Revision) ||
             string.IsNullOrWhiteSpace(response.BaselineCommit) ||
             string.IsNullOrWhiteSpace(response.AssessedHead) ||
-            string.IsNullOrWhiteSpace(response.Summary) ||
-            response.Commits is null)
+            string.IsNullOrWhiteSpace(response.Summary))
         {
             error = "The recovery assessment omitted required identity, repository, summary, or commit fields.";
             return false;

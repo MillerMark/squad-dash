@@ -18,7 +18,10 @@ internal static class DecomposeRecoveryDecisionParser
         if (!StructuredJsonBlockParser.TryExtractObject<DecomposeRecoveryDecision>(text, Marker, out var extraction) ||
             extraction is null)
             return false;
-        decision = extraction.Payload;
+        decision = extraction.Payload with
+        {
+            Action = extraction.Payload.Action?.Trim().ToLowerInvariant() ?? string.Empty,
+        };
 
         return decision is not null &&
                !string.IsNullOrWhiteSpace(decision.GroupId) &&

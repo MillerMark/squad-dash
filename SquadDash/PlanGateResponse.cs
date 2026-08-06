@@ -63,7 +63,15 @@ internal static class PlanGateResponseParser
             extraction is null)
             return false;
 
-        var wire = extraction.Payload;
+        var wire = extraction.Payload with
+        {
+            Disposition = extraction.Payload.Disposition?.Trim().ToLowerInvariant() ?? string.Empty,
+            TaskIds = extraction.Payload.TaskIds?
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+        };
         if (wire is null ||
             string.IsNullOrWhiteSpace(wire.PlanId) ||
             string.IsNullOrWhiteSpace(wire.GateId) ||

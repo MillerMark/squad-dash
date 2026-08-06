@@ -32,12 +32,56 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine();
         builder.AppendLine("Inspect the actual commit, diff, production call sites, and tests. A helper or test is not production integration " +
                            "unless the running path consumes it. Treat the worker summary as a claim, not evidence.");
+        builder.AppendLine("Treat every explicit current-task requirement as binding. Do not waive missing work merely because a later task " +
+                           "might address it. A deferral is legitimate only when the candidate handoff declares it in `deferredWork`, names " +
+                           "one or more downstream owner task IDs, and the approved contracts of those tasks clearly own the deferred work. " +
+                           "An undeclared or unsupported deferral is missing or overstated work and requires rework.");
+        AppendDownstreamContracts(builder, plan, task);
         builder.AppendLine();
         builder.AppendLine("Return exactly one result. `missingOrOverstatedWork` is mandatory even when empty. " +
                            "Use `accepted` only when every material claim is supported. Use `rework-required` for a clear, bounded correction. " +
                            "Use `human-review-required` when evidence or product intent is ambiguous.");
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
+    }
+
+    private static void AppendDownstreamContracts(StringBuilder builder, Plan plan, PlanTask task)
+    {
+        var descendants = GetDescendants(plan, task.TaskId);
+        builder.AppendLine();
+        builder.AppendLine("## Approved downstream task contracts eligible to own declared deferrals");
+        if (descendants.Count == 0)
+        {
+            builder.AppendLine("None. This task cannot defer any requirement.");
+            return;
+        }
+
+        foreach (var descendant in descendants)
+        {
+            builder.AppendLine($"- `{descendant.TaskId}` — {descendant.Title ?? descendant.TaskId}");
+            builder.AppendLine($"  {descendant.Description}");
+        }
+    }
+
+    private static IReadOnlyList<PlanTask> GetDescendants(Plan plan, string taskId)
+    {
+        var descendants = new HashSet<string>(StringComparer.Ordinal);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var candidate in plan.Tasks)
+            {
+                if (descendants.Contains(candidate.TaskId)) continue;
+                if (!candidate.DependsOn.Contains(taskId, StringComparer.Ordinal) &&
+                    !candidate.DependsOn.Any(descendants.Contains))
+                    continue;
+                descendants.Add(candidate.TaskId);
+                changed = true;
+            }
+        }
+
+        return plan.Tasks.Where(candidate => descendants.Contains(candidate.TaskId)).ToArray();
     }
 
     internal static string BuildEnvelopeRepair(

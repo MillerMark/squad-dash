@@ -45,6 +45,29 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void MarkerlessAssessment_NormalizesNullCollectionsAndClassificationCasing()
+    {
+        var text = """
+            ```json
+            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
+             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
+             "classification":" Inconclusive ","summary":"Needs review.",
+             "remainingWork":null,"verification":null,"commits":null}
+            ```
+            """;
+
+        var parsed = PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(response!.Classification, Is.EqualTo(PlanRecoveryClassification.Inconclusive));
+            Assert.That(response.RemainingWork, Is.Empty);
+            Assert.That(response.Commits, Is.Empty);
+        });
+    }
+
+    [Test]
     public void CompleteAssessment_WithoutPassedVerification_IsRejected()
     {
         var text = Prefix + """

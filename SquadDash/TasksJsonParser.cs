@@ -33,6 +33,8 @@ internal static class TasksJsonParser
     private static readonly JsonSerializerOptions ParseOptions = new()
     {
         PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
     };
 
     /// <summary>

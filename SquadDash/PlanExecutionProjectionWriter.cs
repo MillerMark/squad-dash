@@ -50,6 +50,12 @@ internal static class PlanExecutionProjectionWriter
                 builder.AppendLine($"- Handoff: {handoff.Summary}");
                 if (handoff.ChangedFiles.Count > 0)
                     builder.AppendLine($"- Changed files: {string.Join(", ", handoff.ChangedFiles.Select(file => $"`{file}`"))}");
+                if (handoff.DeferredWork is { Count: > 0 })
+                {
+                    foreach (var deferred in handoff.DeferredWork)
+                        builder.AppendLine(
+                            $"- Deferred ownership: {deferred.Requirement} → {string.Join(", ", deferred.OwnerTaskIds.Select(id => $"`{id}`"))} ({deferred.Reason})");
+                }
             }
             if (task.VerificationHistory is { Count: > 0 })
             {

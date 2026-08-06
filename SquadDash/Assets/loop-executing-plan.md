@@ -66,6 +66,7 @@ DECOMPOSE_STEP_RESULT_JSON:
   "commit": "full or short Git commit SHA",
   "summary": "concise first-person handoff explaining what was changed and how it connects to the supplied upstream work and plan intent",
   "remainingWork": [],
+  "deferredWork": [],
   "verification": {
     "status": "passed",
     "command": "exact build or test command",
@@ -85,6 +86,12 @@ attempt ID must match the host-supplied value, and each requested/actual handle 
 plan assignment. Do not report tool-call IDs or child lineage; SquadDash validates those host-owned
 values directly. Omit the assignment fields only for legacy or explicitly generic tasks with no
 structured assignments.
+
+Every explicit current-task requirement is owned by this task unless the approved plan clearly
+assigns it to a named downstream task. If work is deliberately deferred, include one `deferredWork`
+entry per requirement with `requirement`, `reason`, and `ownerTaskIds`. The named owners must be
+downstream task IDs whose approved contracts actually own that work. Otherwise use `deferredWork: []`.
+Never silently omit a requirement or assume that an unspecified later task will absorb it.
 
 Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
 List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`

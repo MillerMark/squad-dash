@@ -69,6 +69,34 @@ internal sealed class PendingRepairResultTests
     }
 
     [Test]
+    public void VerificationEnvelopeRepair_IsNeverConsumedAsTaskResultReplay()
+    {
+        var execution = CreateExecution(pendingResult: CreatePending(
+            result: CreateValidResult(attemptId: "attempt-1"))) with
+        {
+            ActiveVerificationTaskId = "task-1",
+            PendingTaskVerification = new PendingTaskVerification(
+                "group-1", "task-1", "rev-abc", "{}", "abc0000", [], DateTimeOffset.UtcNow),
+            VerificationEnvelopeRepairCount = 1,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+                execution, "group-1", "rev-abc", "task-1"), Is.False);
+            Assert.That(PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(execution), Is.False);
+        });
+    }
+
+    [Test]
+    public void ValidationResponse_IsNeverPersistedAsTaskRepairResult()
+    {
+        var execution = CreateExecution() with { ActiveValidationId = "validation-1" };
+
+        Assert.That(PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(execution), Is.False);
+    }
+
+    [Test]
     public void NormalConsumption_PersistThenConsume_ClearsAfter()
     {
         var result = CreateValidResult(attemptId: "attempt-1");

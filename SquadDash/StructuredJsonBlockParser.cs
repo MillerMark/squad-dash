@@ -67,6 +67,18 @@ internal static class StructuredJsonBlockParser
     }
 
     /// <summary>
+    /// Parses a host protocol object with its requested marker, while also accepting the common
+    /// model variation where the response is only the JSON object (optionally fenced) and omits
+    /// the marker. Arbitrary prose containing JSON remains rejected by the narrow bare-object path.
+    /// </summary>
+    internal static bool TryExtractProtocolObject<T>(
+        string? text,
+        string marker,
+        out StructuredJsonBlockExtraction<T>? extraction) =>
+        TryExtractObject<T>(text, marker, out extraction) ||
+        TryExtractSingleObject<T>(text, out extraction);
+
+    /// <summary>
     /// Accepts a response whose entire meaningful content is one JSON object, optionally wrapped
     /// in a Markdown code fence. This is intentionally narrower than searching arbitrary prose so
     /// protocol parsers remain deterministic when a model omits only the requested marker.

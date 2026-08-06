@@ -9502,8 +9502,10 @@ public partial class MainWindow : Window
                 return;
             if (!string.Equals(activeExecution.DecomposeGroupId, _activeDecomposeGroupId, StringComparison.Ordinal))
                 return;
-            // Only persist during a recovery flow (repair response arriving outside normal loop).
-            if (activeExecution.RecoveryTaskId is null)
+            // Only persist an implementation-result repair. Verification and validation have
+            // their own envelopes; treating either as a task repair can suppress their next
+            // prompt and falsely count an undispatched repair as a second failure.
+            if (!PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(activeExecution))
                 return;
 
             var groupId = activeExecution.DecomposeGroupId!;
@@ -10382,6 +10384,7 @@ public partial class MainWindow : Window
                     ActiveVerificationTaskId = taskId,
                     VerificationReworkInstructions = null,
                     VerificationEnvelopeRepairCount = 0,
+                    PendingRepairResult = null,
                 });
 
             var verificationPlan = _planStore?.Load(groupId);

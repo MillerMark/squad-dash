@@ -20,12 +20,15 @@ internal static class DecomposeEnvelopeRepairPrompt
               "commit": "<7-char SHA of the commit you made>",
               "summary": "concise description of what was done",
               "remainingWork": [],
+              "deferredWork": [],
               "verification": {
                 "status": "passed",
                 "command": "<exact command used to verify>",
                 "summary": "<what passed>"
               }
             }
+
+            Preserve every deliberate deferral from the previous handoff. Each deferredWork entry must name the exact requirement, reason, and downstream ownerTaskIds. Do not invent a deferral while repairing the envelope.
             """;
     }
 }

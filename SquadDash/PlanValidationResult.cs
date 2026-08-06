@@ -35,7 +35,7 @@ internal static class PlanValidationResultParser
     {
         result = null;
         error = null;
-        if (!StructuredJsonBlockParser.TryExtractObject<PlanValidationResultPayload>(
+        if (!StructuredJsonBlockParser.TryExtractProtocolObject<PlanValidationResultPayload>(
                 text, Marker, out var extraction) || extraction is null)
         {
             error = $"The response did not contain a valid {Marker} payload.";

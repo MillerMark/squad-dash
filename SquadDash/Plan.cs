@@ -123,6 +123,16 @@ internal sealed record PlanTaskProofEvidence(
                                                 IReadOnlyList<string>? Artifacts = null);
 
 /// <summary>
+/// Work deliberately left to a named downstream task. A worker may not use this as a general
+/// escape hatch: independent verification confirms that every owner is downstream and that its
+/// approved task contract actually owns the deferred requirement.
+/// </summary>
+internal sealed record PlanTaskDeferredWork(
+    [property: JsonPropertyName("requirement")] string Requirement,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("ownerTaskIds")] IReadOnlyList<string> OwnerTaskIds);
+
+/// <summary>
 /// The worker's durable account of what it changed.  This is candidate evidence until an
 /// independent verification pass accepts it; it is not itself proof that the task is complete.
 /// </summary>
@@ -133,7 +143,10 @@ internal sealed record PlanTaskHandoff(
     [property: JsonPropertyName("verification")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                 DecomposeStepVerification? Verification,
-    [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt);
+    [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt,
+    [property: JsonPropertyName("deferredWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskDeferredWork>? DeferredWork = null);
 
 internal sealed record PlanTaskVerificationFinding(
     [property: JsonPropertyName("claim")] string Claim,

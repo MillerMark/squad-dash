@@ -60,6 +60,24 @@ internal static class PlanTaskVerificationResultParser
             return false;
         }
 
+        // Normalize representation-only model variations at the protocol boundary. The verdict
+        // consistency checks below still reject missing decision-critical evidence.
+        parsed = parsed with
+        {
+            Verdict = parsed.Verdict?.Trim().ToLowerInvariant() ?? string.Empty,
+            ClaimFindings = (parsed.ClaimFindings ?? [])
+                .Where(finding => finding is not null)
+                .ToArray(),
+            MissingOrOverstatedWork = (parsed.MissingOrOverstatedWork ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .ToArray(),
+            ReworkInstructions = (parsed.ReworkInstructions ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .ToArray(),
+        };
+
         if (string.IsNullOrWhiteSpace(parsed.PlanId) || string.IsNullOrWhiteSpace(parsed.TaskId) ||
             string.IsNullOrWhiteSpace(parsed.Revision) || string.IsNullOrWhiteSpace(parsed.EvaluatedCommit) ||
             string.IsNullOrWhiteSpace(parsed.Summary) || string.IsNullOrWhiteSpace(parsed.TestAssessment))
@@ -73,13 +91,6 @@ internal static class PlanTaskVerificationResultParser
                                    PlanTaskVerificationVerdict.HumanReviewRequired))
         {
             error = "The verification verdict must be accepted, rework-required, or human-review-required.";
-            return false;
-        }
-
-        if (parsed.ClaimFindings is null || parsed.MissingOrOverstatedWork is null ||
-            parsed.ReworkInstructions is null)
-        {
-            error = "The verification result must include claimFindings, missingOrOverstatedWork, and reworkInstructions arrays.";
             return false;
         }
 

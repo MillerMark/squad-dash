@@ -115,7 +115,7 @@ internal sealed class PlanRecoveryOptionsParserTests
     }
 
     [Test]
-    public void TryParse_MissingMarker_ReturnsFalse()
+    public void TryParse_SingleBareObjectWithoutMarker_ReturnsTrue()
     {
         var json = """
             {
@@ -128,9 +128,10 @@ internal sealed class PlanRecoveryOptionsParserTests
             }
             """;
 
-        var result = PlanRecoveryOptionsParser.TryParse(json, out _);
+        var result = PlanRecoveryOptionsParser.TryParse(json, out var response);
 
-        Assert.That(result, Is.False);
+        Assert.That(result, Is.True);
+        Assert.That(response!.Options.Single().Action, Is.EqualTo("clean-retry"));
     }
 
     [Test]

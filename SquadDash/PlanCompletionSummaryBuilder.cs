@@ -60,6 +60,13 @@ internal static class PlanCompletionSummaryBuilder
                 }
                 if (!string.IsNullOrWhiteSpace(handoff.Verification?.Summary))
                     builder.AppendLine($"- Verification: {handoff.Verification.Summary}");
+                if (handoff.DeferredWork is { Count: > 0 })
+                {
+                    builder.AppendLine("- Declared downstream ownership:");
+                    foreach (var deferred in handoff.DeferredWork)
+                        builder.AppendLine(
+                            $"  - {deferred.Requirement} → {string.Join(", ", deferred.OwnerTaskIds.Select(id => $"`{id}`"))} ({deferred.Reason})");
+                }
             }
             else if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
                 builder.AppendLine($"- Handoff: {task.CompletionSummary}");

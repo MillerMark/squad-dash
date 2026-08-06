@@ -41,7 +41,10 @@ internal sealed record DecomposeStepResult(
         string? ExecutionAttemptId = null,
     [property: JsonPropertyName("proofEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        IReadOnlyList<DecomposeStepProofEvidence>? ProofEvidence = null);
+        IReadOnlyList<DecomposeStepProofEvidence>? ProofEvidence = null,
+    [property: JsonPropertyName("deferredWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<PlanTaskDeferredWork>? DeferredWork = null);
 
 internal static class DecomposeStepResultParser
 {
@@ -51,13 +54,31 @@ internal static class DecomposeStepResultParser
     {
         result = null;
         error = null;
-        if (!StructuredJsonBlockParser.TryExtractObject<DecomposeStepResult>(text, Marker, out var extraction) ||
+        if (!StructuredJsonBlockParser.TryExtractProtocolObject<DecomposeStepResult>(text, Marker, out var extraction) ||
             extraction is null)
         {
             error = $"The response did not contain a valid {Marker} payload.";
             return false;
         }
         result = extraction.Payload;
+
+        result = result with
+        {
+            Status = result.Status?.Trim().ToLowerInvariant() ?? string.Empty,
+            RemainingWork = (result.RemainingWork ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .ToArray(),
+            Verification = result.Verification is null
+                ? null
+                : result.Verification with
+                {
+                    Status = result.Verification.Status?.Trim().ToLowerInvariant() ?? string.Empty,
+                },
+            DeferredWork = (result.DeferredWork ?? [])
+                .Where(item => item is not null)
+                .ToArray(),
+        };
 
         if (result is null || string.IsNullOrWhiteSpace(result.GroupId) ||
             string.IsNullOrWhiteSpace(result.TaskId) || string.IsNullOrWhiteSpace(result.Revision) ||
@@ -99,6 +120,16 @@ internal static class DecomposeStepResultParser
                 string.IsNullOrWhiteSpace(evidence.Summary)))
         {
             error = "Proof evidence requires requirementId, proofType, and summary.";
+            return false;
+        }
+
+        if ((result.DeferredWork ?? []).Any(item =>
+                string.IsNullOrWhiteSpace(item.Requirement) ||
+                string.IsNullOrWhiteSpace(item.Reason) ||
+                item.OwnerTaskIds is not { Count: > 0 } ||
+                item.OwnerTaskIds.Any(string.IsNullOrWhiteSpace)))
+        {
+            error = "Deferred work requires a requirement, reason, and at least one named owner task.";
             return false;
         }
 

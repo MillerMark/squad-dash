@@ -103,17 +103,39 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
-    public void Parser_RequiresMissingOrOverstatedWorkArray()
+    public void Parser_NormalizesOmittedNonCriticalArraysForAcceptedVerdict()
     {
         var json = """
             PLAN_TASK_VERIFICATION_JSON:
             {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
-             "verdict":"accepted","summary":"ok","claimFindings":[],
-             "testAssessment":"adequate","reworkInstructions":[]}
+             "verdict":"accepted","summary":"ok","claimFindings":null,
+             "testAssessment":"adequate","reworkInstructions":null}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result!.ClaimFindings, Is.Empty);
+            Assert.That(result.MissingOrOverstatedWork, Is.Empty);
+            Assert.That(result.ReworkInstructions, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void Parser_StillRequiresInstructionsForReworkVerdict()
+    {
+        var json = """
+            PLAN_TASK_VERIFICATION_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"rework-required","summary":"missing wiring","claimFindings":[],
+             "missingOrOverstatedWork":["missing wiring"],"testAssessment":"inadequate",
+             "reworkInstructions":null}
             """;
 
         Assert.That(PlanTaskVerificationResultParser.TryParse(json, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("missingOrOverstatedWork"));
+        Assert.That(error, Does.Contain("actionable rework instructions"));
     }
 
     [Test]
@@ -135,6 +157,33 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
             Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
             Assert.That(prompt, Does.Contain("production approval actions are still enabled"));
+        });
+    }
+
+    [Test]
+    public void VerificationPrompt_BindsExplicitRequirementsAndOnlyAllowsDeclaredDownstreamDeferrals()
+    {
+        var plan = MakePlan();
+        var task = plan.Tasks[0] with { Status = PlanTaskStatus.Executing };
+        plan = plan with { Tasks = [task, plan.Tasks[1]], Progress = new PlanProgress(0, 2, task.TaskId) };
+        var candidate = new DecomposeStepResult(
+            "P", "P-1", "rev", "complete", "abcdef1", "Built source", [],
+            new DecomposeStepVerification("passed", "dotnet test", "green"),
+            DeferredWork:
+            [
+                new PlanTaskDeferredWork(
+                    "Wire the running consumer", "Owned by the approved consumer task", ["P-2"]),
+            ]);
+
+        var prompt = PlanTaskVerificationPromptBuilder.Build(
+            plan, task, candidate, "1111111", ["src/Source.cs"], "1 file changed");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("Treat every explicit current-task requirement as binding"));
+            Assert.That(prompt, Does.Contain("candidate handoff declares it in `deferredWork`"));
+            Assert.That(prompt, Does.Contain("`P-2` — Wire consumer"));
+            Assert.That(prompt, Does.Contain("Use the source from the running application"));
         });
     }
 
@@ -216,6 +265,25 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(verifying.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Verifying));
         Assert.That(verifying.Progress.CompletedCount, Is.EqualTo(1));
         Assert.That(verifying.Tasks[1].Handoff?.ChangedFiles, Does.Contain("src/Consumer.cs"));
+    }
+
+    [Test]
+    public void StoreUpdater_PersistsDeclaredDeferralsInCandidateHandoff()
+    {
+        var plan = MakePlan();
+        var candidate = new DecomposeStepResult(
+            "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", [],
+            new DecomposeStepVerification("passed", "dotnet test", "green"),
+            DeferredWork:
+            [
+                new PlanTaskDeferredWork("Polish labels", "Owned by later UX task", ["P-3"]),
+            ]);
+
+        var verifying = PlanStoreUpdater.ApplyTaskVerificationStarted(
+            plan, "P-2", candidate, ["src/Consumer.cs"]);
+
+        Assert.That(verifying.Tasks[1].Handoff!.DeferredWork!.Single().OwnerTaskIds,
+            Is.EqualTo(new[] { "P-3" }));
     }
 
     [Test]
