@@ -44246,6 +44246,22 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
+    private void AttachPlanFollowUp(Plan plan)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        var description = $"Plan: {plan.Title}";
+        if (list.Count >= 15 || list.Any(a => a.Description == description)) return;
+        list.Add(new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: description,
+            OriginalPrompt: null,
+            ContentBlock: BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan)),
+            FileReferencePath: $".squad/plans/{plan.PlanId}.json"));
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+        if (_activeTabId is null) PersistDraftFollowUp();
+    }
+
     private void AttachInboxMessageFollowUp(InboxMessage msg)
         => AttachInboxMessageFollowUp(msg, _activeTabId ?? "");
 
@@ -45299,12 +45315,8 @@ public partial class MainWindow : Window
                 pausePlan: RequestPlanPauseAfterCurrentStep,
                 abortPlan: AbortCurrentPlanWork,
                 isPromptRunning: () => _isPromptRunning,
-                attachFollowUp: plan => AttachContextFollowUp(
-                    $"Plan: {plan.Title}",
-                    BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan))),
-                addToNewChat: plan => { AddEmptyQueueSlot(); AttachContextFollowUp(
-                    $"Plan: {plan.Title}",
-                    BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan))); });
+                attachFollowUp: plan => AttachPlanFollowUp(plan),
+                addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); });
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
