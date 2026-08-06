@@ -52,6 +52,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
+    private FlowDocument? _detailDocument;
 
     private record SelectedElementIdentity(string Kind, string Id);
     private SelectedElementIdentity? _selectedElement;
@@ -566,8 +567,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _graphScroll = scroll;
         scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
-        Grid.SetRow(scroll, 1);
-        root.Children.Add(scroll);
+
+        var splitGrid = new Grid();
+        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5, GridUnitType.Pixel) });
+        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300, GridUnitType.Pixel), MinWidth = 200 });
+
+        Grid.SetColumn(scroll, 0);
+        splitGrid.Children.Add(scroll);
+
+        var splitter = new GridSplitter
+        {
+            Width = 5,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        splitter.SetResourceReference(GridSplitter.BackgroundProperty, "SubtleBorder");
+        Grid.SetColumn(splitter, 1);
+        splitGrid.Children.Add(splitter);
+
+        var detailDocument = new FlowDocument();
+        detailDocument.SetResourceReference(FlowDocument.FontSizeProperty, "FontSizeBody");
+        var placeholder = new Paragraph(new Run("Click an element to view details"));
+        placeholder.SetResourceReference(Paragraph.ForegroundProperty, "SubtleText");
+        detailDocument.Blocks.Add(placeholder);
+
+        var detailViewer = new FlowDocumentScrollViewer
+        {
+            Document = detailDocument,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            IsToolBarVisible = false,
+        };
+        detailViewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
+        detailViewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "BodyText");
+        Grid.SetColumn(detailViewer, 2);
+        splitGrid.Children.Add(detailViewer);
+
+        _detailDocument = detailDocument;
+
+        Grid.SetRow(splitGrid, 1);
+        root.Children.Add(splitGrid);
 
         // Reading guidance belongs with the graph it explains, not in the plan's proposal
         // header. Keep it visible immediately below the graph and above approval details.
