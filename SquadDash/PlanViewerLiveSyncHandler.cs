@@ -154,8 +154,9 @@ internal sealed class PlanViewerLiveSyncHandler
     private bool IsStale(Plan incoming)
     {
         if (_currentPlan is null) return false;
-        if (!string.Equals(incoming.Revision, _currentPlan.Revision, StringComparison.Ordinal))
-            return true;
+        // A revision change is not inherently stale: approval edits, amendments, and canonical
+        // host topology repairs all intentionally create a new revision for the same PlanId.
+        // Completion regression remains the durable stale-event guard.
         return incoming.Progress.CompletedCount < _currentPlan.Progress.CompletedCount;
     }
 

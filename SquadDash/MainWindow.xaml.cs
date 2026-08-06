@@ -1350,8 +1350,7 @@ public partial class MainWindow : Window
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
                 foreach (var (_, window) in _openPlanViewerWindows.Where(entry =>
-                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal) &&
-                             string.Equals(entry.Window.CurrentRevision, evt.UpdatedPlan.Revision, StringComparison.Ordinal)).ToArray())
+                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal)).ToArray())
                 {
                     window.RefreshPlan(
                         PendingDecomposePlanAdapter.FromPlan(evt.UpdatedPlan),

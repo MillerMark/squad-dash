@@ -253,6 +253,24 @@ internal sealed class PlanTaskActivityResolverTests
         Assert.That(result["t2"], Is.EqualTo(PlanTaskActivityState.Interrupted));
     }
 
+    [TestCase(PlanTaskStatus.Executing)]
+    [TestCase(PlanTaskStatus.Scrutinizing)]
+    [TestCase(PlanTaskStatus.Reworking)]
+    public void RestartConvergence_InterruptedLifecycle_StaleActiveTaskDoesNotSpin(string taskStatus)
+    {
+        var tasks = new[] { MakeTask("t1", taskStatus) };
+        var plan = MakePlan(
+            lifecycleStatus: PlanLifecycleStatus.Interrupted,
+            tasks: tasks) with
+        {
+            Progress = new PlanProgress(0, 1, ExecutingTaskId: "t1"),
+        };
+
+        var result = PlanTaskActivityResolver.Resolve(plan);
+
+        Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.Interrupted));
+    }
+
     // ── Plan-level resolution ────────────────────────────────────────────────
 
     [Test]
@@ -351,6 +369,36 @@ internal sealed class PlanTaskActivityResolverTests
         Assert.That(received, Is.SameAs(updated));
         Assert.That(handler.AppliedCount, Is.EqualTo(1));
 
+        handler.Detach();
+    }
+
+    [Test]
+    public void LiveSync_NewHostRevisionWithSameProgress_IsAccepted()
+    {
+        var broker = new WeakEventBroker();
+        var initial = MakePlan(
+            lifecycleStatus: PlanLifecycleStatus.Interrupted,
+            tasks: [MakeTask("t1", PlanTaskStatus.Executing)],
+            completedCount: 1,
+            totalCount: 2);
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-TEST", initial, broker,
+            plan => received = plan);
+        var migrated = initial with
+        {
+            Revision = "rev2",
+            HostRevision = "rev2",
+            Tasks = [MakeTask("t1", PlanTaskStatus.Partial)],
+        };
+
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-TEST", migrated));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.SameAs(migrated));
+            Assert.That(handler.RejectedCount, Is.Zero);
+        });
         handler.Detach();
     }
 

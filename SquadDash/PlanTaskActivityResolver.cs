@@ -66,6 +66,18 @@ internal static class PlanTaskActivityResolver
         if (task.Status is PlanTaskStatus.HumanReviewRequired)
             return PlanTaskActivityState.AwaitingApproval;
 
+        // A persisted task row can still say Executing/Scrutinizing/Reworking after an
+        // interruption. The plan lifecycle is authoritative for whether work is live; never
+        // animate a task when there is no executing plan turn to drive it.
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+            (task.Status is PlanTaskStatus.Executing or
+             PlanTaskStatus.Scrutinizing or
+             PlanTaskStatus.Reworking ||
+             string.Equals(plan.Progress.ExecutingTaskId, task.TaskId, StringComparison.Ordinal)))
+            return plan.LifecycleStatus == PlanLifecycleStatus.Blocked
+                ? PlanTaskActivityState.Blocked
+                : PlanTaskActivityState.Interrupted;
+
         if (task.Status is PlanTaskStatus.Scrutinizing)
             return PlanTaskActivityState.Scrutinizing;
 
@@ -74,8 +86,10 @@ internal static class PlanTaskActivityResolver
 
         // The progress projection is the authoritative single-task fallback during
         // restart convergence, when the task row can briefly remain Pending.
-        if (task.Status is PlanTaskStatus.Executing ||
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+            (task.Status is PlanTaskStatus.Executing ||
             string.Equals(plan.Progress.ExecutingTaskId, task.TaskId, StringComparison.Ordinal))
+           )
             return PlanTaskActivityState.Executing;
 
         // Partial status: task was interrupted mid-execution
