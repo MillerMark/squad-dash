@@ -120,6 +120,74 @@ internal sealed class TasksPanelController {
 
     public void ShowEmpty(string message) => ShowEmptyInPanel(message);
 
+    // ── Simulation overlay support ────────────────────────────────────────────
+
+    private readonly Dictionary<string, Border> _simulatedRows = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Adds a simulated task row to the active panel without writing to tasks.md.
+    /// Context-menu actions (mark complete, assign) are suppressed for simulated items.
+    /// </summary>
+    internal void AddSimulatedTask(string artifactId, TaskItem task)
+    {
+        var row = BuildSimulatedRow(task);
+        _simulatedRows[artifactId] = row;
+        _activePanel.Children.Insert(0, row);
+    }
+
+    /// <summary>Removes a previously-overlaid simulated task row by artifact ID.</summary>
+    internal void RemoveSimulatedTask(string artifactId)
+    {
+        if (_simulatedRows.TryGetValue(artifactId, out var row))
+        {
+            _simulatedRows.Remove(artifactId);
+            _activePanel.Children.Remove(row);
+        }
+    }
+
+    private Border BuildSimulatedRow(TaskItem item)
+    {
+        var row = new Border { Background = Brushes.Transparent, Tag = item };
+        row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
+        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+
+        var grid = new Grid { Margin = new Thickness(4, 3, 4, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var dot = new Border {
+            Width               = 11,
+            Height              = 11,
+            CornerRadius        = new CornerRadius(3),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Top,
+            Margin              = new Thickness(-1, 2, 1, 0),
+        };
+        dot.SetResourceReference(Border.BackgroundProperty, "LineColor");
+        Grid.SetColumn(dot, 0);
+        grid.Children.Add(dot);
+
+        var textPanel = new StackPanel { Orientation = Orientation.Vertical };
+        var taskText = new TextBlock { Text = item.Text, TextWrapping = TextWrapping.Wrap };
+        taskText.SetResourceReference(TextBlock.ForegroundProperty, "ForegroundText");
+        textPanel.Children.Add(taskText);
+
+        if (!string.IsNullOrWhiteSpace(item.Description))
+        {
+            var descText = new TextBlock { Text = item.Description, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            descText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            descText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            textPanel.Children.Add(descText);
+        }
+
+        Grid.SetColumn(textPanel, 1);
+        grid.Children.Add(textPanel);
+        row.Child = grid;
+        return row;
+    }
+
+    // ── End simulation support ────────────────────────────────────────────────
+
     public void SetFilter(string text) {
         _viewModel.FilterText = text.Trim();
         ApplyFilter();

@@ -365,6 +365,10 @@ public partial class MainWindow : Window
     private string? _simulatedPlanSessionId;
     private NotesSimulationSurfaceAdapter? _notesSimulationSurfaceAdapter;
     private string? _simulatedNotesSessionId;
+    private TasksSimulationSurfaceAdapter? _tasksSimulationSurfaceAdapter;
+    private string? _simulatedTasksSessionId;
+    private ApprovalsSimulationSurfaceAdapter? _approvalsSimulationSurfaceAdapter;
+    private string? _simulatedApprovalsSessionId;
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -21457,6 +21461,26 @@ public partial class MainWindow : Window
             }
         });
 
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            if (_simulatedTasksSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedTasksSessionId;
+                _simulatedTasksSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
+        _guidedTourController.RegisterTourSessionCleanup(async () =>
+        {
+            if (_simulatedApprovalsSessionId is not null && _simulationSessionManager is not null)
+            {
+                var sessionId = _simulatedApprovalsSessionId;
+                _simulatedApprovalsSessionId = null;
+                await _simulationSessionManager.EndSessionAsync(sessionId);
+            }
+        });
+
         _guidedTourController.RegisterTourSessionCleanup(() =>
         {
             if (_tourNoteItem is not null && _notesStore is not null)
@@ -21559,6 +21583,20 @@ public partial class MainWindow : Window
             _notesSimulationSurfaceAdapter = new NotesSimulationSurfaceAdapter(
                 _notesPanel, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_notesSimulationSurfaceAdapter);
+        }
+
+        if (_tasksPanelController is not null)
+        {
+            _tasksSimulationSurfaceAdapter = new TasksSimulationSurfaceAdapter(
+                _tasksPanelController, Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_tasksSimulationSurfaceAdapter);
+        }
+
+        if (_approvalPanel is not null)
+        {
+            _approvalsSimulationSurfaceAdapter = new ApprovalsSimulationSurfaceAdapter(
+                _approvalPanel, Dispatcher);
+            _simulationSessionManager.RegisterAdapter(_approvalsSimulationSurfaceAdapter);
         }
     }
 
@@ -22923,6 +22961,108 @@ public partial class MainWindow : Window
 
             var sessionId = _simulatedNotesSessionId;
             _simulatedNotesSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Simulated Tasks tour commands ─────────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedTasks", async () =>
+        {
+            EnsureSimulationSessionManager();
+
+            if (_simulatedTasksSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Tasks", "guided-tour");
+            _simulatedTasksSessionId = session.SessionId;
+
+            var authTask = SimulationTasksFixtureBuilder.BuildAuthEndpointTask();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Tasks,
+                "sim-task-artifact-001",
+                authTask.Text,
+                authTask);
+
+            var dbTask = SimulationTasksFixtureBuilder.BuildDatabaseMigrationTask();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Tasks,
+                "sim-task-artifact-002",
+                dbTask.Text,
+                dbTask);
+
+            var docsTask = SimulationTasksFixtureBuilder.BuildDocumentationTask();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Tasks,
+                "sim-task-artifact-003",
+                docsTask.Text,
+                docsTask);
+
+            Dispatcher.Invoke(() =>
+            {
+                _tasksPanelVisible = true;
+                SyncTasksPanel();
+            });
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedTasks", async () =>
+        {
+            if (_simulatedTasksSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedTasksSessionId;
+            _simulatedTasksSessionId = null;
+            await _simulationSessionManager.EndSessionAsync(sessionId);
+        });
+
+        // ── Simulated Approvals tour commands ─────────────────────────────
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("ShowSimulatedApprovals", async () =>
+        {
+            EnsureSimulationSessionManager();
+
+            if (_simulatedApprovalsSessionId is not null)
+                return; // already showing
+
+            var session = _simulationSessionManager!.CreateSession("Guided Tour Approvals", "guided-tour");
+            _simulatedApprovalsSessionId = session.SessionId;
+
+            var featApproval = SimulationApprovalsFixtureBuilder.BuildFeatureCommitApproval();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Approvals,
+                "sim-approval-artifact-001",
+                featApproval.Description,
+                featApproval);
+
+            var refactorApproval = SimulationApprovalsFixtureBuilder.BuildRefactorCommitApproval();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Approvals,
+                "sim-approval-artifact-002",
+                refactorApproval.Description,
+                refactorApproval);
+
+            var docsApproval = SimulationApprovalsFixtureBuilder.BuildDocsCommitApproval();
+            await _simulationSessionManager.OverlayArtifactAsync(
+                session.SessionId,
+                SimulationSurfaceKind.Approvals,
+                "sim-approval-artifact-003",
+                docsApproval.Description,
+                docsApproval);
+
+            Dispatcher.Invoke(() => ShowApprovalPanel());
+        });
+
+        _guidedTourCoordinator.CommandRegistry.RegisterAsync("EndSimulatedApprovals", async () =>
+        {
+            if (_simulatedApprovalsSessionId is null || _simulationSessionManager is null)
+                return;
+
+            var sessionId = _simulatedApprovalsSessionId;
+            _simulatedApprovalsSessionId = null;
             await _simulationSessionManager.EndSessionAsync(sessionId);
         });
 

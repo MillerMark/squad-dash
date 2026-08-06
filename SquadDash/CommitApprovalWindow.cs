@@ -127,6 +127,28 @@ internal sealed class CommitApprovalPanel {
         SyncCategorizeRowVisibility();
     }
 
+    /// <summary>Removes a single item by its unique ID (used by simulation cleanup).</summary>
+    public void RemoveItemById(string itemId) {
+        _mutableItems.RemoveAll(i => string.Equals(i.Id, itemId, StringComparison.Ordinal));
+        RemoveRowFromPanel(_needsApprovalPanel, itemId);
+        RemoveRowFromPanel(_approvedPanel, itemId);
+        RemoveRowFromPanel(_rejectedPanel, itemId);
+        if (_groupedView)
+            RebuildGroupedPanels();
+        SyncApprovedSectionVisibility();
+        SyncCategorizeRowVisibility();
+    }
+
+    private static void RemoveRowFromPanel(StackPanel panel, string itemId) {
+        for (int i = panel.Children.Count - 1; i >= 0; i--) {
+            if (panel.Children[i] is Border b && b.Tag is CommitApprovalItem item
+                && string.Equals(item.Id, itemId, StringComparison.Ordinal)) {
+                panel.Children.RemoveAt(i);
+                return;
+            }
+        }
+    }
+
     public void ReplaceAllItems(IReadOnlyList<CommitApprovalItem> items) {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         _lastItems    = items;
