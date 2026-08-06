@@ -9,6 +9,13 @@ namespace SquadDash;
 /// </summary>
 internal static class PlanGateManager
 {
+    /// <summary>
+    /// Only a pending gate is still a plan-design choice. Once execution has requested,
+    /// approved, or skipped a gate, its boundary and presentation anchor are durable history.
+    /// </summary>
+    internal static bool CanEditGate(PlanApprovalGate? gate) =>
+        gate?.Status == PlanGateStatus.Pending;
+
     /// <summary>Returns true when <paramref name="taskId"/> has no DependsOn (root task).</summary>
     internal static bool IsRootTask(Plan plan, string taskId)
     {
@@ -100,6 +107,7 @@ internal static class PlanGateManager
         var gates = plan.ApprovalGates.Select(gate =>
         {
             if (!string.Equals(gate.GateId, gateId, StringComparison.Ordinal) ||
+                !CanEditGate(gate) ||
                 string.Equals(gate.PresentationAnchor, presentationAnchor, StringComparison.Ordinal))
                 return gate;
             changed = true;
@@ -163,10 +171,48 @@ internal static class PlanGateManager
     internal static Plan RemoveGate(Plan plan, string gateId)
     {
         var remaining = plan.ApprovalGates
-            .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal))
+            .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal) ||
+                        !CanEditGate(g))
             .ToArray();
         if (remaining.Length == plan.ApprovalGates.Count) return plan;
         return plan with { ApprovalGates = remaining };
+    }
+
+    /// <summary>
+    /// Applies gate-design changes from a viewer snapshot to the latest durable plan while
+    /// preserving every gate that has already entered execution history. This is the final
+    /// defense against a stale open viewer replacing an approved gate with an older snapshot.
+    /// </summary>
+    internal static Plan ApplyEditableGateChanges(Plan current, Plan proposed)
+    {
+        var currentById = current.ApprovalGates.ToDictionary(gate => gate.GateId, StringComparer.Ordinal);
+        var proposedById = proposed.ApprovalGates.ToDictionary(gate => gate.GateId, StringComparer.Ordinal);
+        var merged = new List<PlanApprovalGate>();
+
+        foreach (var currentGate in current.ApprovalGates)
+        {
+            if (!CanEditGate(currentGate))
+            {
+                merged.Add(currentGate);
+                continue;
+            }
+
+            // Omitting a still-pending gate is the viewer's supported remove operation.
+            if (proposedById.TryGetValue(currentGate.GateId, out var proposedGate) &&
+                proposedGate.Status == PlanGateStatus.Pending)
+                merged.Add(proposedGate);
+        }
+
+        foreach (var proposedGate in proposed.ApprovalGates)
+        {
+            if (currentById.ContainsKey(proposedGate.GateId) ||
+                proposedGate.Status != PlanGateStatus.Pending)
+                continue;
+            merged.Add(proposedGate);
+        }
+
+        if (current.ApprovalGates.SequenceEqual(merged)) return current;
+        return current with { ApprovalGates = merged };
     }
 
     /// <summary>

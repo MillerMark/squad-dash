@@ -9278,10 +9278,17 @@ public partial class MainWindow : Window
                       }
                     : gatedPlan =>
                   {
-                      PublishPlanProgress(gatedPlan);
+                      // The viewer may have been open while an approval was accepted. Merge its
+                      // design edit into the latest store value so a stale snapshot can never
+                      // remove or retarget that newly durable human decision.
+                      var currentPlan = _planStore?.Load(gatedPlan.PlanId);
+                      var planToPublish = currentPlan is null
+                          ? gatedPlan
+                          : PlanGateManager.ApplyEditableGateChanges(currentPlan, gatedPlan);
+                      PublishPlanProgress(planToPublish);
                       // Refresh the existing viewer in place so its handlers capture the newly saved
                       // immutable Plan without closing, flashing, or losing the window placement.
-                      win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(gatedPlan), gatedPlan);
+                      win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(planToPublish), planToPublish);
                   }
             : null;
         Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved

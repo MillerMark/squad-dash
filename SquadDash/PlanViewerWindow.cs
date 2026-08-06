@@ -1730,9 +1730,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var capturedGate = approvalGate;
                         var durableGate = durablePlan.ApprovalGates.FirstOrDefault(g =>
                             string.Equals(g.GateId, capturedGate.GateId, StringComparison.Ordinal));
-                        var gateIsTraversed = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
-                            durableGate is not null &&
-                            (durableGate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped);
+                        var gateIsTraversed = durableGate is not null &&
+                            !PlanGateManager.CanEditGate(durableGate);
                         var removeItem = new MenuItem
                         {
                             Header = $"Remove approval gate: {capturedGate.Message}",

@@ -280,4 +280,61 @@ internal sealed class PlanGateManagerTests
         var result = PlanGateManager.RemoveGate(plan, "DOES-NOT-EXIST-GATE-001");
         Assert.That(ReferenceEquals(result, plan), Is.True);
     }
+
+    [TestCase(PlanGateStatus.AwaitingApproval)]
+    [TestCase(PlanGateStatus.Approved)]
+    [TestCase(PlanGateStatus.Skipped)]
+    public void RemoveGate_NonPendingGate_PreservesDurableDecision(string status)
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = PlanGateManager.AddGateAfter(plan, "A", "Review A");
+        plan = plan with
+        {
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = status }],
+        };
+
+        var result = PlanGateManager.RemoveGate(plan, plan.ApprovalGates[0].GateId);
+
+        Assert.That(ReferenceEquals(result, plan), Is.True);
+    }
+
+    [Test]
+    public void SetPresentationAnchor_ApprovedGate_PreservesAcceptedAnchor()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = PlanGateManager.AddBoundaryGate(plan, ["A"], ["B"], "Review", "task-after:A");
+        plan = plan with
+        {
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.Approved }],
+        };
+
+        var result = PlanGateManager.SetPresentationAnchor(
+            plan, plan.ApprovalGates[0].GateId, "task-before:B");
+
+        Assert.That(ReferenceEquals(result, plan), Is.True);
+        Assert.That(result.ApprovalGates[0].PresentationAnchor, Is.EqualTo("task-after:A"));
+    }
+
+    [Test]
+    public void ApplyEditableGateChanges_StaleViewerCannotDeleteApprovedGate()
+    {
+        var current = MakePlan(("A", []), ("B", ["A"]));
+        current = PlanGateManager.AddBoundaryGate(current, ["A"], ["B"], "Review", "task-after:A");
+        current = current with
+        {
+            ApprovalGates = [current.ApprovalGates[0] with
+            {
+                Status = PlanGateStatus.Approved,
+                ResolvedBy = "Human",
+                ResolutionNote = "Accepted",
+            }],
+        };
+        var staleViewerProposal = current with { ApprovalGates = [] };
+
+        var result = PlanGateManager.ApplyEditableGateChanges(current, staleViewerProposal);
+
+        Assert.That(ReferenceEquals(result, current), Is.True);
+        Assert.That(result.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Approved));
+        Assert.That(result.ApprovalGates.Single().ResolvedBy, Is.EqualTo("Human"));
+    }
 }
