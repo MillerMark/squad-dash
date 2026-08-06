@@ -4,7 +4,7 @@ namespace SquadDash.Tests;
 internal sealed class PlanLoopTranscriptPresentationTests
 {
     [Test]
-    public void BuildExecutingPrompt_IsPlanFirstAndLinksVisualizerBeforeLoopDetails()
+    public void BuildPhasePrompt_Executing_IsPlanFirstAndLinksVisualizerBeforeLoopDetails()
     {
         var plan = new Plan(
             "PLAN-1",
@@ -24,7 +24,7 @@ internal sealed class PlanLoopTranscriptPresentationTests
             new PlanProgress(1, 9, "PLAN-1-002"),
             new PlanTimestamps(DateTimeOffset.UtcNow));
 
-        var text = PlanLoopTranscriptPresentation.BuildExecutingPrompt(
+        var text = PlanLoopTranscriptPresentation.BuildPhasePrompt(
             plan,
             "PLAN-1-002",
             "Second task",
@@ -40,7 +40,7 @@ internal sealed class PlanLoopTranscriptPresentationTests
     }
 
     [Test]
-    public void BuildExecutingPrompt_UsesActualNonOrdinalDisplayLabelInsteadOfCalculatedStep()
+    public void BuildPhasePrompt_UsesActualNonOrdinalDisplayLabelInsteadOfCalculatedStep()
     {
         var task = new PlanTask(
             "PLAN-1-AMD-001", "Amended cleanup", "Cleanup", [], "high", PlanTaskStatus.Executing,
@@ -50,7 +50,7 @@ internal sealed class PlanLoopTranscriptPresentationTests
             "Plan title", "feature/plan", "Summary", [task], [],
             new PlanProgress(4, 8, task.TaskId), new PlanTimestamps(DateTimeOffset.UtcNow));
 
-        var text = PlanLoopTranscriptPresentation.BuildExecutingPrompt(
+        var text = PlanLoopTranscriptPresentation.BuildPhasePrompt(
             plan, task.TaskId, task.Title, "D:/repo/.squad/loop-executing-plan.md");
 
         Assert.That(text, Does.StartWith(
@@ -59,19 +59,94 @@ internal sealed class PlanLoopTranscriptPresentationTests
     }
 
     [Test]
-    public void BuildValidatingMessage_UsesDurableDisplayLabel()
+    public void BuildVerifyingCompletedWorkMessage_UsesDurableDisplayLabel()
     {
         var task = new PlanTask(
-            "PLAN-1-AMD-001", "Amended cleanup", "Cleanup", [], "high", PlanTaskStatus.Scrutinizing,
+            "PLAN-1-AMD-001", "Amended cleanup", "Cleanup", [], "high", PlanTaskStatus.Verifying,
             DisplayStepLabel: "4A");
         var plan = new Plan(
             "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Executing,
             "Plan title", "feature/plan", "Summary", [task], [],
             new PlanProgress(4, 8), new PlanTimestamps(DateTimeOffset.UtcNow));
 
-        var text = PlanLoopTranscriptPresentation.BuildValidatingMessage(plan, task.TaskId, task.Title);
+        var text = PlanLoopTranscriptPresentation.BuildVerifyingCompletedWorkMessage(plan, task.TaskId, task.Title);
 
         Assert.That(text, Does.StartWith(
-            "Validating completed work for 4 of 8 complete (Step \"4A\")"));
+            "Verifying completed work for 4 of 8 complete (Step \"4A\")"));
+    }
+
+    [TestCase(PlanTranscriptPhase.VerifyingWork, "Verifying work · Step 2 of 2 · Second task")]
+    [TestCase(PlanTranscriptPhase.ReworkingTask, "Reworking task · Step 2 of 2 · Second task")]
+    public void BuildPhasePrompt_UsesExplicitTaskPhase(PlanTranscriptPhase phase, string expected)
+    {
+        var task = new PlanTask("PLAN-1-002", "Second task", "Second", [], "high",
+            phase == PlanTranscriptPhase.VerifyingWork ? PlanTaskStatus.Verifying : PlanTaskStatus.Reworking,
+            DisplayStepLabel: "2");
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Executing,
+            "Plan title", "feature/plan", "Summary", [task], [],
+            new PlanProgress(1, 2, task.TaskId), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var text = PlanLoopTranscriptPresentation.BuildPhasePrompt(
+            plan, task.TaskId, task.Title, "D:/repo/.squad/loop-executing-plan.md", phase);
+
+        Assert.That(text, Does.StartWith(expected));
+    }
+
+    [Test]
+    public void BuildPhasePrompt_ValidationUsesValidationTitleWithoutTaskProgress()
+    {
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Executing,
+            "Plan title", "feature/plan", "Summary", [], [],
+            new PlanProgress(2, 2), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var text = PlanLoopTranscriptPresentation.BuildPhasePrompt(
+            plan, null, "Live behavior verified", "D:/repo/.squad/loop-executing-plan.md",
+            PlanTranscriptPhase.ValidatingPlan);
+
+        Assert.That(text, Does.StartWith("Validating plan · Live behavior verified"));
+        Assert.That(text, Does.Not.Contain("complete ·"));
+    }
+
+    [Test]
+    public void PhaseHeading_IsEmittedOnlyWhenPhaseOrWorkItemChanges()
+    {
+        var first = PlanLoopTranscriptPresentation.BuildPhaseKey(
+            "PLAN-1", PlanTranscriptPhase.VerifyingWork, "PLAN-1-002");
+        var same = PlanLoopTranscriptPresentation.BuildPhaseKey(
+            "PLAN-1", PlanTranscriptPhase.VerifyingWork, "PLAN-1-002");
+        var repair = PlanLoopTranscriptPresentation.BuildPhaseKey(
+            "PLAN-1", PlanTranscriptPhase.ReworkingTask, "PLAN-1-002");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanLoopTranscriptPresentation.ShouldEmitPhaseHeading(null, first), Is.True);
+            Assert.That(PlanLoopTranscriptPresentation.ShouldEmitPhaseHeading(first, same), Is.False);
+            Assert.That(PlanLoopTranscriptPresentation.ShouldEmitPhaseHeading(first, repair), Is.True);
+        });
+    }
+
+    [Test]
+    public void LoopBookkeeping_IsHiddenForPlanLoopsButRetainedForOrdinaryLoops()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(isPlanLoop: true), Is.False);
+            Assert.That(PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(isPlanLoop: false), Is.True);
+        });
+    }
+
+    [Test]
+    public void BuildPlanCompleteMessage_UsesPlanProgressWithoutLoopTerminology()
+    {
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Completed,
+            "Plan title", "feature/plan", "Summary", [], [],
+            new PlanProgress(8, 8), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        Assert.That(
+            PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(plan),
+            Is.EqualTo("Plan complete · 8 of 8"));
     }
 }

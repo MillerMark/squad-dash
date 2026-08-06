@@ -5,7 +5,7 @@ using System.IO;
 namespace SquadDash;
 
 /// <summary>
-/// Appends the exact host-generated task context, candidate handoff, scrutiny assignment, verdict,
+/// Appends the exact host-generated task context, candidate handoff, verification assignment, verdict,
 /// and bounded rework instructions to an inspectable plan-only journal outside the Git worktree.
 /// The durable Plan remains authoritative; this is diagnostic presentation data.
 /// </summary>

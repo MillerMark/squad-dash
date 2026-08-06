@@ -4,7 +4,7 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 [TestFixture]
-internal sealed class PlanTaskScrutinyTests
+internal sealed class PlanTaskVerificationTests
 {
     private static Plan MakePlan()
     {
@@ -84,7 +84,7 @@ internal sealed class PlanTaskScrutinyTests
                 directory, "P", "P-2", "task-context-sent", "exact upstream context",
                 new DateTimeOffset(2026, 8, 4, 12, 0, 0, TimeSpan.Zero));
             PlanExecutionJournal.Append(
-                directory, "P", "P-2", "scrutiny-result-returned", "exact scrutiny result",
+                directory, "P", "P-2", "verification-result-returned", "exact verification result",
                 new DateTimeOffset(2026, 8, 4, 12, 1, 0, TimeSpan.Zero));
 
             var journal = File.ReadAllText(path);
@@ -92,8 +92,8 @@ internal sealed class PlanTaskScrutinyTests
             {
                 Assert.That(journal, Does.Contain("task-context-sent"));
                 Assert.That(journal, Does.Contain("exact upstream context"));
-                Assert.That(journal, Does.Contain("scrutiny-result-returned"));
-                Assert.That(journal, Does.Contain("exact scrutiny result"));
+                Assert.That(journal, Does.Contain("verification-result-returned"));
+                Assert.That(journal, Does.Contain("exact verification result"));
             });
         }
         finally
@@ -106,13 +106,13 @@ internal sealed class PlanTaskScrutinyTests
     public void Parser_RequiresMissingOrOverstatedWorkArray()
     {
         var json = """
-            PLAN_TASK_SCRUTINY_JSON:
+            PLAN_TASK_VERIFICATION_JSON:
             {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
              "verdict":"accepted","summary":"ok","claimFindings":[],
              "testAssessment":"adequate","reworkInstructions":[]}
             """;
 
-        Assert.That(PlanTaskScrutinyResultParser.TryParse(json, out _, out var error), Is.False);
+        Assert.That(PlanTaskVerificationResultParser.TryParse(json, out _, out var error), Is.False);
         Assert.That(error, Does.Contain("missingOrOverstatedWork"));
     }
 
@@ -125,12 +125,12 @@ internal sealed class PlanTaskScrutinyTests
             "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
             new DecomposeStepVerification("passed", "dotnet test", "green"));
 
-        var prompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(
+        var prompt = PlanTaskVerificationPromptBuilder.BuildEnvelopeRepair(
             plan, task, candidate, "The production approval actions are still enabled.");
 
         Assert.Multiple(() =>
         {
-            Assert.That(prompt, Does.Contain(PlanTaskScrutinyResultParser.Marker));
+            Assert.That(prompt, Does.Contain(PlanTaskVerificationResultParser.Marker));
             Assert.That(prompt, Does.Contain("Do not inspect files again"));
             Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
             Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
@@ -151,12 +151,31 @@ internal sealed class PlanTaskScrutinyTests
             ```
             """;
 
-        var parsed = PlanTaskScrutinyResultParser.TryParse(json, out var result, out var error);
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
 
         Assert.Multiple(() =>
         {
             Assert.That(parsed, Is.True, error);
-            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskScrutinyVerdict.ReworkRequired));
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.ReworkRequired));
+        });
+    }
+
+    [Test]
+    public void Parser_AcceptsLegacyScrutinyMarkerForExistingResponses()
+    {
+        var json = """
+            PLAN_TASK_SCRUTINY_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"accepted","summary":"all claims supported","claimFindings":[],
+             "missingOrOverstatedWork":[],"testAssessment":"adequate","reworkInstructions":[]}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.Accepted));
         });
     }
 
@@ -165,73 +184,73 @@ internal sealed class PlanTaskScrutinyTests
     {
         var response = "Review complete. {\"planId\":\"P\"}";
 
-        Assert.That(PlanTaskScrutinyResultParser.TryParse(response, out _, out _), Is.False);
+        Assert.That(PlanTaskVerificationResultParser.TryParse(response, out _, out _), Is.False);
     }
 
     [Test]
     public void Parser_RejectsAcceptedVerdictWithDiscrepancies()
     {
         var json = """
-            PLAN_TASK_SCRUTINY_JSON:
+            PLAN_TASK_VERIFICATION_JSON:
             {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
              "verdict":"accepted","summary":"not actually complete","claimFindings":[],
              "missingOrOverstatedWork":["consumer is not wired"],
              "testAssessment":"tests cover only helper","reworkInstructions":[]}
             """;
 
-        Assert.That(PlanTaskScrutinyResultParser.TryParse(json, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("accepted scrutiny result"));
+        Assert.That(PlanTaskVerificationResultParser.TryParse(json, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("accepted verification result"));
     }
 
     [Test]
-    public void StoreUpdater_DoesNotMarkCandidateCompleteBeforeScrutiny()
+    public void StoreUpdater_DoesNotMarkCandidateCompleteBeforeVerification()
     {
         var plan = MakePlan();
         var candidate = new DecomposeStepResult(
             "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
             new DecomposeStepVerification("passed", "dotnet test", "green"));
 
-        var scrutinizing = PlanStoreUpdater.ApplyTaskScrutinyStarted(
+        var verifying = PlanStoreUpdater.ApplyTaskVerificationStarted(
             plan, "P-2", candidate, ["src/Consumer.cs"]);
 
-        Assert.That(scrutinizing.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Scrutinizing));
-        Assert.That(scrutinizing.Progress.CompletedCount, Is.EqualTo(1));
-        Assert.That(scrutinizing.Tasks[1].Handoff?.ChangedFiles, Does.Contain("src/Consumer.cs"));
+        Assert.That(verifying.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Verifying));
+        Assert.That(verifying.Progress.CompletedCount, Is.EqualTo(1));
+        Assert.That(verifying.Tasks[1].Handoff?.ChangedFiles, Does.Contain("src/Consumer.cs"));
     }
 
     [Test]
     public void StoreUpdater_SecondFailureRequiresHumanReviewAndPreservesHistory()
     {
         var plan = MakePlan();
-        var result = new PlanTaskScrutinyResult(
-            "P", "P-2", "rev", "abcdef1", PlanTaskScrutinyVerdict.ReworkRequired,
+        var result = new PlanTaskVerificationResult(
+            "P", "P-2", "rev", "abcdef1", PlanTaskVerificationVerdict.ReworkRequired,
             "Production consumer is absent.", [], ["No consumer wiring"],
             "Tests exercise only a helper.", ["Wire the production consumer."]);
 
-        var updated = PlanStoreUpdater.ApplyTaskScrutinyResult(
+        var updated = PlanStoreUpdater.ApplyTaskVerificationResult(
             plan, "P-2", result, automaticReworkAvailable: false);
 
         Assert.That(updated.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
         Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
-        Assert.That(updated.Tasks[1].ScrutinyHistory, Has.Count.EqualTo(1));
+        Assert.That(updated.Tasks[1].VerificationHistory, Has.Count.EqualTo(1));
     }
 
     [Test]
     public void RecoveryPolicy_AllowsExactlyOneAutomaticRework()
     {
         Assert.That(
-            PlanTaskScrutinyRecoveryPolicy.Resolve(PlanTaskScrutinyVerdict.ReworkRequired, 0),
-            Is.EqualTo(PlanTaskScrutinyNextAction.AutomaticRework));
+            PlanTaskVerificationRecoveryPolicy.Resolve(PlanTaskVerificationVerdict.ReworkRequired, 0),
+            Is.EqualTo(PlanTaskVerificationNextAction.AutomaticRework));
         Assert.That(
-            PlanTaskScrutinyRecoveryPolicy.Resolve(PlanTaskScrutinyVerdict.ReworkRequired, 1),
-            Is.EqualTo(PlanTaskScrutinyNextAction.HumanReview));
+            PlanTaskVerificationRecoveryPolicy.Resolve(PlanTaskVerificationVerdict.ReworkRequired, 1),
+            Is.EqualTo(PlanTaskVerificationNextAction.HumanReview));
         Assert.That(
-            PlanTaskScrutinyRecoveryPolicy.Resolve(PlanTaskScrutinyVerdict.HumanReviewRequired, 0),
-            Is.EqualTo(PlanTaskScrutinyNextAction.HumanReview));
+            PlanTaskVerificationRecoveryPolicy.Resolve(PlanTaskVerificationVerdict.HumanReviewRequired, 0),
+            Is.EqualTo(PlanTaskVerificationNextAction.HumanReview));
     }
 
     [Test]
-    public void DurablePlan_RoundTripsHandoffAndScrutiny()
+    public void DurablePlan_RoundTripsHandoffAndVerification()
     {
         var plan = MakePlan();
         var json = JsonSerializer.Serialize(plan);
@@ -252,7 +271,7 @@ internal sealed class PlanTaskScrutinyTests
     }
 
     [Test]
-    public void CompletionSummary_IncludesHandoffsScrutinyValidationsApprovalsAndUtcMarkers()
+    public void CompletionSummary_IncludesHandoffsVerificationValidationsApprovalsAndUtcMarkers()
     {
         var plan = MakePlan() with
         {
@@ -265,10 +284,10 @@ internal sealed class PlanTaskScrutinyTests
             [
                 MakePlan().Tasks[0] with
                 {
-                    ScrutinyHistory =
+                    VerificationHistory =
                     [
-                        new PlanTaskScrutinyReport(
-                            PlanTaskScrutinyVerdict.Accepted, "Claims supported", [], [],
+                        new PlanTaskVerificationReport(
+                            PlanTaskVerificationVerdict.Accepted, "Claims supported", [], [],
                             "Tests exercise production", [], "1111111", DateTimeOffset.UtcNow),
                     ],
                 },

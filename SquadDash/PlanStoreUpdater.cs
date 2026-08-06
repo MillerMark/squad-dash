@@ -109,7 +109,7 @@ internal static class PlanStoreUpdater
         };
     }
 
-    internal static Plan ApplyTaskScrutinyStarted(
+    internal static Plan ApplyTaskVerificationStarted(
         Plan existing,
         string taskId,
         DecomposeStepResult candidate,
@@ -123,7 +123,7 @@ internal static class PlanStoreUpdater
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal)
                     ? task with
                     {
-                        Status = PlanTaskStatus.Scrutinizing,
+                        Status = PlanTaskStatus.Verifying,
                         Handoff = new PlanTaskHandoff(
                             candidate.Commit ?? string.Empty,
                             candidate.Summary,
@@ -137,14 +137,14 @@ internal static class PlanStoreUpdater
         };
     }
 
-    internal static Plan ApplyTaskScrutinyResult(
+    internal static Plan ApplyTaskVerificationResult(
         Plan existing,
         string taskId,
-        PlanTaskScrutinyResult result,
+        PlanTaskVerificationResult result,
         bool automaticReworkAvailable)
     {
         var now = DateTimeOffset.UtcNow;
-        var report = new PlanTaskScrutinyReport(
+        var report = new PlanTaskVerificationReport(
             result.Verdict,
             result.Summary,
             result.ClaimFindings,
@@ -155,21 +155,21 @@ internal static class PlanStoreUpdater
             now);
         var targetStatus = result.Verdict switch
         {
-            PlanTaskScrutinyVerdict.Accepted => PlanTaskStatus.Executing,
-            PlanTaskScrutinyVerdict.ReworkRequired when automaticReworkAvailable => PlanTaskStatus.Reworking,
+            PlanTaskVerificationVerdict.Accepted => PlanTaskStatus.Executing,
+            PlanTaskVerificationVerdict.ReworkRequired when automaticReworkAvailable => PlanTaskStatus.Reworking,
             _ => PlanTaskStatus.HumanReviewRequired,
         };
 
         return existing with
         {
-            LifecycleStatus = result.Verdict == PlanTaskScrutinyVerdict.Accepted || automaticReworkAvailable
+            LifecycleStatus = result.Verdict == PlanTaskVerificationVerdict.Accepted || automaticReworkAvailable
                 ? PlanLifecycleStatus.Executing
                 : PlanLifecycleStatus.AwaitingApproval,
             Tasks = existing.Tasks.Select(task =>
             {
                 if (!string.Equals(task.TaskId, taskId, StringComparison.Ordinal)) return task;
-                var history = (task.ScrutinyHistory ?? []).Append(report).ToArray();
-                return task with { Status = targetStatus, ScrutinyHistory = history };
+                var history = (task.VerificationHistory ?? []).Append(report).ToArray();
+                return task with { Status = targetStatus, VerificationHistory = history };
             }).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },
             Timestamps = existing.Timestamps with { LastRunAt = now },
@@ -1449,7 +1449,7 @@ internal static class PlanStoreUpdater
 
     /// <summary>
     /// Repairs builds that allowed a generic AI recovery assessment to mark work complete despite
-    /// an unresolved independent-scrutiny verdict. Human acceptance remains authoritative; this
+    /// an unresolved independent-verification verdict. Human acceptance remains authoritative; this
     /// repair is limited to completion summaries explicitly produced by AI recovery assessment.
     /// </summary>
     private static Plan RepairContradictoryRecoveryAcceptance(Plan plan)
@@ -1457,8 +1457,8 @@ internal static class PlanStoreUpdater
         var target = plan.Tasks.FirstOrDefault(task =>
             task.Status == PlanTaskStatus.Complete &&
             task.CompletionSummary?.StartsWith("AI-assessed recovery:", StringComparison.Ordinal) == true &&
-            task.ScrutinyHistory?.LastOrDefault() is { } report &&
-            !string.Equals(report.Verdict, PlanTaskScrutinyVerdict.Accepted, StringComparison.Ordinal));
+            task.VerificationHistory?.LastOrDefault() is { } report &&
+             !string.Equals(report.Verdict, PlanTaskVerificationVerdict.Accepted, StringComparison.Ordinal));
         if (target is null) return plan;
 
         var tasks = plan.Tasks.Select(task => string.Equals(task.TaskId, target.TaskId, StringComparison.Ordinal)
@@ -1476,11 +1476,11 @@ internal static class PlanStoreUpdater
             task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
         var now = DateTimeOffset.UtcNow;
         var interruption = (plan.InterruptionData ?? new PlanInterruptionData(
-            "Recovery acceptance contradicted unresolved scrutiny.",
+            "Recovery acceptance contradicted unresolved verification.",
             PlanRecoveryState.PendingRecovery,
             0)) with
         {
-            Reason = $"AI recovery acceptance for {target.TaskId} was withdrawn because independent scrutiny remains unresolved.",
+            Reason = $"AI recovery acceptance for {target.TaskId} was withdrawn because independent verification remains unresolved.",
             RecoveryState = PlanRecoveryState.PendingRecovery,
             InterruptedTaskId = target.TaskId,
             LastCompletedTaskId = lastAccepted?.TaskId,

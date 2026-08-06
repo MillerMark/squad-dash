@@ -81,7 +81,7 @@ fence around the object is accepted but not required.
 - `branch`: suggested new Git branch using a conventional descriptive name.
 - `summary`: concise guiding intent for the whole plan: the user-visible outcome, architectural direction,
   and non-negotiable cohesion constraint. SquadDash injects this north star into every task, validation,
-  scrutiny, rework, and human-review turn, so write it to remain useful outside the proposal conversation.
+  verification, rework, and human-review turn, so write it to remain useful outside the proposal conversation.
 - `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
   to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: 2–25 task objects.

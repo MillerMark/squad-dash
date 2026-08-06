@@ -34,7 +34,7 @@ internal static class PlanCompletionSummaryBuilder
         builder.AppendLine($"# {plan.Title}");
         builder.AppendLine();
         builder.AppendLine("The plan completed successfully. This summary is assembled from durable task handoffs, " +
-                           "independent scrutiny reports, validation evidence, rework history, and human approvals.");
+                           "independent verification reports, validation evidence, rework history, and human approvals.");
         builder.AppendLine();
         builder.AppendLine("## Timeline");
         AddTime(builder, "Created", plan.Timestamps.CreatedAt);
@@ -64,10 +64,10 @@ internal static class PlanCompletionSummaryBuilder
             else if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
                 builder.AppendLine($"- Handoff: {task.CompletionSummary}");
 
-            if (task.ScrutinyHistory is { Count: > 0 })
+            if (task.VerificationHistory is { Count: > 0 })
             {
-                builder.AppendLine("- Independent scrutiny:");
-                foreach (var report in task.ScrutinyHistory)
+                builder.AppendLine("- Independent verification:");
+                foreach (var report in task.VerificationHistory)
                 {
                     builder.AppendLine($"  - **{report.Verdict}** — {report.Summary}");
                     foreach (var discrepancy in report.MissingOrOverstatedWork)

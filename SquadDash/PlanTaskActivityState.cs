@@ -10,7 +10,7 @@ internal enum PlanTaskActivityState
     Executing,
 
     /// <summary>Candidate work is being independently checked before acceptance.</summary>
-    Scrutinizing,
+    Verifying,
 
     /// <summary>A single bounded automatic correction is in progress.</summary>
     Reworking,

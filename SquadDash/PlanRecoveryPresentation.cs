@@ -25,10 +25,11 @@ internal static class PlanRecoveryPresentationBuilder
             ? "SquadDash could not determine why execution stopped."
             : reason.Trim();
 
-        if (normalized.Contains("Missing scrutiny result", StringComparison.OrdinalIgnoreCase) ||
+        if (normalized.Contains("Missing verification result", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("Missing scrutiny result", StringComparison.OrdinalIgnoreCase) ||
             normalized.Contains("could not produce a trustworthy structured verdict", StringComparison.OrdinalIgnoreCase))
         {
-            return "Independent scrutiny did not return the required structured result after two attempts. " +
+            return "Independent verification did not return the required structured result after two attempts. " +
                    "Test adequacy could not be independently classified.";
         }
 

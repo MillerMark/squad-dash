@@ -152,14 +152,14 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
-    public void PlanEvidence_RejectsCompleteWhileIndependentScrutinyIsUnresolved()
+    public void PlanEvidence_RejectsCompleteWhileIndependentVerificationIsUnresolved()
     {
         var task = new PlanTask(
             "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
-            ScrutinyHistory:
+            VerificationHistory:
             [
-                new PlanTaskScrutinyReport(
-                    PlanTaskScrutinyVerdict.HumanReviewRequired,
+                new PlanTaskVerificationReport(
+                    PlanTaskVerificationVerdict.HumanReviewRequired,
                     "Production approval actions were not guarded.", [], ["Missing action guard"],
                     "No production action test.", ["Guard approve and reject."], "bbbbbbbb",
                     DateTimeOffset.UtcNow),
@@ -178,20 +178,20 @@ internal sealed class PlanRecoveryAssessmentTests
         Assert.Multiple(() =>
         {
             Assert.That(valid, Is.False);
-            Assert.That(error, Does.Contain("scrutiny remains unresolved"));
+            Assert.That(error, Does.Contain("verification remains unresolved"));
             Assert.That(error, Does.Contain("Production approval actions were not guarded"));
         });
     }
 
     [Test]
-    public void PlanEvidence_AllowsPartialWhileIndependentScrutinyIsUnresolved()
+    public void PlanEvidence_AllowsPartialWhileIndependentVerificationIsUnresolved()
     {
         var task = new PlanTask(
             "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
-            ScrutinyHistory:
+            VerificationHistory:
             [
-                new PlanTaskScrutinyReport(
-                    PlanTaskScrutinyVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
+                new PlanTaskVerificationReport(
+                    PlanTaskVerificationVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
                     "Tests incomplete", ["Add guard"], "bbbbbbbb", DateTimeOffset.UtcNow),
             ]);
         var plan = new Plan(
@@ -210,18 +210,18 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
-    public void PlanEvidence_AllowsCompleteAfterLaterScrutinyAcceptsTheWork()
+    public void PlanEvidence_AllowsCompleteAfterLaterVerificationAcceptsTheWork()
     {
         var now = DateTimeOffset.UtcNow;
         var task = new PlanTask(
             "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
-            ScrutinyHistory:
+            VerificationHistory:
             [
-                new PlanTaskScrutinyReport(
-                    PlanTaskScrutinyVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
+                new PlanTaskVerificationReport(
+                    PlanTaskVerificationVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
                     "Tests incomplete", ["Add guard"], "bbbbbbbb", now.AddMinutes(-1)),
-                new PlanTaskScrutinyReport(
-                    PlanTaskScrutinyVerdict.Accepted, "Guard and tests verified.", [], [],
+                new PlanTaskVerificationReport(
+                    PlanTaskVerificationVerdict.Accepted, "Guard and tests verified.", [], [],
                     "Tests passed", [], "cccccccc", now),
             ]);
         var plan = new Plan(

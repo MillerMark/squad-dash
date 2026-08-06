@@ -128,17 +128,17 @@ internal static class PlanRecoveryAssessmentValidator
             return false;
         }
 
-        var latestScrutiny = task.ScrutinyHistory?.LastOrDefault();
-        var unresolved = latestScrutiny is not null &&
+        var latestVerification = task.VerificationHistory?.LastOrDefault();
+        var unresolved = latestVerification is not null &&
                          !string.Equals(
-                             latestScrutiny.Verdict,
-                             PlanTaskScrutinyVerdict.Accepted,
+                             latestVerification.Verdict,
+                             PlanTaskVerificationVerdict.Accepted,
                              StringComparison.Ordinal)
-            ? latestScrutiny
+            ? latestVerification
             : null;
         if (response.Classification == PlanRecoveryClassification.Complete && unresolved is not null)
         {
-            error = "AI classified the task as complete while independent scrutiny remains unresolved: " +
+            error = "AI classified the task as complete while independent verification remains unresolved: " +
                     unresolved.Summary +
                     " Use partial when bounded corrective work remains, or inconclusive when human judgment is required.";
             return false;

@@ -31,7 +31,10 @@ internal static class PlanTaskStatus
 {
     internal const string Pending    = "pending";
     internal const string Executing  = "executing";
-    internal const string Scrutinizing = "scrutinizing";
+    internal const string Verifying = "verifying";
+    private const string LegacyVerifyingValue = "scrutinizing";
+    internal static bool IsVerifying(string? status) =>
+        status is Verifying or LegacyVerifyingValue;
     internal const string Reworking = "reworking";
     internal const string HumanReviewRequired = "human-review-required";
     internal const string Complete   = "complete";
@@ -121,7 +124,7 @@ internal sealed record PlanTaskProofEvidence(
 
 /// <summary>
 /// The worker's durable account of what it changed.  This is candidate evidence until an
-/// independent scrutiny pass accepts it; it is not itself proof that the task is complete.
+/// independent verification pass accepts it; it is not itself proof that the task is complete.
 /// </summary>
 internal sealed record PlanTaskHandoff(
     [property: JsonPropertyName("commit")] string Commit,
@@ -132,16 +135,16 @@ internal sealed record PlanTaskHandoff(
                                                 DecomposeStepVerification? Verification,
     [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt);
 
-internal sealed record PlanTaskScrutinyFinding(
+internal sealed record PlanTaskVerificationFinding(
     [property: JsonPropertyName("claim")] string Claim,
     [property: JsonPropertyName("disposition")] string Disposition,
     [property: JsonPropertyName("evidence")] string Evidence);
 
 /// <summary>An immutable independent review of one candidate task handoff.</summary>
-internal sealed record PlanTaskScrutinyReport(
+internal sealed record PlanTaskVerificationReport(
     [property: JsonPropertyName("verdict")] string Verdict,
     [property: JsonPropertyName("summary")] string Summary,
-    [property: JsonPropertyName("claimFindings")] IReadOnlyList<PlanTaskScrutinyFinding> ClaimFindings,
+    [property: JsonPropertyName("claimFindings")] IReadOnlyList<PlanTaskVerificationFinding> ClaimFindings,
     [property: JsonPropertyName("missingOrOverstatedWork")] IReadOnlyList<string> MissingOrOverstatedWork,
     [property: JsonPropertyName("testAssessment")] string TestAssessment,
     [property: JsonPropertyName("reworkInstructions")] IReadOnlyList<string> ReworkInstructions,
@@ -203,9 +206,10 @@ internal sealed record PlanTask(
     [property: JsonPropertyName("handoff")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                 PlanTaskHandoff? Handoff = null,
+    // Retain the original serialized field name so existing durable plans remain readable.
     [property: JsonPropertyName("scrutinyHistory")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskScrutinyReport>? ScrutinyHistory = null,
+                                                IReadOnlyList<PlanTaskVerificationReport>? VerificationHistory = null,
     [property: JsonPropertyName("amendmentGateId")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                 string? AmendmentGateId = null,

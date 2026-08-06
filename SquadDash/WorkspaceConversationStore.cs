@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Collections.Generic;
 using System.Security.Cryptography;
@@ -904,11 +905,11 @@ internal sealed record ActiveLoopExecutionState(
     string? ActiveValidationId = null,
     int ValidationRepairCount = 0,
     string? ValidationRepairReason = null,
-    PendingTaskScrutiny? PendingTaskScrutiny = null,
-    string? ActiveScrutinyTaskId = null,
-    int ScrutinyReworkCount = 0,
-    string? ScrutinyReworkInstructions = null,
-    int ScrutinyEnvelopeRepairCount = 0)
+    [property: JsonPropertyName("pendingTaskScrutiny")] PendingTaskVerification? PendingTaskVerification = null,
+    [property: JsonPropertyName("activeScrutinyTaskId")] string? ActiveVerificationTaskId = null,
+    [property: JsonPropertyName("scrutinyReworkCount")] int VerificationReworkCount = 0,
+    [property: JsonPropertyName("scrutinyReworkInstructions")] string? VerificationReworkInstructions = null,
+    [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -966,14 +967,14 @@ internal sealed record ActiveLoopExecutionState(
         var validationRepairReason = string.IsNullOrWhiteSpace(state.ValidationRepairReason)
             ? null
             : state.ValidationRepairReason.Trim();
-        var activeScrutinyTaskId = string.IsNullOrWhiteSpace(state.ActiveScrutinyTaskId)
+        var activeVerificationTaskId = string.IsNullOrWhiteSpace(state.ActiveVerificationTaskId)
             ? null
-            : state.ActiveScrutinyTaskId.Trim();
-        var pendingScrutiny = state.PendingTaskScrutiny;
-        if (pendingScrutiny is not null &&
-            (!string.Equals(pendingScrutiny.PlanId, groupId, StringComparison.Ordinal) ||
-             !string.Equals(pendingScrutiny.Revision, revision, StringComparison.Ordinal)))
-            pendingScrutiny = null;
+            : state.ActiveVerificationTaskId.Trim();
+        var pendingVerification = state.PendingTaskVerification;
+        if (pendingVerification is not null &&
+            (!string.Equals(pendingVerification.PlanId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(pendingVerification.Revision, revision, StringComparison.Ordinal)))
+            pendingVerification = null;
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -992,17 +993,17 @@ internal sealed record ActiveLoopExecutionState(
             activeValidationId,
             Math.Max(0, state.ValidationRepairCount),
             validationRepairReason,
-            pendingScrutiny,
-            activeScrutinyTaskId,
-            Math.Max(0, state.ScrutinyReworkCount),
-            string.IsNullOrWhiteSpace(state.ScrutinyReworkInstructions)
+            pendingVerification,
+            activeVerificationTaskId,
+            Math.Max(0, state.VerificationReworkCount),
+            string.IsNullOrWhiteSpace(state.VerificationReworkInstructions)
                 ? null
-                : state.ScrutinyReworkInstructions.Trim(),
-            Math.Max(0, state.ScrutinyEnvelopeRepairCount));
+                : state.VerificationReworkInstructions.Trim(),
+            Math.Max(0, state.VerificationEnvelopeRepairCount));
     }
 }
 
-internal sealed record PendingTaskScrutiny(
+internal sealed record PendingTaskVerification(
     string PlanId,
     string TaskId,
     string Revision,

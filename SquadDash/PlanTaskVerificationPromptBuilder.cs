@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace SquadDash;
 
-internal static class PlanTaskScrutinyPromptBuilder
+internal static class PlanTaskVerificationPromptBuilder
 {
     internal static string Build(
         Plan plan,
@@ -14,7 +14,7 @@ internal static class PlanTaskScrutinyPromptBuilder
         string diffSummary)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Independently scrutinize the candidate task result below. Do not modify the repository.");
+        builder.AppendLine("Independently verify the candidate task result below. Do not modify the repository.");
         builder.AppendLine("Your job is to find missing or overstated work, unsupported claims, disconnected production wiring, " +
                            "and tests that pass without proving the behavior requested by the task.");
         builder.AppendLine();
@@ -47,19 +47,19 @@ internal static class PlanTaskScrutinyPromptBuilder
         string? priorFindings = null)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Your scrutiny completed, but the response omitted the required structured result.");
+        builder.AppendLine("Your verification completed, but the response omitted the required structured result.");
         builder.AppendLine("Do not inspect files again, run tools, modify the repository, or launch workers.");
         builder.AppendLine("Convert the findings already reached into the required result. Do not omit, soften, or reinterpret a discrepancy.");
         if (!string.IsNullOrWhiteSpace(priorFindings))
         {
             builder.AppendLine();
-            builder.AppendLine("## Findings from the completed scrutiny pass");
+            builder.AppendLine("## Findings from the completed verification pass");
             builder.AppendLine(priorFindings.Length <= 6000
                 ? priorFindings.Trim()
                 : priorFindings[^6000..].Trim());
         }
         builder.AppendLine();
-        builder.AppendLine("Return only the corrected PLAN_TASK_SCRUTINY_JSON object below. Do not add prose before or after it.");
+        builder.AppendLine("Return only the corrected PLAN_TASK_VERIFICATION_JSON object below. Do not add prose before or after it.");
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
     }
@@ -70,7 +70,7 @@ internal static class PlanTaskScrutinyPromptBuilder
         PlanTask task,
         DecomposeStepResult candidate)
     {
-        builder.AppendLine(PlanTaskScrutinyResultParser.Marker);
+        builder.AppendLine(PlanTaskVerificationResultParser.Marker);
         builder.AppendLine("{");
         builder.AppendLine($"  \"planId\": \"{plan.PlanId}\",");
         builder.AppendLine($"  \"taskId\": \"{task.TaskId}\",");

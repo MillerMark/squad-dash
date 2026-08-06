@@ -75,8 +75,8 @@ internal sealed class ApprovalReviewSnapshotBuilder
                 bool? verified = verificationResults?.TryGetValue(sha, out var v) == true ? v : null;
                 commits.Add(new ReviewCommitEntry(link, verified, files));
             }
-            var scrutinySummary = task.ScrutinyHistory is { Count: > 0 }
-                ? string.Join(" ", task.ScrutinyHistory.Select(report =>
+            var verificationSummary = task.VerificationHistory is { Count: > 0 }
+                ? string.Join(" ", task.VerificationHistory.Select(report =>
                     $"{report.Verdict}: {report.Summary}"))
                 : null;
             return new ReviewTaskEntry(
@@ -84,7 +84,7 @@ internal sealed class ApprovalReviewSnapshotBuilder
                 task.Title ?? task.TaskId,
                 task.Handoff?.Summary ?? task.CompletionSummary,
                 commits,
-                scrutinySummary);
+                verificationSummary);
         }).ToList();
 
         // Downstream tasks (blocked by this gate).

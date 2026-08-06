@@ -159,10 +159,10 @@ internal static class PlanValidationPromptBuilder
                         sb.AppendLine($"    Artifact: `{artifact}`");
                 }
             }
-            if (task.ScrutinyHistory is { Count: > 0 })
+            if (task.VerificationHistory is { Count: > 0 })
             {
-                var latest = task.ScrutinyHistory[^1];
-                sb.AppendLine($"  - Independent scrutiny `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
+                var latest = task.VerificationHistory[^1];
+                sb.AppendLine($"  - Independent verification `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
         var proofGates = plan.ApprovalGates
@@ -233,10 +233,10 @@ internal static class PlanValidationPromptBuilder
                 foreach (var output in task.Outputs)
                     sb.AppendLine($"  - Output `{output.OutputId}`: {output.Description}");
             }
-            if (task.ScrutinyHistory is { Count: > 0 })
+            if (task.VerificationHistory is { Count: > 0 })
             {
-                var latest = task.ScrutinyHistory[^1];
-                sb.AppendLine($"  - Scrutiny `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
+                var latest = task.VerificationHistory[^1];
+                sb.AppendLine($"  - Verification `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
         sb.AppendLine();

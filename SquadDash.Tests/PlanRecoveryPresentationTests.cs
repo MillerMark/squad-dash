@@ -12,15 +12,15 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void SummarizeReason_MissingScrutinyEnvelope_ProducesConcisePrimaryReason()
+    public void SummarizeReason_MissingVerificationEnvelope_ProducesConcisePrimaryReason()
     {
         var reason =
-            "Independent scrutiny requires human review. Scrutiny summary: Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair. " +
-            "Missing or overstated work: - Missing scrutiny result. Test assessment: Test adequacy could not be independently classified.";
+            "Independent verification requires human review. Verification summary: Independent verification could not produce a trustworthy structured verdict after one envelope repair. " +
+            "Missing or overstated work: - Missing verification result. Test assessment: Test adequacy could not be independently classified.";
 
         Assert.That(
             PlanRecoveryPresentationBuilder.SummarizeReason(reason),
-            Is.EqualTo("Independent scrutiny did not return the required structured result after two attempts. " +
+            Is.EqualTo("Independent verification did not return the required structured result after two attempts. " +
                        "Test adequacy could not be independently classified."));
     }
 

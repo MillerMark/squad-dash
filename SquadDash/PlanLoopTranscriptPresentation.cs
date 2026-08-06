@@ -1,12 +1,38 @@
 namespace SquadDash;
 
+internal enum PlanTranscriptPhase
+{
+    Executing,
+    VerifyingWork,
+    ReworkingTask,
+    ValidatingPlan,
+}
+
 internal static class PlanLoopTranscriptPresentation
 {
-    internal static string BuildExecutingPrompt(
+    internal static string BuildPhaseKey(
+        string planId,
+        PlanTranscriptPhase phase,
+        string? taskOrValidationId) =>
+        $"{planId}|{phase}|{taskOrValidationId}";
+
+    internal static bool ShouldEmitPhaseHeading(string? previousKey, string currentKey) =>
+        !string.Equals(previousKey, currentKey, StringComparison.Ordinal);
+
+    internal static bool ShouldShowLoopBookkeeping(bool isPlanLoop) => !isPlanLoop;
+
+    internal static string BuildPlanCompleteMessage(Plan plan, string? detail = null)
+    {
+        var message = $"Plan complete · {plan.Progress.CompletedCount} of {plan.Progress.TotalCount}";
+        return string.IsNullOrWhiteSpace(detail) ? message : $"{message} · {detail.Trim()}";
+    }
+
+    internal static string BuildPhasePrompt(
         Plan plan,
         string? taskId,
         string? taskTitle,
-        string loopDetailsPath)
+        string loopDetailsPath,
+        PlanTranscriptPhase phase = PlanTranscriptPhase.Executing)
     {
         var task = ResolveTask(plan, taskId, taskTitle);
         var title = task?.Title?.Trim() is { Length: > 0 } resolvedTitle
@@ -15,17 +41,28 @@ internal static class PlanLoopTranscriptPresentation
                 ? taskId ?? plan.Progress.ExecutingTaskId ?? "Current step"
                 : taskTitle.Trim();
         var planTarget = Uri.EscapeDataString(plan.PlanId);
+        var phaseLabel = phase switch
+        {
+            PlanTranscriptPhase.VerifyingWork => "Verifying work",
+            PlanTranscriptPhase.ReworkingTask => "Reworking task",
+            PlanTranscriptPhase.ValidatingPlan => "Validating plan",
+            _ => "Executing plan",
+        };
 
-        return $"Executing plan · {BuildProgressIdentity(plan, task)} · {title}  " +
+        var identity = phase == PlanTranscriptPhase.ValidatingPlan
+            ? string.Empty
+            : $" · {BuildProgressIdentity(plan, task)}";
+
+        return $"{phaseLabel}{identity} · {title}  " +
                $"[View Plan](app://open-plan:{planTarget}) · " +
                $"[Loop details](app://open-loop-md:{loopDetailsPath})";
     }
 
-    internal static string BuildValidatingMessage(Plan plan, string? taskId, string? taskTitle)
+    internal static string BuildVerifyingCompletedWorkMessage(Plan plan, string? taskId, string? taskTitle)
     {
         var task = ResolveTask(plan, taskId, taskTitle);
         var identity = BuildProgressIdentity(plan, task);
-        return $"Validating completed work for {identity}. The implementation will not be run again.";
+        return $"Verifying completed work for {identity}. The implementation will not be run again.";
     }
 
     internal static string BuildTaskIdentity(Plan plan, string? taskId, string? taskTitle)

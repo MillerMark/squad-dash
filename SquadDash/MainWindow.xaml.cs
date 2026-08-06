@@ -382,9 +382,9 @@ public partial class MainWindow : Window
     private string?                 _capturedDecomposeStepResultError;
     private PlanValidationResultPayload? _capturedValidationResult;
     private string?                 _capturedValidationResultError;
-    private PlanTaskScrutinyResult? _capturedTaskScrutinyResult;
-    private string?                 _capturedTaskScrutinyResultError;
-    private string?                 _capturedTaskScrutinyRawResponse;
+    private PlanTaskVerificationResult? _capturedTaskVerificationResult;
+    private string?                    _capturedTaskVerificationResultError;
+    private string?                    _capturedTaskVerificationRawResponse;
     private string?                 _decomposeIterationBaselineCommit;
     private string?                 _decomposeContinuationTaskId;
     private IReadOnlyList<string>   _decomposeContinuationPaths = [];
@@ -608,6 +608,7 @@ public partial class MainWindow : Window
     private LoopRoundExecutionIdentity? _loopRoundExecutionIdentity;
     private DateTimeOffset? _loopPlanStartedAt;
     private TimeSpan        _loopTotalActiveTime;
+    private string?         _lastPlanTranscriptPhaseKey;
     private bool _loopPanelVisible = true;
     private LoopOutputWindow? _loopOutputWindow;
     private bool _loopQueued;
@@ -6045,6 +6046,8 @@ public partial class MainWindow : Window
 
     private void HandleLoopStarted(SquadSdkEvent evt)
     {
+        var isPlanLoop = _activeDecomposeGroupId is not null ||
+                         _conversationManager.ConversationState.ActiveLoopExecution?.IsExecutingPlan == true;
         _pec.SetIsLoopRunning(true);
         _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
         _loopCurrentIteration = 0;
@@ -6058,7 +6061,8 @@ public partial class MainWindow : Window
         var label = string.IsNullOrWhiteSpace(evt.LoopMdPath)
             ? "🔁 Loop started"
             : $"🔁 Loop started: {evt.LoopMdPath.Replace('\\', '/')}";
-        AppendLine(label);
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(isPlanLoop))
+            AppendLine(label);
         AppendLoopOutputLine($"▶ Loop started — {LoopTimestamp()}", LoopLifecycleBrush);
         SquadDashTrace.Write("UI", $"Loop started mdPath={evt.LoopMdPath ?? "(none)"}");
         SyncLoopPanel();
@@ -6068,7 +6072,10 @@ public partial class MainWindow : Window
     {
         if (evt.LoopIteration is int n) _loopCurrentIteration = n;
         var iterLabel = evt.LoopIteration is int m ? $"↩ Iteration {m}" : "↩ Iteration";
-        AppendLine(iterLabel);
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(
+                _activeDecomposeGroupId is not null ||
+                _conversationManager.ConversationState.ActiveLoopExecution?.IsExecutingPlan == true))
+            AppendLine(iterLabel);
         SquadDashTrace.Write("UI", $"Loop iteration={evt.LoopIteration?.ToString() ?? "(unknown)"}");
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
@@ -6076,6 +6083,8 @@ public partial class MainWindow : Window
 
     private void HandleLoopStopped(SquadSdkEvent evt)
     {
+        var wasPlanLoop = _activeDecomposeGroupId is not null ||
+                          _conversationManager.ConversationState.ActiveLoopExecution?.IsExecutingPlan == true;
         CleanupActiveLoopCliProjection("loop-stopped");
         _pec.SetIsLoopRunning(false);
         ApplyPendingBridgeSettingsRestartIfIdle("loop-stopped");
@@ -6083,7 +6092,8 @@ public partial class MainWindow : Window
         _conversationManager.UpdateActiveLoopExecutionState(null);
         _loopCurrentIteration = 0;
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
-        AppendLine("✅ Loop stopped");
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(wasPlanLoop))
+            AppendLine("✅ Loop stopped");
         SquadDashTrace.Write("UI", $"Loop stopped mdPath={evt.LoopMdPath ?? "(none)"}");
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
@@ -6143,8 +6153,8 @@ public partial class MainWindow : Window
         {
             var validatingPlan = _planStore?.Load(_activeDecomposeGroupId!);
             ScheduleDecomposeSystemEntry(validatingPlan is null
-                ? "Validating completed work. The implementation will not be run again."
-                : PlanLoopTranscriptPresentation.BuildValidatingMessage(
+                ? "Verifying completed work. The implementation will not be run again."
+                : PlanLoopTranscriptPresentation.BuildVerifyingCompletedWorkMessage(
                     validatingPlan,
                     currentTaskId,
                     _CodeHealthGroupRunner?.GetCurrentStepTitle()));
@@ -6169,11 +6179,35 @@ public partial class MainWindow : Window
         var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View {Path.GetFileName(loopMdPath)}](app://open-loop-md:{loopMdPath})";
         if (isExecutingPlan && _planStore?.Load(_activeDecomposeGroupId!) is { } executingPlan)
         {
-            displayPrompt = PlanLoopTranscriptPresentation.BuildExecutingPrompt(
+            var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+            var activeValidation = activeExecution?.ActiveValidationId is { } activeValidationId
+                ? executingPlan.Validations?.FirstOrDefault(validation =>
+                    string.Equals(validation.ValidationId, activeValidationId, StringComparison.Ordinal))
+                : null;
+            var activeTask = executingPlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, _CodeHealthGroupRunner?.CurrentStepId, StringComparison.Ordinal));
+            var phase = activeValidation is not null
+                ? PlanTranscriptPhase.ValidatingPlan
+                : activeExecution?.ActiveVerificationTaskId is not null
+                    ? PlanTranscriptPhase.VerifyingWork
+                    : activeTask?.Status == PlanTaskStatus.Reworking ||
+                      !string.IsNullOrWhiteSpace(activeExecution?.VerificationReworkInstructions)
+                        ? PlanTranscriptPhase.ReworkingTask
+                        : PlanTranscriptPhase.Executing;
+            var phaseTaskId = activeValidation is null ? _CodeHealthGroupRunner?.CurrentStepId : null;
+            var phaseTitle = activeValidation?.Title ?? _CodeHealthGroupRunner?.GetCurrentStepTitle();
+            var phaseKey = PlanLoopTranscriptPresentation.BuildPhaseKey(
+                executingPlan.PlanId, phase, phaseTaskId ?? activeValidation?.ValidationId);
+            displayPrompt = PlanLoopTranscriptPresentation.ShouldEmitPhaseHeading(
+                _lastPlanTranscriptPhaseKey, phaseKey)
+                ? PlanLoopTranscriptPresentation.BuildPhasePrompt(
                 executingPlan,
-                _CodeHealthGroupRunner?.CurrentStepId,
-                _CodeHealthGroupRunner?.GetCurrentStepTitle(),
-                loopMdPath);
+                phaseTaskId,
+                phaseTitle,
+                loopMdPath,
+                phase)
+                : string.Empty;
+            _lastPlanTranscriptPhaseKey = phaseKey;
         }
         if (isExecutingPlan)
             _pendingPromptIsSystemInjected = true;
@@ -6185,7 +6219,9 @@ public partial class MainWindow : Window
                 clearPromptBox: false,
                 sessionIdOverride: sessionId,
                 displayPrompt: isExecutingPlan
-                    ? SystemTranscriptStatusPrefix + displayPrompt
+                    ? string.IsNullOrEmpty(displayPrompt)
+                        ? string.Empty
+                        : SystemTranscriptStatusPrefix + displayPrompt
                     : displayPrompt);
         }
         finally
@@ -6260,7 +6296,8 @@ public partial class MainWindow : Window
         _pec.SetIsLoopRunning(true);
         _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
         AppendLoopOutputLine($"▶ Round {iteration} started — {LoopTimestamp()}", LoopLifecycleBrush);
-        AppendLine($"↩ Round {iteration}");
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(_activeDecomposeGroupId is not null))
+            AppendLine($"↩ Round {iteration}");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "round_started",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
@@ -6329,7 +6366,8 @@ public partial class MainWindow : Window
             _loopTotalActiveTime = TimeSpan.Zero;
         }
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
-        AppendLine("✅ Loop stopped");
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(stoppedPlanId is not null))
+            AppendLine("✅ Loop stopped");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "plan_stopped",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
@@ -6507,7 +6545,8 @@ public partial class MainWindow : Window
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with { LastCompletedIteration = iteration });
         AppendLoopOutputLine($"✓ Round {iteration} completed — {LoopTimestamp()}", LoopLifecycleBrush);
-        AppendLine($"  ✓ Round {iteration} complete");
+        if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(completedExecution?.PlanId is not null))
+            AppendLine($"  ✓ Round {iteration} complete");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "round_completed",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
@@ -6518,7 +6557,8 @@ public partial class MainWindow : Window
             TaskTitle: completedExecution?.TaskTitle,
             Message: null,
             Outcome: "completed"));
-        if (_planExecutionLog is not null)
+        if (_planExecutionLog is not null &&
+            PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(completedExecution?.PlanId is not null))
         {
             var taskDisplay = completedExecution?.TaskTitle
                            ?? completedExecution?.TaskId
@@ -7969,6 +8009,7 @@ public partial class MainWindow : Window
         _activeDecomposeGroupId = null;
         _decomposeContinuationTaskId = null;
         _decomposeContinuationPaths = [];
+        _lastPlanTranscriptPhaseKey = null;
     }
 
     private void ClearExecutingPlanState()
@@ -9417,17 +9458,17 @@ public partial class MainWindow : Window
     {
         if (_activeDecomposeGroupId is null) return;
 
-        _capturedTaskScrutinyRawResponse = rawResponse;
+        _capturedTaskVerificationRawResponse = rawResponse;
 
-        if (PlanTaskScrutinyResultParser.TryParse(rawResponse, out var scrutinyResult, out var scrutinyError))
+        if (PlanTaskVerificationResultParser.TryParse(rawResponse, out var verificationResult, out var verificationError))
         {
-            _capturedTaskScrutinyResult = scrutinyResult;
-            _capturedTaskScrutinyResultError = null;
+            _capturedTaskVerificationResult = verificationResult;
+            _capturedTaskVerificationResultError = null;
         }
         else
         {
-            _capturedTaskScrutinyResult = null;
-            _capturedTaskScrutinyResultError = scrutinyError;
+            _capturedTaskVerificationResult = null;
+            _capturedTaskVerificationResultError = verificationError;
         }
 
         // Try to capture a validation result first
@@ -9505,36 +9546,36 @@ public partial class MainWindow : Window
         _capturedDecomposeStepResultError = null;
         _capturedValidationResult = null;
         _capturedValidationResultError = null;
-        _capturedTaskScrutinyResult = null;
-        _capturedTaskScrutinyResultError = null;
+        _capturedTaskVerificationResult = null;
+        _capturedTaskVerificationResultError = null;
 
         var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
-        if (activeExec?.ScrutinyEnvelopeRepairCount is not > 0)
-            _capturedTaskScrutinyRawResponse = null;
-        if (activeExec?.ActiveScrutinyTaskId is { } scrutinyTaskId)
+        if (activeExec?.VerificationEnvelopeRepairCount is not > 0)
+            _capturedTaskVerificationRawResponse = null;
+        if (activeExec?.ActiveVerificationTaskId is { } verificationTaskId)
         {
-            var pending = activeExec.PendingTaskScrutiny
-                ?? throw new InvalidOperationException($"Task {scrutinyTaskId} has no persisted candidate handoff to scrutinize.");
+            var pending = activeExec.PendingTaskVerification
+                ?? throw new InvalidOperationException($"Task {verificationTaskId} has no persisted candidate handoff to verify.");
             var plan = _planStore?.Load(_activeDecomposeGroupId)
-                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} could not be loaded for scrutiny.");
+                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} could not be loaded for verification.");
             var task = plan.Tasks.FirstOrDefault(candidate =>
-                string.Equals(candidate.TaskId, scrutinyTaskId, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing scrutiny task {scrutinyTaskId}.");
+                string.Equals(candidate.TaskId, verificationTaskId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing verification task {verificationTaskId}.");
             var candidate = JsonSerializer.Deserialize<DecomposeStepResult>(pending.CandidateResultJson)
-                ?? throw new InvalidDataException($"Task {scrutinyTaskId} has an unreadable candidate result.");
-            var isEnvelopeRepair = activeExec.ScrutinyEnvelopeRepairCount > 0;
-            string scrutinyPrompt;
+                ?? throw new InvalidDataException($"Task {verificationTaskId} has an unreadable candidate result.");
+            var isEnvelopeRepair = activeExec.VerificationEnvelopeRepairCount > 0;
+            string verificationPrompt;
             if (isEnvelopeRepair)
             {
-                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.BuildEnvelopeRepair(
-                    plan, task, candidate, _capturedTaskScrutinyRawResponse);
+                verificationPrompt = PlanTaskVerificationPromptBuilder.BuildEnvelopeRepair(
+                    plan, task, candidate, _capturedTaskVerificationRawResponse);
             }
             else
             {
                 var diffSummary = await RunGitAsync(
                     _currentWorkspace.FolderPath,
                     $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
-                scrutinyPrompt = PlanTaskScrutinyPromptBuilder.Build(
+                verificationPrompt = PlanTaskVerificationPromptBuilder.Build(
                     plan,
                     task,
                     candidate,
@@ -9545,9 +9586,9 @@ public partial class MainWindow : Window
             AppendPlanExecutionJournal(
                 plan.PlanId,
                 task.TaskId,
-                isEnvelopeRepair ? "scrutiny-envelope-repair-prompt-sent" : "scrutiny-prompt-sent",
-                scrutinyPrompt);
-            return scrutinyPrompt;
+                isEnvelopeRepair ? "verification-envelope-repair-prompt-sent" : "verification-prompt-sent",
+                verificationPrompt);
+            return verificationPrompt;
         }
 
         if (activeExec?.ActiveValidationId is { } activeValidationId)
@@ -9808,17 +9849,17 @@ public partial class MainWindow : Window
             }
         }
 
-        string? scrutinyReworkContext = null;
-        if (!string.IsNullOrWhiteSpace(execution.ScrutinyReworkInstructions))
+        string? verificationReworkContext = null;
+        if (!string.IsNullOrWhiteSpace(execution.VerificationReworkInstructions))
         {
-            scrutinyReworkContext =
-                "## Bounded scrutiny rework\n\nThe independent scrutiny pass found the following missing or overstated work. " +
+            verificationReworkContext =
+                "## Bounded verification rework\n\nThe independent verification pass found the following missing or overstated work. " +
                 "Correct only these findings, then return a fresh complete task handoff:\n" +
-                execution.ScrutinyReworkInstructions;
+                execution.VerificationReworkInstructions;
         }
 
         var contexts = new[]
-            { planExecutionContext, continuationContext, assessedRecoveryContext, scrutinyReworkContext, routingContext, proofContext }
+            { planExecutionContext, continuationContext, assessedRecoveryContext, verificationReworkContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         var taskContext = string.Join("\n\n", contexts);
         if (durablePlan is not null)
@@ -9826,7 +9867,7 @@ public partial class MainWindow : Window
             AppendPlanExecutionJournal(
                 durablePlan.PlanId,
                 currentTaskId,
-                string.IsNullOrWhiteSpace(scrutinyReworkContext)
+                string.IsNullOrWhiteSpace(verificationReworkContext)
                     ? "task-context-sent"
                     : "bounded-rework-context-sent",
                 taskContext);
@@ -9905,11 +9946,11 @@ public partial class MainWindow : Window
 
         var groupId = _activeDecomposeGroupId;
 
-        // Candidate task work is scrutinized before it can become accepted plan progress.
+        // Candidate task work is verified before it can become accepted plan progress.
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
-        if (activeExecution?.ActiveScrutinyTaskId is { } activeScrutinyTaskId)
+        if (activeExecution?.ActiveVerificationTaskId is { } activeVerificationTaskId)
         {
-            await FinalizeTaskScrutinyTurnAsync(groupId, activeScrutinyTaskId, activeExecution);
+            await FinalizeTaskVerificationTurnAsync(groupId, activeVerificationTaskId, activeExecution);
             return;
         }
 
@@ -10304,7 +10345,7 @@ public partial class MainWindow : Window
             {
                 StopAndOfferDecomposeRecovery(
                     groupId, taskId, revision,
-                    "SquadDash could not start independent scrutiny because the task baseline commit is missing.",
+                    "SquadDash could not start independent verification because the task baseline commit is missing.",
                     taskCommitEvidence);
                 return;
             }
@@ -10316,7 +10357,7 @@ public partial class MainWindow : Window
                 .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            var pendingScrutiny = new PendingTaskScrutiny(
+            var pendingVerification = new PendingTaskVerification(
                 groupId,
                 taskId,
                 revision,
@@ -10337,31 +10378,28 @@ public partial class MainWindow : Window
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with
                 {
-                    PendingTaskScrutiny = pendingScrutiny,
-                    ActiveScrutinyTaskId = taskId,
-                    ScrutinyReworkInstructions = null,
-                    ScrutinyEnvelopeRepairCount = 0,
+                    PendingTaskVerification = pendingVerification,
+                    ActiveVerificationTaskId = taskId,
+                    VerificationReworkInstructions = null,
+                    VerificationEnvelopeRepairCount = 0,
                 });
 
-            var scrutinyPlan = _planStore?.Load(groupId);
-            if (scrutinyPlan is not null)
+            var verificationPlan = _planStore?.Load(groupId);
+            if (verificationPlan is not null)
             {
-                var updated = PlanStoreUpdater.ApplyTaskScrutinyStarted(
-                    scrutinyPlan, taskId, result, changedFiles);
-                if (!TryPublishPlanProgress(updated, out var scrutinyProgressError))
+                var updated = PlanStoreUpdater.ApplyTaskVerificationStarted(
+                    verificationPlan, taskId, result, changedFiles);
+                if (!TryPublishPlanProgress(updated, out var verificationProgressError))
                 {
                     StopAndOfferDecomposeRecovery(
                         groupId, taskId, revision,
-                        "The candidate work was committed, but SquadDash could not persist its scrutiny state: " +
-                        scrutinyProgressError,
+                        "The candidate work was committed, but SquadDash could not persist its verification state: " +
+                        verificationProgressError,
                         taskCommitEvidence);
                     return;
                 }
             }
 
-            ScheduleDecomposeSystemEntry(
-                $"🔎 Scrutinizing candidate work for \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
-                "The task is not complete until its claims, production wiring, and tests are independently checked.");
             return;
         }
 
@@ -10423,7 +10461,8 @@ public partial class MainWindow : Window
             SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
             PublishPlanCompletionSummary(durableAfterAcceptance);
-            ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash verified and accepted every step result.");
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(durableAfterAcceptance));
         }
         else if (_planStore is not null)
         {
@@ -10437,7 +10476,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task FinalizeTaskScrutinyTurnAsync(
+    private async Task FinalizeTaskVerificationTurnAsync(
         string groupId,
         string taskId,
         ActiveLoopExecutionState activeExecution)
@@ -10445,140 +10484,140 @@ public partial class MainWindow : Window
         if (_planStore is null || _CodeHealthGroupRunner is null || _currentWorkspace is null)
             return;
 
-        var pending = activeExecution.PendingTaskScrutiny;
+        var pending = activeExecution.PendingTaskVerification;
         var candidate = pending is null
             ? null
             : JsonSerializer.Deserialize<DecomposeStepResult>(pending.CandidateResultJson);
-        var scrutiny = _capturedTaskScrutinyResult;
-        var scrutinyError = _capturedTaskScrutinyResultError;
-        _capturedTaskScrutinyResult = null;
-        _capturedTaskScrutinyResultError = null;
+        var verification = _capturedTaskVerificationResult;
+        var verificationError = _capturedTaskVerificationResultError;
+        _capturedTaskVerificationResult = null;
+        _capturedTaskVerificationResultError = null;
 
         if (pending is null || candidate is null)
         {
             StopAndOfferDecomposeRecovery(
                 groupId, taskId, activeExecution.DecomposeRevision ?? string.Empty,
-                "SquadDash lost the candidate handoff required for independent scrutiny.");
+                "SquadDash lost the candidate handoff required for independent verification.");
             return;
         }
 
-        if (scrutiny is not null &&
-            (!string.Equals(scrutiny.PlanId, groupId, StringComparison.Ordinal) ||
-             !string.Equals(scrutiny.TaskId, taskId, StringComparison.Ordinal) ||
-             !string.Equals(scrutiny.Revision, pending.Revision, StringComparison.Ordinal) ||
-             !string.Equals(scrutiny.EvaluatedCommit, candidate.Commit, StringComparison.OrdinalIgnoreCase)))
+        if (verification is not null &&
+            (!string.Equals(verification.PlanId, groupId, StringComparison.Ordinal) ||
+             !string.Equals(verification.TaskId, taskId, StringComparison.Ordinal) ||
+             !string.Equals(verification.Revision, pending.Revision, StringComparison.Ordinal) ||
+             !string.Equals(verification.EvaluatedCommit, candidate.Commit, StringComparison.OrdinalIgnoreCase)))
         {
-            scrutinyError = "The scrutiny response did not match the active plan, task, revision, and candidate commit.";
-            scrutiny = null;
+            verificationError = "The verification response did not match the active plan, task, revision, and candidate commit.";
+            verification = null;
         }
 
         AppendPlanExecutionJournal(
             groupId,
             taskId,
-            "scrutiny-result-returned",
-            scrutiny is null
-                ? $"Structured scrutiny result unavailable. {scrutinyError ?? "No result was returned."}"
-                : PlanExecutionJournal.Serialize(scrutiny));
+            "verification-result-returned",
+            verification is null
+                ? $"Structured verification result unavailable. {verificationError ?? "No result was returned."}"
+                : PlanExecutionJournal.Serialize(verification));
 
-        if (scrutiny is null)
+        if (verification is null)
         {
-            if (activeExecution.ScrutinyEnvelopeRepairCount < 1)
+            if (activeExecution.VerificationEnvelopeRepairCount < 1)
             {
                 _conversationManager.UpdateActiveLoopExecutionState(
                     activeExecution with
                     {
-                        ScrutinyEnvelopeRepairCount = 1,
+                        VerificationEnvelopeRepairCount = 1,
                     });
                 ScheduleDecomposeSystemEntry(
-                    "⚙ Scrutiny did not return the required structured result. SquadDash is requesting it once more without rerunning task work.");
+                    "Verification did not return the required structured result. SquadDash is requesting it once more without rerunning task work.");
                 return;
             }
 
-            scrutiny = new PlanTaskScrutinyResult(
+            verification = new PlanTaskVerificationResult(
                 groupId,
                 taskId,
                 pending.Revision,
                 candidate.Commit ?? string.Empty,
-                PlanTaskScrutinyVerdict.HumanReviewRequired,
-                "Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair.",
+                PlanTaskVerificationVerdict.HumanReviewRequired,
+                "Independent verification could not produce a trustworthy structured verdict after one envelope repair.",
                 [],
-                [scrutinyError ?? "Missing scrutiny result."],
+                [verificationError ?? "Missing verification result."],
                 "Test adequacy could not be independently classified.",
                 []);
         }
 
-        _capturedTaskScrutinyRawResponse = null;
+        _capturedTaskVerificationRawResponse = null;
 
         var plan = _planStore.Load(groupId);
         if (plan is null) return;
-        var nextScrutinyAction = PlanTaskScrutinyRecoveryPolicy.Resolve(
-            scrutiny.Verdict,
-            activeExecution.ScrutinyReworkCount);
+        var nextVerificationAction = PlanTaskVerificationRecoveryPolicy.Resolve(
+            verification.Verdict,
+            activeExecution.VerificationReworkCount);
         var automaticReworkAvailable =
-            nextScrutinyAction == PlanTaskScrutinyNextAction.AutomaticRework;
-        var reviewedPlan = PlanStoreUpdater.ApplyTaskScrutinyResult(
+            nextVerificationAction == PlanTaskVerificationNextAction.AutomaticRework;
+        var reviewedPlan = PlanStoreUpdater.ApplyTaskVerificationResult(
             plan,
             taskId,
-            scrutiny,
+            verification,
             automaticReworkAvailable);
         if (!TryPublishPlanProgress(reviewedPlan, out var progressError))
         {
             StopAndOfferDecomposeRecovery(
                 groupId, taskId, pending.Revision,
-                "SquadDash could not persist the scrutiny verdict: " + progressError);
+                "SquadDash could not persist the verification verdict: " + progressError);
             return;
         }
 
-        if (nextScrutinyAction == PlanTaskScrutinyNextAction.Accept)
+        if (nextVerificationAction == PlanTaskVerificationNextAction.Accept)
         {
             var cleared = activeExecution with
             {
-                PendingTaskScrutiny = null,
-                ActiveScrutinyTaskId = null,
-                ScrutinyReworkInstructions = null,
-                ScrutinyReworkCount = 0,
-                ScrutinyEnvelopeRepairCount = 0,
+                PendingTaskVerification = null,
+                ActiveVerificationTaskId = null,
+                VerificationReworkInstructions = null,
+                VerificationReworkCount = 0,
+                VerificationEnvelopeRepairCount = 0,
             };
             _conversationManager.UpdateActiveLoopExecutionState(cleared);
             ScheduleDecomposeSystemEntry(
-                $"✅ Scrutiny accepted \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". {scrutiny.Summary}");
-            await AcceptScrutinizedTaskAsync(groupId, taskId, pending.Revision, candidate, cleared);
+                $"Work verified · \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". {verification.Summary}");
+            await AcceptVerifiedTaskAsync(groupId, taskId, pending.Revision, candidate, cleared);
             return;
         }
 
         if (automaticReworkAvailable)
         {
-            var instructions = scrutiny.ReworkInstructions.Count > 0
-                ? string.Join("\n", scrutiny.ReworkInstructions.Select(item => "- " + item))
-                : string.Join("\n", scrutiny.MissingOrOverstatedWork.Select(item => "- " + item));
+            var instructions = verification.ReworkInstructions.Count > 0
+                ? string.Join("\n", verification.ReworkInstructions.Select(item => "- " + item))
+                : string.Join("\n", verification.MissingOrOverstatedWork.Select(item => "- " + item));
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with
                 {
-                    PendingTaskScrutiny = null,
-                    ActiveScrutinyTaskId = null,
-                    ScrutinyReworkCount = activeExecution.ScrutinyReworkCount + 1,
-                    ScrutinyReworkInstructions = instructions,
-                    ScrutinyEnvelopeRepairCount = 0,
+                    PendingTaskVerification = null,
+                    ActiveVerificationTaskId = null,
+                    VerificationReworkCount = activeExecution.VerificationReworkCount + 1,
+                    VerificationReworkInstructions = instructions,
+                    VerificationEnvelopeRepairCount = 0,
                 });
             ScheduleDecomposeSystemEntry(
-                $"⚠ Scrutiny found missing or overstated work in \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
+                $"Verification found missing or overstated work in \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
                 "SquadDash is starting the one permitted automatic rework.\n\n" + instructions);
             return;
         }
 
         _conversationManager.UpdateActiveLoopExecutionState(
-            activeExecution with { ActiveScrutinyTaskId = null });
-        var discrepancies = scrutiny.MissingOrOverstatedWork.Count == 0
+            activeExecution with { ActiveVerificationTaskId = null });
+        var discrepancies = verification.MissingOrOverstatedWork.Count == 0
             ? "- The evidence was inconclusive."
-            : string.Join("\n", scrutiny.MissingOrOverstatedWork.Select(item => "- " + item));
+            : string.Join("\n", verification.MissingOrOverstatedWork.Select(item => "- " + item));
         var humanReviewReason = string.Equals(
-            scrutiny.Summary,
-            "Independent scrutiny could not produce a trustworthy structured verdict after one envelope repair.",
+            verification.Summary,
+            "Independent verification could not produce a trustworthy structured verdict after one envelope repair.",
             StringComparison.Ordinal)
-            ? "Independent scrutiny did not return the required structured result after two attempts. " +
+            ? "Independent verification did not return the required structured result after two attempts. " +
               "Test adequacy could not be independently classified."
-            : $"Independent scrutiny requires human review: {scrutiny.Summary} " +
-              $"Missing or overstated work: {discrepancies} Test assessment: {scrutiny.TestAssessment}";
+            : $"Independent verification requires human review: {verification.Summary} " +
+              $"Missing or overstated work: {discrepancies} Test assessment: {verification.TestAssessment}";
         var commitEvidence = new PlanTaskCommitEvidence(
             taskId,
             candidate.ExecutionAttemptId,
@@ -10594,7 +10633,7 @@ public partial class MainWindow : Window
             commitEvidence);
     }
 
-    private async Task AcceptScrutinizedTaskAsync(
+    private async Task AcceptVerifiedTaskAsync(
         string groupId,
         string taskId,
         string revision,
@@ -10605,7 +10644,7 @@ public partial class MainWindow : Window
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out var error))
         {
             StopAndOfferDecomposeRecovery(groupId, taskId, revision,
-                error ?? "The scrutinized result could not be applied.");
+                error ?? "The verified result could not be applied.");
             return;
         }
 
@@ -10622,7 +10661,7 @@ public partial class MainWindow : Window
         {
             StopAndOfferDecomposeRecovery(
                 groupId, taskId, revision,
-                "SquadDash accepted the scrutinized commit but could not durably record plan progress: " +
+                "SquadDash accepted the verified commit but could not durably record plan progress: " +
                 (persistenceError ?? "unknown persistence failure"));
             return;
         }
@@ -10640,7 +10679,8 @@ public partial class MainWindow : Window
             SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
             PublishPlanCompletionSummary(durable);
-            ScheduleDecomposeSystemEntry($"Plan {groupId} completed. SquadDash scrutinized and accepted every task result.");
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(durable));
         }
         else if (durable is not null &&
                  (state is DecomposeGroupExecutionState.Eligible or DecomposeGroupExecutionState.AwaitingApproval ||
@@ -10731,8 +10771,6 @@ public partial class MainWindow : Window
                     });
             }
             _CodeHealthGroupRunner?.ClearCurrentStep();
-            ScheduleDecomposeSystemEntry(
-                $"🔍 Validating plan contract: {validation.Title} ({validation.ValidationId})");
             return true;
         }
         catch (Exception ex)
@@ -10843,13 +10881,13 @@ public partial class MainWindow : Window
                 _loopController.RequestStop();
                 PublishPlanCompletionSummary(resultingPlan);
                 ScheduleDecomposeSystemEntry(
-                    $"✅ Validation passed: {validationId} — {valResult.Summary}\n\n" +
-                    $"Plan {groupId} completed. SquadDash verified every required task and contract validation.");
+                    $"Plan validation passed · {contractValidation!.Title}. {valResult.Summary}\n\n" +
+                    PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(resultingPlan));
             }
             else if (valResult.Passed)
             {
                 ScheduleDecomposeSystemEntry(
-                    $"✅ Validation passed: {validationId} — {valResult.Summary}");
+                    $"Plan validation passed · {contractValidation!.Title}. {valResult.Summary}");
                 if (resultingPlan is not null)
                 {
                     var groupState = TrackFirstEligiblePlanStep(groupId);
@@ -11730,7 +11768,8 @@ public partial class MainWindow : Window
                     completedAtApproval = true;
                     PublishPlanCompletionSummary(completedPlan);
                     ScheduleDecomposeSystemEntry(
-                        $"Plan {completedPlan.PlanId} completed after its final human proof checkpoint was approved.");
+                        PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                            completedPlan, "Final human approval accepted"));
                 }
                 else
                 {
@@ -12760,23 +12799,23 @@ public partial class MainWindow : Window
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
-        var latestScrutiny = task?.ScrutinyHistory?.LastOrDefault();
-        var unresolvedScrutiny = latestScrutiny is not null &&
+        var latestVerification = task?.VerificationHistory?.LastOrDefault();
+        var unresolvedVerification = latestVerification is not null &&
                                  !string.Equals(
-                                     latestScrutiny.Verdict,
-                                     PlanTaskScrutinyVerdict.Accepted,
+                                     latestVerification.Verdict,
+                                     PlanTaskVerificationVerdict.Accepted,
                                      StringComparison.Ordinal)
-            ? latestScrutiny
+            ? latestVerification
             : null;
-        var scrutinyContext = unresolvedScrutiny is null
+        var verificationContext = unresolvedVerification is null
             ? string.Empty
             : $$"""
 
-                Independent scrutiny is unresolved and remains authoritative until corrected or accepted by a human:
-                - Verdict: {{unresolvedScrutiny.Verdict}}
-                - Summary: {{unresolvedScrutiny.Summary}}
-                - Missing or overstated work: {{string.Join("; ", unresolvedScrutiny.MissingOrOverstatedWork)}}
-                - Test assessment: {{unresolvedScrutiny.TestAssessment}}
+                Independent verification is unresolved and remains authoritative until corrected or accepted by a human:
+                - Verdict: {{unresolvedVerification.Verdict}}
+                - Summary: {{unresolvedVerification.Summary}}
+                - Missing or overstated work: {{string.Join("; ", unresolvedVerification.MissingOrOverstatedWork)}}
+                - Test assessment: {{unresolvedVerification.TestAssessment}}
                 A recovery assessment must not classify this task complete while that verdict is unresolved. Use partial
                 with bounded remaining work when the discrepancy is correctable, or inconclusive when it requires human judgment.
                 """;
@@ -12796,7 +12835,7 @@ public partial class MainWindow : Window
             - baselineCommit: {{baseline}}
             - assessedHead: {{head}}
 
-            {{scrutinyContext}}
+            {{verificationContext}}
 
             {{evidence}}
 

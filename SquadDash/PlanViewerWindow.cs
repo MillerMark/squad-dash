@@ -1478,7 +1478,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 string.Equals(t.TaskId, task.Id, StringComparison.Ordinal));
             var isTaskExecuting = taskActivityById.TryGetValue(task.Id, out var activityState) &&
                                   activityState is PlanTaskActivityState.Executing or
-                                      PlanTaskActivityState.Scrutinizing or
+                                      PlanTaskActivityState.Verifying or
                                       PlanTaskActivityState.Reworking;
             var prereqLines = task.DependsOn.Count == 0
                 ? ["None — this task can start immediately."]
@@ -1498,12 +1498,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskStatus.HumanReviewRequired => "TaskAwaitingHumanReview",
                 _                        => null,
             };
-            string borderColorKey = durableTask?.Status switch
+            string borderColorKey = PlanTaskStatus.IsVerifying(durableTask?.Status)
+                ? "ActivePanelBorder"
+                : durableTask?.Status switch
             {
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "PriorityLow",
                 PlanTaskStatus.Executing  => "ActivePanelBorder",
-                PlanTaskStatus.Scrutinizing => "ActivePanelBorder",
                 PlanTaskStatus.Reworking => "PriorityMid",
                 PlanTaskStatus.HumanReviewRequired => "PriorityHigh",
                 PlanTaskStatus.Failed     => "PriorityHigh",
@@ -1536,7 +1537,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : ResolvePlanSpinnerColor(),
                     ToolTip = ToolTipHelper.MakeThemedToolTip(activityState switch
                     {
-                        PlanTaskActivityState.Scrutinizing =>
+                        PlanTaskActivityState.Verifying =>
                             "SquadDash is independently checking the candidate work and looking for missing or overstated claims.",
                         PlanTaskActivityState.Reworking =>
                             "The task is receiving its one bounded automatic correction.",

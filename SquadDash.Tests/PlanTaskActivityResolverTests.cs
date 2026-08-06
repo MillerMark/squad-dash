@@ -254,7 +254,8 @@ internal sealed class PlanTaskActivityResolverTests
     }
 
     [TestCase(PlanTaskStatus.Executing)]
-    [TestCase(PlanTaskStatus.Scrutinizing)]
+    [TestCase(PlanTaskStatus.Verifying)]
+    [TestCase("scrutinizing")]
     [TestCase(PlanTaskStatus.Reworking)]
     public void RestartConvergence_InterruptedLifecycle_StaleActiveTaskDoesNotSpin(string taskStatus)
     {

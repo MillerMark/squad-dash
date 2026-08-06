@@ -287,7 +287,8 @@ internal static class TranscriptTextUtilities
                      DecomposeRecoveryDecisionParser.Marker,
                      PlanGateResponseParser.Marker,
                      PlanValidationResultParser.Marker,
-                     PlanTaskScrutinyResultParser.Marker,
+                     PlanTaskVerificationResultParser.Marker,
+                     PlanTaskVerificationResultParser.LegacyMarker,
                      "DECOMPOSE_DECISION_JSON:",
                  })
             text = StripTopLevelJsonBlock(text, marker);

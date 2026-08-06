@@ -51,10 +51,10 @@ internal static class PlanExecutionProjectionWriter
                 if (handoff.ChangedFiles.Count > 0)
                     builder.AppendLine($"- Changed files: {string.Join(", ", handoff.ChangedFiles.Select(file => $"`{file}`"))}");
             }
-            if (task.ScrutinyHistory is { Count: > 0 })
+            if (task.VerificationHistory is { Count: > 0 })
             {
-                var latest = task.ScrutinyHistory[^1];
-                builder.AppendLine($"- Latest scrutiny: `{latest.Verdict}` — {latest.Summary}");
+                var latest = task.VerificationHistory[^1];
+                builder.AppendLine($"- Latest verification: `{latest.Verdict}` — {latest.Summary}");
             }
         }
         return builder.ToString();

@@ -68,7 +68,7 @@ internal sealed record ReviewTaskEntry(
     string Title,
     string? CompletionSummary,
     IReadOnlyList<ReviewCommitEntry> Commits,
-    string? ScrutinySummary = null);
+    string? VerificationSummary = null);
 
 // ─── Downstream released work ─────────────────────────────────────────────────
 

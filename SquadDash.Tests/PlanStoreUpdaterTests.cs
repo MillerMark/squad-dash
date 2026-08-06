@@ -1263,7 +1263,7 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
-    public void RepairInconsistentState_WithdrawsAiRecoveryAcceptanceThatContradictsScrutiny()
+    public void RepairInconsistentState_WithdrawsAiRecoveryAcceptanceThatContradictsVerification()
     {
         var accepted = new PlanTask(
             "P-2", "Second", "Second", ["P-1"], "high", PlanTaskStatus.Complete,
@@ -1272,10 +1272,10 @@ internal sealed class PlanStoreUpdaterTests
             CompletionSummary: "AI-assessed recovery: task complete",
             Handoff: new PlanTaskHandoff(
                 "bbbbbbb", "Candidate work", ["src/Work.cs"], null, DateTimeOffset.UtcNow),
-            ScrutinyHistory:
+            VerificationHistory:
             [
-                new PlanTaskScrutinyReport(
-                    PlanTaskScrutinyVerdict.HumanReviewRequired,
+                new PlanTaskVerificationReport(
+                    PlanTaskVerificationVerdict.HumanReviewRequired,
                     "Approval actions remain enabled.", [], ["Missing action guard"],
                     "Tests do not cover the production action.", ["Add action guard."],
                     "bbbbbbb", DateTimeOffset.UtcNow),
@@ -1304,7 +1304,7 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(repairedTask.Status, Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
             Assert.That(repairedTask.Commit, Is.Null);
             Assert.That(repairedTask.Handoff?.Commit, Is.EqualTo("bbbbbbb"));
-            Assert.That(repairedTask.ScrutinyHistory, Has.Count.EqualTo(1));
+            Assert.That(repairedTask.VerificationHistory, Has.Count.EqualTo(1));
             Assert.That(repaired.Progress.CompletedCount, Is.EqualTo(1));
             Assert.That(repaired.InterruptionData?.InterruptedTaskId, Is.EqualTo("P-2"));
             Assert.That(repaired.InterruptionData?.LastCompletedTaskId, Is.EqualTo("P-1"));

@@ -196,7 +196,7 @@ internal static class TranscriptApprovalCardBuilder
             }
         }
 
-        // Full handoff, scrutiny, file, and downstream evidence belongs in Inbox.
+        // Full handoff, verification, file, and downstream evidence belongs in Inbox.
         if (includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
             var taskHeader = CreateStyledTextBlock(
@@ -224,15 +224,15 @@ internal static class TranscriptApprovalCardBuilder
                     taskPanel.Children.Add(handoff);
                 }
 
-                if (!string.IsNullOrWhiteSpace(task.ScrutinySummary))
+                if (!string.IsNullOrWhiteSpace(task.VerificationSummary))
                 {
-                    var scrutiny = CreateStyledTextBlock(
-                        "Scrutiny: " + task.ScrutinySummary,
+                    var verification = CreateStyledTextBlock(
+                        "Verification: " + task.VerificationSummary,
                         fontSize - 2,
                         "SubtleText");
-                    scrutiny.Margin = new Thickness(12, 1, 0, 2);
-                    scrutiny.TextWrapping = TextWrapping.Wrap;
-                    taskPanel.Children.Add(scrutiny);
+                    verification.Margin = new Thickness(12, 1, 0, 2);
+                    verification.TextWrapping = TextWrapping.Wrap;
+                    taskPanel.Children.Add(verification);
                 }
 
                 foreach (var commit in task.Commits)

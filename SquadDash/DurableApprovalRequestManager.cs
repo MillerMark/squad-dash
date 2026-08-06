@@ -588,8 +588,8 @@ internal sealed class DurableApprovalRequestManager
                 parts.Add($"- **{task.Title}**");
                 if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
                     parts.Add($"  - Handoff: {task.CompletionSummary}");
-                if (!string.IsNullOrWhiteSpace(task.ScrutinySummary))
-                    parts.Add($"  - Scrutiny: {task.ScrutinySummary}");
+                if (!string.IsNullOrWhiteSpace(task.VerificationSummary))
+                    parts.Add($"  - Verification: {task.VerificationSummary}");
                 foreach (var commit in task.Commits)
                 {
                     var verification = commit.VerificationPassed switch
