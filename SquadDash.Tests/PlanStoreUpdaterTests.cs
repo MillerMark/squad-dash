@@ -1469,4 +1469,49 @@ internal sealed class PlanStoreUpdaterTests
 
         Assert.That(PlanStoreUpdater.ApplyArchived(plan), Is.SameAs(plan));
     }
+
+    [Test]
+    public void ApplyRestoredForRevision_NeverRunArchivedPlan_ReturnsToApproved()
+    {
+        var group = MakeGroup(2);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var approved = PlanStoreUpdater.ApplyExecutionStarted(null, group, "rev1", items, null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Approved,
+        };
+        var plan = PlanStoreUpdater.ApplyArchived(approved);
+
+        var restored = PlanStoreUpdater.ApplyRestoredForRevision(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
+            Assert.That(restored.Timestamps.ArchivedAt, Is.Null);
+            Assert.That(restored.PlanId, Is.EqualTo(plan.PlanId));
+            Assert.That(restored.Revision, Is.EqualTo(plan.Revision));
+        });
+    }
+
+    [Test]
+    public void ApplyRestoredForRevision_CompletedPlan_PreservesCompletedState()
+    {
+        var completedAt = DateTimeOffset.UtcNow.AddHours(-1);
+        var group = MakeGroup(2);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var completed = PlanStoreUpdater.ApplyExecutionStarted(null, group, "rev1", items, null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Completed,
+            Timestamps = PlanStoreUpdater.ApplyExecutionStarted(null, group, "rev1", items, null).Timestamps with
+            {
+                CompletedAt = completedAt,
+            },
+        };
+        var plan = PlanStoreUpdater.ApplyArchived(completed);
+
+        var restored = PlanStoreUpdater.ApplyRestoredForRevision(plan);
+
+        Assert.That(restored.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+        Assert.That(restored.Timestamps.CompletedAt, Is.EqualTo(completedAt));
+        Assert.That(restored.Timestamps.ArchivedAt, Is.Null);
+    }
 }

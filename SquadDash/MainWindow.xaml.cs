@@ -8364,8 +8364,16 @@ public partial class MainWindow : Window
             new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).Archive(group.GroupId);
             SquadDashTrace.Write(TraceCategory.General,
                 $"Discarded late task-plan proposal for archived plan '{group.GroupId}'.");
+            ShowArchivedPlanRevisionRecovery(group, ownerView);
             return;
         }
+        StageValidatedDecomposeGroup(group, ownerView);
+    }
+
+    private void StageValidatedDecomposeGroup(
+        DecomposedTaskGroup group,
+        TranscriptTurnView? ownerView)
+    {
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
         var previousPlan = store.Load(group.GroupId);
         var plan = store.Save(group);
@@ -8375,6 +8383,117 @@ public partial class MainWindow : Window
             SaveDecomposePlanInboxReminder(plan, explicitlyRequested: true);
         else
             AppendPendingDecomposeApproval(plan, ownerView);
+    }
+
+    private sealed record ArchivedPlanRevisionRecoveryTag(string GroupId, string Revision);
+
+    private void ShowArchivedPlanRevisionRecovery(
+        DecomposedTaskGroup group,
+        TranscriptTurnView? ownerView)
+    {
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
+                     block.Tag is ArchivedPlanRevisionRecoveryTag tag &&
+                     string.Equals(tag.GroupId, group.GroupId, StringComparison.Ordinal)).ToArray())
+            blocks.Remove(existing);
+
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = "Plan revision paused",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = _transcriptFontSize,
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
+        stack.Children.Add(title);
+
+        var status = new TextBlock
+        {
+            Text = $"SquadDash received revision {revision} for “{group.GroupTitle}”, but the existing plan " +
+                   "was archived while the request was running. The revision was not applied.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 8),
+            FontSize = _transcriptFontSize,
+        };
+        status.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
+        stack.Children.Add(status);
+
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var restoreButton = TranscriptQuickReplyFactory.CreateButton(
+            "Restore plan and apply revision",
+            _transcriptFontSize);
+        var keepArchivedButton = TranscriptQuickReplyFactory.CreateButton(
+            "Keep archived",
+            _transcriptFontSize);
+        buttons.Children.Add(restoreButton);
+        buttons.Children.Add(keepArchivedButton);
+        stack.Children.Add(buttons);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "PlanPreflightWarningSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "PlanPreflightWarningBorder");
+        var container = TranscriptQuickReplyFactory.CreateContainer(
+            card,
+            new ArchivedPlanRevisionRecoveryTag(group.GroupId, revision));
+        blocks.Add(container);
+
+        restoreButton.Click += (_, _) =>
+        {
+            buttons.IsEnabled = false;
+            try
+            {
+                if (_currentWorkspace is null)
+                {
+                    status.Text = "Open the original workspace before restoring this plan revision.";
+                    buttons.IsEnabled = true;
+                    return;
+                }
+
+                _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+                var archived = _planStore.Load(group.GroupId);
+                if (archived is null)
+                {
+                    status.Text = "The archived plan no longer exists. The revision was not applied.";
+                    buttons.IsEnabled = true;
+                    return;
+                }
+
+                var restored = PlanStoreUpdater.ApplyRestoredForRevision(archived);
+                if (!TryPublishPlanProgress(restored, out var restoreError))
+                {
+                    status.Text = "SquadDash could not restore the plan: " + restoreError;
+                    buttons.IsEnabled = true;
+                    return;
+                }
+
+                StageValidatedDecomposeGroup(group, ownerView: null);
+                if (blocks.Contains(container)) blocks.Remove(container);
+                AppendLine($"✅ Restored plan {group.GroupId} and staged revision {revision} for approval.");
+            }
+            catch (Exception ex)
+            {
+                buttons.IsEnabled = true;
+                status.Text = "SquadDash could not restore and stage the revision. Expand the error details in the transcript.";
+                HandleUiCallbackException("Restore archived plan revision", ex);
+            }
+        };
+
+        keepArchivedButton.Click += (_, _) =>
+        {
+            if (blocks.Contains(container)) blocks.Remove(container);
+            AppendLine($"Kept plan {group.GroupId} archived; revision {revision} was not applied.");
+        };
+
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     private bool TryValidateDecomposeRevisionAgainstWorkspace(

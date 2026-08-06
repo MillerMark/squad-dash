@@ -495,6 +495,31 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Restores an archived plan so a newly proposed definition can enter the normal approval
+    /// flow. The most specific durable terminal/recovery state is recovered when possible;
+    /// otherwise a never-run collected plan returns to Approved.
+    /// </summary>
+    internal static Plan ApplyRestoredForRevision(Plan existing)
+    {
+        if (existing.LifecycleStatus != PlanLifecycleStatus.Archived)
+            return existing;
+
+        var restoredStatus = existing.Timestamps.CompletedAt is not null
+            ? PlanLifecycleStatus.Completed
+            : existing.Timestamps.StoppedAt is not null
+                ? PlanLifecycleStatus.Stopped
+                : existing.InterruptionData is not null
+                    ? PlanLifecycleStatus.Interrupted
+                    : PlanLifecycleStatus.Approved;
+
+        return existing with
+        {
+            LifecycleStatus = restoredStatus,
+            Timestamps = existing.Timestamps with { ArchivedAt = null },
+        };
+    }
+
+    /// <summary>
     /// Transitions the gate to <see cref="PlanGateStatus.AwaitingApproval"/> and the plan to
     /// <see cref="PlanLifecycleStatus.AwaitingApproval"/>. Sets <see cref="PlanApprovalGate.RequestedAt"/>
     /// to now and clears <see cref="PlanProgress.ExecutingTaskId"/>.
