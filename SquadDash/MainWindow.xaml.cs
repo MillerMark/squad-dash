@@ -44631,18 +44631,39 @@ public partial class MainWindow : Window
                 }
                 else if (att.FileReferencePath != null)
                 {
-                    var icon    = new Run("📁 ");
-                    var leafName = System.IO.Path.GetFileName(att.FileReferencePath);
-                    var display  = leafName.Length > 40 ? leafName[..40] + "…" : leafName;
-                    var descRun  = new Run(display);
-                    descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
-                    label.Inlines.Add(icon);
-                    label.Inlines.Add(descRun);
-                    label.ToolTip = MakeThemedToolTip(att.FileReferencePath);
-                    label.Cursor  = System.Windows.Input.Cursors.Hand;
-                    var capturedPath = att.FileReferencePath;
-                    label.MouseLeftButtonUp += (_, _) =>
-                        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{capturedPath}\"");
+                    var isPlanAttachment = att.FileReferencePath.Contains(".squad/plans/", StringComparison.OrdinalIgnoreCase)
+                        && att.FileReferencePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+                    var resolvedPlan = isPlanAttachment && _planStore is not null
+                        ? _planStore.Load(System.IO.Path.GetFileNameWithoutExtension(att.FileReferencePath))
+                        : null;
+
+                    if (resolvedPlan is not null)
+                    {
+                        var icon = new Run("📋 ");
+                        var descRun = new Run(resolvedPlan.Title ?? System.IO.Path.GetFileNameWithoutExtension(att.FileReferencePath));
+                        descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                        label.Inlines.Add(icon);
+                        label.Inlines.Add(descRun);
+                        label.ToolTip = MakeThemedToolTip($"Plan: {resolvedPlan.Title ?? System.IO.Path.GetFileNameWithoutExtension(att.FileReferencePath)}");
+                        label.Cursor = System.Windows.Input.Cursors.Hand;
+                        var capturedPlan = resolvedPlan;
+                        label.MouseLeftButtonUp += (_, _) => OpenPlanFromStore(capturedPlan);
+                    }
+                    else
+                    {
+                        var icon    = new Run("📁 ");
+                        var leafName = System.IO.Path.GetFileName(att.FileReferencePath);
+                        var display  = leafName.Length > 40 ? leafName[..40] + "…" : leafName;
+                        var descRun  = new Run(display);
+                        descRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
+                        label.Inlines.Add(icon);
+                        label.Inlines.Add(descRun);
+                        label.ToolTip = MakeThemedToolTip(att.FileReferencePath);
+                        label.Cursor  = System.Windows.Input.Cursors.Hand;
+                        var capturedPath = att.FileReferencePath;
+                        label.MouseLeftButtonUp += (_, _) =>
+                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{capturedPath}\"");
+                    }
                 }
                 else if (att.ContentBlock != null)
                 {
