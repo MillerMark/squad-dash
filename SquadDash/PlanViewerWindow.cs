@@ -667,7 +667,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var validationRailHeight = ValidationShieldPresenter.ComputeValidationRailHeight(
             validationAnchors.Values.Select(PresenterAnchor).ToArray(), _scaleFactor);
-        var graphTop = 12 * _scaleFactor + validationRailHeight;
+        var stageHeaderReserve = 36 * _scaleFactor;
+        var graphTop = Math.Max(stageHeaderReserve, 12 * _scaleFactor + validationRailHeight);
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
