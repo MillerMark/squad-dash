@@ -149,7 +149,10 @@ internal sealed class PlanStepAgentResolver
                     continue;
 
                 var isActive    = status.Equals("active", StringComparison.OrdinalIgnoreCase);
-                var charterPath = string.IsNullOrWhiteSpace(charter) || charter == "—" ? null : charter;
+                // Newer team templates use the Charter column for a prose responsibility
+                // summary. Only path-shaped values are charter paths; otherwise fall back to
+                // the canonical agents/<handle>/charter.md location during validation.
+                var charterPath = LooksLikeCharterPath(charter) ? charter : null;
                 var charterDirectory = charterPath is null
                     ? null
                     : Path.GetFileName(Path.GetDirectoryName(charterPath.Replace('/', Path.DirectorySeparatorChar)));
@@ -172,6 +175,18 @@ internal sealed class PlanStepAgentResolver
 
     private static string CleanKeyword(string kw) =>
         new string(kw.Where(c => c != '`' && c != '*' && c != '\\').ToArray()).Trim();
+
+    private static bool LooksLikeCharterPath(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value is "—" or "-" or "–")
+            return false;
+
+        var cleaned = value.Trim().Trim('`').Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        return cleaned.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
+               cleaned.Contains($"{Path.DirectorySeparatorChar}agents{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
+               cleaned.StartsWith($"agents{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ||
+               cleaned.StartsWith($".squad{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal sealed record RoutingRule(

@@ -79,6 +79,26 @@ internal sealed class PlanStepAgentResolverTests
     }
 
     [Test]
+    public void ParseTeamMd_ProseCharterColumn_UsesNameHandleAndCanonicalCharterFallback()
+    {
+        const string team = """
+            ## Members
+            | Name | Role | Charter | Status |
+            |---|---|---|---|
+            | Arjun Sen | Backend Design | Domain modeling, API design, backend implementation | Active |
+            """;
+
+        var agent = PlanStepAgentResolver.ParseTeamMd(team).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(agent.Handle, Is.EqualTo("arjun-sen"));
+            Assert.That(agent.CharterPath, Is.Null);
+            Assert.That(agent.IsActive, Is.True);
+        });
+    }
+
+    [Test]
     public void ParseTeamMd_InactiveAgent_Excluded()
     {
         var agents = PlanStepAgentResolver.ParseTeamMd(SampleTeamMd);

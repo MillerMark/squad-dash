@@ -8,6 +8,35 @@ namespace SquadDash.Tests;
 internal sealed class PlanAgentAssignmentSchemaTests
 {
     [Test]
+    public void Validator_ProseCharterColumn_FindsCanonicalAgentCharter()
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "squaddash-routing-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(temp, "agents", "arjun-sen"));
+            File.WriteAllText(Path.Combine(temp, "team.md"), """
+                | Name | Role | Charter | Status |
+                |---|---|---|---|
+                | Arjun Sen | Backend Design | Domain modeling, API design, backend implementation | Active |
+                """);
+            File.WriteAllText(Path.Combine(temp, "agents", "arjun-sen", "charter.md"), "# Arjun Sen");
+            var group = new DecomposedTaskGroup(
+                "CALC-20260806", "Calculator", "feature/calculator", "Build calculator",
+                [new DecomposedSubTask(
+                    "CALC-20260806-001", "Build engine", [], "high", "Build engine",
+                    AgentRoutingMode: "assigned",
+                    AgentAssignments: [new DecomposedAgentAssignment("arjun-sen", "primary")])]);
+
+            Assert.That(PlanAgentAssignmentCatalogValidator.TryValidate(
+                group, temp, out var error, requireExplicitRouting: true), Is.True, error);
+        }
+        finally
+        {
+            if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Test]
     public void TasksJsonParser_AcceptsMultipleStructuredAssignments()
     {
         const string text = """
