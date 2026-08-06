@@ -202,7 +202,13 @@ internal sealed class PlanTaskProjectionRepairTests
         var future = new PlanTask(
             "AMEND-001-002", "Future task", "Continue after approval.",
             migrated ? [amendment.TaskId] : ["AMEND-001-001"],
-            "normal", PlanTaskStatus.Pending);
+            "normal", PlanTaskStatus.Pending,
+            Outputs: [new PlanTaskOutput("future-output", "Output retained only in the durable plan.")],
+            Inputs: ["reviewed-output"],
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement("future-proof", "test", "Prove the future task."),
+            ]);
         var tasks = migrated
             ? new[]
             {

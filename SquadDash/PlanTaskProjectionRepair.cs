@@ -176,8 +176,23 @@ internal static class PlanTaskProjectionRepair
 
     private static bool SameTaskContract(DecomposedSubTask left, DecomposedSubTask right)
     {
-        var leftContract = left with { DependsOn = [] };
-        var rightContract = right with { DependsOn = [] };
+        // tasks.md intentionally projects only the fields emitted by DecomposedTasksWriter.
+        // Outputs, inputs, and proof requirements remain authoritative in the durable plan and
+        // cannot be compared with (or edited through) this lossy Markdown projection.
+        var leftContract = left with
+        {
+            DependsOn = [],
+            Outputs = null,
+            Inputs = null,
+            ProofRequirements = null,
+        };
+        var rightContract = right with
+        {
+            DependsOn = [],
+            Outputs = null,
+            Inputs = null,
+            ProofRequirements = null,
+        };
         return string.Equals(
             JsonSerializer.Serialize(leftContract),
             JsonSerializer.Serialize(rightContract),
