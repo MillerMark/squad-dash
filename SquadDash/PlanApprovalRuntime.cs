@@ -26,6 +26,37 @@ internal sealed record ApprovalRuntimeReworkResult(
     Plan? UpdatedPlan,
     ApprovalClickToken? NextClickToken = null);
 
+internal enum ApprovalResumeRetryDecision
+{
+    Cancel,
+    Wait,
+    AlreadyRunning,
+    ProbeWorkspace,
+}
+
+internal static class ApprovalResumeRetryPolicy
+{
+    internal static ApprovalResumeRetryDecision Resolve(
+        Plan? plan,
+        string planId,
+        bool isClosing,
+        bool isPromptRunning,
+        bool isLoopRunning,
+        string? activePlanId)
+    {
+        if (isClosing || string.IsNullOrWhiteSpace(planId) || plan is null ||
+            plan.LifecycleStatus != PlanLifecycleStatus.Executing)
+            return ApprovalResumeRetryDecision.Cancel;
+        if (isLoopRunning)
+            return string.Equals(activePlanId, planId, StringComparison.Ordinal)
+                ? ApprovalResumeRetryDecision.AlreadyRunning
+                : ApprovalResumeRetryDecision.Wait;
+        return isPromptRunning
+            ? ApprovalResumeRetryDecision.Wait
+            : ApprovalResumeRetryDecision.ProbeWorkspace;
+    }
+}
+
 /// <summary>
 /// Host-owned integration point for approval scheduling, durable Inbox state, stale-action
 /// validation, and restart restoration. UI surfaces consume its versioned click token instead

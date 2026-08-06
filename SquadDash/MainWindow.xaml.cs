@@ -347,6 +347,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, List<TranscriptApprovalCardBuilder.CardResult>>
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
+    private DispatcherTimer? _approvalResumeRetryTimer;
+    private string? _approvalResumeRetryPlanId;
+    private bool _approvalResumeRetryInFlight;
     private string? _pendingApprovalCalloutMessageId;
     private (string PlanId, string GateId)? _deferredApprovalCallout;
     private DispatcherTimer? _deferredApprovalCalloutTimer;
@@ -8152,7 +8155,7 @@ public partial class MainWindow : Window
         var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
                                       continuationPaths is { Count: > 0 };
         if (!isConfirmedContinuation)
-            await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath);
+            await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath, groupId);
 
         var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
         LoopMdConfig? config = File.Exists(loopPath) ? LoopMdParser.Parse(loopPath) : null;
@@ -9730,7 +9733,7 @@ public partial class MainWindow : Window
             onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange,
             interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
-            isPreflightWorkspaceClean: IsPlanPreflightWorkspaceCleanAsync,
+            isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(),
             broker: _broker,
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
@@ -12147,7 +12150,36 @@ public partial class MainWindow : Window
                 }
             }
             if (resolution.ShouldResume && !completedAtApproval)
-                await StartDecomposeLoopAsync(clickToken.PlanId);
+            {
+                try
+                {
+                    SquadDashTrace.Write(
+                        "Approval",
+                        $"Approval acquired; attempting automatic plan resume plan={clickToken.PlanId}.");
+                    if (!await StartDecomposeLoopAsync(clickToken.PlanId))
+                    {
+                        SquadDashTrace.Write(
+                            "Approval",
+                            $"Automatic plan resume returned false plan={clickToken.PlanId}.");
+                        ScheduleDecomposeSystemEntry(
+                            $"Approval acquired for plan {clickToken.PlanId}, but the plan did not restart. " +
+                            "Open the plan to retry continuation.");
+                    }
+                }
+                catch (PlanPreflightBlockedException blocked)
+                {
+                    ScheduleApprovalResumeRetry(clickToken.PlanId, blocked);
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write(
+                        "Approval",
+                        $"Automatic plan resume failed plan={clickToken.PlanId}: {ex}");
+                    ScheduleDecomposeSystemEntry(
+                        $"Approval acquired for plan {clickToken.PlanId}, but automatic continuation failed: " +
+                        ex.Message);
+                }
+            }
             return;
         }
 
@@ -12516,6 +12548,131 @@ public partial class MainWindow : Window
             AppendLine($"⚠ The task was reopened, but its execution could not start: {ex.Message}");
         }
         return true;
+    }
+
+    private void ScheduleApprovalResumeRetry(
+        string planId,
+        PlanPreflightBlockedException blocked)
+    {
+        if (blocked.RequiresRepositoryInitialization)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Automatic plan resume requires repository initialization plan={planId}.");
+            ScheduleDecomposeSystemEntry(
+                $"Approval acquired for plan {planId}, but continuation requires a Git repository. " +
+                "Open the plan to initialize the repository and retry.");
+            return;
+        }
+
+        if (_approvalResumeRetryTimer is not null &&
+            string.Equals(_approvalResumeRetryPlanId, planId, StringComparison.Ordinal))
+            return;
+
+        StopApprovalResumeRetry();
+        _approvalResumeRetryPlanId = planId;
+        _approvalResumeRetryTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1.5),
+        };
+        _approvalResumeRetryTimer.Tick += ApprovalResumeRetryTimer_Tick;
+        _approvalResumeRetryTimer.Start();
+
+        var changedPathSummary = blocked.ChangedPaths.Count == 1
+            ? blocked.ChangedPaths[0]
+            : $"{blocked.ChangedPaths.Count} repository paths";
+        SquadDashTrace.Write(
+            "Approval",
+            $"Automatic plan resume delayed by worktree preflight plan={planId} " +
+            $"condition={blocked.Condition} paths=[{string.Join(",", blocked.ChangedPaths)}].");
+        ScheduleDecomposeSystemEntry(
+            $"Approval acquired for plan {planId}. Continuation is waiting for current repository changes " +
+            $"to finish ({changedPathSummary}) and will retry automatically.");
+    }
+
+    private async void ApprovalResumeRetryTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_approvalResumeRetryInFlight || string.IsNullOrWhiteSpace(_approvalResumeRetryPlanId))
+            return;
+
+        var planId = _approvalResumeRetryPlanId;
+        var plan = _planStore?.Load(planId);
+        var decision = ApprovalResumeRetryPolicy.Resolve(
+            plan,
+            planId,
+            _isClosing,
+            _isPromptRunning,
+            IsLoopRunning,
+            _activeDecomposeGroupId);
+        if (decision == ApprovalResumeRetryDecision.AlreadyRunning)
+        {
+            StopApprovalResumeRetry();
+            return;
+        }
+        if (decision == ApprovalResumeRetryDecision.Wait)
+            return;
+        if (decision == ApprovalResumeRetryDecision.Cancel)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Cancelled delayed plan resume because plan is no longer resumable plan={planId} " +
+                $"lifecycle={plan?.LifecycleStatus ?? "missing"}.");
+            StopApprovalResumeRetry();
+            return;
+        }
+
+        _approvalResumeRetryInFlight = true;
+        try
+        {
+            if (!await IsPlanPreflightWorkspaceCleanAsync(planId))
+                return;
+
+            SquadDashTrace.Write(
+                "Approval",
+                $"Repository is clean; retrying approved plan continuation plan={planId}.");
+            if (!await StartDecomposeLoopAsync(planId))
+            {
+                StopApprovalResumeRetry();
+                ScheduleDecomposeSystemEntry(
+                    $"Approval was acquired for plan {planId}, but its delayed continuation did not start. " +
+                    "Open the plan to retry.");
+                return;
+            }
+
+            StopApprovalResumeRetry();
+            ScheduleDecomposeSystemEntry(
+                $"Repository changes finished. Plan {planId} resumed automatically after approval.");
+        }
+        catch (PlanPreflightBlockedException blocked)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Delayed plan resume remains blocked plan={planId} paths=[{string.Join(",", blocked.ChangedPaths)}].");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Delayed plan resume failed plan={planId}: {ex}");
+            StopApprovalResumeRetry();
+            ScheduleDecomposeSystemEntry(
+                $"Approval was acquired for plan {planId}, but its delayed continuation failed: {ex.Message}");
+        }
+        finally
+        {
+            _approvalResumeRetryInFlight = false;
+        }
+    }
+
+    private void StopApprovalResumeRetry()
+    {
+        if (_approvalResumeRetryTimer is not null)
+        {
+            _approvalResumeRetryTimer.Stop();
+            _approvalResumeRetryTimer.Tick -= ApprovalResumeRetryTimer_Tick;
+            _approvalResumeRetryTimer = null;
+        }
+        _approvalResumeRetryPlanId = null;
     }
 
     private async Task<bool> ApplyGateAmendmentResponseAsync(
@@ -46939,13 +47096,13 @@ public partial class MainWindow : Window
             viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
             isWorkspaceClean: exception.RequiresRepositoryInitialization
                 ? null
-                : IsPlanPreflightWorkspaceCleanAsync);
+                : () => IsPlanPreflightWorkspaceCleanAsync());
         if (window.WindowState == WindowState.Minimized)
             window.WindowState = WindowState.Normal;
         window.Activate();
     }
 
-    private async Task<bool> IsPlanPreflightWorkspaceCleanAsync()
+    private async Task<bool> IsPlanPreflightWorkspaceCleanAsync(string? planId = null)
     {
         if (_currentWorkspace is null) return false;
         try
@@ -46953,11 +47110,18 @@ public partial class MainWindow : Window
             var status = await RunGitAsync(
                 _currentWorkspace.FolderPath,
                 "status --porcelain --untracked-files=all");
-            var allowedPlanPaths = await GetAllowedPlanPathsAsync(_currentWorkspace.FolderPath);
-            return DecomposeWorktreePolicy.HasOnlyAllowedChanges(
-                status,
-                allowedPlanPaths,
-                out _);
+            var allowedPlanPaths = await GetAllowedPlanPathsAsync(
+                _currentWorkspace.FolderPath,
+                planId);
+            if (DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+                    status,
+                    allowedPlanPaths,
+                    out var candidates))
+                return true;
+            var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                candidates,
+                cmd => RunGitAsync(_currentWorkspace.FolderPath, cmd));
+            return genuinelyDirty.Count == 0;
         }
         catch { return false; }
     }
@@ -48697,10 +48861,10 @@ public partial class MainWindow : Window
         UpdateBranchIndicator();
     }
 
-    private async Task EnsurePlanWorktreeReadyAsync(string workspace)
+    private async Task EnsurePlanWorktreeReadyAsync(string workspace, string? planId = null)
     {
         var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
-        var allowed = await GetAllowedPlanPathsAsync(workspace);
+        var allowed = await GetAllowedPlanPathsAsync(workspace, planId);
         if (!DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var candidates))
         {
             var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
@@ -48713,16 +48877,19 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<IReadOnlyList<string>> GetAllowedPlanPathsAsync(string workspace)
+    private async Task<IReadOnlyList<string>> GetAllowedPlanPathsAsync(
+        string workspace,
+        string? planId = null)
     {
         var paths = new List<string>();
         var tasksPath = await GetTasksRepositoryRelativePathAsync(workspace);
         if (tasksPath is not null) paths.Add(tasksPath);
 
-        if (_activeDecomposeGroupId is not null && _currentWorkspace is not null)
+        var effectivePlanId = planId ?? _activeDecomposeGroupId;
+        if (effectivePlanId is not null && _currentWorkspace is not null)
         {
             var repositoryRoot = (await RunGitAsync(workspace, "rev-parse --show-toplevel")).Trim();
-            var planJsonPath = Path.Combine(_currentWorkspace.SquadFolderPath, "plans", _activeDecomposeGroupId + ".json");
+            var planJsonPath = Path.Combine(_currentWorkspace.SquadFolderPath, "plans", effectivePlanId + ".json");
             if (File.Exists(planJsonPath))
             {
                 var relative = Path.GetRelativePath(repositoryRoot, planJsonPath).Replace('\\', '/');

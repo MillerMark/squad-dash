@@ -36,6 +36,45 @@ public sealed class PlanApprovalRuntimeTests
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
+    [TestCase(false, false, false, null, "ProbeWorkspace")]
+    [TestCase(false, true, false, null, "Wait")]
+    [TestCase(false, false, true, "OTHER-PLAN", "Wait")]
+    [TestCase(false, false, true, "RUNTIME-PLAN", "AlreadyRunning")]
+    [TestCase(true, false, false, null, "Cancel")]
+    public void ApprovalResumeRetryPolicy_WaitsForSafeExclusiveExecution(
+        bool isClosing,
+        bool isPromptRunning,
+        bool isLoopRunning,
+        string? activePlanId,
+        string expected)
+    {
+        var plan = MakePlan(PlanTaskStatus.Pending);
+
+        var decision = ApprovalResumeRetryPolicy.Resolve(
+            plan,
+            plan.PlanId,
+            isClosing,
+            isPromptRunning,
+            isLoopRunning,
+            activePlanId);
+
+        Assert.That(decision.ToString(), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ApprovalResumeRetryPolicy_CancelsWhenDurablePlanStopsExecuting()
+    {
+        var plan = MakePlan(PlanTaskStatus.Pending) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+        };
+
+        Assert.That(
+            ApprovalResumeRetryPolicy.Resolve(
+                plan, plan.PlanId, false, false, false, null),
+            Is.EqualTo(ApprovalResumeRetryDecision.Cancel));
+    }
+
     [Test]
     public async Task Advance_ReadyGateWithIndependentWork_OpensWindowWithoutStopping()
     {

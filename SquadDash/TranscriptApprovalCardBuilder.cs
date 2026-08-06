@@ -29,6 +29,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>The primary approve button — disable when processing.</summary>
         internal Button ApproveButton { get; init; } = null!;
 
+        /// <summary>Title describing whether approval is still required or has been acquired.</summary>
+        internal TextBlock TitleBlock { get; init; } = null!;
+
         /// <summary>Optional action that starts a free-form change-request conversation.</summary>
         internal Button? RequestChangesButton { get; init; }
 
@@ -499,6 +502,7 @@ internal static class TranscriptApprovalCardBuilder
         {
             Container = container,
             ApproveButton = approveButton,
+            TitleBlock = titleBlock,
             RequestChangesButton = requestChangesButton,
             NoteTextBox = noteBox,
             NoteSection = noteSection,
@@ -546,6 +550,7 @@ internal static class TranscriptApprovalCardBuilder
     internal static void ShowResolvedState(CardResult card)
     {
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.TitleBlock.Text = "Approval Acquired";
         var note = card.NoteTextBox.Text.Trim();
         card.NoteSection.Visibility = Visibility.Collapsed;
         if (note.Length > 0)
