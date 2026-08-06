@@ -1610,7 +1610,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-            var content = new Grid { ClipToBounds = true };
+            var content = new Grid();
             content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
