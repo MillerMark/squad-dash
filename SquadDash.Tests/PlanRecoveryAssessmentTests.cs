@@ -259,6 +259,17 @@ internal sealed class PlanRecoveryAssessmentTests
             plan, response, out var error), Is.True, error);
     }
 
+    [Test]
+    public void RepositoryChangeRetryPolicy_AllowsExactlyOneAutomaticReassessment()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(0), Is.True);
+            Assert.That(PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(1), Is.False);
+            Assert.That(PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(2), Is.False);
+        });
+    }
+
     private static PlanRecoveryCommitAssessment Commit(string sha, string relation) =>
         new(sha, relation, "Evidence");
 

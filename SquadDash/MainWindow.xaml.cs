@@ -12724,7 +12724,8 @@ public partial class MainWindow : Window
         string BaselineCommit,
         string AssessedHead,
         string StatusSnapshot,
-        int RepairAttempts = 0);
+        int RepairAttempts = 0,
+        int RepositoryChangeRetries = 0);
 
     private async Task<bool> AssessInterruptedPlanFromDurableAsync(Plan plan)
     {
@@ -12771,6 +12772,18 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Plan {durable.PlanId} requires branch '{durable.Branch}', but '{activeBranch}' is active.");
 
+        await QueuePlanRecoveryAssessmentAsync(plan, durable, taskId, repositoryChangeRetries: 0);
+    }
+
+    private async Task QueuePlanRecoveryAssessmentAsync(
+        PendingDecomposePlan plan,
+        Plan durable,
+        string taskId,
+        int repositoryChangeRetries)
+    {
+        if (_currentWorkspace is null) return;
+
+        var workspace = _currentWorkspace.FolderPath;
         var baselineCandidate = durable.InterruptionData?.TaskCommitEvidence?.BaselineCommit
             ?? durable.InterruptionData?.LastCommit;
         if (string.IsNullOrWhiteSpace(baselineCandidate))
@@ -12800,7 +12813,8 @@ public partial class MainWindow : Window
             durable, taskId, assessmentId, baseline, head, evidence);
 
         _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
-            plan, taskId, assessmentId, baseline, head, status);
+            plan, taskId, assessmentId, baseline, head, status,
+            RepositoryChangeRetries: repositoryChangeRetries);
         _promptQueue.EnqueueAtFront(
             prompt,
             _promptQueueCoordinator.NextSequenceNumber(),
@@ -12808,8 +12822,9 @@ public partial class MainWindow : Window
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
-        ShowSystemTranscriptEntry(
-            $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
+        if (repositoryChangeRetries == 0)
+            ShowSystemTranscriptEntry(
+                $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
         _ = DrainQueueIfNeededAsync();
     }
 
@@ -13016,9 +13031,34 @@ public partial class MainWindow : Window
         if (!string.Equals(currentHead, context.AssessedHead, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(currentStatus, context.StatusSnapshot, StringComparison.Ordinal))
         {
+            if (PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(context.RepositoryChangeRetries))
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.General,
+                    $"Plan recovery assessment snapshot changed for plan={planId} task={context.TaskId}; " +
+                    $"oldHead={context.AssessedHead} newHead={currentHead}. Reassessing once.");
+                ShowSystemTranscriptEntry(
+                    "The repository changed during recovery assessment. SquadDash is rechecking once against the latest version; the plan remains stopped until that result is validated.");
+                try
+                {
+                    await QueuePlanRecoveryAssessmentAsync(
+                        PendingDecomposePlanAdapter.FromPlan(durable),
+                        durable,
+                        context.TaskId,
+                        context.RepositoryChangeRetries + 1);
+                }
+                catch (Exception ex)
+                {
+                    KeepPlanStoppedAfterAssessment(
+                        context,
+                        "SquadDash could not start the automatic reassessment. " + ex.Message);
+                }
+                return;
+            }
+
             KeepPlanStoppedAfterAssessment(
                 context,
-                "The repository changed while AI was assessing it. Run Assess & Continue again for the new state.");
+                "The repository changed again during the automatic reassessment. Run Assess & Continue again when repository activity has settled.");
             return;
         }
 

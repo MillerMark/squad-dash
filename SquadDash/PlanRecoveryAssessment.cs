@@ -217,3 +217,11 @@ internal static class PlanRecoveryAssessmentValidator
         return true;
     }
 }
+
+internal static class PlanRecoveryAssessmentRetryPolicy
+{
+    internal const int MaximumRepositoryChangeRetries = 1;
+
+    internal static bool CanRetryRepositoryChange(int completedRetries) =>
+        completedRetries < MaximumRepositoryChangeRetries;
+}
