@@ -48,7 +48,7 @@ internal static class AgentArtifactStore
     ];
 
     internal static bool TryMaterialize(
-        string applicationRoot,
+        string workspaceRoot,
         AgentArtifactReference reference,
         long maxBytes,
         bool archive,
@@ -64,12 +64,12 @@ internal static class AgentArtifactStore
             return false;
         }
 
-        if (!TryResolveAllowedPath(applicationRoot, reference.Path, out var root, out var fullPath, out var relativePath, out error))
+        if (!TryResolveAllowedPath(workspaceRoot, reference.Path, out var root, out var fullPath, out var relativePath, out error))
             return false;
 
         if (!File.Exists(fullPath))
         {
-            error = $"Artifact file was not found: {relativePath}";
+            error = $"Artifact file was not found: {ToDisplayPath(relativePath)}";
             return false;
         }
 
@@ -111,11 +111,11 @@ internal static class AgentArtifactStore
     }
 
     internal static void CleanupExpiredArchives(
-        string applicationRoot,
+        string workspaceRoot,
         DateTimeOffset now,
         TimeSpan retention)
     {
-        var root = NormalizeRoot(applicationRoot);
+        var root = NormalizeRoot(workspaceRoot);
         var archiveRoot = GetArchiveRoot(root);
         if (!Directory.Exists(archiveRoot))
             return;
@@ -181,15 +181,20 @@ internal static class AgentArtifactStore
         return builder.ToString();
     }
 
+    internal static string ResolveActiveWorkspaceRoot(string? workspaceFolderPath, string applicationRoot) =>
+        string.IsNullOrWhiteSpace(workspaceFolderPath)
+            ? Path.GetFullPath(applicationRoot)
+            : Path.GetFullPath(workspaceFolderPath);
+
     private static bool TryResolveAllowedPath(
-        string applicationRoot,
+        string workspaceRoot,
         string path,
         out string root,
         out string fullPath,
         out string relativePath,
         out string error)
     {
-        root = NormalizeRoot(applicationRoot);
+        root = NormalizeRoot(workspaceRoot);
         fullPath = string.Empty;
         relativePath = string.Empty;
         error = string.Empty;
@@ -271,8 +276,11 @@ internal static class AgentArtifactStore
     private static string EnsureTrailingSeparator(string path) =>
         path.EndsWith(Path.DirectorySeparatorChar) ? path : path + Path.DirectorySeparatorChar;
 
-    private static string NormalizeRoot(string applicationRoot) =>
-        Path.GetFullPath(applicationRoot);
+    private static string NormalizeRoot(string workspaceRoot) =>
+        Path.GetFullPath(workspaceRoot);
+
+    private static string ToDisplayPath(string path) =>
+        path.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
 
     private static string NormalizeHash(string hash) =>
         hash.Trim().Replace("sha256:", string.Empty, StringComparison.OrdinalIgnoreCase);

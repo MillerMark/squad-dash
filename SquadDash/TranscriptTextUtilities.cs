@@ -66,6 +66,15 @@ internal static class TranscriptTextUtilities
         return blocks;
     }
 
+    internal static string BuildProtocolJsonClipboardText(string marker, string json)
+    {
+        var normalizedMarker = marker.Trim();
+        if (!normalizedMarker.EndsWith(':'))
+            normalizedMarker += ':';
+
+        return $"{normalizedMarker}{Environment.NewLine}{json}";
+    }
+
     internal static string GetSanitizedTurnResponseText(TranscriptTurnView? turn)
     {
         if (turn is null)

@@ -12,10 +12,12 @@ namespace SquadDash;
 internal sealed class ProtocolJsonViewerWindow : ChromedWindow
 {
     private readonly string _json;
+    private readonly string _clipboardText;
 
     internal ProtocolJsonViewerWindow(string marker, string json)
     {
         _json = FormatJson(json);
+        _clipboardText = TranscriptTextUtilities.BuildProtocolJsonClipboardText(marker, _json);
 
         Title = $"JSON received — {marker}";
         Width = 760;
@@ -42,7 +44,7 @@ internal sealed class ProtocolJsonViewerWindow : ChromedWindow
         };
         copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
-        copyButton.Click += (_, _) => Clipboard.SetText(_json);
+        copyButton.Click += (_, _) => Clipboard.SetText(_clipboardText);
         DockPanel.SetDock(copyButton, Dock.Right);
         header.Children.Add(copyButton);
 
@@ -101,4 +103,5 @@ internal sealed class ProtocolJsonViewerWindow : ChromedWindow
             return json;
         }
     }
+
 }

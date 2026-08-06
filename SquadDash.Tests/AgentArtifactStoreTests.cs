@@ -82,6 +82,33 @@ internal sealed class AgentArtifactStoreTests
     }
 
     [Test]
+    public void ResolveActiveWorkspaceRoot_PrefersWorkspaceOverApplicationRoot()
+    {
+        using var application = new TestWorkspace();
+        using var workspace = new TestWorkspace();
+
+        var resolved = AgentArtifactStore.ResolveActiveWorkspaceRoot(
+            workspace.RootPath,
+            application.RootPath);
+
+        Assert.That(resolved, Is.EqualTo(Path.GetFullPath(workspace.RootPath)));
+    }
+
+    [Test]
+    public void ExpandDisplayArtifacts_MissingFile_UsesMarkdownSafePathSeparators()
+    {
+        using var workspace = new TestWorkspace();
+        const string response = """
+            SQUADDASH_ARTIFACT_JSON:
+            { "path": ".squad/tmp/agent-artifacts/missing.json", "language": "json" }
+            """;
+
+        var expanded = AgentArtifactBlockExpander.ExpandDisplayArtifacts(response, workspace.RootPath);
+
+        Assert.That(expanded, Does.Contain(".squad/tmp/agent-artifacts/missing.json"));
+    }
+
+    [Test]
     public void CleanupExpiredArchives_RemovesOldArchivedFiles()
     {
         using var workspace = new TestWorkspace();

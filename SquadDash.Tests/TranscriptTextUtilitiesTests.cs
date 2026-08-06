@@ -3,6 +3,17 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class TranscriptTextUtilitiesTests {
 
+    [TestCase("TASKS_JSON")]
+    [TestCase("TASKS_JSON:")]
+    public void BuildProtocolJsonClipboardText_IncludesOneProtocolMarkerColon(string marker) {
+        var result = TranscriptTextUtilities.BuildProtocolJsonClipboardText(
+            marker,
+            "{\n  \"groupId\": \"CALC-20260806\"\n}");
+
+        Assert.That(result, Is.EqualTo(
+            $"TASKS_JSON:{Environment.NewLine}{{\n  \"groupId\": \"CALC-20260806\"\n}}"));
+    }
+
     [Test]
     public void FormatThinkingText_SuffixSplit_FusesSpaceSeparatedSuffixes() {
         // The SuffixSplitRegex removes whitespace between a 4+-letter root and a recognised

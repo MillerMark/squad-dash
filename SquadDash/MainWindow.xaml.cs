@@ -2506,6 +2506,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private string GetActiveArtifactWorkspaceRoot() =>
+        AgentArtifactStore.ResolveActiveWorkspaceRoot(
+            _currentWorkspace?.FolderPath,
+            _workspacePaths.ApplicationRoot);
+
     private async void RunButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -29243,6 +29248,10 @@ public partial class MainWindow : Window
         _startupWorkspaceLease = null;
 
         _currentWorkspace = targetWorkspace;
+        AgentArtifactStore.CleanupExpiredArchives(
+            _currentWorkspace.FolderPath,
+            DateTimeOffset.Now,
+            AgentArtifactStore.ArchiveRetention);
         DeveloperMenuItem.Visibility = File.Exists(Path.Combine(targetWorkspace.FolderPath, "squad-dash.slnx"))
             ? Visibility.Visible : Visibility.Collapsed;
         BuildAgentSuggestions();
@@ -33748,7 +33757,7 @@ public partial class MainWindow : Window
 
         var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
             SanitizeResponseText(rawText),
-            _workspacePaths.ApplicationRoot);
+            GetActiveArtifactWorkspaceRoot());
         var protocolJsonBlocks = entry.ProtocolJsonBlocks ??
                                  TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(rawText);
 
@@ -47043,7 +47052,7 @@ public partial class MainWindow : Window
         // Fetch the git SHA off the UI thread and patch the saved message once available.
         // Null is always acceptable — the SHA is informational only (inbox staleness display).
         var capturedStore = _inboxStore;
-        var capturedRoot  = _workspacePaths.ApplicationRoot;
+        var capturedRoot  = GetActiveArtifactWorkspaceRoot();
         var capturedMsg   = message;
         _ = TryGetGitShaAsync(capturedRoot).ContinueWith(t =>
         {
@@ -47070,7 +47079,7 @@ public partial class MainWindow : Window
             return null;
 
         if (!AgentArtifactStore.TryMaterialize(
-                _workspacePaths.ApplicationRoot,
+                GetActiveArtifactWorkspaceRoot(),
                 extraction.Reference,
                 AgentArtifactStore.DefaultMaxInboxBytes,
                 archive: true,
@@ -47135,7 +47144,7 @@ public partial class MainWindow : Window
         _inboxStore.Save(message);
 
         var capturedStore = _inboxStore;
-        var capturedRoot  = _workspacePaths.ApplicationRoot;
+        var capturedRoot  = GetActiveArtifactWorkspaceRoot();
         var capturedMsg   = message;
         _ = TryGetGitShaAsync(capturedRoot).ContinueWith(t =>
         {

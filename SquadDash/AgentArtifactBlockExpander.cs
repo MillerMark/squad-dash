@@ -4,7 +4,7 @@ namespace SquadDash;
 
 internal static class AgentArtifactBlockExpander
 {
-    internal static string ExpandDisplayArtifacts(string text, string applicationRoot)
+    internal static string ExpandDisplayArtifacts(string text, string workspaceRoot)
     {
         if (string.IsNullOrWhiteSpace(text) ||
             !text.Contains(AgentArtifactStore.DisplayArtifactMarker, StringComparison.Ordinal))
@@ -20,7 +20,7 @@ internal static class AgentArtifactBlockExpander
                 extraction is null)
                 break;
 
-            var replacement = BuildReplacement(applicationRoot, extraction.Payload);
+            var replacement = BuildReplacement(workspaceRoot, extraction.Payload);
             expanded = Combine(
                 extraction.TextBeforeBlock,
                 replacement,
@@ -30,10 +30,10 @@ internal static class AgentArtifactBlockExpander
         return expanded;
     }
 
-    private static string BuildReplacement(string applicationRoot, AgentArtifactReference reference)
+    private static string BuildReplacement(string workspaceRoot, AgentArtifactReference reference)
     {
         if (!AgentArtifactStore.TryMaterialize(
-                applicationRoot,
+                workspaceRoot,
                 reference,
                 AgentArtifactStore.DefaultMaxDisplayBytes,
                 archive: true,
