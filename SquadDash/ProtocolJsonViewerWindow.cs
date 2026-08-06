@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shell;
 
 namespace SquadDash;
 
@@ -40,6 +41,7 @@ internal sealed class ProtocolJsonViewerWindow : ChromedWindow
             Margin = new Thickness(10, 0, 0, 8),
         };
         copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) => Clipboard.SetText(_json);
         DockPanel.SetDock(copyButton, Dock.Right);
         header.Children.Add(copyButton);
