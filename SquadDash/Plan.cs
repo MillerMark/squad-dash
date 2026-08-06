@@ -464,4 +464,12 @@ internal sealed record Plan(
     /// </summary>
     [property: JsonPropertyName("validations")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                    IReadOnlyList<PlanValidationNode>? Validations = null);
+                                                    IReadOnlyList<PlanValidationNode>? Validations = null,
+
+    /// <summary>User-facing ordinal for accepted content revisions. Legacy plans are revision 1.</summary>
+    [property: JsonPropertyName("revisionNumber")] int RevisionNumber = 1,
+
+    /// <summary>When the latest accepted content revision replaced the preceding definition.</summary>
+    [property: JsonPropertyName("revisedAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                    DateTimeOffset? RevisedAt = null);

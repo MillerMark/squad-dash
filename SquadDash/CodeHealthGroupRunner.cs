@@ -82,6 +82,16 @@ internal sealed class CodeHealthGroupRunner
         => _currentStepId is not null && _taskById.TryGetValue(_currentStepId, out var t) ? t.Description : null;
 
     /// <summary>
+    /// Refreshes future task contracts after a safe plan revision. The in-flight revision token
+    /// deliberately remains unchanged so the currently running worker can finish its original task.
+    /// </summary>
+    internal void RefreshTaskDefinitions(DecomposedTaskGroup group)
+    {
+        _taskById.Clear();
+        foreach (var task in group.Tasks) _taskById[task.Id] = task;
+    }
+
+    /// <summary>
     /// Reads the persisted group state and tracks the first dependency-eligible task.
     /// The loop prompt uses the same selection rule, so an interrupted iteration can
     /// reliably mark the task it was expected to execute as failed.

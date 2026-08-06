@@ -917,7 +917,8 @@ internal sealed record ActiveLoopExecutionState(
     [property: JsonPropertyName("scrutinyReworkCount")] int VerificationReworkCount = 0,
     [property: JsonPropertyName("scrutinyReworkInstructions")] string? VerificationReworkInstructions = null,
     [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0,
-    AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null)
+    AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null,
+    string? PendingDecomposeRevision = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -934,6 +935,11 @@ internal sealed record ActiveLoopExecutionState(
         var revision = string.IsNullOrWhiteSpace(state.DecomposeRevision)
             ? null
             : state.DecomposeRevision.Trim();
+        var pendingRevision = string.IsNullOrWhiteSpace(state.PendingDecomposeRevision)
+            ? null
+            : state.PendingDecomposeRevision.Trim();
+        if (string.Equals(pendingRevision, revision, StringComparison.Ordinal))
+            pendingRevision = null;
         var attempt = state.PlanExecutionAttempt;
         if (attempt is not null &&
             (!string.Equals(attempt.PlanId, groupId, StringComparison.Ordinal) ||
@@ -1028,7 +1034,8 @@ internal sealed record ActiveLoopExecutionState(
                 ? null
                 : state.VerificationReworkInstructions.Trim(),
             Math.Max(0, state.VerificationEnvelopeRepairCount),
-            assessedRecovery);
+            assessedRecovery,
+            pendingRevision);
     }
 }
 

@@ -130,6 +130,55 @@ internal sealed class PlansPanelControllerTests
             Assert.That(borders, Has.Count.EqualTo(1));
         });
 
+    [Test]
+    public void OnPlanChanged_NewRevision_ShowsUpdatedBadgeUntilPlanIsOpened() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController();
+            var plan = MakePlan();
+            ctrl.Refresh([plan]);
+
+            ctrl.OnPlanChanged(plan with { Revision = "rev2", RevisionNumber = 2 });
+
+            var updatedRow = activePanel.Children.OfType<Border>().Single();
+            var updatedTitleRow = (StackPanel)((StackPanel)updatedRow.Child).Children[0];
+            Assert.That(updatedTitleRow.Children.OfType<TextBlock>().Any(text => text.Text == "Updated"), Is.True);
+            Assert.That(updatedRow.Effect, Is.Not.Null);
+
+            var openItem = updatedRow.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Open Plan"));
+            openItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            var acknowledgedRow = activePanel.Children.OfType<Border>().Single();
+            var acknowledgedTitleRow = (StackPanel)((StackPanel)acknowledgedRow.Child).Children[0];
+            Assert.That(acknowledgedTitleRow.Children.OfType<TextBlock>().Any(text => text.Text == "Updated"), Is.False);
+        });
+
+    [Test]
+    public void ContextMenu_Revise_InvokesRevisionDraftCallback() =>
+        WpfTestContext.Run(() =>
+        {
+            Plan? revised = null;
+            var active = new StackPanel();
+            var controller = new PlansPanelController(
+                active,
+                new StackPanel(),
+                new Border(),
+                new StackPanel(),
+                new Border(),
+                _ => { },
+                revisePlan: plan => revised = plan);
+            var plan = MakePlan();
+            controller.Refresh([plan]);
+
+            var row = active.Children.OfType<Border>().Single();
+            var reviseItem = row.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Revise"));
+            reviseItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.That(revised, Is.SameAs(plan));
+        });
+
     // ── Different plans create separate rows ──────────────────────────────────
 
     [Test]

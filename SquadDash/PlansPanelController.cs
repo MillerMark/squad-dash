@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
 /// <summary>Manages content in the inline Plans panel.</summary>
@@ -28,6 +29,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _abortPlan;
     private readonly Action<Plan>? _attachFollowUp;
     private readonly Action<Plan>? _addToNewChat;
+    private readonly Action<Plan>? _revisePlan;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -42,6 +44,7 @@ internal sealed class PlansPanelController
 
     // Cached plan list for targeted live updates — avoids a full store reload on each event.
     private List<Plan> _currentPlans = [];
+    private readonly HashSet<string> _updatedPlanIds = new(StringComparer.Ordinal);
 
     // Braille-dot spinner indicator for the actively-executing plan.
     private TextBlock? _executingSpinnerBlock;
@@ -70,7 +73,8 @@ internal sealed class PlansPanelController
         Action<Plan>? attachFollowUp       = null,
         Action<Plan>? addToNewChat         = null,
         Func<bool>?   isPromptRunning      = null,
-        Func<Plan, string>? getPlanFilePath = null)
+        Func<Plan, string>? getPlanFilePath = null,
+        Action<Plan>? revisePlan = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -87,6 +91,7 @@ internal sealed class PlansPanelController
         _abortPlan            = abortPlan;
         _attachFollowUp       = attachFollowUp;
         _addToNewChat         = addToNewChat;
+        _revisePlan           = revisePlan;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -115,7 +120,11 @@ internal sealed class PlansPanelController
         var idx = _currentPlans.FindIndex(p =>
             string.Equals(p.PlanId, updatedPlan.PlanId, StringComparison.Ordinal));
         if (idx >= 0)
+        {
+            if (!string.Equals(_currentPlans[idx].Revision, updatedPlan.Revision, StringComparison.Ordinal))
+                _updatedPlanIds.Add(updatedPlan.PlanId);
             _currentPlans[idx] = updatedPlan;
+        }
         else
             _currentPlans.Add(updatedPlan);
         RebuildPanels();
@@ -331,16 +340,38 @@ internal sealed class PlansPanelController
 
     private Border BuildRow(Plan plan)
     {
+        var isUpdated = _updatedPlanIds.Contains(plan.PlanId);
         var row = new Border
         {
             Background = Brushes.Transparent,
             Padding    = new Thickness(4, 5, 4, 5),
             Cursor     = Cursors.Hand,
             Tag        = plan.PlanId,
+            CornerRadius = new CornerRadius(5),
         };
 
+        if (isUpdated)
+        {
+            row.SetResourceReference(Border.BackgroundProperty, "PlanPreflightWarningSurface");
+            row.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
+            row.BorderThickness = new Thickness(1);
+            row.Effect = new DropShadowEffect
+            {
+                Color = Colors.DodgerBlue,
+                BlurRadius = 14,
+                ShadowDepth = 0,
+                Opacity = 0.55,
+            };
+        }
+
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "HoverSurface");
-        row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+        row.MouseLeave += (_, _) =>
+        {
+            if (isUpdated)
+                row.SetResourceReference(Border.BackgroundProperty, "PlanPreflightWarningSurface");
+            else
+                row.Background = Brushes.Transparent;
+        };
 
         var rowStack = new StackPanel { Orientation = Orientation.Vertical };
 
@@ -361,6 +392,19 @@ internal sealed class PlansPanelController
 
         titleRow.Children.Add(iconBlock);
         titleRow.Children.Add(titleBlock);
+        if (isUpdated)
+        {
+            var updatedBadge = new TextBlock
+            {
+                Text = "Updated",
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold,
+            };
+            updatedBadge.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            updatedBadge.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
+            titleRow.Children.Add(updatedBadge);
+        }
         rowStack.Children.Add(titleRow);
 
         // ── Progress row (only when plan has tasks) ───────────────────────
@@ -463,15 +507,36 @@ internal sealed class PlansPanelController
         row.ToolTip = ToolTipHelper.MakeThemedToolTip(string.Join("\n", tipLines));
 
         // ── Click to open plan viewer ─────────────────────────────────────
-        row.MouseLeftButtonUp += (_, _) => _openPlan(plan);
+        row.MouseLeftButtonUp += (_, _) =>
+        {
+            AcknowledgeUpdatedPlan(plan.PlanId);
+            _openPlan(plan);
+        };
 
         // ── Context menu ──────────────────────────────────────────────────
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
         var openItem = new MenuItem { Header = "Open Plan" };
         openItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-        openItem.Click += (_, _) => _openPlan(plan);
+        openItem.Click += (_, _) =>
+        {
+            AcknowledgeUpdatedPlan(plan.PlanId);
+            _openPlan(plan);
+        };
         menu.Items.Add(openItem);
+
+        if (_revisePlan is not null)
+        {
+            var reviseItem = new MenuItem
+            {
+                Header = "Revise",
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Create a queued draft with this plan attached for an AI-authored revision."),
+            };
+            reviseItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            reviseItem.Click += (_, _) => _revisePlan(plan);
+            menu.Items.Add(reviseItem);
+        }
 
         if (_attachFollowUp is not null || _addToNewChat is not null)
         {
@@ -607,6 +672,12 @@ internal sealed class PlansPanelController
         row.ContextMenu = menu;
 
         return row;
+    }
+
+    private void AcknowledgeUpdatedPlan(string planId)
+    {
+        if (!_updatedPlanIds.Remove(planId)) return;
+        RebuildPanels();
     }
 
     private static string BuildProgressCountLabel(Plan plan) =>

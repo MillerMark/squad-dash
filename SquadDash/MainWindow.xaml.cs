@@ -437,6 +437,8 @@ public partial class MainWindow : Window
     private FrmUltimateCallout? _queuePauseCallout;
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
+    private DispatcherTimer? _planRevisionPromptGlowTimer;
+    private bool _lastResponseContainedTaskPlan;
     private DispatcherTimer? _loopCountdownTimer;
     private DispatcherTimer? _typeIntoPromptTimer;
 
@@ -5368,9 +5370,9 @@ public partial class MainWindow : Window
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
                     {
-                        var hasTasksPayload = rawResponse?.Contains("TASKS_JSON:", StringComparison.Ordinal) == true;
-                        var hasDecisionPayload = rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true;
                         TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
+                        var hasTasksPayload = _lastResponseContainedTaskPlan;
+                        var hasDecisionPayload = rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true;
                         if (hasTasksPayload && hasDecisionPayload)
                         {
                             AppendLine("⚠ The response contained both a task proposal and an execution decision. " +
@@ -8307,16 +8309,29 @@ public partial class MainWindow : Window
     /// </summary>
     private void TryStartDecomposeGroupFromResponse(string? rawResponse, TranscriptTurnView? ownerView = null)
     {
-        if (string.IsNullOrWhiteSpace(rawResponse) ||
-            !rawResponse.Contains("TASKS_JSON:", StringComparison.Ordinal))
+        _lastResponseContainedTaskPlan = false;
+        if (_currentWorkspace is null ||
+            !TaskPlanResponseResolver.TryResolve(
+                rawResponse,
+                _currentWorkspace.FolderPath,
+                out var parserInput,
+                out var planResponseSource))
             return;
+        _lastResponseContainedTaskPlan = true;
 
-        if (!TasksJsonParser.TryParse(rawResponse, out var group, out var parseDiagnostic) || group is null)
+        if (!TasksJsonParser.TryParse(parserInput, out var group, out var parseDiagnostic) || group is null)
         {
             SquadDashTrace.Write(TraceCategory.General,
                 "TASKS_JSON detected in completed response but parsing or validation failed: " +
                 (parseDiagnostic?.Message ?? "unknown parser failure"));
             QueueDecomposeRepair(parseDiagnostic?.Message);
+            return;
+        }
+
+        if (PlanRevisionPromptContextParser.TryParse(ownerView?.Prompt, out var revisionContext) &&
+            revisionContext is not null)
+        {
+            ApplyPlanRevisionResponse(group, revisionContext, planResponseSource);
             return;
         }
 
@@ -8373,6 +8388,144 @@ public partial class MainWindow : Window
             return;
         }
         StageValidatedDecomposeGroup(group, ownerView);
+    }
+
+    private void ApplyPlanRevisionResponse(
+        DecomposedTaskGroup proposal,
+        PlanRevisionPromptContext context,
+        string? responseSource)
+    {
+        _planStore ??= _currentWorkspace is null ? null : new PlanStore(_currentWorkspace.SquadFolderPath);
+        var current = _planStore?.Load(context.PlanId);
+        if (current is null)
+        {
+            AppendLine($"⚠ Plan revision could not be applied because plan {context.PlanId} is no longer available.");
+            return;
+        }
+
+        var result = PlanRevisionApplier.Apply(current, proposal, context.BaseRevision, DateTimeOffset.UtcNow);
+        switch (result.Outcome)
+        {
+            case PlanRevisionApplyOutcome.NoChanges:
+                AppendLine(PlanRevisionTranscriptPresentation.BuildNoChanges(result.PreservedLockedTaskCount));
+                SquadDashTrace.Write("PlanRevision",
+                    $"No changes plan={context.PlanId} base={context.BaseRevision} source={responseSource ?? "inline"}.");
+                return;
+
+            case PlanRevisionApplyOutcome.Stale:
+                AppendLine($"⚠ Plan revision was not applied: {result.Error}");
+                return;
+
+            case PlanRevisionApplyOutcome.Invalid:
+                AppendLine($"⚠ Plan revision was not applied: {result.Error}");
+                return;
+
+            case PlanRevisionApplyOutcome.Applied:
+                break;
+        }
+
+        if (result.UpdatedPlan is not { } updated || result.EffectiveGroup is not { } effective)
+        {
+            AppendLine("⚠ Plan revision was not applied because the revised definition was incomplete.");
+            return;
+        }
+
+        if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                effective,
+                _currentWorkspace!.SquadFolderPath,
+                out var assignmentCatalogError,
+                requireExplicitRouting:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off,
+                enforceAssignments:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
+        {
+            AppendLine($"⚠ Plan revision was not applied: {assignmentCatalogError}");
+            return;
+        }
+
+        try
+        {
+            new PlanRevisionHistoryStore(_currentWorkspace!.SquadFolderPath).SaveSnapshot(current);
+        }
+        catch (Exception ex)
+        {
+            AppendLine($"⚠ Plan revision was not applied because its revision history could not be saved: {ex.Message}");
+            return;
+        }
+        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(current).Group;
+        var hasProjection = File.Exists(tasksPath) && File.ReadAllText(tasksPath).Contains(
+            $"<!-- decompose-group: {current.PlanId} |",
+            StringComparison.Ordinal);
+        if (hasProjection && !new DecomposedTasksWriter().ReplaceGroup(tasksPath, effective, updated.Revision))
+        {
+            AppendLine("⚠ Plan revision was not applied because SquadDash could not update its task projection.");
+            return;
+        }
+
+        if (!TryPublishPlanProgress(updated, out var publishError))
+        {
+            if (hasProjection)
+                new DecomposedTasksWriter().ReplaceGroup(tasksPath, currentGroup, current.Revision);
+            AppendLine($"⚠ Plan revision was not applied: {publishError}");
+            return;
+        }
+
+        TrackAcceptedPlanRevisionForActiveExecution(current, updated);
+        _CodeHealthGroupRunner?.RefreshTaskDefinitions(effective);
+        AppendLine(PlanRevisionTranscriptPresentation.BuildApplied(
+            updated.RevisionNumber,
+            result.AppliedChangeCount,
+            result.PreservedLockedTaskCount));
+        SquadDashTrace.Write("PlanRevision",
+            $"Applied plan={updated.PlanId} displayRevision={updated.RevisionNumber} " +
+            $"changes={result.AppliedChangeCount} locked={result.PreservedLockedTaskCount} " +
+            $"source={responseSource ?? "inline"}.");
+    }
+
+    private void TrackAcceptedPlanRevisionForActiveExecution(Plan previous, Plan updated)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution is null ||
+            !string.Equals(execution.DecomposeGroupId, updated.PlanId, StringComparison.Ordinal) ||
+            string.Equals(execution.DecomposeRevision, updated.Revision, StringComparison.Ordinal))
+            return;
+
+        _conversationManager.UpdateActiveLoopExecutionState(
+            execution with { PendingDecomposeRevision = updated.Revision });
+
+        var hasInFlightWork = previous.Tasks.Any(task => PlanTaskStatus.IsWorkInProgress(task.Status)) ||
+                              execution.ActiveValidationId is not null ||
+                              execution.ActiveVerificationTaskId is not null ||
+                              execution.PendingTaskVerification is not null;
+        if (!hasInFlightWork)
+            PromotePendingPlanRevisionAtBoundary(updated.PlanId);
+    }
+
+    private void PromotePendingPlanRevisionAtBoundary(string planId)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution?.PendingDecomposeRevision is not { Length: > 0 } revision ||
+            !string.Equals(execution.DecomposeGroupId, planId, StringComparison.Ordinal) ||
+            execution.ActiveValidationId is not null ||
+            execution.ActiveVerificationTaskId is not null ||
+            execution.PendingTaskVerification is not null)
+            return;
+
+        _conversationManager.UpdateActiveLoopExecutionState(execution with
+        {
+            DecomposeRevision = revision,
+            PendingDecomposeRevision = null,
+            PlanExecutionAttempt = null,
+            RecoveryTaskId = null,
+            RecoveryAttemptId = null,
+            RepairRequestCount = 0,
+            FreshAttemptCount = 0,
+            TaskBaselineCommit = null,
+            PendingRepairResult = null,
+        });
+        SquadDashTrace.Write("PlanRevision",
+            $"Promoted active execution plan={planId} revision={revision} at a safe task boundary.");
     }
 
     private void StageValidatedDecomposeGroup(
@@ -11180,6 +11333,8 @@ public partial class MainWindow : Window
                 ValidationRepairCount = 0,
                 ValidationRepairReason = null,
             });
+        if (activeExecution.DecomposeGroupId is { Length: > 0 } planId)
+            PromotePendingPlanRevisionAtBoundary(planId);
     }
 
 
@@ -44575,6 +44730,68 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
+    private void BeginPlanRevision(Plan plan)
+    {
+        AddEmptyQueueSlot();
+        if (_activeTabId is null) return;
+
+        const string draft = "I'd like to make the following changes to this plan:\r\n\r\n";
+        var item = _promptQueue.Items.FirstOrDefault(candidate => candidate.Id == _activeTabId);
+        if (item is null) return;
+        item.Text = draft;
+        item.CaretIndex = draft.Length;
+        item.SelectionStart = draft.Length;
+        item.SelectionLength = 0;
+
+        var attachments = GetOrCreateFollowUpList(item.Id);
+        attachments.RemoveAll(attachment =>
+            attachment.ContentBlock is not null &&
+            PlanRevisionPromptContextParser.TryParse(attachment.ContentBlock, out _));
+        attachments.Add(new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: $"Revise plan: {plan.Title}",
+            OriginalPrompt: null,
+            ContentBlock: PlanRevisionPromptContextParser.BuildAttachment(plan),
+            FileReferencePath: $".squad/plans/{plan.PlanId}.json"));
+
+        if (_transcriptFullScreenEnabled && !_fullScreenPromptVisible)
+            ShowFullScreenPrompt();
+        else if (PromptBorder is not null)
+            PromptBorder.Visibility = Visibility.Visible;
+
+        SetPromptTextBoxLogicalBuffer(draft, draft.Length, draft.Length, 0, "revise-plan");
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+        PromptTextBox.Focus();
+        PromptTextBox.CaretIndex = draft.Length;
+        ShowPlanRevisionPromptGlow();
+    }
+
+    private void ShowPlanRevisionPromptGlow()
+    {
+        if (PromptBorder is null) return;
+        _planRevisionPromptGlowTimer?.Stop();
+        PromptBorder.Effect = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = Colors.DodgerBlue,
+            BlurRadius = 28,
+            ShadowDepth = 0,
+            Opacity = 0.8,
+        };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.4) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (ReferenceEquals(_planRevisionPromptGlowTimer, timer))
+            {
+                _planRevisionPromptGlowTimer = null;
+                PromptBorder.Effect = null;
+            }
+        };
+        _planRevisionPromptGlowTimer = timer;
+        timer.Start();
+    }
+
     private void AttachInboxMessageFollowUp(InboxMessage msg)
         => AttachInboxMessageFollowUp(msg, _activeTabId ?? "");
 
@@ -45651,7 +45868,8 @@ public partial class MainWindow : Window
                 isPromptRunning: () => _isPromptRunning,
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
                 addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); },
-                getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "plans", plan.PlanId + ".json"));
+                getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "plans", plan.PlanId + ".json"),
+                revisePlan: BeginPlanRevision);
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
@@ -45891,10 +46109,14 @@ public partial class MainWindow : Window
                         resumableExecution?.DecomposeGroupId,
                         plan.PlanId,
                         StringComparison.Ordinal) &&
-                    string.Equals(
-                        resumableExecution?.DecomposeRevision,
-                        plan.Revision,
-                        StringComparison.Ordinal))
+                    (string.Equals(
+                         resumableExecution?.DecomposeRevision,
+                         plan.Revision,
+                         StringComparison.Ordinal) ||
+                     string.Equals(
+                         resumableExecution?.PendingDecomposeRevision,
+                         plan.Revision,
+                         StringComparison.Ordinal)))
                     continue;
 
                 var interruptedTaskId = plan.Progress.ExecutingTaskId
@@ -46238,7 +46460,10 @@ public partial class MainWindow : Window
                 updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextId, acceptedResult);
             }
 
-            return TryPublishPlanProgress(updated, out error);
+            if (!TryPublishPlanProgress(updated, out error))
+                return false;
+            PromotePendingPlanRevisionAtBoundary(groupId);
+            return true;
         }
         catch (Exception ex)
         {
