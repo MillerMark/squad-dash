@@ -19,7 +19,7 @@ internal static class TasksJsonParser
         new(@"^[A-Z]+-\d{8}$", RegexOptions.Compiled);
 
     private static readonly Regex TaskIdPattern =
-        new(@"^([A-Z]+-\d{8})-\d{3}$", RegexOptions.Compiled);
+        new(@"^([A-Z]+-\d{8})-(?:\d{3}|AMD-\d{3})$", RegexOptions.Compiled);
 
     private static readonly Regex ValidationIdPattern =
         new(@"^([A-Z]+-\d{8})-VAL-\d{3}$", RegexOptions.Compiled);
@@ -160,7 +160,7 @@ internal static class TasksJsonParser
             if (!m.Success || m.Groups[1].Value != parsed.GroupId)
             {
                 return Fail("invalid-task-id",
-                    $"task id '{task.Id}' does not match {{groupId}}-NNN pattern");
+                    $"task id '{task.Id}' does not match {{groupId}}-NNN or {{groupId}}-AMD-NNN pattern");
             }
 
             if (!validIds.Add(task.Id))

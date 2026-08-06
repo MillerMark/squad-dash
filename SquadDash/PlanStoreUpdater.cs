@@ -1388,6 +1388,7 @@ internal static class PlanStoreUpdater
     {
         plan = RepairLegacyAmendmentTopology(plan);
         plan = RepairLegacyAmendmentDisplayLabels(plan);
+        plan = RepairContradictoryRecoveryAcceptance(plan);
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1444,6 +1445,57 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    /// <summary>
+    /// Repairs builds that allowed a generic AI recovery assessment to mark work complete despite
+    /// an unresolved independent-scrutiny verdict. Human acceptance remains authoritative; this
+    /// repair is limited to completion summaries explicitly produced by AI recovery assessment.
+    /// </summary>
+    private static Plan RepairContradictoryRecoveryAcceptance(Plan plan)
+    {
+        var target = plan.Tasks.FirstOrDefault(task =>
+            task.Status == PlanTaskStatus.Complete &&
+            task.CompletionSummary?.StartsWith("AI-assessed recovery:", StringComparison.Ordinal) == true &&
+            task.ScrutinyHistory?.LastOrDefault() is { } report &&
+            !string.Equals(report.Verdict, PlanTaskScrutinyVerdict.Accepted, StringComparison.Ordinal));
+        if (target is null) return plan;
+
+        var tasks = plan.Tasks.Select(task => string.Equals(task.TaskId, target.TaskId, StringComparison.Ordinal)
+            ? task with
+            {
+                Status = PlanTaskStatus.HumanReviewRequired,
+                Commit = null,
+                CompletedAt = null,
+                CompletionSummary = null,
+            }
+            : task).ToArray();
+        var targetIndex = Array.FindIndex(tasks, task =>
+            string.Equals(task.TaskId, target.TaskId, StringComparison.Ordinal));
+        var lastAccepted = tasks.Take(Math.Max(0, targetIndex)).LastOrDefault(task =>
+            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+        var now = DateTimeOffset.UtcNow;
+        var interruption = (plan.InterruptionData ?? new PlanInterruptionData(
+            "Recovery acceptance contradicted unresolved scrutiny.",
+            PlanRecoveryState.PendingRecovery,
+            0)) with
+        {
+            Reason = $"AI recovery acceptance for {target.TaskId} was withdrawn because independent scrutiny remains unresolved.",
+            RecoveryState = PlanRecoveryState.PendingRecovery,
+            InterruptedTaskId = target.TaskId,
+            LastCompletedTaskId = lastAccepted?.TaskId,
+            LastCommit = lastAccepted?.Commit,
+            PartialWorkEvidence = target.Handoff?.Summary ?? plan.InterruptionData?.PartialWorkEvidence,
+        };
+        var repaired = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = tasks,
+            Progress = BuildProgress(tasks, executingTaskId: null),
+            InterruptionData = interruption,
+            Timestamps = plan.Timestamps with { InterruptedAt = now, LastRunAt = now },
+        };
+        return InvalidateDependentValidationsForRecovery(repaired, target.TaskId);
     }
 
     /// <summary>

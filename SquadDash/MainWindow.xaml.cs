@@ -12754,6 +12754,28 @@ public partial class MainWindow : Window
         string head,
         string evidence)
     {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var latestScrutiny = task?.ScrutinyHistory?.LastOrDefault();
+        var unresolvedScrutiny = latestScrutiny is not null &&
+                                 !string.Equals(
+                                     latestScrutiny.Verdict,
+                                     PlanTaskScrutinyVerdict.Accepted,
+                                     StringComparison.Ordinal)
+            ? latestScrutiny
+            : null;
+        var scrutinyContext = unresolvedScrutiny is null
+            ? string.Empty
+            : $$"""
+
+                Independent scrutiny is unresolved and remains authoritative until corrected or accepted by a human:
+                - Verdict: {{unresolvedScrutiny.Verdict}}
+                - Summary: {{unresolvedScrutiny.Summary}}
+                - Missing or overstated work: {{string.Join("; ", unresolvedScrutiny.MissingOrOverstatedWork)}}
+                - Test assessment: {{unresolvedScrutiny.TestAssessment}}
+                A recovery assessment must not classify this task complete while that verdict is unresolved. Use partial
+                with bounded remaining work when the discrepancy is correctable, or inconclusive when it requires human judgment.
+                """;
         return $$"""
             Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
             Do not edit files, create commits, revert work, or start the task. Inspect the repository and, when useful,
@@ -12769,6 +12791,8 @@ public partial class MainWindow : Window
             - revision: {{plan.Revision}}
             - baselineCommit: {{baseline}}
             - assessedHead: {{head}}
+
+            {{scrutinyContext}}
 
             {{evidence}}
 
@@ -12902,6 +12926,12 @@ public partial class MainWindow : Window
             KeepPlanStoppedAfterAssessment(context, "The plan changed while AI was assessing it.");
             return;
         }
+        if (!PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
+                durable, response, out var planEvidenceError))
+        {
+            KeepPlanStoppedAfterAssessment(context, planEvidenceError!);
+            return;
+        }
 
         var workspace = _currentWorkspace.FolderPath;
         var currentHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
@@ -13002,14 +13032,14 @@ public partial class MainWindow : Window
         var shortCommit = terminalCommit[..Math.Min(7, terminalCommit.Length)];
         var summary = "AI-assessed recovery: " + response.Summary;
         var writer = new DecomposedTasksWriter();
-        if (!writer.MarkTaskComplete(tasksPath, context.TaskId, shortCommit, summary))
-            throw new InvalidOperationException(
-                $"Task {context.TaskId} could not be marked complete in the managed projection.");
 
         DecomposedTaskGroup currentGroup;
         Plan updated;
         try
         {
+            if (!writer.MarkTaskComplete(tasksPath, context.TaskId, shortCommit, summary))
+                throw new InvalidOperationException(
+                    $"Task {context.TaskId} could not be marked complete in the managed projection.");
             var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
             if (!parsed.DecomposeGroups.TryGetValue(durable.PlanId, out currentGroup!))
                 throw new InvalidDataException("The managed plan projection is missing after recovery acceptance.");
@@ -13018,6 +13048,8 @@ public partial class MainWindow : Window
                     out var items, out var projectionError))
                 throw new InvalidDataException(
                     "The recovered task could not be projected into the durable plan. " + projectionError);
+            if (!TryValidateDecomposeGroupForExecution(currentGroup, out var startValidationError))
+                throw new InvalidDataException(startValidationError);
 
             var syntheticResult = new DecomposeStepResult(
                 durable.PlanId,
@@ -13049,20 +13081,27 @@ public partial class MainWindow : Window
             };
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
+
+            LoadTasksPanel();
+            await StartBackloggedDecomposeGroupAsync(
+                currentGroup with { HostRevision = durable.Revision },
+                continuationTaskId: null,
+                continuationPaths: []);
         }
-        catch
+        catch (Exception ex)
         {
             RestoreFileAtomically(tasksPath, originalTasks);
-            throw;
+            _planStore.Save(durable);
+            _broker.Publish(new PlanProgressEvent(durable.PlanId, durable));
+            LoadTasksPanel();
+            KeepPlanStoppedAfterAssessment(
+                context,
+                "SquadDash could not safely accept and continue the assessed work. " + ex.Message);
+            return;
         }
 
-        LoadTasksPanel();
         ShowSystemTranscriptEntry(
             $"✓ Assessed and accepted {context.TaskId} at commit {shortCommit}. Continuing with the next plan task.");
-        await StartBackloggedDecomposeGroupAsync(
-            currentGroup with { HostRevision = durable.Revision },
-            continuationTaskId: null,
-            continuationPaths: []);
     }
 
     private void KeepPlanStoppedAfterAssessment(
@@ -45301,6 +45340,17 @@ public partial class MainWindow : Window
                 {
                     SquadDashTrace.Write("PlanRepair", $"Repaired inconsistent plan {plan.PlanId}: {plan.LifecycleStatus} → {repaired.LifecycleStatus}");
                     _planStore.Save(repaired);
+                    if (_currentWorkspace is not null)
+                    {
+                        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+                        var projectionRepair = PlanTaskProjectionRepair.EnsureCanonicalStatuses(tasksPath, repaired);
+                        if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                        {
+                            SquadDashTrace.Write(
+                                "PlanProjection",
+                                $"Could not synchronize repaired plan {plan.PlanId}: {projectionRepair.Error}");
+                        }
+                    }
                 }
             }
             ReconcileDecomposeRecoveryInboxMessages();
@@ -47738,13 +47788,8 @@ public partial class MainWindow : Window
         IReadOnlyList<string>? continuationPaths = null)
     {
         if (_currentWorkspace is null) return;
-        if (!TasksJsonParser.TryParse(
-                "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group),
-                out _))
-            throw new InvalidOperationException(
-                "The selected task plan no longer passes schema validation. Edit tasks.md before running it.");
-        if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out _))
-            throw new InvalidOperationException("The selected task plan contains a dependency cycle.");
+        if (!TryValidateDecomposeGroupForExecution(group, out var validationError))
+            throw new InvalidOperationException(validationError);
 
         var workspace = _currentWorkspace.FolderPath;
         var targetBranch = group.Branch.Trim();
@@ -47768,6 +47813,30 @@ public partial class MainWindow : Window
                 continuationTaskId: continuationTaskId,
                 continuationPaths: continuationPaths))
             throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
+    }
+
+    private static bool TryValidateDecomposeGroupForExecution(
+        DecomposedTaskGroup group,
+        out string error)
+    {
+        if (!TasksJsonParser.TryParse(
+                "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group),
+                out _,
+                out var diagnostic))
+        {
+            error = "The selected task plan no longer passes schema validation: " +
+                    (diagnostic?.Message ?? "unknown schema error");
+            return false;
+        }
+        if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out var cycle))
+        {
+            error = "The selected task plan contains a dependency cycle: " +
+                    string.Join(", ", cycle ?? []);
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
     }
 
     private async Task PrepareDecomposeBranchAsync(

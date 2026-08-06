@@ -151,6 +151,91 @@ internal sealed class PlanRecoveryAssessmentTests
         Assert.That(attributed, Is.EqualTo(new[] { "bbbbbbbb", "cccccccc" }));
     }
 
+    [Test]
+    public void PlanEvidence_RejectsCompleteWhileIndependentScrutinyIsUnresolved()
+    {
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
+            ScrutinyHistory:
+            [
+                new PlanTaskScrutinyReport(
+                    PlanTaskScrutinyVerdict.HumanReviewRequired,
+                    "Production approval actions were not guarded.", [], ["Missing action guard"],
+                    "No production action test.", ["Guard approve and reject."], "bbbbbbbb",
+                    DateTimeOffset.UtcNow),
+            ]);
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]);
+
+        var valid = PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
+            plan, response, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(valid, Is.False);
+            Assert.That(error, Does.Contain("scrutiny remains unresolved"));
+            Assert.That(error, Does.Contain("Production approval actions were not guarded"));
+        });
+    }
+
+    [Test]
+    public void PlanEvidence_AllowsPartialWhileIndependentScrutinyIsUnresolved()
+    {
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
+            ScrutinyHistory:
+            [
+                new PlanTaskScrutinyReport(
+                    PlanTaskScrutinyVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
+                    "Tests incomplete", ["Add guard"], "bbbbbbbb", DateTimeOffset.UtcNow),
+            ]);
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+        var response = Response(
+            PlanRecoveryClassification.Partial,
+            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]) with
+        {
+            RemainingWork = ["Add guard"],
+        };
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
+            plan, response, out var error), Is.True, error);
+    }
+
+    [Test]
+    public void PlanEvidence_AllowsCompleteAfterLaterScrutinyAcceptsTheWork()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.HumanReviewRequired,
+            ScrutinyHistory:
+            [
+                new PlanTaskScrutinyReport(
+                    PlanTaskScrutinyVerdict.ReworkRequired, "Missing guard", [], ["Missing guard"],
+                    "Tests incomplete", ["Add guard"], "bbbbbbbb", now.AddMinutes(-1)),
+                new PlanTaskScrutinyReport(
+                    PlanTaskScrutinyVerdict.Accepted, "Guard and tests verified.", [], [],
+                    "Tests passed", [], "cccccccc", now),
+            ]);
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(now));
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]);
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
+            plan, response, out var error), Is.True, error);
+    }
+
     private static PlanRecoveryCommitAssessment Commit(string sha, string relation) =>
         new(sha, relation, "Evidence");
 

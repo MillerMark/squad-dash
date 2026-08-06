@@ -114,6 +114,39 @@ internal static class PlanRecoveryAssessmentParser
 
 internal static class PlanRecoveryAssessmentValidator
 {
+    internal static bool TryValidateAgainstPlanEvidence(
+        Plan plan,
+        PlanRecoveryAssessmentResponse response,
+        out string? error)
+    {
+        error = null;
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, response.TaskId, StringComparison.Ordinal));
+        if (task is null)
+        {
+            error = $"The assessed task {response.TaskId} is not present in the durable plan.";
+            return false;
+        }
+
+        var latestScrutiny = task.ScrutinyHistory?.LastOrDefault();
+        var unresolved = latestScrutiny is not null &&
+                         !string.Equals(
+                             latestScrutiny.Verdict,
+                             PlanTaskScrutinyVerdict.Accepted,
+                             StringComparison.Ordinal)
+            ? latestScrutiny
+            : null;
+        if (response.Classification == PlanRecoveryClassification.Complete && unresolved is not null)
+        {
+            error = "AI classified the task as complete while independent scrutiny remains unresolved: " +
+                    unresolved.Summary +
+                    " Use partial when bounded corrective work remains, or inconclusive when human judgment is required.";
+            return false;
+        }
+
+        return true;
+    }
+
     internal static bool MatchesRequest(
         PlanRecoveryAssessmentResponse response,
         string assessmentId,

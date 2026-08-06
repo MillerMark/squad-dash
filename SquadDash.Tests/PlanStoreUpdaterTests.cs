@@ -1263,6 +1263,56 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void RepairInconsistentState_WithdrawsAiRecoveryAcceptanceThatContradictsScrutiny()
+    {
+        var accepted = new PlanTask(
+            "P-2", "Second", "Second", ["P-1"], "high", PlanTaskStatus.Complete,
+            Commit: "bbbbbbb",
+            CompletedAt: DateTimeOffset.UtcNow,
+            CompletionSummary: "AI-assessed recovery: task complete",
+            Handoff: new PlanTaskHandoff(
+                "bbbbbbb", "Candidate work", ["src/Work.cs"], null, DateTimeOffset.UtcNow),
+            ScrutinyHistory:
+            [
+                new PlanTaskScrutinyReport(
+                    PlanTaskScrutinyVerdict.HumanReviewRequired,
+                    "Approval actions remain enabled.", [], ["Missing action guard"],
+                    "Tests do not cover the production action.", ["Add action guard."],
+                    "bbbbbbb", DateTimeOffset.UtcNow),
+            ]);
+        var tasks = new[]
+        {
+            new PlanTask("P-1", "First", "First", [], "high", PlanTaskStatus.Complete,
+                Commit: "aaaaaaa", DisplayStepLabel: "1"),
+            accepted with { DisplayStepLabel = "2" },
+            new PlanTask("P-3", "Third", "Third", ["P-2"], "high", PlanTaskStatus.Pending,
+                DisplayStepLabel: "3"),
+        };
+        var plan = new Plan(
+            "P", "rev", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/p", "Summary", tasks, [], new PlanProgress(2, 3),
+            new PlanTimestamps(DateTimeOffset.UtcNow),
+            InterruptionData: new PlanInterruptionData(
+                "AI accepted task", PlanRecoveryState.PendingRecovery, 2,
+                InterruptedTaskId: "P-3", LastCompletedTaskId: "P-2", LastCommit: "bbbbbbb"));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+        var repairedTask = repaired.Tasks.Single(task => task.TaskId == "P-2");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repairedTask.Status, Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
+            Assert.That(repairedTask.Commit, Is.Null);
+            Assert.That(repairedTask.Handoff?.Commit, Is.EqualTo("bbbbbbb"));
+            Assert.That(repairedTask.ScrutinyHistory, Has.Count.EqualTo(1));
+            Assert.That(repaired.Progress.CompletedCount, Is.EqualTo(1));
+            Assert.That(repaired.InterruptionData?.InterruptedTaskId, Is.EqualTo("P-2"));
+            Assert.That(repaired.InterruptionData?.LastCompletedTaskId, Is.EqualTo("P-1"));
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+        });
+    }
+
+    [Test]
     public void ConvertUnstartedGateReworkToAmendment_RestoresAcceptedAttemptBeforeAddingWork()
     {
         var group = MakeApprovalWindowGroup();

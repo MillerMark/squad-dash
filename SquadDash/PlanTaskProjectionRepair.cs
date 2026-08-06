@@ -37,7 +37,25 @@ internal static class PlanTaskProjectionRepair
     }
 
     internal static PlanTaskProjectionRepairResult Ensure(string tasksPath, Plan plan)
-        => EnsureCore(tasksPath, plan, allowHostMigratedAmendmentTopology: false);
+        => EnsureCore(
+            tasksPath,
+            plan,
+            allowHostMigratedAmendmentTopology: false,
+            synchronizeCanonicalStatuses: false);
+
+    /// <summary>
+    /// Rewrites the managed status markers after the host has deliberately repaired canonical
+    /// durable state. Task content and revision still have to match; this cannot overwrite user
+    /// edits to the task contract or an unrelated plan revision.
+    /// </summary>
+    internal static PlanTaskProjectionRepairResult EnsureCanonicalStatuses(
+        string tasksPath,
+        Plan plan)
+        => EnsureCore(
+            tasksPath,
+            plan,
+            allowHostMigratedAmendmentTopology: true,
+            synchronizeCanonicalStatuses: true);
 
     /// <summary>
     /// Synchronizes the deterministic topology migration that moved an approval amendment into
@@ -48,12 +66,17 @@ internal static class PlanTaskProjectionRepair
     internal static PlanTaskProjectionRepairResult EnsureAfterHostTopologyMigration(
         string tasksPath,
         Plan plan)
-        => EnsureCore(tasksPath, plan, allowHostMigratedAmendmentTopology: true);
+        => EnsureCore(
+            tasksPath,
+            plan,
+            allowHostMigratedAmendmentTopology: true,
+            synchronizeCanonicalStatuses: false);
 
     private static PlanTaskProjectionRepairResult EnsureCore(
         string tasksPath,
         Plan plan,
-        bool allowHostMigratedAmendmentTopology)
+        bool allowHostMigratedAmendmentTopology,
+        bool synchronizeCanonicalStatuses)
     {
         var pending = PendingDecomposePlanAdapter.FromPlan(plan);
         var group = pending.Group with { HostRevision = plan.Revision };
@@ -74,8 +97,13 @@ internal static class PlanTaskProjectionRepair
         {
             var isolated = ParseIsolatedGroup(lines, starts[0]);
             if (PlanTaskProjectionValidator.TryGetValidatedItems(
-                    plan, isolated, plan.PlanId, requireAllComplete: false, out _, out _))
+                    plan, isolated, plan.PlanId, requireAllComplete: false, out var projectedItems, out _) &&
+                (!synchronizeCanonicalStatuses || HaveCanonicalStatuses(plan, projectedItems)))
                 return new(PlanTaskProjectionRepairOutcome.Current);
+            if (synchronizeCanonicalStatuses && !HasSameTaskContracts(isolated, group))
+                return new(
+                    PlanTaskProjectionRepairOutcome.Conflict,
+                    $"Plan {plan.PlanId} task content changed; only its managed status markers can be synchronized automatically.");
 
             var projectedRevision = ReadRevision(lines[starts[0]]);
             if (!string.IsNullOrWhiteSpace(projectedRevision) &&
@@ -199,6 +227,18 @@ internal static class PlanTaskProjectionRepair
             StringComparison.Ordinal);
     }
 
+    private static bool HasSameTaskContracts(TaskParseResult projected, DecomposedTaskGroup canonical)
+    {
+        if (!projected.DecomposeGroups.TryGetValue(canonical.GroupId, out var existing))
+            return false;
+        var canonicalById = canonical.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var existingById = existing.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        return canonicalById.Count == existingById.Count &&
+               canonicalById.All(entry =>
+                   existingById.TryGetValue(entry.Key, out var task) &&
+                   SameTaskContract(task, entry.Value));
+    }
+
     private static void ApplyCanonicalStatuses(DecomposedTasksWriter writer, string tasksPath, Plan plan)
     {
         foreach (var task in plan.Tasks)
@@ -236,6 +276,19 @@ internal static class PlanTaskProjectionRepair
                     break;
             }
         }
+    }
+
+    private static bool HaveCanonicalStatuses(Plan plan, IReadOnlyList<TaskItem> projectedItems)
+    {
+        var projectedById = projectedItems.ToDictionary(item => item.TaskId!, StringComparer.Ordinal);
+        return plan.Tasks.All(task => projectedById.TryGetValue(task.TaskId, out var item) && task.Status switch
+        {
+            PlanTaskStatus.Complete => item.IsChecked && !item.IsPartial && !item.IsFailed && !item.IsSuperseded,
+            PlanTaskStatus.Partial => item.IsPartial,
+            PlanTaskStatus.Failed => item.IsFailed,
+            PlanTaskStatus.Superseded => item.IsSuperseded,
+            _ => !item.IsChecked && !item.IsPartial && !item.IsFailed && !item.IsSuperseded,
+        });
     }
 
     private static TaskParseResult ParseIsolatedGroup(string[] lines, int start)

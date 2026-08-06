@@ -168,6 +168,49 @@ internal sealed class PlanTaskProjectionRepairTests
         });
     }
 
+    [Test]
+    public void EnsureCanonicalStatuses_WithdrawsStaleCompletionAndPreservesOtherContent()
+    {
+        var completed = MakePlan(PlanTaskStatus.Complete);
+        Assert.That(PlanTaskProjectionRepair.Ensure(_tasksPath, completed).Outcome,
+            Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+        File.AppendAllText(_tasksPath, "\n# User backlog\n\n- [ ] Preserve me\n");
+
+        var reviewRequired = MakePlan(PlanTaskStatus.HumanReviewRequired);
+        var result = PlanTaskProjectionRepair.EnsureCanonicalStatuses(_tasksPath, reviewRequired);
+        var parsed = PlanTaskProjectionRepair.ReadManagedProjection(_tasksPath, reviewRequired.PlanId)!;
+        var projected = parsed.OpenGroups.SelectMany(group => group.Items)
+            .Single(item => item.TaskId == "REPAIR-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+            Assert.That(projected.IsChecked, Is.False);
+            Assert.That(File.ReadAllText(_tasksPath), Does.Contain("Preserve me"));
+        });
+    }
+
+    [Test]
+    public void EnsureCanonicalStatuses_DoesNotOverwriteChangedTaskContract()
+    {
+        var completed = MakePlan(PlanTaskStatus.Complete);
+        Assert.That(PlanTaskProjectionRepair.Ensure(_tasksPath, completed).Outcome,
+            Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+        var changed = File.ReadAllText(_tasksPath).Replace(
+            "Restore it.", "User changed the contract.", StringComparison.Ordinal);
+        File.WriteAllText(_tasksPath, changed);
+
+        var result = PlanTaskProjectionRepair.EnsureCanonicalStatuses(
+            _tasksPath,
+            MakePlan(PlanTaskStatus.HumanReviewRequired));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanTaskProjectionRepairOutcome.Conflict));
+            Assert.That(File.ReadAllText(_tasksPath), Is.EqualTo(changed));
+        });
+    }
+
     private static Plan MakePlan(string status = PlanTaskStatus.Pending) => new(
         PlanId: "REPAIR-001",
         Revision: "revision-1",
