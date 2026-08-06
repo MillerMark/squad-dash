@@ -8265,8 +8265,16 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // A resumed or assessed plan can arrive here with every implementation task complete
+        // and a ready validation as its only executable work. Activate that validation before
+        // the first loop iteration so the runner never fabricates or repeats a task turn.
+        if (_planStore?.Load(groupId) is { } startedPlan &&
+            PlanExecutionBoundaryPolicy.SelectValidation(startedPlan) is { } boundaryValidation)
+        {
+            ActivateValidationForNextIteration(groupId, startedPlan, boundaryValidation);
+        }
+
         _activeLoopMode = LoopMode.NativeAgents;
-        _loopPanelVisible = true;
         SyncLoopPanel();
         BackupAndClearLoopOutput();
 
@@ -10676,7 +10684,7 @@ public partial class MainWindow : Window
         }
 
         var durable = _planStore.Load(groupId);
-        var readyValidation = durable is null ? null : PlanValidationScheduler.SelectNextSchedulable(durable);
+        var readyValidation = durable is null ? null : PlanExecutionBoundaryPolicy.SelectValidation(durable);
         if (readyValidation is not null)
         {
             ActivateValidationForNextIteration(groupId, durable!, readyValidation);
@@ -11134,6 +11142,7 @@ public partial class MainWindow : Window
 
         await _planApprovalRuntime.RestoreAsync(approvalPlans);
         PruneArchivedPlanFamilyArtifacts(approvalPlans);
+        PlanRecoveryDecisionHandler.ArchiveObsoleteAppliedNotifications(_inboxStore);
         ReconcileDecomposeRecoveryInboxMessages();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
@@ -13106,33 +13115,43 @@ public partial class MainWindow : Window
                 summary,
                 [],
                 response.Verification);
-            updated = PlanStoreUpdater.ApplyStepAccepted(
-                durable, items, nextExecutingTaskId: null, acceptedResult: syntheticResult);
-            var nextTaskId = updated.Tasks.FirstOrDefault(task =>
+            var nextTaskId = durable.Tasks.FirstOrDefault(task =>
+                !string.Equals(task.TaskId, context.TaskId, StringComparison.Ordinal) &&
                 task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
-            var interruption = (updated.InterruptionData ?? new PlanInterruptionData(
-                "AI-assessed work was accepted by the host.", PlanRecoveryState.PendingRecovery, 0)) with
-            {
-                Reason = $"AI-assessed work for {context.TaskId} was accepted at {shortCommit}.",
-                InterruptedTaskId = nextTaskId,
-                LastCompletedTaskId = context.TaskId,
-                LastCommit = shortCommit,
-                PartialWorkEvidence = response.Summary,
-            };
-            updated = updated with
-            {
-                LifecycleStatus = PlanLifecycleStatus.Interrupted,
-                InterruptionData = interruption,
-                Progress = updated.Progress with { ExecutingTaskId = null },
-            };
+            updated = PlanStoreUpdater.ApplyAssessedStepAccepted(
+                durable, items, nextTaskId, syntheticResult);
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
 
             LoadTasksPanel();
-            await StartBackloggedDecomposeGroupAsync(
-                currentGroup with { HostRevision = durable.Revision },
-                continuationTaskId: null,
-                continuationPaths: []);
+            var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(updated);
+            if (nextValidation is null && HasReadyPendingApprovalGate(updated))
+            {
+                await ProcessPlanApprovalsAfterStepAsync(
+                    durable.PlanId,
+                    durable.Revision,
+                    context.TaskId,
+                    DecomposeGroupExecutionState.Complete,
+                    updated);
+            }
+            else if (nextTaskId is null &&
+                     nextValidation is null &&
+                     PlanValidationReadinessEvaluator.AllRequiredPassed(updated) &&
+                     ApprovalGateReadinessEvaluator.AllRequiredApproved(updated))
+            {
+                updated = PlanStoreUpdater.ApplyCompleted(updated);
+                if (!TryPublishPlanProgress(updated, out var completionError))
+                    throw new IOException(completionError ?? "The completed plan could not be saved.");
+                PublishPlanCompletionSummary(updated);
+                ScheduleDecomposeSystemEntry(PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(updated));
+            }
+            else
+            {
+                await StartBackloggedDecomposeGroupAsync(
+                    currentGroup with { HostRevision = durable.Revision },
+                    continuationTaskId: null,
+                    continuationPaths: []);
+            }
         }
         catch (Exception ex)
         {
@@ -13146,8 +13165,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        var boundaryPlan = _planStore.Load(durable.PlanId);
+        var boundaryMessage = boundaryPlan?.LifecycleStatus switch
+        {
+            PlanLifecycleStatus.AwaitingApproval => " Human approval is required before plan validation continues.",
+            PlanLifecycleStatus.Completed => " The plan is complete.",
+            _ when boundaryPlan is not null && PlanExecutionBoundaryPolicy.SelectValidation(boundaryPlan) is not null
+                => " Plan validation is starting.",
+            _ => " Continuing with the next plan task.",
+        };
         ShowSystemTranscriptEntry(
-            $"✓ Assessed and accepted {context.TaskId} at commit {shortCommit}. Continuing with the next plan task.");
+            $"✓ Assessed and accepted {context.TaskId} at commit {shortCommit}.{boundaryMessage}");
     }
 
     private void KeepPlanStoppedAfterAssessment(

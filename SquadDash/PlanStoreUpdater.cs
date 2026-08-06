@@ -208,6 +208,26 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Accepts task work discovered during interrupted-plan assessment and returns the plan to
+    /// the ordinary executing boundary. The caller must then schedule the same next boundary as
+    /// a normally accepted task (validation, human approval, another task, or completion).
+    /// </summary>
+    internal static Plan ApplyAssessedStepAccepted(
+        Plan                    existing,
+        IReadOnlyList<TaskItem> items,
+        string?                 nextExecutingTaskId,
+        DecomposeStepResult     acceptedResult)
+    {
+        var accepted = ApplyStepAccepted(existing, items, nextExecutingTaskId, acceptedResult);
+        return accepted with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            InterruptionData = null,
+            Progress = accepted.Progress with { ExecutingTaskId = nextExecutingTaskId },
+        };
+    }
+
+    /// <summary>
     /// Returns the set of task IDs that were already Complete before but now have a different
     /// commit (re-accepted with new work), indicating their outputs may have changed.
     /// </summary>

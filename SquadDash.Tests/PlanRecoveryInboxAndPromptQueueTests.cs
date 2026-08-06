@@ -81,10 +81,10 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
                 InterruptedTaskId: taskId));
     }
 
-    // ── Item 1: Inbox message published on applied recovery ──────────────────
+    // ── Successful internal recovery remains out of the actionable Inbox ─────
 
     [Test]
-    public void HandleRepairDecision_Applied_PublishesInboxMessage()
+    public void HandleRepairDecision_Applied_DoesNotPublishInboxNoise()
     {
         var plan = MakePlanWithTask();
         _planStore.Save(plan);
@@ -94,14 +94,7 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
 
         Assert.That(decision.Allowed, Is.True);
 
-        var messages = _inboxStore.LoadAll();
-        Assert.That(messages, Has.Count.GreaterThanOrEqualTo(1));
-
-        var recoveryMsg = messages.FirstOrDefault(m => m.Subject.Contains("Recovery applied"));
-        Assert.That(recoveryMsg, Is.Not.Null, "Inbox should contain a 'Recovery applied' message.");
-        Assert.That(recoveryMsg!.Subject, Does.Contain("TASK-001"));
-        Assert.That(recoveryMsg.Body, Does.Contain("envelope-repair"));
-        Assert.That(recoveryMsg.From, Is.EqualTo("SquadDash Recovery"));
+        Assert.That(_inboxStore.LoadAll(), Is.Empty);
     }
 
     // ── Item 1: Inbox message published on blocked recovery ─────────────────
@@ -132,10 +125,10 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
         Assert.That(blockedMsg.Priority, Is.EqualTo("high"));
     }
 
-    // ── Item 1: Fresh-attempt recovery also publishes inbox ─────────────────
+    // ── Fresh-attempt success is also internal bookkeeping ───────────────────
 
     [Test]
-    public void HandleFreshAttemptDecision_Applied_PublishesInboxMessage()
+    public void HandleFreshAttemptDecision_Applied_DoesNotPublishInboxNoise()
     {
         var plan = MakePlanWithTask();
         _planStore.Save(plan);
@@ -145,10 +138,38 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
 
         Assert.That(decision.Allowed, Is.True);
 
-        var messages = _inboxStore.LoadAll();
-        var recoveryMsg = messages.FirstOrDefault(m => m.Subject.Contains("Recovery applied"));
-        Assert.That(recoveryMsg, Is.Not.Null);
-        Assert.That(recoveryMsg!.Body, Does.Contain("fresh-attempt"));
+        Assert.That(_inboxStore.LoadAll(), Is.Empty);
+    }
+
+    [Test]
+    public void ArchiveObsoleteAppliedNotifications_RemovesOnlySuccessfulRecoveryNotices()
+    {
+        _inboxStore.Save(new InboxMessage
+        {
+            Id = "applied",
+            Subject = "Recovery applied: TASK-001",
+            From = "SquadDash Recovery",
+            Timestamp = DateTimeOffset.UtcNow,
+            Body = "Internal bookkeeping",
+            Priority = "low",
+        });
+        _inboxStore.Save(new InboxMessage
+        {
+            Id = "blocked",
+            Subject = "Recovery blocked: TASK-001",
+            From = "SquadDash Recovery",
+            Timestamp = DateTimeOffset.UtcNow,
+            Body = "Action required",
+            Priority = "high",
+        });
+
+        PlanRecoveryDecisionHandler.ArchiveObsoleteAppliedNotifications(_inboxStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_inboxStore.GetById("applied"), Is.Null);
+            Assert.That(_inboxStore.GetById("blocked"), Is.Not.Null);
+        });
     }
 
     // ── Item 2: Progress correction when reopening a task ───────────────────

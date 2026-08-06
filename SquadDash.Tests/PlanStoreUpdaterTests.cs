@@ -517,6 +517,35 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyAssessedStepAccepted_RejoinsOrdinaryExecutingBoundary()
+    {
+        var group = MakeGroup(1);
+        var started = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("GROUP-001-001")], "GROUP-001-001");
+        var interrupted = PlanStoreUpdater.ApplyInterrupted(
+            started, "Assessment required.", 2, "GROUP-001-001");
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", "rev1", "complete", "abc1234",
+            "Assessed work is complete.", [],
+            new DecomposeStepVerification("passed", "dotnet test", "Tests passed."));
+
+        var updated = PlanStoreUpdater.ApplyAssessedStepAccepted(
+            interrupted,
+            [MakeItem("GROUP-001-001", isChecked: true)],
+            nextExecutingTaskId: null,
+            result);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(updated.InterruptionData, Is.Null);
+            Assert.That(updated.Progress.CompletedCount, Is.EqualTo(1));
+            Assert.That(updated.Progress.ExecutingTaskId, Is.Null);
+            Assert.That(updated.Tasks[0].Commit, Is.EqualTo("abc1234"));
+        });
+    }
+
+    [Test]
     public void ApplyStepAccepted_RecordsAcceptedResultProvenance()
     {
         var group = MakeGroup(1);

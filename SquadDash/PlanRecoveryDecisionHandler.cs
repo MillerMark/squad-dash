@@ -97,6 +97,12 @@ internal sealed class PlanRecoveryDecisionHandler
         if (_inboxStore is null)
             return;
 
+        // Successful envelope repair and fresh-attempt bookkeeping are internal, actionable
+        // only when they fail. Publishing every success creates duplicate low-priority messages
+        // and obscures the eventual approval or completion message.
+        if (applied)
+            return;
+
         try
         {
             var subject = applied
@@ -123,6 +129,16 @@ internal sealed class PlanRecoveryDecisionHandler
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"PlanRecoveryDecisionHandler: failed to publish inbox message: {ex.Message}");
+        }
+    }
+
+    internal static void ArchiveObsoleteAppliedNotifications(InboxStore inboxStore)
+    {
+        foreach (var message in inboxStore.LoadAll().Where(message =>
+                     string.Equals(message.From, "SquadDash Recovery", StringComparison.Ordinal) &&
+                     message.Subject.StartsWith("Recovery applied:", StringComparison.OrdinalIgnoreCase)))
+        {
+            inboxStore.Archive(message.Id);
         }
     }
 
