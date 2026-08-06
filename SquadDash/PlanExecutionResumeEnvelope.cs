@@ -11,7 +11,8 @@ internal static class PlanExecutionResumeEnvelope
         string revision,
         int resumeFromIteration,
         ActiveLoopExecutionState? prior,
-        bool reclaimPersistedExecution)
+        bool reclaimPersistedExecution,
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         var canReclaim = reclaimPersistedExecution &&
             prior is not null &&
@@ -27,7 +28,9 @@ internal static class PlanExecutionResumeEnvelope
                 DecomposeRevision = revision,
                 LastCompletedIteration = Math.Max(
                     prior!.LastCompletedIteration,
-                    Math.Max(0, resumeFromIteration))
+                    Math.Max(0, resumeFromIteration)),
+                AssessedRecoveryContinuation = assessedRecoveryContinuation ??
+                                                prior.AssessedRecoveryContinuation,
             };
         }
 
@@ -49,6 +52,7 @@ internal static class PlanExecutionResumeEnvelope
             groupId,
             revision,
             PreviousPlanExecutionAttempts: history,
-            LastCompletedIteration: Math.Max(0, resumeFromIteration));
+            LastCompletedIteration: Math.Max(0, resumeFromIteration),
+            AssessedRecoveryContinuation: assessedRecoveryContinuation);
     }
 }

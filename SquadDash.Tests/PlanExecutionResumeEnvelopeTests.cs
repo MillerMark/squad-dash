@@ -58,4 +58,31 @@ internal sealed class PlanExecutionResumeEnvelopeTests
             Assert.That(started.TaskBaselineCommit, Is.Null);
         });
     }
+
+    [Test]
+    public void AssessedPartialRecovery_IsPersistedInFreshExecutionAndRestartReclaim()
+    {
+        var assessed = new AssessedRecoveryContinuationState(
+            "PLAN-1",
+            "PLAN-1-001",
+            "Most of the task is already implemented.",
+            ["Set the attachment file reference."]);
+
+        var started = PlanExecutionResumeEnvelope.Create(
+            "loop.md", "PLAN-1", "revision-1", 0, null, false, assessed);
+        var json = System.Text.Json.JsonSerializer.Serialize(started);
+        var reloaded = ActiveLoopExecutionState.Normalize(
+            System.Text.Json.JsonSerializer.Deserialize<ActiveLoopExecutionState>(json));
+        var resumed = PlanExecutionResumeEnvelope.Create(
+            "loop.md", "PLAN-1", "revision-1", 1, reloaded, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.AssessedRecoveryContinuation?.TaskId, Is.EqualTo("PLAN-1-001"));
+            Assert.That(resumed.AssessedRecoveryContinuation?.Summary,
+                Is.EqualTo("Most of the task is already implemented."));
+            Assert.That(resumed.AssessedRecoveryContinuation?.RemainingWork,
+                Is.EqualTo(new[] { "Set the attachment file reference." }));
+        });
+    }
 }

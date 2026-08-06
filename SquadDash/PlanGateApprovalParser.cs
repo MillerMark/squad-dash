@@ -21,7 +21,7 @@ internal sealed record PlanGateApproval(
 /// </summary>
 internal static class PlanGateApprovalParser
 {
-    private const string Marker = "PLAN_GATE_APPROVAL_JSON:";
+    internal const string Marker = "PLAN_GATE_APPROVAL_JSON:";
 
     internal static bool TryParse(string? text, out PlanGateApproval? approval)
     {

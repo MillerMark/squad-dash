@@ -6,7 +6,7 @@ internal sealed record DecomposeDecision(string GroupId, string Revision, string
 
 internal static class DecomposeDecisionParser
 {
-    private const string Marker = "DECOMPOSE_DECISION_JSON:";
+    internal const string Marker = "DECOMPOSE_DECISION_JSON:";
     private static readonly Regex GroupIdPattern = new(@"^[A-Z]+-\d{8}$", RegexOptions.Compiled);
 
     internal static bool TryParse(string? text, out DecomposeDecision? decision)

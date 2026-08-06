@@ -888,6 +888,12 @@ internal sealed record PendingRepairResult(
     }
 }
 
+internal sealed record AssessedRecoveryContinuationState(
+    string PlanId,
+    string TaskId,
+    string Summary,
+    IReadOnlyList<string> RemainingWork);
+
 internal sealed record ActiveLoopExecutionState(
     string LoopPath,
     string FilterText,
@@ -909,7 +915,8 @@ internal sealed record ActiveLoopExecutionState(
     [property: JsonPropertyName("activeScrutinyTaskId")] string? ActiveVerificationTaskId = null,
     [property: JsonPropertyName("scrutinyReworkCount")] int VerificationReworkCount = 0,
     [property: JsonPropertyName("scrutinyReworkInstructions")] string? VerificationReworkInstructions = null,
-    [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0)
+    [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0,
+    AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -975,6 +982,26 @@ internal sealed record ActiveLoopExecutionState(
             (!string.Equals(pendingVerification.PlanId, groupId, StringComparison.Ordinal) ||
              !string.Equals(pendingVerification.Revision, revision, StringComparison.Ordinal)))
             pendingVerification = null;
+        var assessedRecovery = state.AssessedRecoveryContinuation;
+        if (assessedRecovery is not null)
+        {
+            var remainingWork = (assessedRecovery.RemainingWork ?? [])
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            assessedRecovery = !string.Equals(assessedRecovery.PlanId, groupId, StringComparison.Ordinal) ||
+                               string.IsNullOrWhiteSpace(assessedRecovery.TaskId) ||
+                               string.IsNullOrWhiteSpace(assessedRecovery.Summary) ||
+                               remainingWork.Length == 0
+                ? null
+                : assessedRecovery with
+                {
+                    TaskId = assessedRecovery.TaskId.Trim(),
+                    Summary = assessedRecovery.Summary.Trim(),
+                    RemainingWork = remainingWork,
+                };
+        }
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -999,7 +1026,8 @@ internal sealed record ActiveLoopExecutionState(
             string.IsNullOrWhiteSpace(state.VerificationReworkInstructions)
                 ? null
                 : state.VerificationReworkInstructions.Trim(),
-            Math.Max(0, state.VerificationEnvelopeRepairCount));
+            Math.Max(0, state.VerificationEnvelopeRepairCount),
+            assessedRecovery);
     }
 }
 

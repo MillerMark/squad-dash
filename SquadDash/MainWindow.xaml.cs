@@ -398,7 +398,6 @@ public partial class MainWindow : Window
     private bool                        _inboxSavedForCurrentTurn;
     private PendingRecoveryAnalysisContext? _pendingRecoveryAnalysis;
     private PendingPlanRecoveryAssessment? _pendingPlanRecoveryAssessment;
-    private AssessedRecoveryContinuation? _assessedRecoveryContinuation;
     private bool _planRecoveryAssessmentApplying;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -6191,6 +6190,7 @@ public partial class MainWindow : Window
                 : activeExecution?.ActiveVerificationTaskId is not null
                     ? PlanTranscriptPhase.VerifyingWork
                     : activeTask?.Status == PlanTaskStatus.Reworking ||
+                      activeExecution?.AssessedRecoveryContinuation is not null ||
                       !string.IsNullOrWhiteSpace(activeExecution?.VerificationReworkInstructions)
                         ? PlanTranscriptPhase.ReworkingTask
                         : PlanTranscriptPhase.Executing;
@@ -8125,7 +8125,8 @@ public partial class MainWindow : Window
         int resumeFromIteration = 0,
         string? expectedRevision = null,
         string? continuationTaskId = null,
-        IReadOnlyList<string>? continuationPaths = null)
+        IReadOnlyList<string>? continuationPaths = null,
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         if (_currentWorkspace is null) return false;
         var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
@@ -8240,7 +8241,8 @@ public partial class MainWindow : Window
                 revision,
                 resumeFromIteration,
                 priorExecution,
-                reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision)));
+                reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision),
+                assessedRecoveryContinuation));
 
         if (!TryPublishPlanStarted(groupId, executionGroup, revision, out var planStartError))
         {
@@ -8685,7 +8687,10 @@ public partial class MainWindow : Window
         _ = DrainQueueIfNeededAsync();
     }
 
-    private async Task<bool> RetryDecomposeTaskAsync(PendingDecomposePlan plan, string taskId)
+    private async Task<bool> RetryDecomposeTaskAsync(
+        PendingDecomposePlan plan,
+        string taskId,
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         if (_currentWorkspace is null) return false;
         if (_isPromptRunning || _loopController.IsRunning)
@@ -8727,7 +8732,8 @@ public partial class MainWindow : Window
         await StartBackloggedDecomposeGroupAsync(
             currentGroup with { HostRevision = currentRevision },
             preservedPaths.Count > 0 ? taskId : null,
-            preservedPaths);
+            preservedPaths,
+            assessedRecoveryContinuation);
         return true;
     }
 
@@ -9796,7 +9802,7 @@ public partial class MainWindow : Window
                     ? currentTask.GenericAgentReason
                     : null);
         string? assessedRecoveryContext = null;
-        if (_assessedRecoveryContinuation is { } assessed)
+        if (execution.AssessedRecoveryContinuation is { } assessed)
         {
             if (!string.Equals(assessed.PlanId, _activeDecomposeGroupId, StringComparison.Ordinal) ||
                 !string.Equals(assessed.TaskId, currentTaskId, StringComparison.Ordinal))
@@ -9809,7 +9815,6 @@ public partial class MainWindow : Window
                 string.Join("\n", assessed.RemainingWork.Select(item => $"- {item}")) +
                 "\nInspect and preserve valid existing work. Complete only the remaining work, validate the whole task, " +
                 "and return the normal DECOMPOSE_STEP_RESULT_JSON payload. Do not repeat completed work and do not commit tasks.md.";
-            _assessedRecoveryContinuation = null;
         }
 
         string? proofContext = null;
@@ -10385,6 +10390,7 @@ public partial class MainWindow : Window
                     VerificationReworkInstructions = null,
                     VerificationEnvelopeRepairCount = 0,
                     PendingRepairResult = null,
+                    AssessedRecoveryContinuation = null,
                 });
 
             var verificationPlan = _planStore?.Load(groupId);
@@ -12690,12 +12696,6 @@ public partial class MainWindow : Window
         string StatusSnapshot,
         int RepairAttempts = 0);
 
-    private sealed record AssessedRecoveryContinuation(
-        string PlanId,
-        string TaskId,
-        string Summary,
-        IReadOnlyList<string> RemainingWork);
-
     private async Task<bool> AssessInterruptedPlanFromDurableAsync(Plan plan)
     {
         if (PlanExecutionBoundaryPolicy.SelectValidation(plan) is { } validation)
@@ -13041,11 +13041,11 @@ public partial class MainWindow : Window
             }
             case PlanRecoveryClassification.Partial:
             {
-                _assessedRecoveryContinuation = new AssessedRecoveryContinuation(
+                var assessedContinuation = new AssessedRecoveryContinuationState(
                     planId, context.TaskId, response.Summary, response.RemainingWork!);
-                var started = await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
-                if (!started) _assessedRecoveryContinuation = null;
-                else ShowSystemTranscriptEntry(
+                var started = await RetryDecomposeTaskAsync(
+                    context.Plan, context.TaskId, assessedContinuation);
+                if (started) ShowSystemTranscriptEntry(
                     $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and resumed only the remaining work.");
                 break;
             }
@@ -48030,7 +48030,8 @@ public partial class MainWindow : Window
     private async Task StartBackloggedDecomposeGroupAsync(
         DecomposedTaskGroup group,
         string? continuationTaskId = null,
-        IReadOnlyList<string>? continuationPaths = null)
+        IReadOnlyList<string>? continuationPaths = null,
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         if (_currentWorkspace is null) return;
         if (!TryValidateDecomposeGroupForExecution(group, out var validationError))
@@ -48056,7 +48057,8 @@ public partial class MainWindow : Window
                 group.GroupId,
                 group,
                 continuationTaskId: continuationTaskId,
-                continuationPaths: continuationPaths))
+                continuationPaths: continuationPaths,
+                assessedRecoveryContinuation: assessedRecoveryContinuation))
             throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
     }
 

@@ -230,6 +230,56 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_PlanRecoveryAssessment_StripsCompleteAndStreamingPayloads()
+    {
+        const string complete = """
+            Recovery evidence assessed.
+
+            PLAN_RECOVERY_ASSESSMENT_JSON:
+            { "planId": "PLAN-1", "classification": "partial", "remainingWork": ["Wire it."] }
+
+            The recovery workflow will continue.
+            """;
+        const string streaming =
+            "Recovery evidence assessed.\n\nPLAN_RECOVERY_ASSESSMENT_JSON:\n{\n  \"planId\": \"PLAN-1\",";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                TranscriptTextUtilities.SanitizeResponseText(complete).ReplaceLineEndings("\n"),
+                Is.EqualTo("Recovery evidence assessed.\n\nThe recovery workflow will continue."));
+            Assert.That(
+                TranscriptTextUtilities.SanitizeResponseText(streaming),
+                Is.EqualTo("Recovery evidence assessed."));
+        });
+    }
+
+    [Test]
+    public void SanitizeResponseText_RecoveryOptionsAndGateApproval_StripsHostPayloads()
+    {
+        const string recoveryOptions = """
+            Recovery choices prepared.
+
+            PLAN_RECOVERY_OPTIONS_JSON:
+            { "planId": "PLAN-1", "actions": [{ "action": "resume", "label": "Resume" }] }
+            """;
+        const string gateApproval = """
+            Approval recorded.
+
+            PLAN_GATE_APPROVAL_JSON:
+            { "planId": "PLAN-1", "gateId": "GATE-1", "approved": true }
+            """;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(recoveryOptions),
+                Is.EqualTo("Recovery choices prepared."));
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(gateApproval),
+                Is.EqualTo("Approval recorded."));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
     {
         const string text = """
