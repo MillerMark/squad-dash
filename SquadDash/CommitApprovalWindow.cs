@@ -52,6 +52,12 @@ internal sealed class CommitApprovalPanel {
 
     /// <summary>When set, the "Clear Filter" button in the empty-state overlay calls this action.</summary>
     internal Action? ClearFilterAction { get; set; }
+
+    /// <summary>
+    /// When set, items for which this predicate returns true are treated as simulated (read-only)
+    /// and will not receive an actionable context menu (approve/reject/move are suppressed).
+    /// </summary>
+    internal Func<string, bool>? IsSimulatedItem { get; set; }
     public CommitApprovalPanel(
         StackPanel                               needsApprovalPanel,
         StackPanel                               approvedPanel,
@@ -498,8 +504,13 @@ internal sealed class CommitApprovalPanel {
                 row.Background = Brushes.Transparent;
         };
 
-        // Lazy context menu — built on first right-click to avoid creating ~8 MenuItems per row at init
+        // Lazy context menu — built on first right-click to avoid creating ~8 MenuItems per row at init.
+        // Simulated items never get an actionable context menu (approve/reject/move are blocked).
         row.ContextMenuOpening += (_, e) => {
+            if (IsSimulatedItem?.Invoke(item.Id) == true) {
+                e.Handled = true;
+                return;
+            }
             if (row.ContextMenu is null) {
                 row.ContextMenu = BuildRowContextMenu(row, item);
             }

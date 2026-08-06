@@ -21657,6 +21657,7 @@ public partial class MainWindow : Window
             _approvalsSimulationSurfaceAdapter = new ApprovalsSimulationSurfaceAdapter(
                 _approvalPanel, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_approvalsSimulationSurfaceAdapter);
+            _approvalPanel.IsSimulatedItem = id => _approvalsSimulationSurfaceAdapter.IsSimulatedItem(id);
         }
     }
 
