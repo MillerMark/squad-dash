@@ -111,15 +111,20 @@ internal static class DecomposePlanInbox
 
         var hasCommitEvidence = taskCommitEvidence is not null &&
             string.Equals(taskCommitEvidence.TaskId, taskId, StringComparison.Ordinal);
+        var isAmendment = plan.Group.Tasks.Any(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(task.AmendmentGateId));
 
         var actions = new List<InboxAction>();
 
         if (hasCommitEvidence)
         {
             actions.Add(BuildAction(
-                "Review & Accept Completed Work",
+                isAmendment ? "Review & Approve Amendment" : "Review & Accept Completed Work",
                 "review-completed-work",
-                "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task."));
+                isAmendment
+                    ? "Review the amendment commit and tests. Accepting it also approves the checkpoint that requested the amendment."
+                    : "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task."));
         }
 
         actions.Add(BuildAction(
@@ -148,7 +153,9 @@ internal static class DecomposePlanInbox
             body += $"Commits: `{shortCommit}`\n";
             var tests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
             if (tests is not null) body += tests + "\n";
-            body += "\nRecommended: review and accept the completed work if it satisfies the task.\n";
+            body += isAmendment
+                ? "\nRecommended: review the amendment once; accepting it also approves its checkpoint.\n"
+                : "\nRecommended: review and accept the completed work if it satisfies the task.\n";
         }
 
         body += "\nChoose a recovery action below.";

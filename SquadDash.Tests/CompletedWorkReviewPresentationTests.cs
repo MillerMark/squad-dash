@@ -190,6 +190,35 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
+    public void BuildRecoveryMessage_WithAmendmentEvidence_UsesCombinedApprovalAction()
+    {
+        var pending = new PendingDecomposePlan(
+            "rev-1",
+            new DecomposedTaskGroup(
+                PlanId,
+                "Recovery plan",
+                "feature/recovery",
+                "Exercise recovery.",
+                [
+                    new DecomposedSubTask(
+                        TaskId, "Amendment task", [], "high",
+                        AmendmentGateId: "REVIEW-001-GATE-001"),
+                ]));
+
+        var message = DecomposePlanInbox.BuildRecoveryMessage(
+            pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, MakeEvidence());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Actions.Select(action => action.Label),
+                Does.Contain("Review & Approve Amendment"));
+            Assert.That(message.Actions.Select(action => action.Label),
+                Has.No.Member("Review & Accept Completed Work"));
+            Assert.That(message.Body, Does.Contain("accepting it also approves its checkpoint"));
+        });
+    }
+
+    [Test]
     public void BuildRecoveryMessage_WithoutEvidence_OmitsReviewAction()
     {
         var pending = MakePending();

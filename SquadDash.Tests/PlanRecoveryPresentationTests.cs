@@ -25,6 +25,20 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void SummarizeReason_LegacyAdditionalGenericWorker_ExplainsCorrectedPolicy()
+    {
+        var summary = PlanRecoveryPresentationBuilder.SummarizeReason(
+            "Task PLAN-001 launched more than one generic primary worker.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary, Does.Contain("earlier SquadDash build"));
+            Assert.That(summary, Does.Contain("preserved"));
+            Assert.That(summary, Does.Contain("advisory rather than fatal"));
+        });
+    }
+
+    [Test]
     public void BuildCompactTestSummary_OmitsCommandLine()
     {
         var verification = new DecomposeStepVerification(
@@ -75,6 +89,30 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(presentation.CommitEvidence, Is.Null);
             Assert.That(presentation.Heading, Is.EqualTo("SquadDash could not confirm whether this task finished."));
             Assert.That(presentation.Explanation, Does.Contain("may include unrelated work"));
+        });
+    }
+
+    [Test]
+    public void Build_WithAmendmentEvidence_RecommendsOneCombinedReviewAndApproval()
+    {
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-001", "attempt-1", "baseline123", "commit456", "Amended.", null);
+        var plan = TestPlan(evidence) with
+        {
+            Tasks =
+            [
+                new PlanTask("PLAN-001", "Amendment", "Amendment", [], "high",
+                    PlanTaskStatus.Executing, AmendmentGateId: "PLAN-GATE-001"),
+            ],
+        };
+
+        var presentation = PlanRecoveryPresentationBuilder.Build(
+            plan, "PLAN-001", hasPreservedWork: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Heading, Does.StartWith("Amendment"));
+            Assert.That(presentation.Recommendation, Does.Contain("accepting it also approves"));
         });
     }
 

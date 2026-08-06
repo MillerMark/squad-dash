@@ -32,6 +32,12 @@ internal static class PlanRecoveryPresentationBuilder
                    "Test adequacy could not be independently classified.";
         }
 
+        if (normalized.Contains("launched more than one generic primary worker", StringComparison.OrdinalIgnoreCase))
+        {
+            return "An earlier SquadDash build stopped after observing an additional helper worker. " +
+                   "The completed primary worker's commit was preserved, and additional helpers are now advisory rather than fatal.";
+        }
+
         return normalized;
     }
 
@@ -59,11 +65,20 @@ internal static class PlanRecoveryPresentationBuilder
         if (evidence is not null &&
             string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal))
         {
+            var isAmendment = plan.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(task.AmendmentGateId));
             return new PlanRecoveryPresentation(
-                "Task stopped after producing committed work.",
-                "SquadDash captured a host-validated commit from this task before execution stopped.",
+                isAmendment
+                    ? "Amendment stopped after producing committed work."
+                    : "Task stopped after producing committed work.",
+                isAmendment
+                    ? "SquadDash captured a host-validated amendment commit before execution stopped."
+                    : "SquadDash captured a host-validated commit from this task before execution stopped.",
                 evidence,
-                "Recommended: review and accept this commit before continuing.",
+                isAmendment
+                    ? "Recommended: review the amendment once; accepting it also approves the checkpoint that requested it."
+                    : "Recommended: review and accept this commit before continuing.",
                 "Retry Task Anyway…",
                 RetryIsWarning: true);
         }
