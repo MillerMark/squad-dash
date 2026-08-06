@@ -1532,7 +1532,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var spinner = new ActivitySpinner
                 {
                     VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 1, 2, 0),
+                    Margin = new Thickness(-5, 1, 2, 0),
                     AccentColor = activityState == PlanTaskActivityState.Reworking
                         ? ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange)
                         : ResolvePlanSpinnerColor(),
