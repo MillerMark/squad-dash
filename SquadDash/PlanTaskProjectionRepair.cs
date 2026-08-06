@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -17,7 +18,8 @@ internal sealed record PlanTaskProjectionRepairResult(
 
 /// <summary>
 /// Reconciles only one host-managed plan block in tasks.md from the canonical durable Plan.
-/// Unrelated backlog and task edits remain untouched; a different plan revision is never overwritten.
+/// Unrelated backlog and task edits remain untouched. An older revision is overwritten only when
+/// it is provably the legacy topology of a host-migrated approval amendment.
 /// </summary>
 internal static class PlanTaskProjectionRepair
 {
@@ -35,6 +37,23 @@ internal static class PlanTaskProjectionRepair
     }
 
     internal static PlanTaskProjectionRepairResult Ensure(string tasksPath, Plan plan)
+        => EnsureCore(tasksPath, plan, allowHostMigratedAmendmentTopology: false);
+
+    /// <summary>
+    /// Synchronizes the deterministic topology migration that moved an approval amendment into
+    /// its boundary and rewired only its still-pending downstream frontier. This is deliberately
+    /// narrower than ordinary conflict repair: any change to task content, membership, ordinary
+    /// ordering, or an unrelated dependency continues to block replacement.
+    /// </summary>
+    internal static PlanTaskProjectionRepairResult EnsureAfterHostTopologyMigration(
+        string tasksPath,
+        Plan plan)
+        => EnsureCore(tasksPath, plan, allowHostMigratedAmendmentTopology: true);
+
+    private static PlanTaskProjectionRepairResult EnsureCore(
+        string tasksPath,
+        Plan plan,
+        bool allowHostMigratedAmendmentTopology)
     {
         var pending = PendingDecomposePlanAdapter.FromPlan(plan);
         var group = pending.Group with { HostRevision = plan.Revision };
@@ -60,7 +79,9 @@ internal static class PlanTaskProjectionRepair
 
             var projectedRevision = ReadRevision(lines[starts[0]]);
             if (!string.IsNullOrWhiteSpace(projectedRevision) &&
-                !string.Equals(projectedRevision, plan.Revision, StringComparison.Ordinal))
+                !string.Equals(projectedRevision, plan.Revision, StringComparison.Ordinal) &&
+                (!allowHostMigratedAmendmentTopology ||
+                 !IsLegacyAmendmentTopology(isolated, group)))
                 return new(
                     PlanTaskProjectionRepairOutcome.Conflict,
                     $"Plan {plan.PlanId} has revision {projectedRevision} in tasks.md, not canonical revision {plan.Revision}.");
@@ -99,6 +120,68 @@ internal static class PlanTaskProjectionRepair
             }
             return new(PlanTaskProjectionRepairOutcome.Conflict, ex.Message);
         }
+    }
+
+    private static bool IsLegacyAmendmentTopology(
+        TaskParseResult projected,
+        DecomposedTaskGroup canonical)
+    {
+        if (!projected.DecomposeGroups.TryGetValue(canonical.GroupId, out var existing))
+            return false;
+        if (!string.Equals(existing.GroupTitle, canonical.GroupTitle, StringComparison.Ordinal) ||
+            !string.Equals(existing.Branch, canonical.Branch, StringComparison.Ordinal) ||
+            !string.Equals(existing.Summary, canonical.Summary, StringComparison.Ordinal) ||
+            !string.Equals(existing.Delivery, canonical.Delivery, StringComparison.Ordinal))
+            return false;
+
+        var canonicalById = canonical.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var existingById = existing.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        if (canonicalById.Count != existingById.Count ||
+            canonicalById.Keys.Any(id => !existingById.ContainsKey(id)))
+            return false;
+
+        var amendmentIds = canonical.Tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.AmendmentGateId))
+            .Select(task => task.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        if (amendmentIds.Count == 0)
+            return false;
+
+        var affectedDependencies = new HashSet<string>(amendmentIds, StringComparer.Ordinal);
+        foreach (var gate in canonical.ApprovalGates ?? [])
+        {
+            if ((gate.AfterTaskIds ?? []).Any(amendmentIds.Contains))
+                affectedDependencies.UnionWith(gate.BeforeTaskIds ?? []);
+        }
+
+        var knownIds = canonicalById.Keys.ToHashSet(StringComparer.Ordinal);
+        foreach (var (id, canonicalTask) in canonicalById)
+        {
+            var existingTask = existingById[id];
+            if (!SameTaskContract(existingTask, canonicalTask))
+                return false;
+            if ((existingTask.DependsOn ?? []).Any(dependency => !knownIds.Contains(dependency)))
+                return false;
+            if (!affectedDependencies.Contains(id) &&
+                !(existingTask.DependsOn ?? []).SequenceEqual(
+                    canonicalTask.DependsOn ?? [], StringComparer.Ordinal))
+                return false;
+        }
+
+        // A migration may move amendment records, but it must not reorder ordinary plan work.
+        var oldOrdinaryOrder = existing.Tasks.Where(task => !amendmentIds.Contains(task.Id)).Select(task => task.Id);
+        var newOrdinaryOrder = canonical.Tasks.Where(task => !amendmentIds.Contains(task.Id)).Select(task => task.Id);
+        return oldOrdinaryOrder.SequenceEqual(newOrdinaryOrder, StringComparer.Ordinal);
+    }
+
+    private static bool SameTaskContract(DecomposedSubTask left, DecomposedSubTask right)
+    {
+        var leftContract = left with { DependsOn = [] };
+        var rightContract = right with { DependsOn = [] };
+        return string.Equals(
+            JsonSerializer.Serialize(leftContract),
+            JsonSerializer.Serialize(rightContract),
+            StringComparison.Ordinal);
     }
 
     private static void ApplyCanonicalStatuses(DecomposedTasksWriter writer, string tasksPath, Plan plan)

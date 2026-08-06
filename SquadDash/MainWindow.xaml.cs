@@ -13333,6 +13333,24 @@ public partial class MainWindow : Window
             return false;
         }
 
+        var projectionRepair = PlanTaskProjectionRepair.EnsureAfterHostTopologyMigration(
+            tasksPath,
+            storedPlan);
+        if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+        {
+            MessageBox.Show(this,
+                "SquadDash could not safely synchronize the managed plan projection. " +
+                projectionRepair.Error,
+                "Plan State Conflict", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
+        {
+            SquadDashTrace.Write(
+                "PlanProjection",
+                $"Synchronized host-migrated amendment topology before recovery review plan={storedPlan.PlanId} revision={storedPlan.Revision}.");
+        }
+
         var parsed = File.Exists(tasksPath)
             ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
             : null;
@@ -45131,7 +45149,7 @@ public partial class MainWindow : Window
                              PlanLifecycleStatus.Blocked) &&
                          string.Equals(plan.Branch, branch, StringComparison.Ordinal)))
             {
-                var result = PlanTaskProjectionRepair.Ensure(tasksPath, plan);
+                var result = PlanTaskProjectionRepair.EnsureAfterHostTopologyMigration(tasksPath, plan);
                 if (result.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
                 {
                     SquadDashTrace.Write(

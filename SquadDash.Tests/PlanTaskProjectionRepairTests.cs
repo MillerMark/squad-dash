@@ -120,6 +120,54 @@ internal sealed class PlanTaskProjectionRepairTests
         Assert.That(result.Outcome, Is.EqualTo(PlanTaskProjectionRepairOutcome.Current));
     }
 
+    [Test]
+    public void EnsureAfterHostTopologyMigration_RewritesOnlyLegacyAmendmentShape()
+    {
+        var legacy = MakeAmendmentPlan(migrated: false);
+        Assert.That(PlanTaskProjectionRepair.Ensure(_tasksPath, legacy).Outcome,
+            Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+        File.AppendAllText(_tasksPath, "\n# User backlog\n\n- [ ] Preserve me\n");
+
+        var migrated = MakeAmendmentPlan(migrated: true);
+        var result = PlanTaskProjectionRepair.EnsureAfterHostTopologyMigration(_tasksPath, migrated);
+        var parsed = PlanTaskProjectionRepair.ReadManagedProjection(_tasksPath, migrated.PlanId)!;
+        var group = parsed.DecomposeGroups[migrated.PlanId];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+            Assert.That(group.HostRevision, Is.EqualTo(migrated.Revision));
+            Assert.That(group.Tasks.Select(task => task.Id), Is.EqualTo(new[]
+            {
+                "AMEND-001-001", "AMEND-001-AMD-001", "AMEND-001-002",
+            }));
+            Assert.That(group.Tasks.Single(task => task.Id == "AMEND-001-002").DependsOn,
+                Is.EqualTo(new[] { "AMEND-001-AMD-001" }));
+            Assert.That(File.ReadAllText(_tasksPath), Does.Contain("Preserve me"));
+        });
+    }
+
+    [Test]
+    public void EnsureAfterHostTopologyMigration_DoesNotOverwriteChangedTaskContract()
+    {
+        var legacy = MakeAmendmentPlan(migrated: false);
+        Assert.That(PlanTaskProjectionRepair.Ensure(_tasksPath, legacy).Outcome,
+            Is.EqualTo(PlanTaskProjectionRepairOutcome.Repaired));
+        var changed = File.ReadAllText(_tasksPath).Replace(
+            "Future task", "User changed task", StringComparison.Ordinal);
+        File.WriteAllText(_tasksPath, changed);
+
+        var result = PlanTaskProjectionRepair.EnsureAfterHostTopologyMigration(
+            _tasksPath,
+            MakeAmendmentPlan(migrated: true));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanTaskProjectionRepairOutcome.Conflict));
+            Assert.That(File.ReadAllText(_tasksPath), Is.EqualTo(changed));
+        });
+    }
+
     private static Plan MakePlan(string status = PlanTaskStatus.Pending) => new(
         PlanId: "REPAIR-001",
         Revision: "revision-1",
@@ -144,4 +192,50 @@ internal sealed class PlanTaskProjectionRepairTests
         Progress: new PlanProgress(status == PlanTaskStatus.Complete ? 1 : 0, 1),
         Timestamps: new PlanTimestamps(DateTimeOffset.UtcNow),
         HostRevision: "revision-1");
+
+    private static Plan MakeAmendmentPlan(bool migrated)
+    {
+        var amendment = new PlanTask(
+            "AMEND-001-AMD-001", "Amendment", "Add the requested amendment.",
+            ["AMEND-001-001"], "high", PlanTaskStatus.Executing,
+            AmendmentGateId: "AMEND-001-G01");
+        var future = new PlanTask(
+            "AMEND-001-002", "Future task", "Continue after approval.",
+            migrated ? [amendment.TaskId] : ["AMEND-001-001"],
+            "normal", PlanTaskStatus.Pending);
+        var tasks = migrated
+            ? new[]
+            {
+                new PlanTask("AMEND-001-001", "Reviewed", "Reviewed work.", [], "high", PlanTaskStatus.Complete,
+                    Commit: "abc1234", CompletionSummary: "Done."),
+                amendment,
+                future,
+            }
+            : new[]
+            {
+                new PlanTask("AMEND-001-001", "Reviewed", "Reviewed work.", [], "high", PlanTaskStatus.Complete,
+                    Commit: "abc1234", CompletionSummary: "Done."),
+                future,
+                amendment,
+            };
+        var revision = migrated ? "migrated-revision" : "legacy-revision";
+        return new Plan(
+            PlanId: "AMEND-001",
+            Revision: revision,
+            Source: PlanSource.Inbox,
+            LifecycleStatus: PlanLifecycleStatus.Interrupted,
+            Title: "Amendment migration",
+            Branch: "feature/amendment",
+            Summary: "Migrate the amendment boundary.",
+            Tasks: tasks,
+            ApprovalGates:
+            [
+                new PlanApprovalGate(
+                    "AMEND-001-G01", "Review amendment",
+                    ["AMEND-001-001", amendment.TaskId], [future.TaskId], PlanGateStatus.Pending),
+            ],
+            Progress: new PlanProgress(1, 3, amendment.TaskId),
+            Timestamps: new PlanTimestamps(DateTimeOffset.UtcNow),
+            HostRevision: revision);
+    }
 }
