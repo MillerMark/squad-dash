@@ -26,7 +26,7 @@ internal static class PendingDecomposePlanAdapter
     {
         var group = pending.Group;
         var tasks = group.Tasks
-            .Select(t => new PlanTask(
+            .Select((t, index) => new PlanTask(
                 TaskId:      t.Id,
                 Title:       t.Title,
                 Description: t.Description,
@@ -47,7 +47,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.RequirementId,
                         requirement.ProofType,
                         requirement.Description)).ToArray(),
-                AmendmentGateId: t.AmendmentGateId))
+                AmendmentGateId: t.AmendmentGateId,
+                DisplayStepLabel: (index + 1).ToString()))
             .ToArray();
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);

@@ -892,15 +892,310 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(original.Commit, Is.EqualTo("abc1234"));
             Assert.That(original.AttemptHistory, Is.Null);
             Assert.That(amendment.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("3"));
             Assert.That(amendment.DependsOn, Is.EqualTo(new[] { "GROUP-001-001" }));
             Assert.That(amendment.Description, Does.Contain("Run cleanup on every exit path."));
+            Assert.That(updated.Tasks.Select(task => task.TaskId), Is.EqualTo(new[]
+            {
+                "GROUP-001-001", "GROUP-001-002", amendment.TaskId,
+                "GROUP-001-003", "GROUP-001-004",
+            }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
+                Is.EqualTo(new[] { amendment.TaskId }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DisplayStepLabel,
+                Is.EqualTo("4"));
             Assert.That(updated.ApprovalGates[0].AfterTaskIds, Does.Contain(amendment.TaskId));
+            Assert.That(updated.ApprovalGates[0].PresentationAnchor,
+                Is.EqualTo($"task-after:{amendment.TaskId}"));
             Assert.That(updated.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
             Assert.That(updated.Validations![0].AfterTaskIds, Does.Contain(amendment.TaskId));
             Assert.That(updated.Validations[0].Status, Is.EqualTo(PlanValidationStatus.Pending));
             Assert.That(updated.Progress, Is.EqualTo(new PlanProgress(1, 5)));
             Assert.That(updated.Revision, Is.Not.EqualTo(revision));
             Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(updated), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyGateAmendmentRequested_RewiresAllJoinBranchesThroughInsertedBarrier()
+    {
+        var group = new DecomposedTaskGroup(
+            "JOIN-001", "Joined approval", "feature/join", "Review joined work.",
+            [
+                new DecomposedSubTask("JOIN-001-001", "Left", [], "high", "Left"),
+                new DecomposedSubTask("JOIN-001-002", "Right", [], "high", "Right"),
+                new DecomposedSubTask("JOIN-001-003", "Continue left", ["JOIN-001-001"], "high", "Continue left"),
+                new DecomposedSubTask("JOIN-001-004", "Continue right", ["JOIN-001-002"], "high", "Continue right"),
+            ],
+            ApprovalGates:
+            [
+                new DecomposedGate("JOIN-001-G01", "Review joined work.",
+                    ["JOIN-001-001", "JOIN-001-002"], ["JOIN-001-003", "JOIN-001-004"]),
+            ]);
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId is "JOIN-001-001" or "JOIN-001-002"
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan, "JOIN-001-G01", null, "Polish joined result", "Polish both branches together.");
+        var amendment = updated.Tasks.Single(task => task.AmendmentGateId == "JOIN-001-G01");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(amendment.DependsOn,
+                Is.EquivalentTo(new[] { "JOIN-001-001", "JOIN-001-002" }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "JOIN-001-003").DependsOn,
+                Is.EqualTo(new[] { amendment.TaskId }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "JOIN-001-004").DependsOn,
+                Is.EqualTo(new[] { amendment.TaskId }));
+            Assert.That(updated.Tasks.ToList().IndexOf(amendment), Is.EqualTo(2));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(updated), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyGateAmendmentRequested_RefusesToRewriteStartedDownstreamHistory()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId switch
+            {
+                "GROUP-001-001" => task with { Status = PlanTaskStatus.Complete },
+                "GROUP-001-003" => task with { Status = PlanTaskStatus.Executing },
+                _ => task,
+            }).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan, "GROUP-001-G01", null, "Late amendment", "Do not rewrite history.");
+
+        Assert.That(updated, Is.SameAs(plan));
+    }
+
+    [Test]
+    public void ApplyGateAmendmentRequested_PreservesExecutedLaterLabelAndSuffixesPendingOverflow()
+    {
+        var group = new DecomposedTaskGroup(
+            "LABEL-001", "Stable labels", "feature/labels", "Keep historical labels.",
+            [
+                new DecomposedSubTask("LABEL-001-001", "Reviewed", [], "high", "Reviewed"),
+                new DecomposedSubTask("LABEL-001-002", "Future", ["LABEL-001-001"], "high", "Future"),
+                new DecomposedSubTask("LABEL-001-003", "Completed parallel work", [], "high", "Completed parallel work"),
+            ],
+            ApprovalGates:
+            [
+                new DecomposedGate("LABEL-001-G01", "Review.", ["LABEL-001-001"], ["LABEL-001-002"]),
+            ]);
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId is "LABEL-001-001" or "LABEL-001-003"
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan, "LABEL-001-G01", null, "Inserted", "Insert before future work.");
+        var amendment = updated.Tasks.Single(task => task.AmendmentGateId == "LABEL-001-G01");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("2"));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "LABEL-001-002").DisplayStepLabel,
+                Is.EqualTo("2A"));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "LABEL-001-003").DisplayStepLabel,
+                Is.EqualTo("3"));
+        });
+    }
+
+    [Test]
+    public void ApplyGateAmendmentRequested_RepeatedAmendmentDependsOnLatestAmendmentOnly()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+        };
+        var first = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan, "GROUP-001-G01", null, "First amendment", "First change.");
+        var firstAmendment = first.Tasks.Single(task => task.AmendmentGateId == "GROUP-001-G01");
+        first = first with
+        {
+            Tasks = first.Tasks.Select(task => task.TaskId == firstAmendment.TaskId
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            ApprovalGates = [first.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+        };
+
+        var second = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            first, "GROUP-001-G01", null, "Second amendment", "Second change.");
+        var secondAmendment = second.Tasks.Single(task => task.Title == "Second amendment");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(secondAmendment.DependsOn, Is.EqualTo(new[] { firstAmendment.TaskId }));
+            Assert.That(second.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
+                Is.EqualTo(new[] { secondAmendment.TaskId }));
+            Assert.That(second.ApprovalGates[0].PresentationAnchor,
+                Is.EqualTo($"task-after:{secondAmendment.TaskId}"));
+        });
+    }
+
+    [Test]
+    public void ApplyTaskInserted_AfterPendingTask_RewiresFutureWhileUnrelatedTaskRuns()
+    {
+        var group = new DecomposedTaskGroup(
+            "INSERT-001", "Dynamic insertion", "feature/insert", "Edit the future graph.",
+            [
+                new DecomposedSubTask("INSERT-001-001", "Running elsewhere", [], "high", "Running elsewhere"),
+                new DecomposedSubTask("INSERT-001-002", "Future source", [], "high", "Future source"),
+                new DecomposedSubTask("INSERT-001-003", "Future dependent", ["INSERT-001-002"], "high", "Future dependent"),
+            ],
+            ApprovalGates:
+            [
+                new DecomposedGate("INSERT-001-G01", "Review future source.",
+                    ["INSERT-001-002"], ["INSERT-001-003"]),
+            ]);
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = plan.Tasks.Select(task => task.TaskId == "INSERT-001-001"
+                ? task with { Status = PlanTaskStatus.Executing }
+                : task).ToArray(),
+            ApprovalGates =
+            [
+                plan.ApprovalGates[0] with { PresentationAnchor = "task-after:INSERT-001-002" },
+            ],
+            Progress = new PlanProgress(0, 3, "INSERT-001-001"),
+        };
+
+        var updated = PlanStoreUpdater.ApplyTaskInserted(
+            plan, "INSERT-001-002", insertAfter: true,
+            "Inserted review preparation", "Prepare the future result for review.");
+        var inserted = updated.Tasks.Single(task => task.TaskId.StartsWith("INSERT-001-INS-", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(inserted.DependsOn, Is.EqualTo(new[] { "INSERT-001-002" }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "INSERT-001-003").DependsOn,
+                Is.EqualTo(new[] { inserted.TaskId }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "INSERT-001-001").DisplayStepLabel,
+                Is.EqualTo("1"));
+            Assert.That(updated.Progress.ExecutingTaskId, Is.EqualTo("INSERT-001-001"));
+            Assert.That(updated.ApprovalGates[0].AfterTaskIds, Does.Contain(inserted.TaskId));
+            Assert.That(updated.ApprovalGates[0].PresentationAnchor,
+                Is.EqualTo($"task-after:{inserted.TaskId}"));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(updated), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyTaskInserted_BeforePendingTask_InheritsPrerequisitesAndMovesBoundary()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+
+        var updated = PlanStoreUpdater.ApplyTaskInserted(
+            plan, "GROUP-001-003", insertAfter: false,
+            "Prepare boundary", "Prepare before crossing.");
+        var inserted = updated.Tasks.Single(task => task.TaskId.StartsWith("GROUP-001-INS-", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(inserted.DependsOn, Is.EqualTo(new[] { "GROUP-001-001" }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
+                Is.EqualTo(new[] { inserted.TaskId }));
+            Assert.That(updated.ApprovalGates[0].BeforeTaskIds, Is.EqualTo(new[] { inserted.TaskId }));
+        });
+    }
+
+    [Test]
+    public void ApplyTaskInserted_AfterTaskRefusesStartedImmediateDependent()
+    {
+        var group = MakeGroup(3);
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-002"
+                ? task with { Status = PlanTaskStatus.Executing }
+                : task).ToArray(),
+        };
+
+        var updated = PlanStoreUpdater.ApplyTaskInserted(
+            plan, "GROUP-001-001", insertAfter: true, "Too late", "Do not insert.");
+
+        Assert.That(updated, Is.SameAs(plan));
+    }
+
+    [Test]
+    public void RepairInconsistentState_RepairsLegacyInterruptedAmendmentSiblingTopology()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        var amendment = new PlanTask(
+            "GROUP-001-AMD-001", "Legacy amendment", "Legacy sibling shape.",
+            ["GROUP-001-001"], "high", PlanTaskStatus.Executing,
+            AmendmentGateId: "GROUP-001-G01",
+            DisplayStepLabel: "5");
+        plan = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = plan.Tasks.Append(amendment).ToArray(),
+            ApprovalGates =
+            [
+                plan.ApprovalGates[0] with
+                {
+                    AfterTaskIds = ["GROUP-001-001", amendment.TaskId],
+                    PresentationAnchor = "all:GROUP-001-003",
+                },
+            ],
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.Tasks.Select(task => task.TaskId), Is.EqualTo(new[]
+            {
+                "GROUP-001-001", "GROUP-001-002", amendment.TaskId,
+                "GROUP-001-003", "GROUP-001-004",
+            }));
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
+                Is.EqualTo(new[] { amendment.TaskId }));
+            Assert.That(repaired.ApprovalGates[0].PresentationAnchor,
+                Is.EqualTo($"task-after:{amendment.TaskId}"));
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(repaired), Is.True);
         });
     }
 

@@ -208,7 +208,10 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskScrutinyReport>? ScrutinyHistory = null,
     [property: JsonPropertyName("amendmentGateId")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? AmendmentGateId = null);
+                                                string? AmendmentGateId = null,
+    [property: JsonPropertyName("displayStepLabel")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? DisplayStepLabel = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

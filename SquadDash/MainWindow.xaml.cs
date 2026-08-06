@@ -9302,11 +9302,18 @@ public partial class MainWindow : Window
                     ? AdoptVerifiedCommitRangeAsync
                     : AssessInterruptedPlanFromDurableAsync
                 : null;
+        var interruptedTaskIsAmendment = durablePlan?.Tasks.Any(task =>
+            string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(task.AmendmentGateId)) == true;
         var interruptedPrimaryActionLabel = hasRecordedTaskEvidence
-            ? "Review & Accept Completed Work"
+            ? interruptedTaskIsAmendment
+                ? "Review & Approve Amendment"
+                : "Review & Accept Completed Work"
             : null;
         var interruptedPrimaryActionHint = hasRecordedTaskEvidence
-            ? "Review the exact commit range recorded for this task attempt, then accept it and continue if it satisfies the task."
+            ? interruptedTaskIsAmendment
+                ? "Review the exact amendment commit range; accepting it also approves the checkpoint that requested the amendment."
+                : "Review the exact commit range recorded for this task attempt, then accept it and continue if it satisfies the task."
             : null;
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
@@ -12430,9 +12437,14 @@ public partial class MainWindow : Window
 
         if (review is not null)
         {
+            var reviewsAmendment = durablePlan!.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(task.AmendmentGateId));
             AddAsyncAction(
-                "Review & Accept Completed Work",
-                "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task.",
+                reviewsAmendment ? "Review & Approve Amendment" : "Review & Accept Completed Work",
+                reviewsAmendment
+                    ? "Review the amendment commit, changed files, and tests. Accepting it also approves the checkpoint that requested this amendment."
+                    : "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task.",
                 async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
         }
 
@@ -13302,6 +13314,15 @@ public partial class MainWindow : Window
                 "No Interrupted Task", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
+        var combinedAmendmentGate = string.IsNullOrWhiteSpace(pendingTask.AmendmentGateId)
+            ? null
+            : storedPlan.ApprovalGates.FirstOrDefault(gate =>
+                string.Equals(gate.GateId, pendingTask.AmendmentGateId, StringComparison.Ordinal) &&
+                gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+                gate.AfterTaskIds.Contains(pendingTask.TaskId, StringComparer.Ordinal) &&
+                gate.BeforeTaskIds.All(id => storedPlan.Tasks.Any(task =>
+                    string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                    task.Status == PlanTaskStatus.Pending)));
 
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
@@ -13457,15 +13478,18 @@ public partial class MainWindow : Window
         var warning = downstream.Count == 0
             ? string.Empty
             : "\n\nAlready-completed dependent tasks: " + string.Join(", ", downstream);
+        var combinedApprovalText = combinedAmendmentGate is null
+            ? ""
+            : " and approve the human checkpoint that requested this amendment";
         var confirmation = MessageBox.Show(
             this,
             $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
-            $"as the completed result for {taskId} and continue the plan?\n\n" +
+            $"as the completed result for {taskId}{combinedApprovalText} and continue the plan?\n\n" +
             $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
             $"Changed files:\n{changedFileLines}{warning}\n\n" +
             "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
             "Confirm that this preserved work satisfies the task.",
-            "Accept Commit and Continue",
+            combinedAmendmentGate is null ? "Accept Commit and Continue" : "Approve Amendment and Continue",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);
@@ -13515,6 +13539,17 @@ public partial class MainWindow : Window
                 items,
                 nextExecutingTaskId: null,
                 acceptedResult: syntheticResult);
+            if (combinedAmendmentGate is not null)
+            {
+                if (combinedAmendmentGate.Status == PlanGateStatus.Pending)
+                    updated = PlanStoreUpdater.ApplyGateReady(updated, combinedAmendmentGate.GateId);
+                var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
+                updated = PlanStoreUpdater.ApplyGateApproved(
+                    updated,
+                    combinedAmendmentGate.GateId,
+                    "Approved while accepting the host-validated amendment commit.",
+                    resolvedBy);
+            }
             var nextTaskId = updated.Tasks.FirstOrDefault(task =>
                 task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
             var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
@@ -13545,8 +13580,9 @@ public partial class MainWindow : Window
         }
 
         LoadTasksPanel();
-        ShowSystemTranscriptEntry(
-            $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task.");
+        ShowSystemTranscriptEntry(combinedAmendmentGate is null
+            ? $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task."
+            : $"✓ Accepted verified amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task.");
         await StartBackloggedDecomposeGroupAsync(
             currentGroup with { HostRevision = currentRevision },
             continuationTaskId: null,

@@ -26,8 +26,6 @@ internal static class PlanAgentAssignmentValidator
             return $"Task {taskId} did not launch its one host-observed generic primary worker.";
         if (attempt.GenericCompletedAt is null || attempt.GenericSucceeded != true)
             return $"Task {taskId}'s generic primary worker did not complete successfully in the current attempt.";
-        if (attempt.UnexpectedPrimaryToolCallIds is { Count: > 0 })
-            return $"Task {taskId} launched more than one generic primary worker.";
         if (attempt.GenericChildToolCallIds is { Count: > 0 })
             return $"Task {taskId}'s generic primary worker launched prohibited child workers.";
         if (reported is { Count: > 0 })

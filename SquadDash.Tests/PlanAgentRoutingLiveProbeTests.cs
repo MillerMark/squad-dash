@@ -97,7 +97,7 @@ internal sealed class PlanAgentRoutingLiveProbeTests
     // ------------------------------------------------------------------
 
     [Test]
-    public void GenericAttempt_SecondPrimaryToolCallId_ValidateGenericReturnsError()
+    public void GenericAttempt_SecondPrimaryToolCallId_PreservesWorkAndReportsAdvisory()
     {
         var attempt = PlanExecutionAttemptState.CreateGeneric(
             PlanId, TaskId, Revision, _workspacePath);
@@ -149,9 +149,13 @@ internal sealed class PlanAgentRoutingLiveProbeTests
             attempt.AttemptId,
             null);
 
-        Assert.That(validationError, Is.Not.Null,
-            "ValidateGeneric must reject an attempt with more than one generic primary worker.");
-        Assert.That(validationError, Does.Contain(TaskId));
+        Assert.Multiple(() =>
+        {
+            Assert.That(validationError, Is.Null,
+                "Additional coordinator helpers must not discard a successfully completed generic primary's work.");
+            Assert.That(PlanAgentAssignmentValidator.GetAdvisories(null, attempt),
+                Has.Some.Contains("additional helper"));
+        });
     }
 
     // ------------------------------------------------------------------

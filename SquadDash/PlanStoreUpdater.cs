@@ -846,6 +846,46 @@ internal static class PlanStoreUpdater
                     task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)))
             return existing;
 
+        // An approval-boundary amendment is a graph insertion, not an independent sibling task.
+        // Only the unstarted side of the boundary may be rewritten. Unrelated plan branches may
+        // continue running, but accepted or active downstream history is immutable.
+        var beforeIds = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+        if (beforeIds.Count == 0 || existing.Tasks
+                .Where(task => beforeIds.Contains(task.TaskId))
+                .Any(task => task.Status != PlanTaskStatus.Pending))
+            return existing;
+
+        var taskById = existing.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        if (beforeIds.Any(id => !taskById.ContainsKey(id))) return existing;
+
+        // Gates retain previously reviewed task IDs as durable evidence. Repeated amendments need
+        // only the latest frontier, otherwise every amendment accumulates redundant ancestor edges.
+        var reviewedIds = gate.AfterTaskIds
+            .Where(taskById.ContainsKey)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var reviewedSet = reviewedIds.ToHashSet(StringComparer.Ordinal);
+        bool IsAncestorOf(string possibleAncestor, string taskId)
+        {
+            var pending = new Stack<string>(taskById[taskId].DependsOn);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            while (pending.Count > 0)
+            {
+                var candidate = pending.Pop();
+                if (!visited.Add(candidate)) continue;
+                if (string.Equals(candidate, possibleAncestor, StringComparison.Ordinal)) return true;
+                if (!taskById.TryGetValue(candidate, out var prerequisite)) continue;
+                foreach (var dependency in prerequisite.DependsOn) pending.Push(dependency);
+            }
+            return false;
+        }
+        var reviewedFrontier = reviewedIds
+            .Where(candidate => !reviewedIds.Any(other =>
+                !string.Equals(candidate, other, StringComparison.Ordinal) &&
+                IsAncestorOf(candidate, other)))
+            .ToArray();
+        if (reviewedFrontier.Length == 0) return existing;
+
         var amendmentNumber = 1;
         string amendmentId;
         do
@@ -862,18 +902,36 @@ internal static class PlanStoreUpdater
             "have implemented part of this amendment during the approval pause. Complete only the " +
             "remaining bounded work, integrate it with the accumulated result, and return normal task " +
             $"handoff evidence. Requested amendment: {instructions.Trim().ReplaceLineEndings(" ")}",
-            related,
+            reviewedFrontier,
             "high",
             PlanTaskStatus.Pending,
             AgentRoutingMode: "generic",
             GenericAgentReason: "This user-authored boundary amendment may span accepted task contracts and has no preapproved roster assignment.",
             AmendmentGateId: gateId);
 
-        var updatedTasks = existing.Tasks.Append(amendment).ToArray();
+        var firstDownstreamIndex = existing.Tasks
+            .Select((task, index) => (task, index))
+            .Where(entry => beforeIds.Contains(entry.task.TaskId))
+            .Min(entry => entry.index);
+        var updatedTasks = existing.Tasks
+            .Select(task => beforeIds.Contains(task.TaskId)
+                ? task with
+                {
+                    DependsOn = task.DependsOn
+                        .Where(id => !reviewedSet.Contains(id))
+                        .Append(amendmentId)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray(),
+                }
+                : task)
+            .ToList();
+        updatedTasks.Insert(firstDownstreamIndex, amendment);
+        updatedTasks = AssignMutableDisplayStepLabels(existing.Tasks, updatedTasks).ToList();
         var now = DateTimeOffset.UtcNow;
         var updatedGate = gate with
         {
             AfterTaskIds = gate.AfterTaskIds.Append(amendmentId).Distinct(StringComparer.Ordinal).ToArray(),
+            PresentationAnchor = $"task-after:{amendmentId}",
             Status = PlanGateStatus.Pending,
             RequestedAt = null,
             NotifiedAt = null,
@@ -891,7 +949,7 @@ internal static class PlanStoreUpdater
                 : candidate)
             .ToArray();
 
-        var affected = related.ToHashSet(StringComparer.Ordinal);
+        var affected = gate.AfterTaskIds.ToHashSet(StringComparer.Ordinal);
         var updatedValidations = existing.Validations?.Select(validation =>
         {
             if (!validation.AfterTaskIds.Any(affected.Contains)) return validation;
@@ -934,6 +992,221 @@ internal static class PlanStoreUpdater
             ApprovalGates = preliminary.ApprovalGates
                 .Select(candidate => candidate with { PlanRevision = revision })
                 .ToArray(),
+        };
+    }
+
+    /// <summary>
+    /// Preserves labels that have entered execution history and freely renumbers the pending
+    /// portions around them. Alphabetic suffixes are used only when there are more pending entries
+    /// between two fixed numeric labels than the original numeric gap can hold.
+    /// </summary>
+    private static IReadOnlyList<PlanTask> AssignMutableDisplayStepLabels(
+        IReadOnlyList<PlanTask> originalTasks,
+        IReadOnlyList<PlanTask> reorderedTasks)
+    {
+        var originalById = originalTasks
+            .Select((task, index) => (task.TaskId, Label: task.DisplayStepLabel ?? (index + 1).ToString()))
+            .ToDictionary(entry => entry.TaskId, entry => entry.Label, StringComparer.Ordinal);
+        var labels = new string?[reorderedTasks.Count];
+        for (var index = 0; index < reorderedTasks.Count; index++)
+        {
+            var task = reorderedTasks[index];
+            if (task.Status != PlanTaskStatus.Pending && originalById.TryGetValue(task.TaskId, out var fixedLabel))
+                labels[index] = fixedLabel;
+        }
+
+        var segmentStart = 0;
+        while (segmentStart < reorderedTasks.Count)
+        {
+            if (labels[segmentStart] is not null)
+            {
+                segmentStart++;
+                continue;
+            }
+
+            var segmentEnd = segmentStart;
+            while (segmentEnd + 1 < reorderedTasks.Count && labels[segmentEnd + 1] is null)
+                segmentEnd++;
+
+            var previousNumber = segmentStart > 0 &&
+                                 int.TryParse(labels[segmentStart - 1], out var parsedPrevious)
+                ? parsedPrevious
+                : 0;
+            var nextNumber = 0;
+            var hasNextNumber = segmentEnd + 1 < reorderedTasks.Count &&
+                                int.TryParse(labels[segmentEnd + 1], out nextNumber);
+            var numericSlots = hasNextNumber
+                ? Math.Max(0, nextNumber - previousNumber - 1)
+                : int.MaxValue;
+
+            for (var offset = 0; offset <= segmentEnd - segmentStart; offset++)
+            {
+                labels[segmentStart + offset] = offset < numericSlots
+                    ? (previousNumber + offset + 1).ToString()
+                    : $"{Math.Max(previousNumber, nextNumber - 1)}{ToAlphabeticSuffix(offset - numericSlots + 1)}";
+            }
+            segmentStart = segmentEnd + 1;
+        }
+
+        return reorderedTasks.Select((task, index) => task with
+        {
+            DisplayStepLabel = labels[index] ?? (index + 1).ToString(),
+        }).ToArray();
+    }
+
+    private static string ToAlphabeticSuffix(int value)
+    {
+        var chars = new Stack<char>();
+        do
+        {
+            value--;
+            chars.Push((char)('A' + value % 26));
+            value /= 26;
+        } while (value > 0);
+        return new string(chars.ToArray());
+    }
+
+    internal static bool CanInsertTask(Plan plan, string targetTaskId, bool insertAfter)
+    {
+        var target = plan.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, targetTaskId, StringComparison.Ordinal));
+        if (target is null || target.Status != PlanTaskStatus.Pending) return false;
+        if (!insertAfter) return true;
+
+        return plan.Tasks
+            .Where(task => task.DependsOn.Contains(targetTaskId, StringComparer.Ordinal))
+            .All(task => task.Status == PlanTaskStatus.Pending);
+    }
+
+    /// <summary>
+    /// Inserts user-authored work into the still-mutable plan graph. This operation is valid while
+    /// a different task is executing, but it never rewrites a task that has started or completed.
+    /// </summary>
+    internal static Plan ApplyTaskInserted(
+        Plan existing,
+        string targetTaskId,
+        bool insertAfter,
+        string title,
+        string description)
+    {
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) ||
+            !CanInsertTask(existing, targetTaskId, insertAfter))
+            return existing;
+
+        var targetIndex = existing.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.TaskId, targetTaskId, StringComparison.Ordinal));
+        if (targetIndex < 0) return existing;
+        var target = existing.Tasks[targetIndex];
+        var insertionNumber = 1;
+        string insertionId;
+        do
+        {
+            insertionId = $"{existing.PlanId}-INS-{insertionNumber:000}";
+            insertionNumber++;
+        } while (existing.Tasks.Any(task => string.Equals(task.TaskId, insertionId, StringComparison.Ordinal)));
+
+        var insertion = new PlanTask(
+            insertionId,
+            title.Trim(),
+            description.Trim(),
+            insertAfter ? [targetTaskId] : target.DependsOn.ToArray(),
+            "high",
+            PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This task was added interactively after plan approval and has no preapproved roster assignment.");
+
+        var immediateDependents = existing.Tasks
+            .Where(task => task.DependsOn.Contains(targetTaskId, StringComparer.Ordinal))
+            .Select(task => task.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
+        var tasks = existing.Tasks.Select(task =>
+        {
+            if (!insertAfter && string.Equals(task.TaskId, targetTaskId, StringComparison.Ordinal))
+                return task with { DependsOn = [insertionId] };
+            if (insertAfter && immediateDependents.Contains(task.TaskId))
+                return task with
+                {
+                    DependsOn = task.DependsOn
+                        .Select(id => string.Equals(id, targetTaskId, StringComparison.Ordinal)
+                            ? insertionId
+                            : id)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray(),
+                };
+            return task;
+        }).ToList();
+        tasks.Insert(targetIndex + (insertAfter ? 1 : 0), insertion);
+        tasks = AssignMutableDisplayStepLabels(existing.Tasks, tasks).ToList();
+
+        IReadOnlyList<string> MoveBeforeBoundary(IReadOnlyList<string> ids) =>
+            ids.Select(id => string.Equals(id, targetTaskId, StringComparison.Ordinal) ? insertionId : id)
+                .Distinct(StringComparer.Ordinal).ToArray();
+        var gates = existing.ApprovalGates.Select(gate =>
+        {
+            if (!insertAfter && gate.BeforeTaskIds.Contains(targetTaskId, StringComparer.Ordinal))
+                return gate with { BeforeTaskIds = MoveBeforeBoundary(gate.BeforeTaskIds) };
+            if (insertAfter && gate.AfterTaskIds.Contains(targetTaskId, StringComparer.Ordinal))
+            {
+                var anchor = string.Equals(gate.PresentationAnchor, $"task-after:{targetTaskId}", StringComparison.Ordinal)
+                    ? $"task-after:{insertionId}"
+                    : gate.PresentationAnchor;
+                return gate with
+                {
+                    AfterTaskIds = gate.AfterTaskIds.Append(insertionId)
+                        .Distinct(StringComparer.Ordinal).ToArray(),
+                    PresentationAnchor = anchor,
+                };
+            }
+            return gate;
+        }).ToArray();
+
+        var validations = existing.Validations?.Select(validation =>
+        {
+            if (!insertAfter && validation.BeforeTaskIds.Contains(targetTaskId, StringComparer.Ordinal))
+                return validation with
+                {
+                    BeforeTaskIds = MoveBeforeBoundary(validation.BeforeTaskIds),
+                    Status = PlanValidationStatus.Pending,
+                    StartedAt = null,
+                    CompletedAt = null,
+                    ValidatedCommit = null,
+                    Summary = null,
+                    Evidence = null,
+                };
+            if (insertAfter && validation.AfterTaskIds.Contains(targetTaskId, StringComparer.Ordinal))
+                return validation with
+                {
+                    AfterTaskIds = validation.AfterTaskIds.Append(insertionId)
+                        .Distinct(StringComparer.Ordinal).ToArray(),
+                    Status = PlanValidationStatus.Pending,
+                    StartedAt = null,
+                    CompletedAt = null,
+                    ValidatedCommit = null,
+                    Summary = null,
+                    Evidence = null,
+                };
+            return validation;
+        }).ToArray();
+
+        var preliminary = existing with
+        {
+            Tasks = tasks,
+            ApprovalGates = gates,
+            Validations = validations,
+            Progress = new PlanProgress(
+                tasks.Count(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded),
+                tasks.Count(task => task.Status != PlanTaskStatus.Superseded),
+                existing.Progress.ExecutingTaskId),
+            Timestamps = existing.Timestamps with { LastRunAt = DateTimeOffset.UtcNow },
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates
+                .Select(gate => gate with { PlanRevision = revision }).ToArray(),
         };
     }
 
@@ -1113,6 +1386,8 @@ internal static class PlanStoreUpdater
     /// </remarks>
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
+        plan = RepairLegacyAmendmentTopology(plan);
+
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
             return plan;
@@ -1171,6 +1446,88 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Earlier builds appended approval amendments as sibling tasks. Repair that durable shape on
+    /// load when its downstream boundary is still entirely unstarted. Interrupted amendment work
+    /// is preserved; only the future graph, primary anchor, and display ordering are corrected.
+    /// </summary>
+    private static Plan RepairLegacyAmendmentTopology(Plan plan)
+    {
+        var tasks = plan.Tasks.ToList();
+        var gates = plan.ApprovalGates.ToArray();
+        var changed = false;
+
+        for (var gateIndex = 0; gateIndex < gates.Length; gateIndex++)
+        {
+            var gate = gates[gateIndex];
+            var amendmentTasks = tasks
+                .Where(task => string.Equals(task.AmendmentGateId, gate.GateId, StringComparison.Ordinal))
+                .ToArray();
+            if (amendmentTasks.Length == 0) continue;
+
+            var beforeIds = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+            if (beforeIds.Count == 0 || beforeIds.Any(id => !tasks.Any(task =>
+                    string.Equals(task.TaskId, id, StringComparison.Ordinal))) || tasks
+                    .Where(task => beforeIds.Contains(task.TaskId))
+                    .Any(task => task.Status != PlanTaskStatus.Pending))
+                continue;
+
+            var latestAmendment = amendmentTasks[^1];
+            var topologyIsCurrent = tasks
+                .Where(task => beforeIds.Contains(task.TaskId))
+                .All(task => task.DependsOn.Contains(latestAmendment.TaskId, StringComparer.Ordinal)) &&
+                string.Equals(gate.PresentationAnchor,
+                    $"task-after:{latestAmendment.TaskId}", StringComparison.Ordinal) &&
+                tasks.IndexOf(latestAmendment) < tasks.FindIndex(task => beforeIds.Contains(task.TaskId));
+            if (topologyIsCurrent) continue;
+
+            var amendmentIds = amendmentTasks.Select(task => task.TaskId)
+                .ToHashSet(StringComparer.Ordinal);
+            var reviewedIds = gate.AfterTaskIds.ToHashSet(StringComparer.Ordinal);
+            for (var amendmentIndex = 0; amendmentIndex < amendmentTasks.Length; amendmentIndex++)
+            {
+                var amendment = amendmentTasks[amendmentIndex];
+                var dependencies = amendmentIndex == 0
+                    ? amendment.DependsOn.Where(id => !amendmentIds.Contains(id)).ToArray()
+                    : [amendmentTasks[amendmentIndex - 1].TaskId];
+                var position = tasks.FindIndex(task =>
+                    string.Equals(task.TaskId, amendment.TaskId, StringComparison.Ordinal));
+                tasks[position] = amendment with { DependsOn = dependencies };
+            }
+
+            tasks = tasks.Select(task => beforeIds.Contains(task.TaskId)
+                ? task with
+                {
+                    DependsOn = task.DependsOn
+                        .Where(id => !reviewedIds.Contains(id))
+                        .Append(latestAmendment.TaskId)
+                        .Distinct(StringComparer.Ordinal).ToArray(),
+                }
+                : task).ToList();
+            var orderedAmendments = tasks.Where(task => amendmentIds.Contains(task.TaskId)).ToArray();
+            tasks.RemoveAll(task => amendmentIds.Contains(task.TaskId));
+            var insertionIndex = tasks.FindIndex(task => beforeIds.Contains(task.TaskId));
+            tasks.InsertRange(insertionIndex, orderedAmendments);
+            gates[gateIndex] = gate with
+            {
+                PresentationAnchor = $"task-after:{latestAmendment.TaskId}",
+            };
+            changed = true;
+        }
+
+        if (!changed) return plan;
+        tasks = AssignMutableDisplayStepLabels(plan.Tasks, tasks).ToList();
+        var preliminary = plan with { Tasks = tasks, ApprovalGates = gates };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = gates.Select(gate => gate with { PlanRevision = revision }).ToArray(),
+        };
+    }
+
+    /// <summary>
     /// Maps <paramref name="subtasks"/> to <see cref="PlanTask"/> records,
     /// reading each task's current status from the matching <see cref="TaskItem"/>.
     /// </summary>
@@ -1182,7 +1539,7 @@ internal static class PlanStoreUpdater
             .Where(i => i.TaskId is not null)
             .ToDictionary(i => i.TaskId!, StringComparer.Ordinal);
 
-        return subtasks.Select(sub =>
+        return subtasks.Select((sub, index) =>
         {
             byId.TryGetValue(sub.Id, out var item);
             return new PlanTask(
@@ -1199,7 +1556,8 @@ internal static class PlanStoreUpdater
                 GenericAgentReason: sub.GenericAgentReason,
                 Outputs: MapOutputs(sub.Outputs),
                 Inputs: sub.Inputs,
-                ProofRequirements: MapProofRequirements(sub.ProofRequirements));
+                ProofRequirements: MapProofRequirements(sub.ProofRequirements),
+                DisplayStepLabel: (index + 1).ToString());
         }).ToList();
     }
 
@@ -1217,11 +1575,11 @@ internal static class PlanStoreUpdater
             .Where(item => item.TaskId is not null)
             .ToDictionary(item => item.TaskId!, StringComparer.Ordinal);
 
-        return subtasks.Select(sub =>
+        return subtasks.Select((sub, index) =>
         {
             itemsById.TryGetValue(sub.Id, out var item);
             if (!existingById.TryGetValue(sub.Id, out var durable))
-                return CreatePlanTask(sub, item);
+                return CreatePlanTask(sub, item) with { DisplayStepLabel = (index + 1).ToString() };
 
             return durable with
             {
@@ -1238,6 +1596,7 @@ internal static class PlanStoreUpdater
                 Outputs            = MapOutputs(sub.Outputs),
                 Inputs             = sub.Inputs,
                 ProofRequirements  = MapProofRequirements(sub.ProofRequirements),
+                DisplayStepLabel   = durable.DisplayStepLabel ?? (index + 1).ToString(),
             };
         }).ToList();
     }

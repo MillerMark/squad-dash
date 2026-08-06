@@ -1463,8 +1463,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             ? new Dictionary<string, PlanTaskActivityState>(StringComparer.Ordinal)
             : PlanTaskActivityResolver.Resolve(durablePlan);
         var taskOrdinalById = group.Tasks
-            .Select((task, index) => (task.Id, StepNumber: index + 1))
-            .ToDictionary(item => item.Id, item => item.StepNumber, StringComparer.Ordinal);
+            .Select((task, index) => (task.Id, StepLabel:
+                durablePlan?.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, task.Id, StringComparison.Ordinal))?.DisplayStepLabel
+                ?? (index + 1).ToString()))
+            .ToDictionary(item => item.Id, item => item.StepLabel, StringComparer.Ordinal);
 
         foreach (var task in group.Tasks)
         {
@@ -1701,6 +1704,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
 
                 var contextMenu = new ContextMenu();
+                var canInsertBefore = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: false);
+                var canInsertAfter = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: true);
+                contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: false, canInsertBefore));
+                contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: true, canInsertAfter));
+                contextMenu.Items.Add(new Separator());
                 if (!PlanGateManager.IsRootTask(durablePlan, capturedTask.Id))
                     contextMenu.Items.Add(addBeforeItem);
                 if (!PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id))
@@ -1742,6 +1750,44 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 if (contextMenu.Items.Count > 0)
                     border.ContextMenu = contextMenu;
+
+                MenuItem CreateInsertTaskMenuItem(bool insertAfter, bool isEnabled)
+                {
+                    var relativePosition = insertAfter ? "after" : "before";
+                    var item = new MenuItem
+                    {
+                        Header = $"Insert task {relativePosition}…",
+                        IsEnabled = isEnabled,
+                        ToolTip = isEnabled
+                            ? ToolTipHelper.MakeThemedToolTip(
+                                $"Add a new task {relativePosition} this still-pending task and update its future dependencies.")
+                            : ToolTipHelper.MakeThemedToolTip(
+                                "Only the unstarted downstream portion of a plan can be changed."),
+                    };
+                    item.Click += (_, _) =>
+                    {
+                        var owner = Window.GetWindow(border) ?? Application.Current.MainWindow;
+                        var newTitle = SimpleInputDialog.Show(
+                            owner,
+                            $"Enter a short title for the task to insert {relativePosition} “{capturedTask.Title ?? capturedTask.Id}”:",
+                            $"Insert Task {relativePosition}");
+                        if (newTitle is null) return;
+                        var newDescription = SimpleInputDialog.Show(
+                            owner,
+                            "Describe the result this task must produce:",
+                            "Describe Inserted Task",
+                            newTitle);
+                        if (newDescription is null) return;
+                        var updated = PlanStoreUpdater.ApplyTaskInserted(
+                            durablePlan,
+                            capturedTask.Id,
+                            insertAfter,
+                            newTitle,
+                            newDescription);
+                        if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
+                    };
+                    return item;
+                }
             }
 
             // Hover: show glow on all connectors entering/exiting this task, bring them forward,

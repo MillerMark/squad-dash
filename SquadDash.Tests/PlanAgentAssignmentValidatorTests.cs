@@ -164,7 +164,31 @@ internal sealed class PlanAgentAssignmentValidatorTests
 
         var secondPrimary = generic.RecordGenericPrimaryLaunch(launch with { ToolCallId = "tool-second" });
         Assert.That(PlanAgentAssignmentValidator.ValidateGeneric(
-            secondPrimary.TaskId, secondPrimary.Revision, secondPrimary, secondPrimary.AttemptId, null), Does.Contain("more than one"));
+            secondPrimary.TaskId, secondPrimary.Revision, secondPrimary, secondPrimary.AttemptId, null), Is.Null);
+        Assert.That(PlanAgentAssignmentValidator.GetAdvisories(null, secondPrimary),
+            Has.Some.Contains("additional helper"));
+    }
+
+    [Test]
+    public void GenericLaunchEvidence_IgnoresLifecycleReplayOfSameToolCall()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            "TASK-20260728", "TASK-20260728-001", "rev-1", TestContext.CurrentContext.WorkDirectory);
+        var launch = new BackgroundAgentLaunchInfo(
+            "tool-generic", "worker", "background", "Temporary Agent", null, null, null,
+            "general-purpose", null, null, null, null, false,
+            StartedAt: attempt.StartedAt.AddSeconds(1));
+
+        var once = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        var replayed = PlanExecutionEvidenceRecorder.RecordLaunch(
+            once, launch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(replayed, Is.EqualTo(once));
+            Assert.That(replayed.GenericPrimaryToolCallId, Is.EqualTo("tool-generic"));
+            Assert.That(replayed.UnexpectedPrimaryToolCallIds, Is.Null);
+        });
     }
 
     private static PlanExecutionAttemptState Attempt(

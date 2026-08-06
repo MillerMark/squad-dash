@@ -301,6 +301,11 @@ internal static class PlanExecutionEvidenceRecorder
         bool launchedByCoordinator,
         string? ownerPrimaryToolCallId)
     {
+        // Tool lifecycle snapshots can replay the same launch at start and completion. Treat the
+        // host tool-call identity as the idempotency key so one paid worker is never counted twice.
+        if (HasObservedToolCallId(attempt, launch.ToolCallId))
+            return attempt;
+
         if (launchedByCoordinator)
         {
             if (launch.IsVerifiedRosterAssignment)
@@ -314,4 +319,12 @@ internal static class PlanExecutionEvidenceRecorder
             ? attempt
             : attempt.RecordChildLaunch(ownerPrimaryToolCallId, launch.ToolCallId);
     }
+
+    private static bool HasObservedToolCallId(PlanExecutionAttemptState attempt, string toolCallId) =>
+        string.Equals(attempt.GenericPrimaryToolCallId, toolCallId, StringComparison.Ordinal) ||
+        (attempt.GenericChildToolCallIds?.Contains(toolCallId, StringComparer.Ordinal) ?? false) ||
+        (attempt.UnexpectedPrimaryToolCallIds?.Contains(toolCallId, StringComparer.Ordinal) ?? false) ||
+        attempt.Assignments.Any(assignment =>
+            string.Equals(assignment.PrimaryToolCallId, toolCallId, StringComparison.Ordinal) ||
+            (assignment.ChildToolCallIds?.Contains(toolCallId, StringComparer.Ordinal) ?? false));
 }
