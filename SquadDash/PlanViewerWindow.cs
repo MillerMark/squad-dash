@@ -3746,7 +3746,322 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     // Tasks 004/005 populate the detail panel
-    private void RefreshDetailPanel() { }
+    private void RefreshDetailPanel()
+    {
+        if (_detailDocument is null)
+            return;
+
+        if (_selectedElement is null)
+        {
+            _detailDocument.Blocks.Clear();
+            var placeholder = new Paragraph(new Run("Select an element to view details."));
+            placeholder.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            placeholder.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(placeholder);
+            return;
+        }
+
+        if (_selectedElement.Kind == "task")
+        {
+            var durableTask = _durablePlan?.Tasks.FirstOrDefault(t => t.TaskId == _selectedElement.Id);
+            if (durableTask is not null)
+            {
+                PopulateTaskDetail(durableTask, _durablePlan!);
+            }
+            else
+            {
+                var subTask = _plan?.Group.Tasks.FirstOrDefault(t => t.Id == _selectedElement.Id);
+                if (subTask is not null)
+                {
+                    // Build a minimal PlanTask from the DecomposedSubTask
+                    var minimalTask = new PlanTask(
+                        subTask.Id,
+                        subTask.Title,
+                        subTask.Description,
+                        subTask.DependsOn,
+                        subTask.Priority,
+                        PlanTaskStatus.Pending,
+                        AgentAssignments: subTask.AgentAssignments?.Select(a =>
+                            new PlanAgentAssignment(a.AgentHandle, a.Role, a.AllowGenericChildren)).ToList());
+                    PopulateTaskDetail(minimalTask, null!);
+                }
+            }
+        }
+        // Other kinds (validation, gate, milestone, stage) handled by task 005
+    }
+
+    private void PopulateTaskDetail(PlanTask task, Plan plan)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // 1. Title
+        var titlePara = new Paragraph(new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // 2. Status with color-coded indicator
+        var statusColorKey = GetTaskStatusColorKey(task.Status);
+        var statusRun = new Run($"● {FormatTaskStatus(task.Status)}");
+        statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+        var statusPara = new Paragraph(statusRun);
+        statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        statusPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(statusPara);
+
+        // 3. Description
+        if (!string.IsNullOrWhiteSpace(task.Description))
+        {
+            var descPara = new Paragraph(new Run(task.Description));
+            descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            descPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(descPara);
+        }
+
+        // 4. Dependencies
+        if (task.DependsOn is { Count: > 0 })
+        {
+            AddSectionHeader("Dependencies");
+            var depList = new List();
+            depList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            depList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            depList.MarkerStyle = TextMarkerStyle.Disc;
+            depList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var depId in task.DependsOn)
+            {
+                var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
+                var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
+                var depStatus = depTask is not null ? $" ({FormatTaskStatus(depTask.Status)})" : "";
+                var item = new ListItem(new Paragraph(new Run($"{depTitle}{depStatus}")));
+                depList.ListItems.Add(item);
+            }
+            _detailDocument.Blocks.Add(depList);
+        }
+
+        // 5. Agent Assignments
+        if (task.AgentAssignments is { Count: > 0 })
+        {
+            AddSectionHeader("Agent Assignments");
+            var agentList = new List();
+            agentList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            agentList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            agentList.MarkerStyle = TextMarkerStyle.None;
+            agentList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var assignment in task.AgentAssignments)
+            {
+                var agentPara = new Paragraph();
+                var handleRun = new Run(assignment.AgentHandle) { FontWeight = FontWeights.SemiBold };
+                handleRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+                agentPara.Inlines.Add(handleRun);
+                agentPara.Inlines.Add(new Run($" — {assignment.Role}"));
+                agentList.ListItems.Add(new ListItem(agentPara));
+            }
+            _detailDocument.Blocks.Add(agentList);
+        }
+
+        // 6. Completion Summary
+        if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
+        {
+            AddSectionHeader("Completion Summary");
+            var summaryPara = new Paragraph(new Run(task.CompletionSummary));
+            summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            summaryPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(summaryPara);
+        }
+
+        // 7. Commit
+        if (!string.IsNullOrWhiteSpace(task.Commit))
+        {
+            AddSectionHeader("Commit");
+            var commitPara = new Paragraph(new Run(task.Commit) { FontFamily = new FontFamily("Consolas") });
+            commitPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            commitPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(commitPara);
+        }
+
+        // 8. Handoff
+        if (task.Handoff is { } handoff)
+        {
+            AddSectionHeader("Handoff");
+
+            var handoffCommitPara = new Paragraph();
+            handoffCommitPara.Inlines.Add(new Run("Commit: ") { FontWeight = FontWeights.SemiBold });
+            handoffCommitPara.Inlines.Add(new Run(handoff.Commit) { FontFamily = new FontFamily("Consolas") });
+            handoffCommitPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            handoffCommitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(handoffCommitPara);
+
+            if (!string.IsNullOrWhiteSpace(handoff.Summary))
+            {
+                var hSummaryPara = new Paragraph(new Run(handoff.Summary));
+                hSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                hSummaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                _detailDocument.Blocks.Add(hSummaryPara);
+            }
+
+            if (handoff.ChangedFiles is { Count: > 0 })
+            {
+                var filesPara = new Paragraph(new Run("Changed Files:") { FontWeight = FontWeights.SemiBold });
+                filesPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+                filesPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                _detailDocument.Blocks.Add(filesPara);
+
+                var fileList = new List();
+                fileList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                fileList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                fileList.MarkerStyle = TextMarkerStyle.None;
+                foreach (var file in handoff.ChangedFiles)
+                    fileList.ListItems.Add(new ListItem(new Paragraph(new Run(file) { FontFamily = new FontFamily("Consolas") })));
+                _detailDocument.Blocks.Add(fileList);
+            }
+
+            if (handoff.Verification is { } ver)
+            {
+                var verPara = new Paragraph();
+                verPara.Inlines.Add(new Run("Verification: ") { FontWeight = FontWeights.SemiBold });
+                verPara.Inlines.Add(new Run(ver.Status ?? "unknown"));
+                verPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                verPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                _detailDocument.Blocks.Add(verPara);
+            }
+
+            if (handoff.DeferredWork is { Count: > 0 })
+            {
+                var deferHeader = new Paragraph(new Run("Deferred Work:") { FontWeight = FontWeights.SemiBold });
+                deferHeader.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+                deferHeader.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                _detailDocument.Blocks.Add(deferHeader);
+
+                var deferList = new List();
+                deferList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                deferList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                deferList.MarkerStyle = TextMarkerStyle.Disc;
+                foreach (var dw in handoff.DeferredWork)
+                {
+                    var dwPara = new Paragraph();
+                    dwPara.Inlines.Add(new Run(dw.Requirement) { FontWeight = FontWeights.SemiBold });
+                    dwPara.Inlines.Add(new Run($" — {dw.Reason}"));
+                    deferList.ListItems.Add(new ListItem(dwPara));
+                }
+                _detailDocument.Blocks.Add(deferList);
+            }
+
+            // Spacing after handoff section
+            var handoffSpacer = new Paragraph { Margin = new Thickness(0, 0, 0, 12) };
+            _detailDocument.Blocks.Add(handoffSpacer);
+        }
+
+        // 9. Verification History
+        if (task.VerificationHistory is { Count: > 0 })
+        {
+            AddSectionHeader("Verification History");
+            foreach (var report in task.VerificationHistory)
+            {
+                var verdictPara = new Paragraph();
+                var verdictColorKey = report.Verdict.Equals("accepted", StringComparison.OrdinalIgnoreCase)
+                    ? "PriorityLow" : "PriorityHigh";
+                var verdictRun = new Run($"● {report.Verdict}") { FontWeight = FontWeights.SemiBold };
+                verdictRun.SetResourceReference(TextElement.ForegroundProperty, verdictColorKey);
+                verdictPara.Inlines.Add(verdictRun);
+                verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt:yyyy-MM-dd HH:mm})"));
+                verdictPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                _detailDocument.Blocks.Add(verdictPara);
+
+                if (!string.IsNullOrWhiteSpace(report.Summary))
+                {
+                    var rSummaryPara = new Paragraph(new Run(report.Summary));
+                    rSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    rSummaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                    rSummaryPara.Margin = new Thickness(8, 0, 0, 4);
+                    _detailDocument.Blocks.Add(rSummaryPara);
+                }
+
+                if (report.ClaimFindings is { Count: > 0 })
+                {
+                    var findingList = new List();
+                    findingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    findingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                    findingList.MarkerStyle = TextMarkerStyle.None;
+                    findingList.Margin = new Thickness(8, 0, 0, 8);
+                    foreach (var finding in report.ClaimFindings)
+                    {
+                        var fPara = new Paragraph();
+                        var dispositionColor = finding.Disposition.Equals("confirmed", StringComparison.OrdinalIgnoreCase)
+                            ? "PriorityLow" : "PriorityMid";
+                        var dispRun = new Run($"[{finding.Disposition}] ");
+                        dispRun.SetResourceReference(TextElement.ForegroundProperty, dispositionColor);
+                        fPara.Inlines.Add(dispRun);
+                        fPara.Inlines.Add(new Run(finding.Claim));
+                        findingList.ListItems.Add(new ListItem(fPara));
+                    }
+                    _detailDocument.Blocks.Add(findingList);
+                }
+            }
+        }
+
+        // 10. Proof Evidence
+        if (task.ProofEvidence is { Count: > 0 })
+        {
+            AddSectionHeader("Proof Evidence");
+            var proofList = new List();
+            proofList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            proofList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+            proofList.MarkerStyle = TextMarkerStyle.None;
+            proofList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var proof in task.ProofEvidence)
+            {
+                var proofPara = new Paragraph();
+                proofPara.Inlines.Add(new Run($"[{proof.ProofType}] ") { FontWeight = FontWeights.SemiBold });
+                proofPara.Inlines.Add(new Run($"{proof.RequirementId}: {proof.Summary}"));
+                proofList.ListItems.Add(new ListItem(proofPara));
+            }
+            _detailDocument.Blocks.Add(proofList);
+        }
+    }
+
+    private void AddSectionHeader(string text)
+    {
+        if (_detailDocument is null) return;
+        var header = new Paragraph(new Run(text) { FontWeight = FontWeights.SemiBold });
+        header.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+        header.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        header.Margin = new Thickness(0, 4, 0, 2);
+        _detailDocument.Blocks.Add(header);
+    }
+
+    private static string GetTaskStatusColorKey(string? status) => status switch
+    {
+        PlanTaskStatus.Complete or PlanTaskStatus.Superseded => "PriorityLow",
+        PlanTaskStatus.Executing => "ActivePanelBorder",
+        PlanTaskStatus.Reworking => "PriorityMid",
+        PlanTaskStatus.VerificationPending => "PriorityMid",
+        PlanTaskStatus.HumanReviewRequired or PlanTaskStatus.Failed => "PriorityHigh",
+        PlanTaskStatus.Partial => "PriorityMid",
+        _ when PlanTaskStatus.IsVerifying(status) => "ActivePanelBorder",
+        _ => "SubtleText",
+    };
+
+    private static string FormatTaskStatus(string? status) => status switch
+    {
+        PlanTaskStatus.Pending => "Pending",
+        PlanTaskStatus.Executing => "Executing",
+        PlanTaskStatus.Complete => "Complete",
+        PlanTaskStatus.Failed => "Failed",
+        PlanTaskStatus.Partial => "Partial",
+        PlanTaskStatus.Superseded => "Superseded",
+        PlanTaskStatus.Reworking => "Reworking",
+        PlanTaskStatus.VerificationPending => "Verification Pending",
+        PlanTaskStatus.HumanReviewRequired => "Human Review Required",
+        _ when PlanTaskStatus.IsVerifying(status) => "Verifying",
+        _ => status ?? "Unknown",
+    };
 
     private void WireSelectionClick(FrameworkElement element)
     {
