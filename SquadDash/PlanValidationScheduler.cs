@@ -13,7 +13,16 @@ internal static class PlanValidationScheduler
     /// </summary>
     internal static PlanValidationNode? SelectNextSchedulable(Plan plan)
     {
-        return PlanValidationReadinessEvaluator.SelectNextReady(plan);
+        return PlanValidationReadinessEvaluator.Evaluate(plan)
+            .Where(state => state.IsReady)
+            .Join(
+                plan.Validations ?? [],
+                state => state.ValidationId,
+                validation => validation.ValidationId,
+                (_, validation) => validation,
+                StringComparer.Ordinal)
+            .FirstOrDefault(validation =>
+                !ApprovalGateReadinessEvaluator.IsValidationBlockedByApproval(plan, validation));
     }
 
     /// <summary>

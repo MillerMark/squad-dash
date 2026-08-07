@@ -29,6 +29,15 @@ internal static class PlanGateManager
         return !plan.Tasks.Any(t => t.DependsOn.Contains(taskId, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// Returns true when a task feeds a terminal validation. Such a validation is a meaningful
+    /// exit boundary even though no plan task depends on the task.
+    /// </summary>
+    internal static bool HasFinalValidationAfterTask(Plan plan, string taskId) =>
+        (plan.Validations ?? []).Any(validation =>
+            validation.BeforeTaskIds.Count == 0 &&
+            validation.AfterTaskIds.Contains(taskId, StringComparer.Ordinal));
+
     /// <summary>Returns true when a gate already exists with the same boundary.</summary>
     internal static bool HasEquivalentGate(Plan plan,
         IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds)
@@ -152,17 +161,34 @@ internal static class PlanGateManager
     /// <summary>
     /// Adds a gate after <paramref name="taskId"/>, blocking tasks that directly depend on it.
     /// Gate: AfterTaskIds = [taskId], BeforeTaskIds = tasks where DependsOn.Contains(taskId).
-    /// Returns plan unchanged when taskId is a leaf task or an equivalent gate already exists.
+    /// A leaf task may still receive a gate when it feeds a final validation. In that case the
+    /// gate has an empty task frontier and guards the validation at the same boundary.
+    /// Returns plan unchanged for a leaf with no final validation or an equivalent gate.
     /// </summary>
     internal static Plan AddGateAfter(Plan plan, string taskId, string message)
     {
-        if (IsLeafTask(plan, taskId)) return plan;
-
         IReadOnlyList<string> afterIds  = [taskId];
         IReadOnlyList<string> beforeIds = plan.Tasks
             .Where(t => t.DependsOn.Contains(taskId, StringComparer.Ordinal))
             .Select(t => t.TaskId)
             .ToArray();
+
+        if (beforeIds.Count == 0)
+        {
+            if (!HasFinalValidationAfterTask(plan, taskId) ||
+                HasEquivalentGate(plan, afterIds, beforeIds))
+                return plan;
+
+            var terminalGate = new PlanApprovalGate(
+                GateId: NewGateId(plan),
+                Message: message,
+                AfterTaskIds: afterIds,
+                BeforeTaskIds: beforeIds,
+                Status: PlanGateStatus.Pending,
+                PlanRevision: plan.Revision,
+                PresentationAnchor: $"task-after:{taskId}");
+            return plan with { ApprovalGates = [..plan.ApprovalGates, terminalGate] };
+        }
 
         return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}");
     }

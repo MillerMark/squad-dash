@@ -26,9 +26,12 @@ internal static class PlanApprovalHistoricalPresentationPolicy
             return PlanApprovalControlVisualState.Hidden;
 
         // A gate that is actively awaiting the human is already part of the execution record.
-        // It remains visible, but cannot be retargeted or removed from the graph.
+        // Its primary anchor becomes the attention-calling question control; equivalent
+        // projections remain visible but cannot be retargeted or removed from the graph.
         if (controllingGateStatus == PlanGateStatus.AwaitingApproval)
-            return PlanApprovalControlVisualState.LockedOctagon;
+            return isPrimaryAnchor
+                ? PlanApprovalControlVisualState.AwaitingQuestion
+                : PlanApprovalControlVisualState.LockedOctagon;
 
         if (!executionLocked)
             return PlanApprovalControlVisualState.EditableOctagon;
@@ -45,6 +48,7 @@ internal enum PlanApprovalControlVisualState
 {
     EditableOctagon,
     LockedOctagon,
+    AwaitingQuestion,
     ApprovedCheck,
     Hidden,
 }

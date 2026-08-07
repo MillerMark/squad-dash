@@ -33,20 +33,7 @@ internal static class PlanExecutionBoundaryPolicy
                 string.Equals(validation.ValidationId, activeValidationId, StringComparison.Ordinal));
         return ordered.FirstOrDefault(validation =>
             readyIds.Contains(validation.ValidationId) &&
-            !WaitsForHumanProof(plan, validation));
-    }
-
-    private static bool WaitsForHumanProof(Plan plan, PlanValidationNode validation)
-    {
-        var terminalTasks = plan.Tasks
-            .Where(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
-            .Select(task => task.TaskId)
-            .ToHashSet(StringComparer.Ordinal);
-        return plan.ApprovalGates.Any(gate =>
-            gate.ProofRequirements is { Count: > 0 } &&
-            gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
-            gate.AfterTaskIds.All(terminalTasks.Contains) &&
-            gate.AfterTaskIds.Any(taskId => validation.AfterTaskIds.Contains(taskId, StringComparer.Ordinal)));
+            !ApprovalGateReadinessEvaluator.IsValidationBlockedByApproval(plan, validation));
     }
 
     internal static bool ShouldStopForHumanApproval(Plan plan) =>

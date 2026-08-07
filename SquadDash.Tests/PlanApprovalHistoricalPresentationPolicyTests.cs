@@ -70,17 +70,27 @@ internal sealed class PlanApprovalHistoricalPresentationPolicyTests
             controllingGateStatus: PlanGateStatus.AwaitingApproval,
             isPrimaryAnchor: true);
 
-        Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
+        Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.AwaitingQuestion));
     }
 
     [TestCase(PlanGateStatus.Pending)]
-    [TestCase(PlanGateStatus.AwaitingApproval)]
     public void UnresolvedLockedBoundary_RemainsVisible(string status)
     {
         var state = PlanApprovalHistoricalPresentationPolicy.Resolve(
             executionLocked: true,
             controllingGateStatus: status,
             isPrimaryAnchor: true);
+
+        Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
+    }
+
+    [Test]
+    public void AwaitingEquivalentBoundary_RemainsLockedOctagon()
+    {
+        var state = PlanApprovalHistoricalPresentationPolicy.Resolve(
+            executionLocked: true,
+            controllingGateStatus: PlanGateStatus.AwaitingApproval,
+            isPrimaryAnchor: false);
 
         Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
     }

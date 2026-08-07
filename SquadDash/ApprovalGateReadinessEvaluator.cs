@@ -126,6 +126,24 @@ internal static class ApprovalGateReadinessEvaluator
     }
 
     /// <summary>
+    /// Returns true when an unresolved human gate explicitly guards a validation boundary.
+    /// Terminal gates (no downstream task IDs) guard a final validation that shares their
+    /// completed prerequisites. Proof checkpoints retain their established behavior at
+    /// non-terminal boundaries.
+    /// </summary>
+    internal static bool IsValidationBlockedByApproval(Plan plan, PlanValidationNode validation) =>
+        plan.ApprovalGates.Any(gate => GateBlocksValidation(gate, validation));
+
+    private static bool GateBlocksValidation(
+        PlanApprovalGate gate,
+        PlanValidationNode validation) =>
+            gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+            (gate.BeforeTaskIds.Count == 0 || gate.ProofRequirements is { Count: > 0 }) &&
+            gate.AfterTaskIds.Count > 0 &&
+            gate.AfterTaskIds.All(taskId =>
+                validation.AfterTaskIds.Contains(taskId, StringComparer.Ordinal));
+
+    /// <summary>
     /// Determines whether the plan execution loop should stop because no ungated
     /// eligible work remains.
     /// Returns <c>true</c> when the only remaining ready tasks are behind unapproved gates.
@@ -152,6 +170,13 @@ internal static class ApprovalGateReadinessEvaluator
             // A final human-proof checkpoint has no downstream task frontier; it gates plan
             // completion itself and must still stop for explicit human attestation.
             if (gate?.ProofRequirements is { Count: > 0 } && gs.DownstreamFrontier.Count == 0)
+                return true;
+            // A task leaf can still have executable work after it: a final validation. A
+            // terminal gate at that shared boundary must stop before validation starts.
+            if (gate is not null && (plan.Validations ?? []).Any(validation =>
+                    validation.Status is PlanValidationStatus.Pending or PlanValidationStatus.Ready
+                        or PlanValidationStatus.Stale &&
+                    GateBlocksValidation(gate, validation)))
                 return true;
             // Check if any task in the frontier has all non-gate dependencies satisfied
             foreach (var taskId in gs.DownstreamFrontier)

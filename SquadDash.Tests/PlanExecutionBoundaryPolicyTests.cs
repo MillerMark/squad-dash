@@ -70,6 +70,33 @@ internal sealed class PlanExecutionBoundaryPolicyTests
     }
 
     [Test]
+    public void FinalValidation_WaitsForTerminalApprovalGate()
+    {
+        var plan = MakeFinalValidationPlan(PlanGateStatus.AwaitingApproval);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanValidationScheduler.SelectNextSchedulable(plan), Is.Null);
+            Assert.That(PlanExecutionBoundaryPolicy.SelectValidation(plan), Is.Null);
+            Assert.That(PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(plan), Is.True);
+        });
+    }
+
+    [Test]
+    public void ApprovedTerminalGate_ReleasesFinalValidation()
+    {
+        var plan = MakeFinalValidationPlan(PlanGateStatus.Approved);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanValidationScheduler.SelectNextSchedulable(plan)?.ValidationId,
+                Is.EqualTo("PLAN-VAL-FINAL"));
+            Assert.That(PlanExecutionBoundaryPolicy.SelectValidation(plan)?.ValidationId,
+                Is.EqualTo("PLAN-VAL-FINAL"));
+        });
+    }
+
+    [Test]
     public void InProgressValidation_IsRecoveredBeforeReadyValidation()
     {
         var plan = MakePlan(PlanValidationStatus.Validating) with
@@ -149,4 +176,31 @@ internal sealed class PlanExecutionBoundaryPolicyTests
     private static PlanValidationNode MakeValidation(string id, string status) =>
         new(id, "Validate A", "Validate the contract", ["A"], ["B"],
             ["A is integrated."], [], "evidence", [], true, status);
+
+    private static Plan MakeFinalValidationPlan(string gateStatus)
+    {
+        var plan = MakePlan(PlanValidationStatus.Ready);
+        return plan with
+        {
+            Tasks =
+            [
+                plan.Tasks[0],
+                plan.Tasks[1] with { Status = PlanTaskStatus.Complete },
+            ],
+            Progress = new PlanProgress(2, 2),
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "GATE-FINAL", "Approve before validation", ["B"], [], gateStatus,
+                    PresentationAnchor: "task-after:B"),
+            ],
+            Validations =
+            [
+                new PlanValidationNode(
+                    "PLAN-VAL-FINAL", "Final validation", "Validate the completed plan",
+                    ["B"], [], ["The completed plan works."], [], "evidence", [], true,
+                    PlanValidationStatus.Ready),
+            ],
+        };
+    }
 }

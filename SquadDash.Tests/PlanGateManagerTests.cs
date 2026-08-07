@@ -281,6 +281,34 @@ internal sealed class PlanGateManagerTests
         Assert.That(ReferenceEquals(result, plan), Is.True);
     }
 
+    [Test]
+    public void AddGateAfter_OnLeafBeforeFinalValidation_AddsTerminalGate()
+    {
+        var plan = MakePlan(("TEST-20260101-001", []), ("TEST-20260101-002", ["TEST-20260101-001"])) with
+        {
+            Validations =
+            [
+                new PlanValidationNode(
+                    "VAL-001", "Final validation", "Validate the result",
+                    ["TEST-20260101-002"], [], ["Result works."], [], "evidence", [], true,
+                    PlanValidationStatus.Pending),
+            ],
+        };
+
+        var result = PlanGateManager.AddGateAfter(
+            plan, "TEST-20260101-002", "Approve before final validation");
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.ApprovalGates[0].AfterTaskIds,
+                Is.EqualTo(new[] { "TEST-20260101-002" }));
+            Assert.That(result.ApprovalGates[0].BeforeTaskIds, Is.Empty);
+            Assert.That(result.ApprovalGates[0].PresentationAnchor,
+                Is.EqualTo("task-after:TEST-20260101-002"));
+        });
+    }
+
     [TestCase(PlanGateStatus.AwaitingApproval)]
     [TestCase(PlanGateStatus.Approved)]
     [TestCase(PlanGateStatus.Skipped)]
