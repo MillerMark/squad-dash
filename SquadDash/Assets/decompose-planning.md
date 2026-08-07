@@ -1,5 +1,5 @@
 ---
-schema-version: 6
+schema-version: 7
 host-owned: true
 ---
 
@@ -29,7 +29,8 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 - Attributive references: "the plan is to…", "plan A vs plan B"
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain optional `validations` and `delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
+`summary`, and 2–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
+`delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -101,13 +102,20 @@ fence around the object is accepted but not required.
   provisional class names.
 - `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
   A consumer may name several outputs, and one output may have several consumers.
-- `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description" }`
+- `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description", "question" }`
   contracts. Supported worker/host types are `ai-assessed`, `automated-test`, `build`, and
   `host-recorded`. Human-only types are `live-ui-observation`, `restart-observation`, and
   `human-observation`. Do not describe a live observation as an automated test. SquadDash moves
   human-only requirements to a generated approval checkpoint after the task; the task worker is
   never asked to fabricate proof it cannot observe. A complete step result must return matching
-  `proofEvidence` only for the worker/host requirements that remain on the task.
+  `proofEvidence` only for the worker/host requirements that remain on the task. `question` is
+  optional for stored-plan compatibility, but supply it for every human-only requirement. Write a
+  short, direct question that tells the reviewer exactly what to try and observe, such as
+  `Does clicking an item show a selection highlight and populate the detail panel? Is the grid splitter draggable?`.
+- `approvalGates[].question`: optional for stored-plan compatibility, but supply it whenever the AI
+  deliberately places a human approval gate. Ask the concrete approval question in plain language;
+  do not merely restate the gate message or say “Confirm this works.” SquadDash features this
+  question in the approval card and gives the reviewer a shortcut to open the plan.
 - `approvalGates[].proofRequirements`: optional human-only proof contracts using the same object
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
   Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.

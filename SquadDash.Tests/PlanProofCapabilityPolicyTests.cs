@@ -17,6 +17,28 @@ internal sealed class PlanProofCapabilityPolicyTests
     }
 
     [Test]
+    public void LegacyHumanProofGate_GetsCompatibilityQuestion()
+    {
+        var gate = new PlanApprovalGate(
+            "GATE-001",
+            "Confirm the human-observed proof.",
+            ["T1"],
+            [],
+            PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "visible",
+                    "live-ui-observation",
+                    "Clicking the item shows a selection highlight"),
+            ]);
+
+        Assert.That(
+            PlanProofCapabilityPolicy.ResolveHumanQuestion(gate),
+            Is.EqualTo("Did you observe the following behavior: Clicking the item shows a selection highlight?"));
+    }
+
+    [Test]
     public void HumanTaskProof_IsMovedToCheckpoint_WhileAutomatedProofRemainsOnWorker()
     {
         var root = Task(
@@ -24,7 +46,11 @@ internal sealed class PlanProofCapabilityPolicyTests
             proofRequirements:
             [
                 new DecomposedTaskProofRequirement("tests", "automated-test", "Run the integration tests."),
-                new DecomposedTaskProofRequirement("visible", "live-ui-observation", "Observe the live transition."),
+                new DecomposedTaskProofRequirement(
+                    "visible",
+                    "live-ui-observation",
+                    "Observe the live transition.",
+                    "Does the live transition appear in the running window?"),
             ]);
         var child = Task("CAPABILITY-20260804-002", dependsOn: [root.Id]);
         var group = Group([root, child]);
@@ -39,6 +65,8 @@ internal sealed class PlanProofCapabilityPolicyTests
             Assert.That(routed.ApprovalGates![0].AfterTaskIds, Is.EqualTo(new[] { root.Id }));
             Assert.That(routed.ApprovalGates[0].BeforeTaskIds, Is.EqualTo(new[] { child.Id }));
             Assert.That(routed.ApprovalGates[0].ProofRequirements![0].RequirementId, Is.EqualTo("visible"));
+            Assert.That(routed.ApprovalGates[0].Question,
+                Is.EqualTo("Does the live transition appear in the running window?"));
         });
     }
 
@@ -93,7 +121,7 @@ internal sealed class PlanProofCapabilityPolicyTests
               "summary":"Deliver a cohesive feature and require truthful proof from the executor capable of observing it.",
               "tasks":[
                 {"id":"CAPABILITY-20260804-001","title":"Build the feature","description":"Implement the feature. Observable outcome: the feature builds. Production consumer: task 002 exercises it.","dependsOn":[],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture"},
-                {"id":"CAPABILITY-20260804-002","title":"Observe the live feature","description":"Exercise the feature. Observable outcome: the running UI updates. Production consumer: the production window displays the update.","dependsOn":["CAPABILITY-20260804-001"],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture","proofRequirements":[{"requirementId":"live","proofType":"live-ui-observation","description":"Observe the running UI update."}]}
+                {"id":"CAPABILITY-20260804-002","title":"Observe the live feature","description":"Exercise the feature. Observable outcome: the running UI updates. Production consumer: the production window displays the update.","dependsOn":["CAPABILITY-20260804-001"],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture","proofRequirements":[{"requirementId":"live","proofType":"live-ui-observation","description":"Observe the running UI update.","question":"Does the running UI show the expected update?"}]}
               ],
               "validations":[{"validationId":"CAPABILITY-20260804-VAL-001","title":"Feature proven","description":"Audit the accepted implementation and human observation.","afterTaskIds":["CAPABILITY-20260804-002"],"beforeTaskIds":[],"assertions":["The feature was observed in the running UI."],"mode":"audit"}]
             }
@@ -107,6 +135,8 @@ internal sealed class PlanProofCapabilityPolicyTests
             Assert.That(parsed.ApprovalGates![0].BeforeTaskIds, Is.Empty);
             Assert.That(parsed.ApprovalGates[0].ProofRequirements![0].ProofType,
                 Is.EqualTo("live-ui-observation"));
+            Assert.That(parsed.ApprovalGates[0].Question,
+                Is.EqualTo("Does the running UI show the expected update?"));
         });
     }
 

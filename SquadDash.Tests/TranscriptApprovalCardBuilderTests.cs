@@ -142,6 +142,36 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_WithQuestion_FeaturesQuestionAndInspectionShortcut()
+    {
+        var original = BuildTestPlan();
+        var plan = original with
+        {
+            ApprovalGates =
+            [
+                original.ApprovalGates[0] with
+                {
+                    Question = "Does clicking an item show a selection highlight? Is the splitter draggable?",
+                },
+            ],
+        };
+        var openedPlan = false;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { },
+            onOpenPlan: () => openedPlan = true);
+
+        card.InspectPlanLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.QuestionBlock, Is.Not.Null);
+            Assert.That(card.QuestionBlock!.Text, Does.StartWith("Does clicking an item"));
+            Assert.That(card.QuestionBlock.FontWeight, Is.EqualTo(FontWeights.SemiBold));
+            Assert.That(openedPlan, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_DefaultCardIsCompactAndPointsToInboxForFullEvidence()
     {
         var plan = BuildTestPlan();

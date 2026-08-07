@@ -688,7 +688,7 @@ internal sealed class InboxPanelController
         }
 
         // Markdown body
-        _viewerBody.Document = MarkdownFlowDocumentBuilder.Build(msg.Body ?? string.Empty);
+        _viewerBody.Document = MarkdownFlowDocumentBuilder.BuildInbox(msg.Body ?? string.Empty);
 
         _viewerBorder.Visibility = Visibility.Visible;
     }

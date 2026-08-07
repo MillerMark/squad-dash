@@ -193,6 +193,38 @@ internal sealed class PendingDecomposePlanAdapterTests
     }
 
     [Test]
+    public void ApprovalQuestion_RoundTripsThroughDurablePlan()
+    {
+        var basePending = MakePending("PLANS-20260727");
+        var group = basePending.Group with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "PLANS-20260727-G01",
+                    "Review the visible behavior.",
+                    ["PLANS-20260727-001"],
+                    ["PLANS-20260727-002"],
+                    Question: "Does selecting the item populate the detail panel?"),
+            ],
+        };
+        var pending = new PendingDecomposePlan(
+            PendingDecomposePlanStore.ComputeRevision(group), group, DateTimeOffset.UtcNow);
+
+        var plan = PendingDecomposePlanAdapter.ToPlan(pending, DateTimeOffset.UtcNow);
+        var reconstructed = PendingDecomposePlanAdapter.FromPlan(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.ApprovalGates[0].Question,
+                Is.EqualTo("Does selecting the item populate the detail panel?"));
+            Assert.That(reconstructed.Group.ApprovalGates![0].Question,
+                Is.EqualTo(plan.ApprovalGates[0].Question));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+        });
+    }
+
+    [Test]
     public void RevisionIsValid_AfterTaskModification_ReturnsFalse()
     {
         var pending = MakePending("PLANS-20260727");

@@ -1847,7 +1847,8 @@ internal static class PlanStoreUpdater
         requirements?.Select(requirement => new PlanTaskProofRequirement(
             requirement.RequirementId,
             requirement.ProofType,
-            requirement.Description)).ToArray();
+            requirement.Description,
+            requirement.Question)).ToArray();
 
     private static IReadOnlyList<PlanAgentAssignment>? MapAgentAssignments(
         IReadOnlyList<DecomposedAgentAssignment>? assignments) =>

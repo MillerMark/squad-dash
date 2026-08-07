@@ -121,4 +121,54 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
                   .Contains("This is a paragraph")),
             Is.True, "Paragraph after list should still render");
     }
+
+    [Test]
+    public void BuildInbox_StylesCamelCaseAndPascalCaseFileAsInlineCode() {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            "Open PlanViewerWindow.cs and call selectElement while ordinary words remain prose.",
+            baseFontSize: 13.0);
+        var runs = doc.Blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => paragraph.Inlines.OfType<Run>())
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runs.Single(run => run.Text == "PlanViewerWindow.cs").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(runs.Single(run => run.Text == "selectElement").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(runs.Any(run => run.Text.Contains("ordinary") &&
+                                        !run.FontFamily.Source.Contains("Consolas", StringComparison.OrdinalIgnoreCase)),
+                Is.True);
+        });
+    }
+
+    [Test]
+    public void BuildInbox_RespectsExplicitBackticksInHeading() {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            "# Inspect `raw_value` in PlanViewerWindow.cs",
+            baseFontSize: 13.0);
+        var runs = doc.Blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => paragraph.Inlines.OfType<Run>())
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runs.Single(run => run.Text == "raw_value").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(runs.Single(run => run.Text == "PlanViewerWindow.cs").FontFamily.Source,
+                Does.Contain("Consolas"));
+        });
+    }
+
+    [Test]
+    public void Build_DefaultRenderer_DoesNotAutoStyleIdentifiers() {
+        var doc = Build("PlanViewerWindow.cs remains ordinary outside Inbox.");
+        var runs = doc.Blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => paragraph.Inlines.OfType<Run>())
+            .ToArray();
+
+        Assert.That(runs, Has.None.Matches<Run>(run =>
+            run.FontFamily.Source.Contains("Consolas", StringComparison.OrdinalIgnoreCase)));
+    }
 }

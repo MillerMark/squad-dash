@@ -46,7 +46,8 @@ internal static class PendingDecomposePlanAdapter
                     new PlanTaskProofRequirement(
                         requirement.RequirementId,
                         requirement.ProofType,
-                        requirement.Description)).ToArray(),
+                        requirement.Description,
+                        requirement.Question)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
                 DisplayStepLabel: (index + 1).ToString()))
             .ToArray();
@@ -87,11 +88,13 @@ internal static class PendingDecomposePlanAdapter
                 BeforeTaskIds: g.BeforeTaskIds ?? [],
                 Status:       PlanGateStatus.Pending,
                 PlanRevision: revision,
+                Question: g.Question,
                 ProofRequirements: g.ProofRequirements?.Select(requirement =>
                     new PlanTaskProofRequirement(
                         requirement.RequirementId,
                         requirement.ProofType,
-                        requirement.Description)).ToArray(),
+                        requirement.Description,
+                        requirement.Question)).ToArray(),
                 AfterTaskIdsSpecified: g.AfterTaskIds is not null,
                 BeforeTaskIdsSpecified: g.BeforeTaskIds is not null)).ToArray()
             : [];
@@ -142,7 +145,8 @@ internal static class PendingDecomposePlanAdapter
                     new DecomposedTaskProofRequirement(
                         requirement.RequirementId,
                         requirement.ProofType,
-                        requirement.Description)).ToArray(),
+                        requirement.Description,
+                        requirement.Question)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId))
             .ToArray();
 
@@ -153,11 +157,13 @@ internal static class PendingDecomposePlanAdapter
                     Message:      g.Message,
                     AfterTaskIds: RestoreOptionalIds(g.AfterTaskIds, g.AfterTaskIdsSpecified),
                     BeforeTaskIds: RestoreOptionalIds(g.BeforeTaskIds, g.BeforeTaskIdsSpecified),
+                    Question:     g.Question,
                     ProofRequirements: g.ProofRequirements?.Select(requirement =>
                         new DecomposedTaskProofRequirement(
                             requirement.RequirementId,
                             requirement.ProofType,
-                            requirement.Description)).ToArray()))
+                            requirement.Description,
+                            requirement.Question)).ToArray()))
                 .ToArray()
             : null;
 

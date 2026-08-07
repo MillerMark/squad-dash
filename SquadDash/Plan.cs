@@ -115,7 +115,10 @@ internal sealed record PlanTaskOutput(
 internal sealed record PlanTaskProofRequirement(
     [property: JsonPropertyName("requirementId")] string RequirementId,
     [property: JsonPropertyName("proofType")] string ProofType,
-    [property: JsonPropertyName("description")] string Description);
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("question")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Question = null);
 
 internal sealed record PlanTaskProofEvidence(
     [property: JsonPropertyName("requirementId")] string RequirementId,
@@ -284,7 +287,10 @@ internal sealed record PlanApprovalGate(
                                                   bool? AfterTaskIdsSpecified = null,
     [property: JsonPropertyName("beforeTaskIdsSpecified")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  bool? BeforeTaskIdsSpecified = null);
+                                                  bool? BeforeTaskIdsSpecified = null,
+    [property: JsonPropertyName("question")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? Question = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan

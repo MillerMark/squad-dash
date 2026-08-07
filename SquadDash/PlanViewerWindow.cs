@@ -1226,7 +1226,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var visualizationGates = durablePlan?.ApprovalGates ?? (group.ApprovalGates ?? [])
             .Select(gate => new PlanApprovalGate(
                 gate.GateId, gate.Message, gate.AfterTaskIds ?? [], gate.BeforeTaskIds ?? [],
-                PlanGateStatus.Pending)).ToArray();
+                PlanGateStatus.Pending, Question: gate.Question)).ToArray();
         var dashedTaskEdges = PlanGateVisualizationPolicy.DashedEdges(
             visualizationTasks,
             visualizationGates,
@@ -3813,7 +3813,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var dg = decomposedGates[gateIndex];
                         var minimalGate = new PlanApprovalGate(
                             dg.GateId, dg.Message, dg.AfterTaskIds ?? [], dg.BeforeTaskIds ?? [],
-                            PlanGateStatus.Pending);
+                            PlanGateStatus.Pending, Question: dg.Question);
                         PopulateGateDetail(minimalGate, null);
                     }
                 }
@@ -4188,6 +4188,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
             msgPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             msgPara.Margin = new Thickness(0, 0, 0, 8);
             _detailDocument.Blocks.Add(msgPara);
+        }
+
+        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        if (!string.IsNullOrWhiteSpace(approvalQuestion))
+        {
+            AddSectionHeader("What to verify");
+            var questionPara = new Paragraph(new Run(approvalQuestion)
+            {
+                FontWeight = FontWeights.SemiBold,
+            });
+            questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            questionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            questionPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(questionPara);
         }
 
         // Status (color-coded)

@@ -35,6 +35,28 @@ internal static class PlanProofCapabilityPolicy
     internal static bool IsHumanOnly(string? proofType) =>
         Classify(proofType) == PlanProofExecutorKind.Human;
 
+    /// <summary>
+    /// Returns the authored approval question, or a compatibility question derived from a
+    /// legacy human-proof requirement when the stored gate predates the question field.
+    /// </summary>
+    internal static string? ResolveHumanQuestion(PlanApprovalGate gate)
+    {
+        if (!string.IsNullOrWhiteSpace(gate.Question))
+            return gate.Question.Trim();
+
+        var observations = (gate.ProofRequirements ?? [])
+            .Where(requirement => IsHumanOnly(requirement.ProofType))
+            .Select(requirement => requirement.Description.Trim().TrimEnd('.', '?', '!'))
+            .Where(description => description.Length > 0)
+            .ToArray();
+        return observations.Length switch
+        {
+            0 => null,
+            1 => $"Did you observe the following behavior: {observations[0]}?",
+            _ => $"Did you observe each of these behaviors: {string.Join("; ", observations)}?",
+        };
+    }
+
     internal static IReadOnlyList<DecomposedTaskProofRequirement> ResultEnvelopeRequirements(
         IReadOnlyList<DecomposedTaskProofRequirement>? requirements) =>
         (requirements ?? [])
@@ -99,12 +121,14 @@ internal static class PlanProofCapabilityPolicy
 
             var requirementSummary = string.Join("; ", humanProofs.Select(requirement =>
                 $"{requirement.Description} [{requirement.ProofType}]"));
+            var question = BuildHumanQuestion(humanProofs);
             gates.Add(new DecomposedGate(
                 gateId,
                 $"Confirm the human-observed proof for “{task.Title ?? task.Id}”: {requirementSummary}",
                 [task.Id],
                 directDependents,
-                humanProofs));
+                humanProofs,
+                question));
         }
 
         return group with
@@ -112,5 +136,25 @@ internal static class PlanProofCapabilityPolicy
             Tasks = tasks,
             ApprovalGates = gates.Count == 0 ? null : gates,
         };
+    }
+
+    private static string BuildHumanQuestion(
+        IReadOnlyList<DecomposedTaskProofRequirement> humanProofs)
+    {
+        var supplied = humanProofs
+            .Select(requirement => requirement.Question?.Trim())
+            .Where(question => !string.IsNullOrWhiteSpace(question))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (supplied.Length > 0)
+            return string.Join(Environment.NewLine, supplied!);
+
+        var observations = humanProofs
+            .Select(requirement => requirement.Description.Trim().TrimEnd('.', '?', '!'))
+            .Where(description => description.Length > 0)
+            .ToArray();
+        return observations.Length == 1
+            ? $"Did you observe the following behavior: {observations[0]}?"
+            : $"Did you observe each of these behaviors: {string.Join("; ", observations)}?";
     }
 }

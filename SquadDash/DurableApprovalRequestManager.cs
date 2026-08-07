@@ -544,6 +544,9 @@ internal sealed class DurableApprovalRequestManager
                     g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
                 var reason = gate?.Message ?? gateId;
                 parts.Add($"- {reason}");
+                var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+                if (!string.IsNullOrWhiteSpace(question))
+                    parts.Add($"  - **What to verify:** {question}");
             }
 
             AppendReviewEvidence(parts, snapshot);

@@ -14,7 +14,10 @@ internal sealed record DecomposedGate(
                                                   IReadOnlyList<string>? BeforeTaskIds = null,
     [property: JsonPropertyName("proofRequirements")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  IReadOnlyList<DecomposedTaskProofRequirement>? ProofRequirements = null);
+                                                  IReadOnlyList<DecomposedTaskProofRequirement>? ProofRequirements = null,
+    [property: JsonPropertyName("question")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  string? Question = null);
 
 /// <summary>
 /// A first-class, non-mutating validation node in a decomposed plan. It becomes eligible after
@@ -48,7 +51,10 @@ internal sealed record DecomposedTaskOutput(
 internal sealed record DecomposedTaskProofRequirement(
     [property: JsonPropertyName("requirementId")] string RequirementId,
     [property: JsonPropertyName("proofType")] string ProofType,
-    [property: JsonPropertyName("description")] string Description);
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("question")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Question = null);
 
 internal sealed record DecomposedTaskGroup(
     [property: JsonPropertyName("groupId")]    string GroupId,

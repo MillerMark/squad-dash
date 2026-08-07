@@ -62,6 +62,12 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Link that opens the plan represented by this approval request.</summary>
         internal Hyperlink PlanLink { get; init; } = null!;
 
+        /// <summary>Prominent human-facing question describing the observation required for approval.</summary>
+        internal TextBlock? QuestionBlock { get; init; }
+
+        /// <summary>Shortcut beside the approval question that opens the plan for inspection.</summary>
+        internal Hyperlink? InspectPlanLink { get; init; }
+
         /// <summary>Link that opens the durable Inbox request containing full review evidence.</summary>
         internal Hyperlink? InboxLink { get; init; }
 
@@ -88,6 +94,7 @@ internal static class TranscriptApprovalCardBuilder
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
+        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
         var commitLinks = new List<Hyperlink>();
         Hyperlink? inboxLink = null;
 
@@ -140,7 +147,52 @@ internal static class TranscriptApprovalCardBuilder
         progressBlock.Margin = new Thickness(0, 0, 0, 4);
         stack.Children.Add(progressBlock);
 
-        // ── Gate reason ──────────────────────────────────────────────────
+        // ── Human verification question ──────────────────────────────────
+        TextBlock? questionBlock = null;
+        Hyperlink? inspectPlanLink = null;
+        if (!string.IsNullOrWhiteSpace(approvalQuestion))
+        {
+            var questionStack = new StackPanel();
+            var questionLabel = CreateStyledTextBlock("What to verify", fontSize - 1, "SubtleText");
+            questionLabel.FontWeight = FontWeights.SemiBold;
+            questionLabel.Margin = new Thickness(0, 0, 0, 3);
+            questionStack.Children.Add(questionLabel);
+
+            questionBlock = CreateStyledTextBlock(approvalQuestion, fontSize + 1, "ImportantText");
+            questionBlock.FontWeight = FontWeights.SemiBold;
+            questionBlock.TextWrapping = TextWrapping.Wrap;
+            questionBlock.Margin = new Thickness(0, 0, 0, 5);
+            AutomationProperties.SetName(questionBlock, "Approval question");
+            questionStack.Children.Add(questionBlock);
+
+            var shortcutBlock = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
+            inspectPlanLink = new Hyperlink(new Run("Open plan to inspect →"))
+            {
+                Cursor = onOpenPlan is null ? Cursors.Arrow : Cursors.Hand,
+                IsEnabled = onOpenPlan is not null,
+                ToolTip = onOpenPlan is null
+                    ? null
+                    : ToolTipHelper.MakeThemedToolTip("Open the plan at this approval checkpoint"),
+            };
+            inspectPlanLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            if (onOpenPlan is not null)
+                inspectPlanLink.Click += (_, _) => onOpenPlan();
+            shortcutBlock.Inlines.Add(inspectPlanLink);
+            questionStack.Children.Add(shortcutBlock);
+
+            var questionBorder = new Border
+            {
+                Child = questionStack,
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 2, 0, 8),
+            };
+            questionBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+            questionBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+            stack.Children.Add(questionBorder);
+        }
+
         // ── Completed tasks with commit evidence ─────────────────────────
         if (!includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
@@ -488,7 +540,10 @@ internal static class TranscriptApprovalCardBuilder
         border.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
         AutomationProperties.SetName(border, $"Approval card for {snapshot.PlanTitle}");
         AutomationProperties.SetHelpText(border,
-            $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} tasks complete. Gate: {snapshot.GateReason}");
+            $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} tasks complete. " +
+            (string.IsNullOrWhiteSpace(approvalQuestion)
+                ? $"Gate: {snapshot.GateReason}"
+                : $"Question: {approvalQuestion}"));
 
         var tag = new TranscriptApprovalCardTag(
             snapshot.PlanId, gate.GateId, requestVersion);
@@ -513,6 +568,8 @@ internal static class TranscriptApprovalCardBuilder
             ReworkIndicator = reworkIndicator,
             ContentStack = stack,
             PlanLink = planTitleLink,
+            QuestionBlock = questionBlock,
+            InspectPlanLink = inspectPlanLink,
             InboxLink = inboxLink,
             CommitLinks = commitLinks,
         };

@@ -366,6 +366,26 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public void BuildBody_ShowsApprovalQuestionWhenSupplied()
+    {
+        var original = MakePlan();
+        var plan = original with
+        {
+            ApprovalGates =
+            [
+                original.ApprovalGates[0] with
+                {
+                    Question = "Does clicking the item populate the detail panel?",
+                },
+            ],
+        };
+
+        var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], []);
+
+        Assert.That(body, Does.Contain("What to verify:** Does clicking the item populate the detail panel?"));
+    }
+
+    [Test]
     public void BuildBody_WithReviewSnapshot_PutsDetailedEvidenceInInboxMessage()
     {
         var plan = MakePlan();

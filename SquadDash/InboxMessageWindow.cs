@@ -198,7 +198,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         actionRegion.Children.Add(_preflightRecoveryHost);
 
         // ── Body ──────────────────────────────────────────────────────────────
-        var doc = MarkdownFlowDocumentBuilder.Build(message.Body ?? string.Empty, _bodyFontSize);
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         InboxCommitLinkPresenter.Attach(doc, openCommit);
         InboxPlanLinkPresenter.Attach(doc, message, openDecomposePlan);
@@ -533,7 +533,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private void RebuildDocument()
     {
-        var doc = MarkdownFlowDocumentBuilder.Build(_message.Body ?? string.Empty, _bodyFontSize);
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(_message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         InboxPlanLinkPresenter.Attach(doc, _message, _openDecomposePlan);
@@ -1080,7 +1080,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<InboxAction, InboxMessage> onActionClicked)
     {
         // Replace body document
-        var doc = MarkdownFlowDocumentBuilder.Build(updatedMessage.Body ?? string.Empty, _bodyFontSize);
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(updatedMessage.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         InboxPlanLinkPresenter.Attach(doc, updatedMessage, _openDecomposePlan);
