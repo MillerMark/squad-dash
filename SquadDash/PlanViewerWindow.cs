@@ -1901,6 +1901,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (!connectorsByTask.TryGetValue(hoveredTaskId, out var connectors)) return;
                 foreach (var cg in connectors)
                 {
+                    cg.RefreshGlowBrushes();
                     foreach (var el in cg.GlowElements) { el.Visibility = Visibility.Visible; Panel.SetZIndex(el, 3); }
                     foreach (var el in cg.MainElements) Panel.SetZIndex(el, 4);
                     foreach (var b  in cg.GateBadges)  b.Effect = TaskNodeGlowEffect();
@@ -2266,6 +2267,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 el.MouseEnter += (_, _) =>
                 {
+                    capturedCg.RefreshGlowBrushes();
                     foreach (var g in capturedCg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
                     foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 4);
                     foreach (var tid in capturedCg.TaskIds)
@@ -2294,6 +2296,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 capturedBadge.Effect = TaskNodeGlowEffect();
                 foreach (var cg in capturedCgs)
                 {
+                    cg.RefreshGlowBrushes();
                     foreach (var g in cg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
                     foreach (var m in cg.MainElements) Panel.SetZIndex(m, 4);
                     foreach (var tid in cg.TaskIds)
@@ -3326,6 +3329,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public readonly List<string>    TaskIds       = [];
         // ALL-gate badge Borders that this connector enters or exits; highlighted on hover.
         public readonly List<Border>    GateBadges    = [];
+        public int SkipCount { get; set; }
+
+        // Recompute the glow brush from the current theme and update all glow elements.
+        public void RefreshGlowBrushes()
+        {
+            var brush = new SolidColorBrush(ConnectorGlowColor(SkipCount));
+            foreach (var el in GlowElements)
+            {
+                if (el is Shape shape)
+                {
+                    if (shape is Polygon)
+                        shape.Fill = brush;
+                    else
+                        shape.Stroke = brush;
+                }
+            }
+        }
     }
 
     private static ConnectorGroup AddConnector(
@@ -3340,6 +3360,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         ConnectorGroup? existingGroup = null)
     {
         var group = existingGroup ?? new ConnectorGroup();
+        group.SkipCount = skipCount;
 
         const double arrowLength     = 11;
         const double arrowHalfWidth  = 5;
@@ -3547,7 +3568,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         bool dashed = false,
         string? toolTip = null)
     {
-        var group = new ConnectorGroup();
+        var group = new ConnectorGroup { SkipCount = skipCount };
         if (route.Count < 2) return group;
 
         const double arrowLength = 11;
