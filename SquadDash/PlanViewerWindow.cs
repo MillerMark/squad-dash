@@ -25,6 +25,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private PendingDecomposePlan? _plan;
     private Plan? _durablePlan;
+    private IReadOnlyList<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>? _visualizationGates;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -901,6 +902,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             gates.Add((gateCenter, targets, dependencies, minTargetLevel, maxDepLevel));
         }
 
+        _visualizationGates = gates;
+
         // Multiple ALL joins can occupy the same stage boundary. Arrange them using their
         // complete badge + attached-validation footprints, not badge height alone; otherwise
         // a lower ALL badge can be drawn on top of the upper join's shield or title.
@@ -1527,7 +1530,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             badge.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
-            badge.Tag = $"gate:{gi}";
+            badge.Tag = $"alljoin:{gi}";
             badge.Cursor = Cursors.Hand;
             WireSelectionClick(badge);
             Canvas.SetLeft(badge, gate.Center.X - badgeHalf);
@@ -3901,6 +3904,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (int.TryParse(_selectedElement.Id, out var columnIndex))
                 PopulateMilestoneDetail(columnIndex);
         }
+        else if (_selectedElement.Kind == "alljoin")
+        {
+            if (int.TryParse(_selectedElement.Id, out var gateIndex))
+                PopulateAllJoinDetail(gateIndex);
+        }
         else if (_selectedElement.Kind == "stage")
         {
             if (int.TryParse(_selectedElement.Id, out var stageIndex))
@@ -4427,6 +4435,69 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         AddSectionHeader($"Tasks ({stageTasks.Length})");
         AddTaskStatusList(stageTasks);
+    }
+
+    private void PopulateAllJoinDetail(int gateIndex)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var titlePara = new Paragraph(new Run("ALL Join") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Description
+        var descPara = new Paragraph(new Run("Waits for the following tasks to complete before continuing:"));
+        descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        descPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(descPara);
+
+        // Resolve dependency tasks from stored visualization gates
+        if (_visualizationGates is null || gateIndex < 0 || gateIndex >= _visualizationGates.Count)
+            return;
+
+        var gate = _visualizationGates[gateIndex];
+        var dependencyIds = gate.Dependencies;
+
+        var list = new List();
+        list.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        list.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        list.MarkerStyle = TextMarkerStyle.None;
+        list.Margin = new Thickness(0, 0, 0, 12);
+
+        foreach (var depId in dependencyIds)
+        {
+            var durableTask = _durablePlan?.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.TaskId, depId, StringComparison.Ordinal));
+            var decomposedTask = _plan?.Group.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.Id, depId, StringComparison.Ordinal));
+
+            var title = durableTask?.Title ?? decomposedTask?.Title ?? depId;
+            var status = durableTask?.Status;
+
+            var para = new Paragraph();
+            var bulletRun = new Run("● ");
+            para.Inlines.Add(bulletRun);
+            para.Inlines.Add(new Run(title));
+
+            if (status is not null)
+            {
+                var statusColorKey = GetTaskStatusColorKey(status);
+                var statusSuffix = new Run($" — {FormatTaskStatus(status)}");
+                statusSuffix.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+                para.Inlines.Add(statusSuffix);
+            }
+
+            list.ListItems.Add(new ListItem(para));
+        }
+
+        _detailDocument.Blocks.Add(list);
     }
 
     private (IReadOnlyList<PlanTask>? Tasks, Dictionary<string, int> Levels) ResolveTasksAndLevels()
