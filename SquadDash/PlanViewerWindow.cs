@@ -1080,7 +1080,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     },
                     isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
                     approved: milestoneApproved,
-                    awaitingApproval: milestoneAwaiting);
+                    awaitingApproval: milestoneAwaiting,
+                    selectionAnchor: milestoneAwaiting ? existingGate?.GateId : null);
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneAwaiting ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
@@ -1505,7 +1506,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
                                      collectivelyCoveredJoin) ? 0.5 : 1.0,
                     approved: joinApproved,
-                    awaitingApproval: joinAwaiting);
+                    awaitingApproval: joinAwaiting,
+                    selectionAnchor: joinAwaiting ? (existingJoinGate ?? coveringJoinGate)?.GateId : null);
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -2110,7 +2112,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
                                               collectivelyCoveredEntry) ? 0.5 : 1.0,
                             approved: beforeApproved,
-                            awaitingApproval: beforeAwaiting);
+                            awaitingApproval: beforeAwaiting,
+                            selectionAnchor: beforeAwaiting ? controllingBeforeGate?.GateId : null);
                         Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeAwaiting ? 4 : 6) * _scaleFactor);
                         Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
@@ -2209,7 +2212,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
                                              collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
                             approved: afterApproved,
-                            awaitingApproval: afterAwaiting);
+                            awaitingApproval: afterAwaiting,
+                            selectionAnchor: afterAwaiting ? controllingAfterGate?.GateId : null);
                         Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterAwaiting ? 24 : 22) * _scaleFactor);
                         Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
@@ -3076,7 +3080,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action? toggle,
         double engagedOpacity = 1.0,
         bool approved = false,
-        bool awaitingApproval = false)
+        bool awaitingApproval = false,
+        string? selectionAnchor = null)
     {
         var s = _scaleFactor;
         FrameworkElement indicator;
@@ -3184,6 +3189,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 e.Handled = true;
                 toggle();
             };
+        }
+        if (awaitingApproval && selectionAnchor is not null)
+        {
+            hitTarget.Tag = $"humanapproval:{selectionAnchor}";
+            hitTarget.Cursor = Cursors.Hand;
+            WireSelectionClick(hitTarget);
         }
         return hitTarget;
     }
@@ -3914,6 +3925,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (int.TryParse(_selectedElement.Id, out var stageIndex))
                 PopulateStageDetail(stageIndex);
         }
+        else if (_selectedElement.Kind == "humanapproval")
+        {
+            PopulateHumanApprovalDetail(_selectedElement.Id);
+        }
     }
 
     private void PopulateTaskDetail(PlanTask task, Plan plan)
@@ -4359,6 +4374,106 @@ internal sealed class PlanViewerWindow : ChromedWindow
             instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             instrPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(instrPara);
+        }
+    }
+
+    private void PopulateHumanApprovalDetail(string gateId)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        var gate = _durablePlan?.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null)
+        {
+            var fallback = new Paragraph(new Run("Approval gate not found."));
+            fallback.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            fallback.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(fallback);
+            return;
+        }
+
+        // Title
+        var titlePara = new Paragraph(new Run("Human Approval Required") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Question
+        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        if (!string.IsNullOrWhiteSpace(approvalQuestion))
+        {
+            var questionPara = new Paragraph(new Run(approvalQuestion)
+            {
+                FontWeight = FontWeights.SemiBold,
+            });
+            questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            questionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            questionPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(questionPara);
+        }
+
+        // Message
+        if (!string.IsNullOrWhiteSpace(gate.Message))
+        {
+            var msgPara = new Paragraph(new Run(gate.Message));
+            msgPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            msgPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            msgPara.Margin = new Thickness(0, 0, 0, 8);
+            _detailDocument.Blocks.Add(msgPara);
+        }
+
+        // Status (color-coded)
+        var gateStatusColor = gate.Status switch
+        {
+            PlanGateStatus.Approved or PlanGateStatus.Skipped => "PriorityLow",
+            "rework-requested" => "PriorityHigh",
+            _ => "SubtleText",
+        };
+        var gateStatusText = gate.Status switch
+        {
+            PlanGateStatus.Pending => "Pending",
+            PlanGateStatus.AwaitingApproval => "Awaiting Approval",
+            PlanGateStatus.Approved => "Approved",
+            PlanGateStatus.Skipped => "Skipped",
+            _ => gate.Status ?? "Unknown",
+        };
+        var statusRun = new Run($"● {gateStatusText}");
+        statusRun.SetResourceReference(TextElement.ForegroundProperty, gateStatusColor);
+        var statusPara = new Paragraph(statusRun);
+        statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        statusPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(statusPara);
+
+        // After Tasks
+        AddTaskIdList("After Tasks", gate.AfterTaskIds, _durablePlan);
+
+        // Before Tasks
+        AddTaskIdList("Before Tasks", gate.BeforeTaskIds, _durablePlan);
+
+        // Resolution Note
+        if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
+        {
+            AddSectionHeader("Resolution Note");
+            var notePara = new Paragraph(new Run(gate.ResolutionNote));
+            notePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            notePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            notePara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(notePara);
+        }
+
+        // Resolved By
+        if (!string.IsNullOrWhiteSpace(gate.ResolvedBy))
+        {
+            AddSectionHeader("Resolved By");
+            var resolvedByPara = new Paragraph(new Run(gate.ResolvedBy));
+            resolvedByPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            resolvedByPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            resolvedByPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(resolvedByPara);
         }
     }
 
