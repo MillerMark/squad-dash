@@ -1938,6 +1938,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
                     var chip = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
+                    chip.Tag = $"agent:{assignment.AgentHandle}";
+                    WireSelectionClick(chip);
                     chip.ToolTip = ToolTipHelper.MakeThemedToolTip(
                         $"{assignment.AgentHandle} — {assignment.Role}");
 
@@ -3929,6 +3931,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             PopulateHumanApprovalDetail(_selectedElement.Id);
         }
+        else if (_selectedElement.Kind == "agent")
+        {
+            PopulateAgentDetail(_selectedElement.Id);
+        }
     }
 
     private void PopulateTaskDetail(PlanTask task, Plan plan)
@@ -4676,6 +4682,89 @@ internal sealed class PlanViewerWindow : ChromedWindow
             list.ListItems.Add(new ListItem(new Paragraph(new Run(title))));
         }
         _detailDocument.Blocks.Add(list);
+    }
+
+    private void PopulateAgentDetail(string agentHandle)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        // Title
+        var titlePara = new Paragraph(new Run(agentHandle) { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(titlePara);
+
+        // Tasks in this plan
+        AddSectionHeader("Tasks in this plan");
+
+        var taskList = new List();
+        taskList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        taskList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        taskList.MarkerStyle = TextMarkerStyle.Disc;
+        taskList.Margin = new Thickness(0, 0, 0, 12);
+
+        var durableTasks = _durablePlan?.Tasks;
+        if (durableTasks is not null)
+        {
+            foreach (var task in durableTasks)
+            {
+                var assignment = task.AgentAssignments?.FirstOrDefault(a =>
+                    string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
+                if (assignment is null) continue;
+
+                var titleRun = new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.SemiBold };
+                var statusColorKey = GetTaskStatusColorKey(task.Status);
+                var statusRun = new Run($"  ● {FormatTaskStatus(task.Status)}");
+                statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+                var roleRun = new Run($"\n{assignment.Role}");
+                roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+
+                var para = new Paragraph();
+                para.Inlines.Add(titleRun);
+                para.Inlines.Add(statusRun);
+                para.Inlines.Add(roleRun);
+                para.Margin = new Thickness(0, 0, 0, 4);
+                taskList.ListItems.Add(new ListItem(para));
+            }
+        }
+        else
+        {
+            // Fallback to decomposed plan tasks
+            var decomposedTasks = _plan?.Group.Tasks;
+            if (decomposedTasks is not null)
+            {
+                foreach (var task in decomposedTasks)
+                {
+                    var assignment = task.AgentAssignments?.FirstOrDefault(a =>
+                        string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
+                    if (assignment is null) continue;
+
+                    var titleRun = new Run(task.Title ?? task.Id) { FontWeight = FontWeights.SemiBold };
+                    var roleRun = new Run($"\n{assignment.Role}");
+                    roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+
+                    var para = new Paragraph();
+                    para.Inlines.Add(titleRun);
+                    para.Inlines.Add(roleRun);
+                    para.Margin = new Thickness(0, 0, 0, 4);
+                    taskList.ListItems.Add(new ListItem(para));
+                }
+            }
+        }
+
+        if (taskList.ListItems.Count > 0)
+            _detailDocument.Blocks.Add(taskList);
+        else
+        {
+            var noPara = new Paragraph(new Run("No tasks assigned."));
+            noPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            noPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(noPara);
+        }
     }
 
     private void AddSectionHeader(string text)
