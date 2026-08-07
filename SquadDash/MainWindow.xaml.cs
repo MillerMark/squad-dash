@@ -12641,7 +12641,7 @@ public partial class MainWindow : Window
 
             StopApprovalResumeRetry();
             ScheduleDecomposeSystemEntry(
-                $"Repository changes finished. Plan {planId} resumed automatically after approval.");
+                $"Repository changes finished. Plan {planId} resuming automatically after approval.");
         }
         catch (PlanPreflightBlockedException blocked)
         {
