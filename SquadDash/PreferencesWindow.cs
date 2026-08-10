@@ -62,6 +62,17 @@ internal sealed class PreferencesWindow : Window {
     private readonly TextBox _byokApiKeyRevealBox;
     private readonly CheckBox _byokOfflineModeCheckBox;
     private readonly TextBlock _byokTestStatusText;
+    // ── Model profile controls ──────────────────────────────────────────
+    private readonly ModelProfileStore _modelProfileStore;
+    private readonly List<ModelProfile> _profiles;
+    private readonly Dictionary<string, string> _categoryAssignments;
+    private readonly ListBox _profileListBox;
+    private readonly Button _addProfileButton;
+    private readonly Button _removeProfileButton;
+    private readonly Button _setDefaultButton;
+    private readonly StackPanel _categoryAssignmentsPanel;
+    private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _suppressProfileSave;
     private readonly TextBox _cleanupPromptBox;
     private readonly ComboBox _planAgentRoutingPolicyComboBox;
     // ── Sound notification controls ──────────────────────────────────────
@@ -597,7 +608,55 @@ internal sealed class PreferencesWindow : Window {
         };
         _byokTestStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
 
-        _notificationsEnabledCheckBox = new CheckBox {
+        // ── Model profile controls ───────────────────────────────────────
+        _modelProfileStore = new ModelProfileStore(_settingsStore);
+        _profiles = new List<ModelProfile>(_modelProfileStore.GetProfiles());
+        _categoryAssignments = new Dictionary<string, string>(_modelProfileStore.GetCategoryAssignments(), StringComparer.OrdinalIgnoreCase);
+
+        _profileListBox = new ListBox {
+            Height = 120,
+            Margin = new Thickness(0, 0, 0, 8),
+            SelectionMode = SelectionMode.Single
+        };
+        _profileListBox.SetResourceReference(ListBox.BackgroundProperty, "TextBoxBackground");
+        _profileListBox.SetResourceReference(ListBox.BorderBrushProperty, "InputBorder");
+        _profileListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
+        _profileListBox.SelectionChanged += ProfileListBox_SelectionChanged;
+
+        _addProfileButton = new Button {
+            Content = "Add",
+            Width = 70,
+            Height = 28,
+            Padding = new Thickness(8, 3, 8, 3)
+        };
+        _addProfileButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _addProfileButton.Click += AddProfile_Click;
+
+        _removeProfileButton = new Button {
+            Content = "Remove",
+            Width = 70,
+            Height = 28,
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(8, 3, 8, 3)
+        };
+        _removeProfileButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _removeProfileButton.Click += RemoveProfile_Click;
+
+        _setDefaultButton = new Button {
+            Content = "Set Default",
+            Width = 90,
+            Height = 28,
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(8, 3, 8, 3)
+        };
+        _setDefaultButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _setDefaultButton.Click += SetDefault_Click;
+
+        _categoryAssignmentsPanel = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
+
+        RefreshProfileListBox();
+
+        _notificationsEnabledCheckBox= new CheckBox {
             Content = "Enable Phone Notifications",
             IsChecked = !string.IsNullOrWhiteSpace(currentSettings.NotificationProvider),
             Margin = new Thickness(0, 0, 0, 16)
@@ -1333,16 +1392,27 @@ internal sealed class PreferencesWindow : Window {
     private UIElement BuildByokPage() {
         var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
 
-        AddSectionHeader(form, "Model");
+        AddSectionHeader(form, "Model Profiles");
 
         var hint = new TextBlock {
-            Text = "Choose the AI provider used by SquadDash. GitHub Copilot uses your Copilot account and can be pinned to a specific model; Custom Model uses your own compatible provider settings.",
+            Text = "Manage model profiles. Each profile configures an AI provider. Assign profiles to agent categories below.",
             TextWrapping = TextWrapping.Wrap,
             FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 12)
         };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         form.Children.Add(hint);
+
+        form.Children.Add(_profileListBox);
+
+        var buttonRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 16) };
+        buttonRow.Children.Add(_addProfileButton);
+        buttonRow.Children.Add(_removeProfileButton);
+        buttonRow.Children.Add(_setDefaultButton);
+        form.Children.Add(buttonRow);
+
+        // Provider detail section - reuse existing panels
+        AddSectionHeader(form, "Profile Settings", topMargin: 8);
 
         AddLabel(form, "Provider:");
         form.Children.Add(_githubCopilotProviderRadio);
@@ -1354,6 +1424,7 @@ internal sealed class PreferencesWindow : Window {
         _githubCopilotModelPanel.Children.Add(_copilotModelStatusText);
         form.Children.Add(_githubCopilotModelPanel);
 
+        // ── Custom model provider panel content ──
         var byokDevWarning = new TextBlock {
             Text = "Custom provider support is experimental. Use an OpenAI-compatible endpoint such as Ollama /v1.",
             TextWrapping = TextWrapping.Wrap,
@@ -1433,6 +1504,21 @@ internal sealed class PreferencesWindow : Window {
 
         _githubCopilotProviderRadio.Checked += (_, _) => UpdateModelProviderSectionVisibility();
         _customModelProviderRadio.Checked += (_, _) => UpdateModelProviderSectionVisibility();
+
+        // ── Category assignments ──
+        AddSectionHeader(form, "Category Assignments", topMargin: 16);
+
+        var assignHint = new TextBlock {
+            Text = "Assign this profile to agent categories. Each category uses at most one profile.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        assignHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        form.Children.Add(assignHint);
+
+        BuildCategoryCheckBoxes();
+        form.Children.Add(_categoryAssignmentsPanel);
 
         return WrapInScrollViewer(form);
     }
@@ -2483,22 +2569,312 @@ internal sealed class PreferencesWindow : Window {
     }
 
     private void SaveModelSettingsNow() {
-        var updated = _settingsStore.SaveModelSettings(
-            _customModelProviderRadio.IsChecked == true ? ModelProvider.Custom : ModelProvider.GitHubCopilot,
-            ReadCopilotDefaultModelInput());
-        _onSaved(updated);
+        if (_suppressProfileSave) return;
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+        var updated = ReadSelectedProfileFromControls();
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) _profiles[idx] = updated;
+        SaveProfilesNow();
     }
 
     private void SaveByokNow() {
-        var byokProviderType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
-        var byokApiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
-        var updated = _settingsStore.SaveByokSettings(
-            ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text),
-            string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim(),
-            byokProviderType,
-            string.IsNullOrWhiteSpace(byokApiKey) ? null : byokApiKey,
-            _byokOfflineModeCheckBox.IsChecked == true);
+        if (_suppressProfileSave) return;
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+        var updated = ReadSelectedProfileFromControls();
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) _profiles[idx] = updated;
+        SaveProfilesNow();
+    }
+
+    // ── Profile management ───────────────────────────────────────────
+
+    private void RefreshProfileListBox() {
+        _suppressProfileSave = true;
+        try {
+            var selectedId = GetSelectedProfile()?.Id;
+            _profileListBox.Items.Clear();
+            foreach (var p in _profiles) {
+                var display = p.IsDefault ? $"★ {p.Alias}" : $"   {p.Alias}";
+                var providerDisplay = string.Equals(p.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase)
+                    ? "GitHub Copilot" : p.ProviderType ?? "custom";
+                var modelDisplay = string.IsNullOrWhiteSpace(p.Model) ? "" : $" — {p.Model}";
+                var item = new ListBoxItem {
+                    Content = $"{display}  ({providerDisplay}{modelDisplay})",
+                    Tag = p.Id,
+                    Padding = new Thickness(6, 4, 6, 4)
+                };
+                item.SetResourceReference(ListBoxItem.ForegroundProperty, "LabelText");
+                _profileListBox.Items.Add(item);
+            }
+            // Restore selection
+            if (selectedId is not null) {
+                foreach (ListBoxItem item in _profileListBox.Items)
+                    if (string.Equals(item.Tag as string, selectedId, StringComparison.OrdinalIgnoreCase)) {
+                        _profileListBox.SelectedItem = item;
+                        break;
+                    }
+            }
+            if (_profileListBox.SelectedItem is null && _profileListBox.Items.Count > 0)
+                _profileListBox.SelectedIndex = 0;
+        }
+        finally {
+            _suppressProfileSave = false;
+        }
+        UpdateProfileButtons();
+        UpdateCategoryCheckBoxes();
+    }
+
+    private ModelProfile? GetSelectedProfile() {
+        if (_profileListBox.SelectedItem is not ListBoxItem selected) return null;
+        var id = selected.Tag as string;
+        return _profiles.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ProfileListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
+        if (_suppressProfileSave) return;
+        LoadSelectedProfileIntoControls();
+        UpdateProfileButtons();
+        UpdateCategoryCheckBoxes();
+    }
+
+    private void LoadSelectedProfileIntoControls() {
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+
+        _suppressProfileSave = true;
+        try {
+            var isCopilot = string.Equals(profile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase);
+            _githubCopilotProviderRadio.IsChecked = isCopilot;
+            _customModelProviderRadio.IsChecked = !isCopilot;
+
+            if (isCopilot) {
+                var model = ApplicationSettingsSnapshot.NormalizeCopilotDefaultModel(profile.Model);
+                SelectCopilotModel(model);
+            }
+
+            _byokProviderUrlBox.Text = profile.ProviderUrl ?? string.Empty;
+            _byokModelBox.Text = profile.Model ?? string.Empty;
+            _byokOfflineModeCheckBox.IsChecked = profile.OfflineMode;
+
+            // Select provider type in combo
+            var providerType = profile.ProviderType ?? "openai";
+            var found = false;
+            foreach (ComboBoxItem item in _byokProviderTypeComboBox.Items) {
+                if (string.Equals(item.Tag as string, providerType, StringComparison.OrdinalIgnoreCase)) {
+                    item.IsSelected = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                ((ComboBoxItem)_byokProviderTypeComboBox.Items[0]).IsSelected = true;
+
+            // API key
+            _byokApiKeyPasswordBox.Password = profile.ApiKey ?? string.Empty;
+            _byokApiKeyRevealBox.Text = profile.ApiKey ?? string.Empty;
+            _byokApiKeyRevealBox.Visibility = Visibility.Collapsed;
+            _byokApiKeyPasswordBox.Visibility = Visibility.Visible;
+
+            UpdateModelProviderSectionVisibility();
+        }
+        finally {
+            _suppressProfileSave = false;
+        }
+    }
+
+    private void UpdateProfileButtons() {
+        var profile = GetSelectedProfile();
+        _removeProfileButton.IsEnabled = _profiles.Count > 1 && profile is not null && !profile.IsDefault;
+        _setDefaultButton.IsEnabled = profile is not null && !profile.IsDefault;
+    }
+
+    private void AddProfile_Click(object sender, RoutedEventArgs e) {
+        var newId = Guid.NewGuid().ToString("N")[..8];
+        var alias = $"Profile {_profiles.Count + 1}";
+        var profile = new ModelProfile(
+            Id: newId,
+            Alias: alias,
+            ProviderType: "copilot",
+            ProviderUrl: null,
+            Model: ApplicationSettingsSnapshot.DefaultCopilotModel,
+            ApiKey: null,
+            OfflineMode: false,
+            IsDefault: false);
+        _profiles.Add(profile);
+        SaveProfilesNow();
+        RefreshProfileListBox();
+        // Select the new profile
+        foreach (ListBoxItem item in _profileListBox.Items)
+            if (string.Equals(item.Tag as string, newId, StringComparison.OrdinalIgnoreCase)) {
+                _profileListBox.SelectedItem = item;
+                break;
+            }
+    }
+
+    private void RemoveProfile_Click(object sender, RoutedEventArgs e) {
+        var profile = GetSelectedProfile();
+        if (profile is null || profile.IsDefault || _profiles.Count <= 1) return;
+
+        // Remove any category assignments pointing to this profile
+        var keysToRemove = _categoryAssignments
+            .Where(kvp => string.Equals(kvp.Value, profile.Id, StringComparison.OrdinalIgnoreCase))
+            .Select(kvp => kvp.Key)
+            .ToList();
+        foreach (var key in keysToRemove)
+            _categoryAssignments.Remove(key);
+
+        _profiles.RemoveAll(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        SaveProfilesNow();
+        SaveCategoryAssignmentsNow();
+        RefreshProfileListBox();
+    }
+
+    private void SetDefault_Click(object sender, RoutedEventArgs e) {
+        var profile = GetSelectedProfile();
+        if (profile is null || profile.IsDefault) return;
+
+        for (int i = 0; i < _profiles.Count; i++)
+            _profiles[i] = _profiles[i] with { IsDefault = string.Equals(_profiles[i].Id, profile.Id, StringComparison.OrdinalIgnoreCase) };
+
+        SaveProfilesNow();
+        RefreshProfileListBox();
+    }
+
+    private ModelProfile ReadSelectedProfileFromControls() {
+        var profile = GetSelectedProfile();
+        if (profile is null)
+            return _profiles[0]; // fallback
+
+        var isCopilot = _githubCopilotProviderRadio.IsChecked == true;
+        string providerType;
+        string? providerUrl;
+        string? model;
+        string? apiKey;
+        bool offlineMode;
+
+        if (isCopilot) {
+            providerType = "copilot";
+            providerUrl = null;
+            model = ReadCopilotDefaultModelInput();
+            apiKey = null;
+            offlineMode = false;
+        }
+        else {
+            providerType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "openai";
+            providerUrl = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
+            model = string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim();
+            apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = null;
+            offlineMode = _byokOfflineModeCheckBox.IsChecked == true;
+        }
+
+        return profile with {
+            ProviderType = providerType,
+            ProviderUrl = providerUrl,
+            Model = model,
+            ApiKey = apiKey,
+            OfflineMode = offlineMode
+        };
+    }
+
+    private void SaveProfilesNow() {
+        _modelProfileStore.SaveProfiles(_profiles);
+        // Also update legacy settings for backward compatibility
+        var defaultProfile = _profiles.FirstOrDefault(p => p.IsDefault) ?? _profiles[0];
+        var isCustom = !string.Equals(defaultProfile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase);
+        _settingsStore.SaveModelSettings(
+            isCustom ? ModelProvider.Custom : ModelProvider.GitHubCopilot,
+            isCustom ? null : defaultProfile.Model ?? ApplicationSettingsSnapshot.DefaultCopilotModel);
+        if (isCustom) {
+            _settingsStore.SaveByokSettings(
+                defaultProfile.ProviderUrl,
+                defaultProfile.Model,
+                defaultProfile.ProviderType,
+                defaultProfile.ApiKey,
+                defaultProfile.OfflineMode);
+        }
+        var updated = _settingsStore.Load();
         _onSaved(updated);
+    }
+
+    private void SaveCategoryAssignmentsNow() {
+        _modelProfileStore.SaveCategoryAssignments(_categoryAssignments);
+        var updated = _settingsStore.Load();
+        _onSaved(updated);
+    }
+
+    // ── Category assignment UI ───────────────────────────────────────
+
+    private static readonly (string Category, string DisplayName)[] CategoryDisplayNames = {
+        (ModelProfileCategory.Coordinator, "Coordinator"),
+        (ModelProfileCategory.SpawnedNamedAgents, "Spawned Named Agents"),
+        (ModelProfileCategory.TemporaryAgents, "Temporary Agents"),
+        (ModelProfileCategory.RAI, "RAI"),
+        (ModelProfileCategory.Scribe, "Scribe"),
+        (ModelProfileCategory.Ralph, "Ralph"),
+        (ModelProfileCategory.FactChecker, "Fact Checker"),
+    };
+
+    private void BuildCategoryCheckBoxes() {
+        _categoryAssignmentsPanel.Children.Clear();
+        _categoryCheckBoxes.Clear();
+        foreach (var (category, displayName) in CategoryDisplayNames) {
+            var cb = new CheckBox {
+                Content = displayName,
+                Tag = category,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            cb.SetResourceReference(ForegroundProperty, "BodyText");
+            cb.Checked += CategoryCheckBox_Changed;
+            cb.Unchecked += CategoryCheckBox_Changed;
+            _categoryCheckBoxes[category] = cb;
+            _categoryAssignmentsPanel.Children.Add(cb);
+        }
+    }
+
+    private void UpdateCategoryCheckBoxes() {
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+
+        _suppressProfileSave = true;
+        try {
+            var singleProfile = _profiles.Count == 1;
+            foreach (var (category, _) in CategoryDisplayNames) {
+                if (!_categoryCheckBoxes.TryGetValue(category, out var cb)) continue;
+                if (singleProfile) {
+                    cb.IsChecked = true;
+                    cb.IsEnabled = false;
+                }
+                else {
+                    var assignedProfileId = _categoryAssignments.TryGetValue(category, out var id) ? id : null;
+                    cb.IsChecked = string.Equals(assignedProfileId, profile.Id, StringComparison.OrdinalIgnoreCase);
+                    cb.IsEnabled = true;
+                }
+            }
+        }
+        finally {
+            _suppressProfileSave = false;
+        }
+    }
+
+    private void CategoryCheckBox_Changed(object sender, RoutedEventArgs e) {
+        if (_suppressProfileSave) return;
+        var profile = GetSelectedProfile();
+        if (profile is null || _profiles.Count <= 1) return;
+
+        var cb = sender as CheckBox;
+        if (cb is null) return;
+        var category = cb.Tag as string;
+        if (category is null) return;
+
+        if (cb.IsChecked == true)
+            _categoryAssignments[category] = profile.Id;
+        else
+            _categoryAssignments.Remove(category);
+
+        SaveCategoryAssignmentsNow();
     }
 
     private void SaveCleanupPromptNow() {
