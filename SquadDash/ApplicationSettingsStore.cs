@@ -917,6 +917,24 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveModelProfiles(IReadOnlyList<ModelProfile> profiles) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with { ModelProfiles = profiles };
+        SaveCore(updated);
+        return updated;
+    }
+
+    public ApplicationSettingsSnapshot SaveCategoryAssignments(Dictionary<string, string> assignments) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            CategoryAssignments = new Dictionary<string, string>(assignments, StringComparer.OrdinalIgnoreCase)
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
@@ -1373,6 +1391,19 @@ internal sealed record ApplicationSettingsSnapshot(
 
     /// <summary>When true, sets COPILOT_OFFLINE=true so the CLI skips GitHub authentication calls.</summary>
     public bool ByokOfflineMode { get; init; } = false;
+
+    // ── Model Profiles ────────────────────────────────────────────────────
+    /// <summary>
+    /// Named model profiles that allow different agent categories to use different LLM providers.
+    /// <c>null</c> or empty triggers legacy migration from the single-provider fields above.
+    /// </summary>
+    public IReadOnlyList<ModelProfile>? ModelProfiles { get; init; }
+
+    /// <summary>
+    /// Maps agent category names (see <see cref="ModelProfileCategory"/>) to profile IDs.
+    /// Categories not present in this dictionary fall back to the default profile.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? CategoryAssignments { get; init; }
 
     /// <summary>
     /// Ordered list of regex find/replace rules applied to every voice phrase
@@ -1852,6 +1883,8 @@ internal sealed record ApplicationSettingsSnapshot(
             ByokProviderType = ByokProviderType is "openai" or "azure" or "anthropic" ? ByokProviderType : null,
             ByokApiKey = string.IsNullOrWhiteSpace(ByokApiKey) ? null : ByokApiKey.Trim(),
             ByokOfflineMode = ByokOfflineMode,
+            ModelProfiles = ModelProfiles,
+            CategoryAssignments = CategoryAssignments,
             LoopMode = LoopMode,
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,
