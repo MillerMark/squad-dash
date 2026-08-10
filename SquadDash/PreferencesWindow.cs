@@ -15,6 +15,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.CognitiveServices.Speech;
 
 namespace SquadDash;
@@ -76,6 +77,11 @@ internal sealed class PreferencesWindow : Window {
     private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _suppressProfileSave;
     private string? _currentlyEditedProfileId;
+    private readonly Stack<(List<ModelProfile> Profiles, Dictionary<string, string> Assignments)> _undoStack = new();
+    private bool _profilesDirty;
+    private TextBlock _assignmentCalloutText = null!;
+    private Button _undoButton = null!;
+    private DispatcherTimer? _calloutTimer;
     private readonly TextBox _cleanupPromptBox;
     private readonly ComboBox _planAgentRoutingPolicyComboBox;
     // ── Sound notification controls ──────────────────────────────────────
@@ -673,6 +679,25 @@ internal sealed class PreferencesWindow : Window {
 
         _categoryAssignmentsPanel = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
 
+        _assignmentCalloutText = new TextBlock {
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
+            Margin = new Thickness(0, 4, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        _assignmentCalloutText.SetResourceReference(TextBlock.ForegroundProperty, "SystemInfoText");
+
+        _undoButton = new Button {
+            Content = "Undo",
+            Width = 70,
+            Height = 28,
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(8, 3, 8, 3),
+            IsEnabled = false
+        };
+        _undoButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _undoButton.Click += UndoProfile_Click;
+
         RefreshProfileListBox();
 
         _notificationsEnabledCheckBox= new CheckBox {
@@ -755,6 +780,8 @@ internal sealed class PreferencesWindow : Window {
         _byokOfflineModeCheckBox.Unchecked    += (_, _) => SaveByokNow();
 
         _cleanupPromptBox.LostFocus += (_, _) => SaveCleanupPromptNow();
+
+        Closing += (_, _) => CommitProfileChanges();
 
         // ── Window skeleton ───────────────────────────────────────────────
 
@@ -1429,6 +1456,7 @@ internal sealed class PreferencesWindow : Window {
         buttonRow.Children.Add(_addProfileButton);
         buttonRow.Children.Add(_removeProfileButton);
         buttonRow.Children.Add(_setDefaultButton);
+        buttonRow.Children.Add(_undoButton);
         form.Children.Add(buttonRow);
 
         // Provider detail section - reuse existing panels
@@ -1536,6 +1564,7 @@ internal sealed class PreferencesWindow : Window {
 
         BuildCategoryCheckBoxes();
         form.Children.Add(_categoryAssignmentsPanel);
+        form.Children.Add(_assignmentCalloutText);
 
         return WrapInScrollViewer(form);
     }
@@ -2592,7 +2621,7 @@ internal sealed class PreferencesWindow : Window {
         var updated = ReadSelectedProfileFromControls();
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
         if (idx >= 0) _profiles[idx] = updated;
-        SaveProfilesNow();
+        _profilesDirty = true;
     }
 
     private void SaveByokNow() {
@@ -2602,7 +2631,7 @@ internal sealed class PreferencesWindow : Window {
         var updated = ReadSelectedProfileFromControls();
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
         if (idx >= 0) _profiles[idx] = updated;
-        SaveProfilesNow();
+        _profilesDirty = true;
     }
 
     // ── Profile management ───────────────────────────────────────────
@@ -2719,6 +2748,7 @@ internal sealed class PreferencesWindow : Window {
     }
 
     private void AddProfile_Click(object sender, RoutedEventArgs e) {
+        PushUndoSnapshot();
         var newId = Guid.NewGuid().ToString("N")[..8];
         var alias = $"Profile {_profiles.Count + 1}";
         var profile = new ModelProfile(
@@ -2731,7 +2761,7 @@ internal sealed class PreferencesWindow : Window {
             OfflineMode: false,
             IsDefault: false);
         _profiles.Add(profile);
-        SaveProfilesNow();
+        _profilesDirty = true;
         RefreshProfileListBox();
         // Select the new profile
         foreach (ListBoxItem item in _profileListBox.Items)
@@ -2745,6 +2775,8 @@ internal sealed class PreferencesWindow : Window {
         var profile = GetSelectedProfile();
         if (profile is null || profile.IsDefault || _profiles.Count <= 1) return;
 
+        PushUndoSnapshot();
+
         // Remove any category assignments pointing to this profile
         var keysToRemove = _categoryAssignments
             .Where(kvp => string.Equals(kvp.Value, profile.Id, StringComparison.OrdinalIgnoreCase))
@@ -2754,8 +2786,7 @@ internal sealed class PreferencesWindow : Window {
             _categoryAssignments.Remove(key);
 
         _profiles.RemoveAll(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
-        SaveProfilesNow();
-        SaveCategoryAssignmentsNow();
+        _profilesDirty = true;
         RefreshProfileListBox();
     }
 
@@ -2763,10 +2794,12 @@ internal sealed class PreferencesWindow : Window {
         var profile = GetSelectedProfile();
         if (profile is null || profile.IsDefault) return;
 
+        PushUndoSnapshot();
+
         for (int i = 0; i < _profiles.Count; i++)
             _profiles[i] = _profiles[i] with { IsDefault = string.Equals(_profiles[i].Id, profile.Id, StringComparison.OrdinalIgnoreCase) };
 
-        SaveProfilesNow();
+        _profilesDirty = true;
         RefreshProfileListBox();
     }
 
@@ -2868,7 +2901,7 @@ internal sealed class PreferencesWindow : Window {
 
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, _currentlyEditedProfileId, StringComparison.OrdinalIgnoreCase));
         if (idx >= 0) _profiles[idx] = updated;
-        SaveProfilesNow();
+        _profilesDirty = true;
     }
 
     private string? ReadWireApiInput() =>
@@ -2893,7 +2926,7 @@ internal sealed class PreferencesWindow : Window {
         var updated = ReadSelectedProfileFromControls();
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
         if (idx >= 0) _profiles[idx] = updated;
-        SaveProfilesNow();
+        _profilesDirty = true;
         RefreshProfileListBox();
     }
 
@@ -2921,6 +2954,50 @@ internal sealed class PreferencesWindow : Window {
         _modelProfileStore.SaveCategoryAssignments(_categoryAssignments);
         var updated = _settingsStore.Load();
         _onSaved(updated);
+    }
+
+    // ── Dialog-scoped staging, undo, and commit ──────────────────────
+
+    private void PushUndoSnapshot() {
+        _undoStack.Push((
+            new List<ModelProfile>(_profiles),
+            new Dictionary<string, string>(_categoryAssignments, StringComparer.OrdinalIgnoreCase)));
+        _undoButton.IsEnabled = true;
+    }
+
+    private void UndoProfile_Click(object sender, RoutedEventArgs e) {
+        if (_undoStack.Count == 0) return;
+        var (profiles, assignments) = _undoStack.Pop();
+        _profiles.Clear();
+        _profiles.AddRange(profiles);
+        _categoryAssignments.Clear();
+        foreach (var kvp in assignments)
+            _categoryAssignments[kvp.Key] = kvp.Value;
+        _profilesDirty = true;
+        _undoButton.IsEnabled = _undoStack.Count > 0;
+        RefreshProfileListBox();
+    }
+
+    private void CommitProfileChanges() {
+        if (!_profilesDirty) return;
+        SaveProfilesNow();
+        SaveCategoryAssignmentsNow();
+        _profilesDirty = false;
+        _undoStack.Clear();
+    }
+
+    private void ShowAssignmentCallout(string message) {
+        _calloutTimer?.Stop();
+        _calloutTimer = null;
+        _assignmentCalloutText.Text = message;
+        _assignmentCalloutText.Visibility = Visibility.Visible;
+        _calloutTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        _calloutTimer.Tick += (_, _) => {
+            _calloutTimer?.Stop();
+            _calloutTimer = null;
+            _assignmentCalloutText.Visibility = Visibility.Collapsed;
+        };
+        _calloutTimer.Start();
     }
 
     // ── Category assignment UI ───────────────────────────────────────
@@ -2987,12 +3064,25 @@ internal sealed class PreferencesWindow : Window {
         var category = cb.Tag as string;
         if (category is null) return;
 
-        if (cb.IsChecked == true)
-            _categoryAssignments[category] = profile.Id;
-        else
-            _categoryAssignments.Remove(category);
+        PushUndoSnapshot();
 
-        SaveCategoryAssignmentsNow();
+        if (cb.IsChecked == true) {
+            var previousProfileId = _categoryAssignments.TryGetValue(category, out var id) ? id : null;
+            _categoryAssignments[category] = profile.Id;
+
+            if (previousProfileId is not null && !string.Equals(previousProfileId, profile.Id, StringComparison.OrdinalIgnoreCase)) {
+                var prevProfile = _profiles.FirstOrDefault(p => string.Equals(p.Id, previousProfileId, StringComparison.OrdinalIgnoreCase));
+                if (prevProfile is not null) {
+                    var displayName = CategoryDisplayNames.FirstOrDefault(c => string.Equals(c.Category, category, StringComparison.OrdinalIgnoreCase)).DisplayName ?? category;
+                    ShowAssignmentCallout($"{displayName} moved from \"{prevProfile.Alias}\" to \"{profile.Alias}\".");
+                }
+            }
+        }
+        else {
+            _categoryAssignments.Remove(category);
+        }
+
+        _profilesDirty = true;
     }
 
     private void SaveCleanupPromptNow() {
