@@ -117,6 +117,35 @@ internal sealed class ModelProfileStoreTests {
     }
 
     [Test]
+    public void GetProfiles_FullResponsesEndpoint_MigratesBaseUrlAndWireApi() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        store.SaveModelProfiles([
+            new ModelProfile(
+                "profile-a",
+                "Profile A",
+                "openai",
+                "https://resource.services.ai.azure.com/openai/v1/responses",
+                "gpt-5.4-mini",
+                null,
+                IsDefault: true)
+        ]);
+
+        var profile = new ModelProfileStore(store).GetProfiles().Single();
+
+        Assert.Multiple(() => {
+            Assert.That(
+                profile.ProviderUrl,
+                Is.EqualTo("https://resource.services.ai.azure.com/openai/v1"));
+            Assert.That(profile.WireApi, Is.EqualTo("responses"));
+            var persisted = store.Load().ModelProfiles!.Single();
+            Assert.That(persisted.ProviderUrl, Is.EqualTo(profile.ProviderUrl));
+            Assert.That(persisted.WireApi, Is.EqualTo("responses"));
+        });
+    }
+
+    [Test]
     public void CategoryAssignments_RoundTrip() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");

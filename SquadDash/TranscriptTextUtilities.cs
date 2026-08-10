@@ -50,7 +50,7 @@ internal static class TranscriptTextUtilities
         var blocks = new List<TranscriptProtocolJsonBlock>();
         foreach (var marker in InspectableProtocolMarkers.Distinct(StringComparer.Ordinal))
         {
-            var markerIndex = FindTopLevelSentinelIndex(text, marker);
+            var markerIndex = FindInspectableSentinelIndex(text, marker);
             if (markerIndex < 0)
                 continue;
 
@@ -331,13 +331,24 @@ internal static class TranscriptTextUtilities
     private static string StripHostOwnedJsonBlocks(string text)
     {
         foreach (var marker in InspectableProtocolMarkers)
-            text = StripTopLevelJsonBlock(text, marker);
+            text = StripInspectableJsonBlock(text, marker);
         return text;
+    }
+
+    private static string StripInspectableJsonBlock(string text, string sentinel)
+    {
+        var sentinelIdx = FindInspectableSentinelIndex(text, sentinel);
+        return StripJsonBlockAt(text, sentinel, sentinelIdx);
     }
 
     private static string StripTopLevelJsonBlock(string text, string sentinel)
     {
         var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
+        return StripJsonBlockAt(text, sentinel, sentinelIdx);
+    }
+
+    private static string StripJsonBlockAt(string text, string sentinel, int sentinelIdx)
+    {
         if (sentinelIdx < 0)
             return text;
 
@@ -368,6 +379,70 @@ internal static class TranscriptTextUtilities
         if (before.Length == 0) return after;
         if (after.Length == 0) return before;
         return before + "\n\n" + after;
+    }
+
+    private static int FindInspectableSentinelIndex(string text, string sentinel)
+    {
+        var markerIndex = FindTopLevelSentinelIndex(text, sentinel);
+        if (markerIndex >= 0 || !string.Equals(
+                sentinel,
+                DecomposeStepResultParser.Marker,
+                StringComparison.Ordinal)) {
+            return markerIndex;
+        }
+
+        return FindInlineSentinelOutsideCode(text, sentinel);
+    }
+
+    private static int FindInlineSentinelOutsideCode(string text, string sentinel)
+    {
+        var inFence = false;
+        var offset = 0;
+
+        while (offset < text.Length)
+        {
+            var lineEnd = text.IndexOf('\n', offset);
+            if (lineEnd < 0)
+                lineEnd = text.Length;
+
+            var lineLength = lineEnd - offset;
+            if (lineLength > 0 && text[offset + lineLength - 1] == '\r')
+                lineLength--;
+
+            var line = text.Substring(offset, lineLength);
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                inFence = !inFence;
+            }
+            else if (!inFence)
+            {
+                var markerInLine = line.IndexOf(sentinel, StringComparison.Ordinal);
+                if (markerInLine >= 0 && !IsInsideInlineCode(line, markerInLine))
+                    return offset + markerInLine;
+            }
+
+            offset = lineEnd == text.Length ? text.Length : lineEnd + 1;
+        }
+
+        return -1;
+    }
+
+    private static bool IsInsideInlineCode(string line, int index)
+    {
+        var inCode = false;
+        for (var cursor = 0; cursor < index; cursor++)
+        {
+            if (line[cursor] != '`')
+                continue;
+
+            var runLength = CountBacktickRun(line, cursor);
+            if (runLength < 3)
+                inCode = !inCode;
+            cursor += runLength - 1;
+        }
+
+        return inCode;
     }
 
     private static bool TryFindBalancedJsonObjectEnd(string text, int braceStart, out int braceEnd)

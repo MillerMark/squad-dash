@@ -58,6 +58,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly TextBox _byokProviderUrlBox;
     private readonly TextBox _byokModelBox;
     private readonly ComboBox _byokProviderTypeComboBox;
+    private readonly ComboBox _byokWireApiComboBox;
     private readonly PasswordBox _byokApiKeyPasswordBox;
     private readonly TextBox _byokApiKeyRevealBox;
     private readonly CheckBox _byokOfflineModeCheckBox;
@@ -579,6 +580,13 @@ internal sealed class PreferencesWindow : Window {
         if (!byokTypeSelected)
             ((ComboBoxItem)_byokProviderTypeComboBox.Items[0]).IsSelected = true;
 
+        _byokWireApiComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _byokWireApiComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _byokWireApiComboBox.Items.Add(new ComboBoxItem { Content = "Auto-detect", Tag = null });
+        _byokWireApiComboBox.Items.Add(new ComboBoxItem { Content = "Responses API", Tag = "responses" });
+        _byokWireApiComboBox.Items.Add(new ComboBoxItem { Content = "Chat Completions API", Tag = "completions" });
+        ((ComboBoxItem)_byokWireApiComboBox.Items[0]).IsSelected = true;
+
         var currentByokApiKey = currentSettings.ByokApiKey ?? string.Empty;
         _byokApiKeyPasswordBox = new PasswordBox {
             Password = currentByokApiKey,
@@ -742,6 +750,7 @@ internal sealed class PreferencesWindow : Window {
         _byokApiKeyPasswordBox.LostFocus      += (_, _) => SaveByokNow();
         _byokApiKeyRevealBox.LostFocus        += (_, _) => SaveByokNow();
         _byokProviderTypeComboBox.SelectionChanged += (_, _) => SaveByokNow();
+        _byokWireApiComboBox.SelectionChanged += (_, _) => SaveByokNow();
         _byokOfflineModeCheckBox.Checked      += (_, _) => SaveByokNow();
         _byokOfflineModeCheckBox.Unchecked    += (_, _) => SaveByokNow();
 
@@ -1472,6 +1481,9 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(_customModelProviderPanel, "Provider Type:");
         _customModelProviderPanel.Children.Add(_byokProviderTypeComboBox);
+
+        AddLabel(_customModelProviderPanel, "API Protocol:");
+        _customModelProviderPanel.Children.Add(_byokWireApiComboBox);
 
         AddLabel(_customModelProviderPanel, "API Key (optional):");
         var byokApiKeyHost = new Grid();
@@ -2685,6 +2697,8 @@ internal sealed class PreferencesWindow : Window {
             if (!found)
                 ((ComboBoxItem)_byokProviderTypeComboBox.Items[0]).IsSelected = true;
 
+            SelectWireApi(profile.WireApi);
+
             // API key
             _byokApiKeyPasswordBox.Password = profile.ApiKey ?? string.Empty;
             _byokApiKeyRevealBox.Text = profile.ApiKey ?? string.Empty;
@@ -2769,6 +2783,7 @@ internal sealed class PreferencesWindow : Window {
         string? providerUrl;
         string? model;
         string? apiKey;
+        string? wireApi;
         bool offlineMode;
 
         if (isCopilot) {
@@ -2776,11 +2791,15 @@ internal sealed class PreferencesWindow : Window {
             providerUrl = null;
             model = ReadCopilotDefaultModelInput();
             apiKey = null;
+            wireApi = null;
             offlineMode = false;
         }
         else {
             providerType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "openai";
-            providerUrl = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
+            var rawProviderUrl = _byokProviderUrlBox.Text;
+            wireApi = ReadWireApiInput() ??
+                      ByokProviderSettings.DetectWireApiFromProviderUrl(rawProviderUrl, providerType);
+            providerUrl = ByokProviderSettings.NormalizeProviderUrl(rawProviderUrl);
             model = string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim();
             apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = null;
@@ -2793,7 +2812,8 @@ internal sealed class PreferencesWindow : Window {
             ProviderUrl = providerUrl,
             Model = model,
             ApiKey = apiKey,
-            OfflineMode = offlineMode
+            OfflineMode = offlineMode,
+            WireApi = wireApi
         };
     }
 
@@ -2813,6 +2833,7 @@ internal sealed class PreferencesWindow : Window {
         string? providerUrl;
         string? model;
         string? apiKey;
+        string? wireApi;
         bool offlineMode;
 
         if (isCopilot) {
@@ -2820,11 +2841,15 @@ internal sealed class PreferencesWindow : Window {
             providerUrl = null;
             model = ReadCopilotDefaultModelInput();
             apiKey = null;
+            wireApi = null;
             offlineMode = false;
         }
         else {
             providerType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "openai";
-            providerUrl = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
+            var rawProviderUrl = _byokProviderUrlBox.Text;
+            wireApi = ReadWireApiInput() ??
+                      ByokProviderSettings.DetectWireApiFromProviderUrl(rawProviderUrl, providerType);
+            providerUrl = ByokProviderSettings.NormalizeProviderUrl(rawProviderUrl);
             model = string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim();
             apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
             if (string.IsNullOrWhiteSpace(apiKey)) apiKey = null;
@@ -2837,12 +2862,28 @@ internal sealed class PreferencesWindow : Window {
             ProviderUrl = providerUrl,
             Model = model,
             ApiKey = apiKey,
-            OfflineMode = offlineMode
+            OfflineMode = offlineMode,
+            WireApi = wireApi
         };
 
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, _currentlyEditedProfileId, StringComparison.OrdinalIgnoreCase));
         if (idx >= 0) _profiles[idx] = updated;
         SaveProfilesNow();
+    }
+
+    private string? ReadWireApiInput() =>
+        (_byokWireApiComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+
+    private void SelectWireApi(string? wireApi) {
+        var normalized = wireApi?.Trim().ToLowerInvariant();
+        foreach (ComboBoxItem item in _byokWireApiComboBox.Items) {
+            if (string.Equals(item.Tag as string, normalized, StringComparison.OrdinalIgnoreCase)) {
+                item.IsSelected = true;
+                return;
+            }
+        }
+
+        ((ComboBoxItem)_byokWireApiComboBox.Items[0]).IsSelected = true;
     }
 
     private void SaveProfileAliasNow() {

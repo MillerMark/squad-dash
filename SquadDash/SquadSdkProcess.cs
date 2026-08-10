@@ -653,10 +653,11 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         };
         psi.ArgumentList.Add(bridgeScriptPath);
 
-        if (ActiveProfile is { ProviderUrl: { Length: > 0 } profileProviderUrl } activeProfile) {
+        if (ActiveProfile is { ProviderUrl: { Length: > 0 } } activeProfile) {
             PopulateProfileEnvironment(psi, activeProfile);
         } else if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
-            psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
+            var normalizedProviderUrl = ByokProviderSettings.NormalizeProviderUrl(providerUrl) ?? providerUrl;
+            psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = normalizedProviderUrl;
 
             if (!string.IsNullOrEmpty(byok.Model))
                 psi.EnvironmentVariables["COPILOT_PROVIDER_MODEL_ID"] = byok.Model;
@@ -675,7 +676,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
 
             SquadDashTrace.Write("Bridge",
-                $"BYOK active — url={providerUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
+                $"BYOK active — url={normalizedProviderUrl} model={byok.Model ?? "(none)"} type={byok.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(byok.ApiKey) ? "not set" : "set")} offline={byok.OfflineMode}");
         } else {
             SquadDashTrace.Write("Bridge", "BYOK not configured — using default GitHub Copilot provider.");
         }
@@ -697,6 +698,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     internal static string? ResolveByokWireApi(ByokProviderSettings byok) {
+        var detected = ByokProviderSettings.DetectWireApiFromProviderUrl(
+            byok.ProviderUrl,
+            byok.ProviderType);
+        if (detected is not null)
+            return detected;
+
         if (!string.Equals(byok.ProviderType, "openai", StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -716,6 +723,16 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     internal static string? ResolveProfileWireApi(ModelProfile profile) {
+        var configured = profile.WireApi?.Trim().ToLowerInvariant();
+        if (configured is "responses" or "completions")
+            return configured;
+
+        var detected = ByokProviderSettings.DetectWireApiFromProviderUrl(
+            profile.ProviderUrl,
+            profile.ProviderType);
+        if (detected is not null)
+            return detected;
+
         if (!string.Equals(profile.ProviderType, "openai", StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -748,7 +765,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         SquadSdkProviderConfiguration? provider = null;
         if (!isCopilot && !string.IsNullOrWhiteSpace(profile?.ProviderUrl)) {
             provider = new SquadSdkProviderConfiguration(
-                profile.ProviderUrl,
+                ByokProviderSettings.NormalizeProviderUrl(profile.ProviderUrl) ?? profile.ProviderUrl,
                 profile.ProviderType,
                 ResolveProfileWireApi(profile),
                 ApplicationSettingsStore.DecryptSettingValue(profile.ApiKey));
@@ -770,7 +787,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// from the resolved <paramref name="profile"/>. Only sets variables for non-empty values.
     /// </summary>
     internal static void PopulateProfileEnvironment(ProcessStartInfo psi, ModelProfile profile) {
-        psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = profile.ProviderUrl;
+        var providerUrl = ByokProviderSettings.NormalizeProviderUrl(profile.ProviderUrl) ?? profile.ProviderUrl;
+        psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
 
         if (!string.IsNullOrEmpty(profile.Model))
             psi.EnvironmentVariables["COPILOT_PROVIDER_MODEL_ID"] = profile.Model;
@@ -789,7 +807,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
 
         SquadDashTrace.Write("Bridge",
-            $"ActiveProfile — url={profile.ProviderUrl} model={profile.Model ?? "(none)"} type={profile.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(profile.ApiKey) ? "not set" : "set")} offline={profile.OfflineMode}");
+            $"ActiveProfile — url={providerUrl} model={profile.Model ?? "(none)"} type={profile.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(profile.ApiKey) ? "not set" : "set")} offline={profile.OfflineMode}");
     }
 
     private static string ResolveBridgeScriptPath(string sdkDirectory) {

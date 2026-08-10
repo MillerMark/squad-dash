@@ -22,8 +22,12 @@ internal sealed class ModelProfileStore {
     internal IReadOnlyList<ModelProfile> GetProfiles() {
         var snapshot = _settingsStore.Load();
         var profiles = snapshot.ModelProfiles;
-        if (profiles is not null && profiles.Count > 0)
-            return profiles;
+        if (profiles is not null && profiles.Count > 0) {
+            var normalized = profiles.Select(NormalizeProviderConfiguration).ToArray();
+            if (!profiles.SequenceEqual(normalized))
+                _settingsStore.SaveModelProfiles(normalized);
+            return normalized;
+        }
 
         var migrated = MigrateLegacyProfile(snapshot);
         _settingsStore.SaveModelProfiles(migrated);
@@ -46,7 +50,29 @@ internal sealed class ModelProfileStore {
     /// Replaces the full profile list.
     /// </summary>
     internal void SaveProfiles(IReadOnlyList<ModelProfile> profiles) {
-        _settingsStore.SaveModelProfiles(profiles);
+        _settingsStore.SaveModelProfiles(profiles.Select(NormalizeProviderConfiguration).ToArray());
+    }
+
+    internal static ModelProfile NormalizeProviderConfiguration(ModelProfile profile) {
+        if (string.IsNullOrWhiteSpace(profile.ProviderUrl) ||
+            string.Equals(profile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase)) {
+            return profile;
+        }
+
+        var wireApi = NormalizeWireApi(profile.WireApi) ??
+                      ByokProviderSettings.DetectWireApiFromProviderUrl(
+                          profile.ProviderUrl,
+                          profile.ProviderType);
+        var providerUrl = ByokProviderSettings.NormalizeProviderUrl(profile.ProviderUrl);
+        return profile with {
+            ProviderUrl = providerUrl,
+            WireApi = wireApi
+        };
+    }
+
+    private static string? NormalizeWireApi(string? wireApi) {
+        var normalized = wireApi?.Trim().ToLowerInvariant();
+        return normalized is "responses" or "completions" ? normalized : null;
     }
 
     /// <summary>

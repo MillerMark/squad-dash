@@ -181,6 +181,51 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_InlineDecomposeStepResult_StripsAcceptedHostPayload()
+    {
+        const string text = """
+            I’m starting the fresh attempt now. DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId": "MODELPROF-20260810",
+              "taskId": "MODELPROF-20260810-005",
+              "revision": "abc",
+              "status": "failed",
+              "summary": "The provider launch failed.",
+              "remainingWork": []
+            }
+            """;
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("I’m starting the fresh attempt now."));
+    }
+
+    [Test]
+    public void InspectableProtocolJson_InlineDecomposeStepResult_IsRetainedAsMetadata()
+    {
+        const string text = """
+            I’m starting the fresh attempt now. DECOMPOSE_STEP_RESULT_JSON:
+            { "groupId": "MODELPROF-20260810", "summary": "Failed" }
+            """;
+
+        var blocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
+
+        Assert.Multiple(() => {
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(blocks[0].Marker, Is.EqualTo("DECOMPOSE_STEP_RESULT_JSON"));
+            Assert.That(blocks[0].Json, Does.Contain("MODELPROF-20260810"));
+        });
+    }
+
+    [Test]
+    public void SanitizeResponseText_InlineCodeDecomposeMarker_RemainsVisible()
+    {
+        const string text = "Explain `DECOMPOSE_STEP_RESULT_JSON: { \"groupId\": \"example\" }` to the user.";
+
+        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo(text));
+    }
+
+    [Test]
     public void InspectableProtocolJson_RetainsStrippedPayloadAsMetadata()
     {
         const string text = """

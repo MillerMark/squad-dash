@@ -108,6 +108,48 @@ internal sealed class SquadSdkProcessProfileTests {
         Assert.That(psi.EnvironmentVariables.ContainsKey("COPILOT_PROVIDER_WIRE_API"), Is.False);
     }
 
+    [Test]
+    public void PopulateProfileEnvironment_FullResponsesEndpoint_NormalizesBaseUrlAndWireApi() {
+        var psi = new ProcessStartInfo();
+        var profile = new ModelProfile(
+            Id: "azure-responses",
+            Alias: "Azure Responses",
+            ProviderType: "openai",
+            ProviderUrl: "https://resource.services.ai.azure.com/openai/v1/responses",
+            Model: "gpt-5.4-mini",
+            ApiKey: "secret");
+
+        SquadSdkProcess.PopulateProfileEnvironment(psi, profile);
+
+        Assert.Multiple(() => {
+            Assert.That(
+                psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"],
+                Is.EqualTo("https://resource.services.ai.azure.com/openai/v1"));
+            Assert.That(
+                psi.EnvironmentVariables["COPILOT_PROVIDER_WIRE_API"],
+                Is.EqualTo("responses"));
+        });
+    }
+
+    [Test]
+    public void PopulateProfileEnvironment_ExplicitResponsesProtocol_UsesConfiguredWireApi() {
+        var psi = new ProcessStartInfo();
+        var profile = new ModelProfile(
+            Id: "explicit-responses",
+            Alias: "Explicit Responses",
+            ProviderType: "openai",
+            ProviderUrl: "https://provider.example.com/v1",
+            Model: "gpt-5.4-mini",
+            ApiKey: "secret",
+            WireApi: "responses");
+
+        SquadSdkProcess.PopulateProfileEnvironment(psi, profile);
+
+        Assert.That(
+            psi.EnvironmentVariables["COPILOT_PROVIDER_WIRE_API"],
+            Is.EqualTo("responses"));
+    }
+
     // ------------------------------------------------------------------
     // BuildDefaultStartInfo integration — copilot-type profile (no ProviderUrl)
     // ------------------------------------------------------------------
@@ -210,6 +252,19 @@ internal sealed class SquadSdkProcessProfileTests {
     public void ResolveProfileWireApi_RemoteOpenAi_ReturnsNull() {
         var profile = new ModelProfile("id", "Alias", "openai", "https://api.openai.example.com/v1", "model", null);
         Assert.That(SquadSdkProcess.ResolveProfileWireApi(profile), Is.Null);
+    }
+
+    [Test]
+    public void ResolveProfileWireApi_FullResponsesEndpoint_ReturnsResponses() {
+        var profile = new ModelProfile(
+            "id",
+            "Alias",
+            "openai",
+            "https://provider.example.com/v1/responses",
+            "gpt-5.4-mini",
+            null);
+
+        Assert.That(SquadSdkProcess.ResolveProfileWireApi(profile), Is.EqualTo("responses"));
     }
 
     [Test]

@@ -32,6 +32,28 @@ internal sealed record ByokProviderSettings(
         return normalized;
     }
 
+    internal static string? DetectWireApiFromProviderUrl(string? providerUrl, string? providerType) {
+        if (string.IsNullOrWhiteSpace(providerUrl) ||
+            !(string.Equals(providerType, "openai", StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(providerType, "azure", StringComparison.OrdinalIgnoreCase))) {
+            return null;
+        }
+
+        if (!Uri.TryCreate(providerUrl.Trim(), UriKind.Absolute, out var uri))
+            return null;
+
+        var path = uri.AbsolutePath.TrimEnd('/');
+        if (path.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            return "responses";
+
+        if (path.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith("/completions", StringComparison.OrdinalIgnoreCase)) {
+            return "completions";
+        }
+
+        return null;
+    }
+
     internal static string GetProviderRoot(string providerUrl) {
         var normalized = NormalizeProviderUrl(providerUrl) ?? providerUrl.Trim().TrimEnd('/');
         return normalized.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
@@ -44,7 +66,9 @@ internal sealed record ByokProviderSettings(
             "/api/version",
             "/api/tags",
             "/models",
-            "/chat/completions"
+            "/chat/completions",
+            "/completions",
+            "/responses"
         }) {
             if (path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 return path[..^suffix.Length];

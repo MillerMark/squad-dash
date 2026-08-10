@@ -56,11 +56,26 @@ internal sealed class ByokAndDocsPanelTests {
     [TestCase("http://100.90.79.23:11434/v1/models", "http://100.90.79.23:11434/v1")]
     [TestCase("http://100.90.79.23:11434", "http://100.90.79.23:11434/v1")]
     [TestCase("https://provider.example.com/v1/models", "https://provider.example.com/v1")]
+    [TestCase("https://provider.example.com/v1/responses", "https://provider.example.com/v1")]
+    [TestCase("https://provider.example.com/v1/chat/completions", "https://provider.example.com/v1")]
     [TestCase("https://provider.example.com", "https://provider.example.com")]
     public void ByokProviderSettings_NormalizeProviderUrl_StripsKnownEndpointSuffixes(
         string input,
         string expected) {
         Assert.That(ByokProviderSettings.NormalizeProviderUrl(input), Is.EqualTo(expected));
+    }
+
+    [TestCase("https://provider.example.com/v1/responses", "openai", "responses")]
+    [TestCase("https://provider.example.com/v1/chat/completions", "openai", "completions")]
+    [TestCase("https://provider.example.com/v1/responses", "azure", "responses")]
+    [TestCase("https://provider.example.com/v1/responses", "anthropic", null)]
+    public void ByokProviderSettings_DetectWireApiFromProviderUrl_UsesOperationSuffix(
+        string input,
+        string providerType,
+        string? expected) {
+        Assert.That(
+            ByokProviderSettings.DetectWireApiFromProviderUrl(input, providerType),
+            Is.EqualTo(expected));
     }
 
     // ------------------------------------------------------------------
