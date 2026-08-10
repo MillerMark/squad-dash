@@ -179,6 +179,8 @@
     <SolidColorBrush x:Key="TranscriptActionText"          Color="#D8C8B0"/><!-- = LabelText dark -->
     <SolidColorBrush x:Key="DiffAddedText" Color="#A5D1EE"/>
     <SolidColorBrush x:Key="DiffRemovedText" Color="#F3A3A3"/>
+    <SolidColorBrush x:Key="DiffAddedMarker" Color="#A5D1EE" Opacity="0.5"/>
+    <SolidColorBrush x:Key="DiffRemovedMarker" Color="#F3A3A3" Opacity="0.5"/>
     <SolidColorBrush x:Key="DiffAddedSummary" Color="#6BAED6"/>
     <SolidColorBrush x:Key="DiffRemovedSummary" Color="#E07070"/>
     <SolidColorBrush x:Key="DiffDeletedFileText" Color="#C09090"/>

@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace SquadDash;
 
-internal sealed class CommitViewerWindow : Window
+internal sealed class CommitViewerWindow : ChromedWindow
 {
     private readonly string _repositoryPath;
     private readonly string _commitSha;
@@ -17,6 +17,7 @@ internal sealed class CommitViewerWindow : Window
     private readonly TextBlock _status = new();
 
     private CommitViewerWindow(string repositoryPath, string commitSha)
+        : base(captionHeight: CloseButtonHeight)
     {
         _repositoryPath = repositoryPath;
         _commitSha = commitSha;
@@ -25,8 +26,8 @@ internal sealed class CommitViewerWindow : Window
         Height = 760;
         MinWidth = 720;
         MinHeight = 440;
+        ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        SetResourceReference(BackgroundProperty, "WindowBackground");
 
         _heading.FontSize = 18;
         _heading.FontWeight = FontWeights.SemiBold;
@@ -71,7 +72,7 @@ internal sealed class CommitViewerWindow : Window
         DockPanel.SetDock(header, Dock.Top);
         root.Children.Add(header);
         root.Children.Add(split);
-        Content = root;
+        ApplyOuterBorder(titleText: string.Empty).Child = root;
     }
 
     internal static async Task<CommitViewerWindow> CreateAsync(string repositoryPath, string commitSha)
