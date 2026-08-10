@@ -790,6 +790,27 @@ internal sealed class DecomposedTasksWriterTests
     }
 
     [Test]
+    public void WriteGroup_RetriesWhenExistingFileIsBrieflyLocked()
+    {
+        File.WriteAllText(_tasksFile, "# existing content\n");
+        var lockedFile = new FileStream(
+            _tasksFile,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        var releaseLock = Task.Run(async () =>
+        {
+            await Task.Delay(45);
+            lockedFile.Dispose();
+        });
+
+        new DecomposedTasksWriter().WriteGroup(_tasksFile, MakeGroup());
+        releaseLock.GetAwaiter().GetResult();
+
+        Assert.That(File.ReadAllText(_tasksFile), Does.Contain("<!-- decompose-group:"));
+    }
+
+    [Test]
     public void WriteGroup_SameGroupTwice_DoesNotDuplicateBlock()
     {
         var writer = new DecomposedTasksWriter();

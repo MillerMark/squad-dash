@@ -5,6 +5,7 @@ import {
     buildDelegationHiddenContext,
     buildNamedAgentExecutionPrompt,
     buildNamedAgentPrompt,
+    buildProviderNeutralCliEnvironment,
     findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
@@ -183,6 +184,24 @@ test("counterfeit roster detection rejects roster-like and plan-bearing generic 
         name: "temporary-research",
         prompt: "Research provider SDK behavior."
     }, routes), undefined);
+});
+
+test("CLI child environment does not inherit a coordinator session provider", () => {
+    const environment = buildProviderNeutralCliEnvironment({
+        PATH: "C:\\Tools",
+        GITHUB_TOKEN: "github-token",
+        COPILOT_PROVIDER_BASE_URL: "http://localhost:11434/v1",
+        COPILOT_PROVIDER_API_KEY: "provider-key",
+        COPILOT_PROVIDER_MODEL_ID: "local-model",
+        COPILOT_OFFLINE: "true"
+    });
+
+    assert.equal(environment.PATH, "C:\\Tools");
+    assert.equal(environment.GITHUB_TOKEN, "github-token");
+    assert.equal(environment.COPILOT_PROVIDER_BASE_URL, undefined);
+    assert.equal(environment.COPILOT_PROVIDER_API_KEY, undefined);
+    assert.equal(environment.COPILOT_PROVIDER_MODEL_ID, undefined);
+    assert.equal(environment.COPILOT_OFFLINE, undefined);
 });
 
 test("normalizes raw report tool JSON into assistant body text", () => {

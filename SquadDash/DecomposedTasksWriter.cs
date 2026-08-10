@@ -12,6 +12,8 @@ namespace SquadDash;
 /// </summary>
 internal sealed class DecomposedTasksWriter
 {
+    private static readonly int[] AtomicMoveRetryDelaysMs = [0, 15, 30, 60, 120, 240];
+
     /// <summary>
     /// Prepends the group header and all subtasks (with <c>[ ]</c> pending markers)
     /// to <paramref name="tasksFilePath"/>.
@@ -319,16 +321,41 @@ internal sealed class DecomposedTasksWriter
         }
 
         var separator = existing.Length > 0 ? Environment.NewLine : string.Empty;
-        var tempPath = tasksFilePath + ".tmp";
-        File.WriteAllText(tempPath, content + separator + existing, Encoding.UTF8);
-        File.Move(tempPath, tasksFilePath, overwrite: true);
+        WriteAtomically(
+            tasksFilePath,
+            tempPath => File.WriteAllText(tempPath, content + separator + existing, Encoding.UTF8));
     }
 
     private static void WriteAllLinesAtomically(string path, IEnumerable<string> lines)
     {
-        var tempPath = path + ".tmp";
-        File.WriteAllLines(tempPath, lines, Encoding.UTF8);
-        File.Move(tempPath, path, overwrite: true);
+        WriteAtomically(path, tempPath => File.WriteAllLines(tempPath, lines, Encoding.UTF8));
+    }
+
+    private static void WriteAtomically(string path, Action<string> writeTempFile)
+    {
+        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            writeTempFile(tempPath);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.Move(tempPath, path, overwrite: true);
+                    return;
+                }
+                catch (Exception ex) when (
+                    ex is IOException or UnauthorizedAccessException &&
+                    attempt + 1 < AtomicMoveRetryDelaysMs.Length)
+                {
+                    System.Threading.Thread.Sleep(AtomicMoveRetryDelaysMs[attempt + 1]);
+                }
+            }
+        }
+        finally
+        {
+            try { File.Delete(tempPath); } catch { /* best-effort cleanup after a failed replace */ }
+        }
     }
 
     private static bool SetTaskStatus(

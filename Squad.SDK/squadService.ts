@@ -472,6 +472,30 @@ function buildCustomProviderFromEnv(): SquadSessionConfig["provider"] | undefine
     return provider;
 }
 
+const SessionScopedProviderEnvironmentKeys = new Set([
+    "COPILOT_MODEL",
+    "COPILOT_OFFLINE",
+    "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_PROVIDER_AZURE_API_VERSION",
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_BEARER_TOKEN",
+    "COPILOT_PROVIDER_MODEL_ID",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_WIRE_API",
+    "COPILOT_PROVIDER_WIRE_MODEL"
+]);
+
+export function buildProviderNeutralCliEnvironment(
+    source: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const [key, value] of Object.entries(source)) {
+        if (value !== undefined && !SessionScopedProviderEnvironmentKeys.has(key.toUpperCase()))
+            result[key] = value;
+    }
+    return result;
+}
+
 function resolveSessionModel(optionsModel: string | undefined, allowEnvironmentFallback = true): string | undefined {
     const requestedModel = normalizeOptionalString(optionsModel);
     if (requestedModel)
@@ -528,7 +552,9 @@ export function findCounterfeitRosterTaskHandle(
         if (aliases.some(alias =>
             taskName === alias ||
             taskName.startsWith(`${alias}-`) ||
-            normalizedPrompt.includes(`@${handle}`))) {
+            normalizedPrompt.includes(`@${handle}`) ||
+            normalizedPrompt.includes(handle) ||
+            normalizedPrompt.includes(route.displayName.toLowerCase()))) {
             return handle;
         }
     }
@@ -2181,7 +2207,9 @@ export class SquadBridgeService {
 
         await this.shutdown();
 
-        this.client = new SquadClient({ cwd });
+        // Provider/model settings are attached to each SDK session below. Do not leak the
+        // coordinator's process-level profile into named-agent sessions created by this client.
+        this.client = new SquadClient({ cwd, env: buildProviderNeutralCliEnvironment() });
         await this.client.connect();
         this.clientCwd = cwd;
         return this.client;
