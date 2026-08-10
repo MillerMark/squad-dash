@@ -772,7 +772,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ? FrmUltimateCallout.PlacementToAngle(CalloutPlacement.North)
                 : double.MinValue;
             FrmUltimateCallout.ShowCallout(
-                $"Covered by this {label} approval requirement. Click here to **clear** it.",
+                $"Covered by this {label} approval requirement. Click to review it, or right-click the primary control to **clear** it.",
                 target, width: 360, angle: angle, theme: theme, fontSize: 14);
         }
 
@@ -1058,8 +1058,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : "Preview: this stop controls approval at the stage milestone."
                     : isLocked
                         ? milestoneIsPrimary
-                            ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to remove."
-                            : "This is an equivalent view of the approval boundary. Click to make this the primary control."
+                            ? "Human approval is required after the stage to the left completes and before the next stage begins. Click to review; right-click to remove."
+                            : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
                         : "Require human approval after the stage to the left completes and before the next stage begins.",
                 milestoneExecutionLocked ? null
                 : onGatesChanged is null
@@ -1082,7 +1082,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
                     approved: milestoneApproved,
                     awaitingApproval: milestoneAwaiting,
-                    selectionAnchor: milestoneAwaiting ? existingGate?.GateId : null);
+                    selectionAnchor: existingGate?.GateId,
+                    toggleActionLabel: milestoneIsPrimary
+                        ? "Remove this approval requirement"
+                        : "Make this the primary approval control");
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneAwaiting ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
@@ -1497,8 +1500,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
                             ? joinIsPrimary
-                                ? "Human approval is required after every incoming task completes and before joined work begins. Click to remove."
-                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
+                                ? "Human approval is required after every incoming task completes and before joined work begins. Click to review; right-click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
                             : "Require human approval after every incoming task completes and before joined work begins.",
                     joinExecutionLocked ? null
                     : onGatesChanged is null
@@ -1528,7 +1531,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                      collectivelyCoveredJoin) ? 0.5 : 1.0,
                     approved: joinApproved,
                     awaitingApproval: joinAwaiting,
-                    selectionAnchor: joinAwaiting ? (existingJoinGate ?? coveringJoinGate)?.GateId : null);
+                    selectionAnchor: (existingJoinGate ?? coveringJoinGate)?.GateId,
+                    toggleActionLabel: joinIsPrimary
+                        ? "Remove this approval requirement"
+                        : "Make this the primary approval control");
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -2125,8 +2131,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "This task entry is covered by a larger approval requirement."
                             : beforeEngaged
                             ? beforeIsPrimary
-                                ? "Human approval is required before this task begins. Click to remove."
-                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
+                                ? "Human approval is required before this task begins. Click to review; right-click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
                             : "Require human approval before this task begins.",
                         entryExecutionLocked || onGatesChanged is null ? null : () =>
                         {
@@ -2154,7 +2160,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                               collectivelyCoveredEntry) ? 0.5 : 1.0,
                             approved: beforeApproved,
                             awaitingApproval: beforeAwaiting,
-                            selectionAnchor: beforeAwaiting ? controllingBeforeGate?.GateId : null);
+                            selectionAnchor: controllingBeforeGate?.GateId,
+                            toggleActionLabel: beforeIsPrimary
+                                ? "Remove this approval requirement"
+                                : "Make this the primary approval control");
                         Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeAwaiting ? 4 : 6) * _scaleFactor);
                         Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
@@ -2225,8 +2234,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "This task exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
-                                ? "Human approval is required after this task completes. Click to remove."
-                                : "This is an equivalent view of the approval boundary. Click to make this the primary control."
+                                ? "Human approval is required after this task completes. Click to review; right-click to remove."
+                                : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
                             : "Require human approval after this task completes.",
                         exitExecutionLocked || onGatesChanged is null ? null : () =>
                         {
@@ -2254,7 +2263,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                              collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
                             approved: afterApproved,
                             awaitingApproval: afterAwaiting,
-                            selectionAnchor: afterAwaiting ? controllingAfterGate?.GateId : null);
+                            selectionAnchor: controllingAfterGate?.GateId,
+                            toggleActionLabel: afterIsPrimary
+                                ? "Remove this approval requirement"
+                                : "Make this the primary approval control");
                         Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterAwaiting ? 24 : 22) * _scaleFactor);
                         Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
@@ -3122,7 +3134,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         double engagedOpacity = 1.0,
         bool approved = false,
         bool awaitingApproval = false,
-        string? selectionAnchor = null)
+        string? selectionAnchor = null,
+        string? toggleActionLabel = null)
     {
         var s = _scaleFactor;
         FrameworkElement indicator;
@@ -3221,7 +3234,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Opacity = engaged ? engagedOpacity : 1.0,
         };
         hitTarget.Children.Add(indicator);
-        if (toggle is not null && stop is not null)
+        if (toggle is not null && stop is not null && selectionAnchor is null)
         {
             hitTarget.MouseEnter += (_, _) => stop.StrokeThickness = 2.2;
             hitTarget.MouseLeave += (_, _) => stop.StrokeThickness = 1.6;
@@ -3231,11 +3244,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 toggle();
             };
         }
-        if (awaitingApproval && selectionAnchor is not null)
+        if (selectionAnchor is not null)
         {
             hitTarget.Tag = $"humanapproval:{selectionAnchor}";
             hitTarget.Cursor = Cursors.Hand;
             WireSelectionClick(hitTarget);
+            if (toggle is not null && stop is not null)
+            {
+                var menu = new ContextMenu();
+                var toggleItem = new MenuItem
+                {
+                    Header = toggleActionLabel ?? "Change this approval control",
+                };
+                toggleItem.Click += (_, _) => toggle();
+                menu.Items.Add(toggleItem);
+                hitTarget.ContextMenu = menu;
+            }
         }
         return hitTarget;
     }
@@ -3976,7 +4000,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    private void PopulateTaskDetail(PlanTask task, Plan plan)
+    private void PopulateTaskDetail(PlanTask task, Plan? plan)
     {
         if (_detailDocument is null)
             return;
@@ -4007,6 +4031,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             descPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(descPara);
+        }
+
+        if (plan is not null)
+        {
+            AppendApprovalGuidance(plan.ApprovalGates.Where(gate =>
+                gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal) ||
+                gate.BeforeTaskIds.Contains(task.TaskId, StringComparer.Ordinal)));
         }
 
         // 4. Dependencies
@@ -4420,6 +4451,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             instrPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(instrPara);
         }
+
+        AppendApprovalContractEditor(gate);
     }
 
     private void PopulateHumanApprovalDetail(string gateId)
@@ -4520,6 +4553,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             resolvedByPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(resolvedByPara);
         }
+
+        AppendApprovalContractEditor(gate);
     }
 
     private void PopulateMilestoneDetail(int columnIndex)
@@ -4551,6 +4586,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return;
 
         var columns = planTasks.GroupBy(t => levels[t.TaskId]).OrderBy(g => g.Key).ToArray();
+
+        if (_durablePlan is not null && columnIndex >= 0 && columnIndex + 1 < columns.Length)
+        {
+            var afterIds = columns[columnIndex].Select(task => task.TaskId).ToArray();
+            var beforeIds = columns[columnIndex + 1].Select(task => task.TaskId).ToArray();
+            var approvalGate = PlanGateManager.FindEquivalentGate(_durablePlan, afterIds, beforeIds) ??
+                _durablePlan.ApprovalGates.FirstOrDefault(gate =>
+                    PlanGateVisualizationPolicy.GraphEquivalent(
+                        _durablePlan.Tasks,
+                        gate.AfterTaskIds,
+                        gate.BeforeTaskIds,
+                        afterIds,
+                        beforeIds));
+            if (approvalGate is not null)
+                AppendApprovalGuidance([approvalGate]);
+        }
 
         // Tasks before milestone (columns 0..columnIndex)
         var tasksBefore = columns.Where(g => g.Key <= columnIndex).SelectMany(g => g).ToArray();
@@ -4658,6 +4709,197 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         _detailDocument.Blocks.Add(list);
+
+        if (_durablePlan is not null)
+        {
+            var targetIds = gate.Targets.Select(target => target.Id).ToArray();
+            var approvalGate = PlanGateManager.FindEquivalentGate(
+                _durablePlan, dependencyIds, targetIds) ??
+                _durablePlan.ApprovalGates.FirstOrDefault(candidate =>
+                    PlanGateVisualizationPolicy.GraphEquivalent(
+                        _durablePlan.Tasks,
+                        candidate.AfterTaskIds,
+                        candidate.BeforeTaskIds,
+                        dependencyIds,
+                        targetIds));
+            if (approvalGate is not null)
+                AppendApprovalGuidance([approvalGate]);
+        }
+    }
+
+    private void AppendApprovalGuidance(IEnumerable<PlanApprovalGate> gates)
+    {
+        if (_detailDocument is null) return;
+        var distinct = gates.DistinctBy(gate => gate.GateId).ToArray();
+        if (distinct.Length == 0) return;
+
+        AddSectionHeader(distinct.Length == 1 ? "Human Approval" : "Human Approvals");
+        foreach (var gate in distinct)
+        {
+            var message = new Paragraph(new Run(gate.Message) { FontWeight = FontWeights.SemiBold });
+            message.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            message.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            message.Margin = new Thickness(0, 0, 0, 4);
+            _detailDocument.Blocks.Add(message);
+
+            var question = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+            if (!string.IsNullOrWhiteSpace(question))
+            {
+                var questionParagraph = new Paragraph();
+                questionParagraph.Inlines.Add(new Run("What to verify: ") { FontWeight = FontWeights.SemiBold });
+                questionParagraph.Inlines.Add(new Run(question));
+                questionParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                questionParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                questionParagraph.Margin = new Thickness(0, 0, 0, 4);
+                _detailDocument.Blocks.Add(questionParagraph);
+            }
+
+            var status = new Paragraph(new Run($"Status: {gate.Status}"));
+            status.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            status.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+            status.Margin = new Thickness(0, 0, 0, 10);
+            _detailDocument.Blocks.Add(status);
+
+            AppendApprovalContractEditor(gate);
+        }
+    }
+
+    private void AppendApprovalContractEditor(PlanApprovalGate gate)
+    {
+        if (_detailDocument is null || _durablePlan is null || _onGatesChanged is null ||
+            !PlanGateManager.CanEditReviewContract(gate))
+            return;
+
+        var editor = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+
+        void AddLabel(string text)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 6, 0, 3),
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            editor.Children.Add(label);
+        }
+
+        TextBox AddEditor(string label, string? value, double minHeight)
+        {
+            AddLabel(label);
+            var textBox = new TextBox
+            {
+                Text = value ?? string.Empty,
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = true,
+                MinHeight = minHeight,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Padding = new Thickness(6, 4, 6, 4),
+            };
+            textBox.SetResourceReference(TextBox.ForegroundProperty, "BodyText");
+            textBox.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
+            textBox.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
+            textBox.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+            editor.Children.Add(textBox);
+            return textBox;
+        }
+
+        AddSectionHeader("Edit Review Guidance");
+        var messageEditor = AddEditor("Message", gate.Message, 54);
+        var questionEditor = AddEditor("Approval question", gate.Question, 54);
+
+        var proofEditors = new System.Collections.Generic.List<(
+            PlanTaskProofRequirement Requirement,
+            TextBox Description,
+            TextBox Question)>();
+        var proofRequirements = gate.ProofRequirements?.ToArray() ?? [];
+        if (proofRequirements.Length == 0)
+        {
+            proofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "human-review", "human-observation", string.Empty),
+            ];
+        }
+
+        for (var index = 0; index < proofRequirements.Length; index++)
+        {
+            var requirement = proofRequirements[index];
+            var suffix = proofRequirements.Length == 1 ? string.Empty : $" {index + 1}";
+            var description = AddEditor(
+                $"Human proof requirement{suffix} ({requirement.ProofType})",
+                requirement.Description,
+                48);
+            var proofQuestion = AddEditor(
+                $"Proof-specific question{suffix} (optional)",
+                requirement.Question,
+                42);
+            proofEditors.Add((requirement, description, proofQuestion));
+        }
+
+        var status = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+
+        var save = TranscriptQuickReplyFactory.CreateButton("Save review guidance", _quickReplyFontSize);
+        save.HorizontalAlignment = HorizontalAlignment.Left;
+        save.Margin = new Thickness(0, 10, 0, 0);
+        save.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(messageEditor.Text) ||
+                string.IsNullOrWhiteSpace(questionEditor.Text))
+            {
+                status.Text = "Message and approval question are required.";
+                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+                return;
+            }
+
+            var latestPlan = _durablePlan;
+            var latestGate = latestPlan?.ApprovalGates.FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal));
+            if (latestPlan is null || !PlanGateManager.CanEditReviewContract(latestGate))
+            {
+                status.Text = "This checkpoint was resolved while you were editing it; guidance was not changed.";
+                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+                return;
+            }
+
+            var proofs = proofEditors
+                .Where(item => !string.IsNullOrWhiteSpace(item.Description.Text))
+                .Select(item => item.Requirement with
+                {
+                    Description = item.Description.Text,
+                    Question = string.IsNullOrWhiteSpace(item.Question.Text)
+                        ? null
+                        : item.Question.Text,
+                })
+                .ToArray();
+            var updated = PlanGateManager.UpdateReviewContract(
+                latestPlan,
+                gate.GateId,
+                messageEditor.Text,
+                questionEditor.Text,
+                proofs);
+            if (ReferenceEquals(updated, latestPlan))
+            {
+                status.Text = "No review-guidance changes to save.";
+                status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                return;
+            }
+
+            _onGatesChanged(updated);
+            status.Text = "Review guidance saved.";
+            status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityLow");
+        };
+        editor.Children.Add(save);
+        editor.Children.Add(status);
+
+        _detailDocument.Blocks.Add(new BlockUIContainer(editor) { Margin = new Thickness(0) });
     }
 
     private (IReadOnlyList<PlanTask>? Tasks, Dictionary<string, int> Levels) ResolveTasksAndLevels()

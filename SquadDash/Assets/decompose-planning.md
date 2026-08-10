@@ -112,8 +112,8 @@ fence around the object is accepted but not required.
   optional for stored-plan compatibility, but supply it for every human-only requirement. Write a
   short, direct question that tells the reviewer exactly what to try and observe, such as
   `Does clicking an item show a selection highlight and populate the detail panel? Is the grid splitter draggable?`.
-- `approvalGates[].question`: optional for stored-plan compatibility, but supply it whenever the AI
-  deliberately places a human approval gate. Ask the concrete approval question in plain language;
+- `approvalGates[].question`: required in every newly proposed explicit human approval gate (the
+  host only treats it as optional while reading older stored plans). Ask the concrete approval question in plain language;
   do not merely restate the gate message or say “Confirm this works.” SquadDash features this
   question in the approval card and gives the reviewer a shortcut to open the plan.
 - `approvalGates[].proofRequirements`: optional human-only proof contracts using the same object

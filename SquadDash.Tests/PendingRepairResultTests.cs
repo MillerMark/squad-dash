@@ -58,6 +58,45 @@ internal sealed class PendingRepairResultTests
     }
 
     [Test]
+    public void RestartRepairBeforeRuntimeLoopReclaim_UsesDurableEnvelopeForCapture()
+    {
+        var execution = CreateExecution();
+        var result = CreateValidResult(attemptId: "attempt-1");
+
+        var captured = PlanRepairReplayPolicy.TryCreatePendingResult(
+            execution, result, null, out var pending, out var rejection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(captured, Is.True, rejection);
+            Assert.That(pending, Is.Not.Null);
+            Assert.That(pending!.GroupId, Is.EqualTo("group-1"));
+            Assert.That(pending.TaskId, Is.EqualTo("task-1"));
+            Assert.That(pending.AttemptId, Is.EqualTo("attempt-1"));
+            Assert.That(PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+                execution with { PendingRepairResult = pending },
+                "group-1", "rev-abc", "task-1"), Is.True);
+        });
+    }
+
+    [Test]
+    public void RestartRepairForDifferentTask_IsRejectedBeforePersistence()
+    {
+        var execution = CreateExecution();
+        var result = CreateValidResult(taskId: "task-2", attemptId: "attempt-1");
+
+        var captured = PlanRepairReplayPolicy.TryCreatePendingResult(
+            execution, result, null, out var pending, out var rejection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(captured, Is.False);
+            Assert.That(pending, Is.Null);
+            Assert.That(rejection, Does.Contain("plan, task, and revision"));
+        });
+    }
+
+    [Test]
     public void CrossAttemptPendingResult_NeverSuppressesTaskDispatch()
     {
         var execution = CreateExecution(pendingResult: CreatePending(

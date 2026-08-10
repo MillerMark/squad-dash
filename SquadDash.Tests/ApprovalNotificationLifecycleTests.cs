@@ -147,6 +147,38 @@ internal sealed class ApprovalNotificationLifecycleTests
     }
 
     [Test]
+    public async Task AwaitingGateGuidanceEdit_RefreshesBodyWithoutResolvingCheckpoint()
+    {
+        var plan = MakePlan(
+            t1Status: PlanTaskStatus.Complete,
+            t2Status: PlanTaskStatus.Complete,
+            gateAStatus: PlanGateStatus.AwaitingApproval,
+            lifecycleStatus: PlanLifecycleStatus.AwaitingApproval);
+        await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], MakeSnapshot());
+
+        var edited = PlanGateManager.UpdateReviewContract(
+            plan,
+            "GATE-A",
+            "Clarified architecture review",
+            "Does the architecture satisfy the clarified review contract?",
+            [new PlanTaskProofRequirement(
+                "human-review", "human-observation", "Inspect the architecture boundary.")]);
+        await _durableManager.RefreshFromPlanAsync(edited);
+
+        var message = _inbox.GetById(MessageIdFor(plan.PlanId));
+        var state = _durableManager.GetState(plan.PlanId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(message, Is.Not.Null);
+            Assert.That(message!.Body, Does.Contain("Clarified architecture review"));
+            Assert.That(message.Body, Does.Contain(
+                "Does the architecture satisfy the clarified review contract?"));
+            Assert.That(state!.ActiveGateIds, Is.EqualTo(new[] { "GATE-A" }));
+            Assert.That(state.Archived, Is.False);
+        });
+    }
+
+    [Test]
     public async Task AtomicTimestampRefresh_EvidenceRefreshDoesNotBumpTimestamp()
     {
         var plan = MakePlan(

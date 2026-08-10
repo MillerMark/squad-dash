@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 
 namespace SquadDash.Tests;
 
@@ -271,6 +272,62 @@ internal sealed class PlanGateManagerTests
 
         Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
         Assert.That(result.ApprovalGates[0].Message, Is.EqualTo("Gate B"));
+        Assert.That(result.SuppressedApprovalGates, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void ToggleGateOffAndOn_AcrossSerialization_RestoresAuthoredReviewContract()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        var authored = new PlanApprovalGate(
+            "TEST-20260101-GATE-001",
+            "Backend foundation complete",
+            ["A"],
+            ["B"],
+            PlanGateStatus.Pending,
+            PlanRevision: plan.Revision,
+            PresentationAnchor: "stage:1",
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "review-contract", "human-observation", "Review the architecture.",
+                    "Does the architecture meet the approved constraints?"),
+            ],
+            Question: "Are you satisfied with the architecture before UI work begins?");
+        plan = plan with { ApprovalGates = [authored] };
+
+        var suppressed = PlanGateManager.RemoveGate(plan, authored.GateId);
+        var reloaded = JsonSerializer.Deserialize<Plan>(JsonSerializer.Serialize(suppressed));
+        var restored = PlanGateManager.AddBoundaryGate(
+            reloaded!, ["A"], ["B"], "Generic replacement", "stage:1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored.SuppressedApprovalGates, Is.Null);
+            Assert.That(restored.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(restored.ApprovalGates[0].GateId, Is.EqualTo(authored.GateId));
+            Assert.That(restored.ApprovalGates[0].Message, Is.EqualTo(authored.Message));
+            Assert.That(restored.ApprovalGates[0].Question, Is.EqualTo(authored.Question));
+            Assert.That(restored.ApprovalGates[0].ProofRequirements,
+                Is.EqualTo(authored.ProofRequirements));
+        });
+    }
+
+    [Test]
+    public void NewGateId_DoesNotReuseSuppressedGateIdentity()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]), ("C", ["B"]));
+        plan = plan with
+        {
+            SuppressedApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "TEST-20260101-GATE-001", "Saved review", ["A"], ["B"],
+                    PlanGateStatus.Pending),
+            ],
+        };
+
+        Assert.That(PlanGateManager.NewGateId(plan), Is.EqualTo("TEST-20260101-GATE-002"));
     }
 
     [Test]
@@ -327,6 +384,69 @@ internal sealed class PlanGateManagerTests
     }
 
     [Test]
+    public void UpdateReviewContract_AwaitingGate_ChangesOnlyHumanGuidance()
+    {
+        var requestedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = plan with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "TEST-20260101-GATE-001", "Original message", ["A"], ["B"],
+                    PlanGateStatus.AwaitingApproval,
+                    RequestedAt: requestedAt,
+                    PlanRevision: plan.Revision,
+                    PresentationAnchor: "stage:1",
+                    Question: "Original question?"),
+            ],
+        };
+
+        var updated = PlanGateManager.UpdateReviewContract(
+            plan,
+            "TEST-20260101-GATE-001",
+            "Clarified message",
+            "Does the clarified contract meet your expectations?",
+            [new PlanTaskProofRequirement(
+                "human-review", "human-observation", "Inspect the completed behavior.")]);
+        var gate = updated.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.Message, Is.EqualTo("Clarified message"));
+            Assert.That(gate.Question,
+                Is.EqualTo("Does the clarified contract meet your expectations?"));
+            Assert.That(gate.ProofRequirements, Has.Count.EqualTo(1));
+            Assert.That(gate.GateId, Is.EqualTo("TEST-20260101-GATE-001"));
+            Assert.That(gate.AfterTaskIds, Is.EqualTo(new[] { "A" }));
+            Assert.That(gate.BeforeTaskIds, Is.EqualTo(new[] { "B" }));
+            Assert.That(gate.Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(gate.RequestedAt, Is.EqualTo(requestedAt));
+        });
+    }
+
+    [Test]
+    public void UpdateReviewContract_ResolvedGate_IsImmutable()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = plan with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "TEST-20260101-GATE-001", "Accepted contract", ["A"], ["B"],
+                    PlanGateStatus.Approved,
+                    Question: "Was this accepted?"),
+            ],
+        };
+
+        var updated = PlanGateManager.UpdateReviewContract(
+            plan, "TEST-20260101-GATE-001", "Changed", "Changed?", null);
+
+        Assert.That(ReferenceEquals(updated, plan), Is.True);
+    }
+
+    [Test]
     public void SetPresentationAnchor_ApprovedGate_PreservesAcceptedAnchor()
     {
         var plan = MakePlan(("A", []), ("B", ["A"]));
@@ -364,5 +484,49 @@ internal sealed class PlanGateManagerTests
         Assert.That(ReferenceEquals(result, current), Is.True);
         Assert.That(result.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Approved));
         Assert.That(result.ApprovalGates.Single().ResolvedBy, Is.EqualTo("Human"));
+    }
+
+    [Test]
+    public void ApplyEditableGateChanges_AwaitingGate_AllowsGuidanceButNotRuntimeMutation()
+    {
+        var requestedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var current = MakePlan(("A", []), ("B", ["A"]));
+        current = current with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "TEST-20260101-GATE-001", "Original", ["A"], ["B"],
+                    PlanGateStatus.AwaitingApproval,
+                    RequestedAt: requestedAt,
+                    Question: "Original?"),
+            ],
+        };
+        var proposal = current with
+        {
+            ApprovalGates =
+            [
+                current.ApprovalGates[0] with
+                {
+                    Message = "Clarified",
+                    Question = "Clarified?",
+                    Status = PlanGateStatus.Approved,
+                    RequestedAt = DateTimeOffset.UtcNow,
+                },
+            ],
+        };
+
+        var result = PlanGateManager.ApplyEditableGateChanges(current, proposal);
+        var gate = result.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.Message, Is.EqualTo("Clarified"));
+            Assert.That(gate.Question, Is.EqualTo("Clarified?"));
+            Assert.That(gate.Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(gate.RequestedAt, Is.EqualTo(requestedAt));
+            Assert.That(gate.AfterTaskIds, Is.EqualTo(new[] { "A" }));
+            Assert.That(gate.BeforeTaskIds, Is.EqualTo(new[] { "B" }));
+        });
     }
 }

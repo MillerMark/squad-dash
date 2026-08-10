@@ -20,7 +20,7 @@ internal sealed class TasksJsonParserGateTests
             { "id": "PLANS-20260101-003", "title": "Third task", "description": "Do third thing", "dependsOn": ["PLANS-20260101-002"], "priority": "mid" }
           ],
           "approvalGates": [
-            { "gateId": "PLANS-20260101-GATE-001", "message": "Review before third", "afterTaskIds": ["PLANS-20260101-002"], "beforeTaskIds": ["PLANS-20260101-003"] }
+            { "gateId": "PLANS-20260101-GATE-001", "message": "Review before third", "question": "Does the completed work meet the stated contract before task three begins?", "afterTaskIds": ["PLANS-20260101-002"], "beforeTaskIds": ["PLANS-20260101-003"] }
           ]
         }
         """;
@@ -107,6 +107,17 @@ internal sealed class TasksJsonParserGateTests
               ]
             }
             """;
+        Assert.That(TasksJsonParser.TryParse(json, out _), Is.False);
+    }
+
+    [Test]
+    public void GateWithoutReviewerQuestion_Fails()
+    {
+        var json = ValidGateJson.Replace(
+            "\"question\": \"Does the completed work meet the stated contract before task three begins?\", ",
+            string.Empty,
+            StringComparison.Ordinal);
+
         Assert.That(TasksJsonParser.TryParse(json, out _), Is.False);
     }
 

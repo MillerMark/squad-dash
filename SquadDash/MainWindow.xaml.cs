@@ -1599,7 +1599,15 @@ public partial class MainWindow : Window
                                 SoundNotifications.Play(SoundEvent.QueueEmpty);
                                 // Resume a queued loop now that there are no more items to drain.
                                 bool loopAboutToStart = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
-                                _ = MaybeFireQueuedLoopAsync();
+                                if (_queueDrainActive)
+                                {
+                                    SquadDashTrace.Write("Loop",
+                                        "Queued loop resume deferred until the dispatched queue turn has fully unwound.");
+                                }
+                                else
+                                {
+                                    _ = MaybeFireQueuedLoopAsync();
+                                }
                                 if (!loopAboutToStart)
                                     TryFireDeferredCodeHealth();
                             }
@@ -2979,7 +2987,7 @@ public partial class MainWindow : Window
             _pendingPlanRecoveryAssessment is not null &&
             _promptQueue.Items.Any(item => string.Equals(
                 item.SourceTag, "plan-recovery-assessment", StringComparison.Ordinal));
-        if (_isPromptRunning || IsNativeLoopRunning || _isClosing ||
+        if (_isPromptRunning || _queueDrainActive || IsNativeLoopRunning || _isClosing ||
             (_restartPending && !recoveryAssessmentMayFinishBeforeRestart))
             return false;
 
@@ -3078,7 +3086,12 @@ public partial class MainWindow : Window
             _pec.PendingQueueItemCount = 0;
             _pec.CurrentDispatchedItem = null;
         }
-        // Further drain is triggered by setIsPromptRunning(false) callback.
+        // setIsPromptRunning(false) deliberately defers loop resume while this queue dispatch is
+        // still unwinding. Resume only after ExecutePromptAsync and its coordinator gate are done.
+        if (_promptQueue.Count == 0)
+            await MaybeFireQueuedLoopAsync();
+        else if (CanAutoDispatchPromptQueue("queue-turn-complete") && GetAutoDispatchCandidate() is not null)
+            _ = DrainQueueAsync();
     }
 
     private static string ApplyDictationAnnotation(PromptQueueItem item) =>
@@ -3492,7 +3505,7 @@ public partial class MainWindow : Window
     private async Task MaybeFireQueuedLoopAsync()
     {
         bool shouldResume = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
-        if (!shouldResume || _isPromptRunning || IsLoopRunning) return;
+        if (!shouldResume || _isPromptRunning || IsLoopRunning || _queueDrainActive) return;
         bool wasQueueResume = _loopQueued || _loopInterruptedByQueue;
         bool wasQrResume    = _loopPausedForQuickReply;
         int resumeFromIteration = Math.Max(_loopCurrentIteration, _loopQueuedResumeFromIteration);
@@ -9695,6 +9708,7 @@ public partial class MainWindow : Window
                           ? gatedPlan
                           : PlanGateManager.ApplyEditableGateChanges(currentPlan, gatedPlan);
                       PublishPlanProgress(planToPublish);
+                      _ = RefreshApprovalRequestAfterGateGuidanceEditAsync(planToPublish);
                       // Refresh the existing viewer in place so its handlers capture the newly saved
                       // immutable Plan without closing, flashing, or losing the window placement.
                       win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(planToPublish), planToPublish);
@@ -9809,7 +9823,14 @@ public partial class MainWindow : Window
 
     private void CaptureExecutingPlanStepResult(string? rawResponse)
     {
-        if (_activeDecomposeGroupId is null) return;
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var hasDurableRepairContext = activeExecution?.IsExecutingPlan == true &&
+                                      PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(activeExecution);
+        if (_activeDecomposeGroupId is null && !hasDurableRepairContext) return;
+        if (_activeDecomposeGroupId is not null &&
+            activeExecution?.DecomposeGroupId is not null &&
+            !string.Equals(activeExecution.DecomposeGroupId, _activeDecomposeGroupId, StringComparison.Ordinal))
+            return;
 
         _capturedTaskVerificationRawResponse = rawResponse;
 
@@ -9850,10 +9871,7 @@ public partial class MainWindow : Window
         // Persist the captured result durably so it survives process restart.
         try
         {
-            var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
             if (activeExecution is null || !activeExecution.IsExecutingPlan)
-                return;
-            if (!string.Equals(activeExecution.DecomposeGroupId, _activeDecomposeGroupId, StringComparison.Ordinal))
                 return;
             // Only persist an implementation-result repair. Verification and validation have
             // their own envelopes; treating either as a task repair can suppress their next
@@ -9861,30 +9879,18 @@ public partial class MainWindow : Window
             if (!PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(activeExecution))
                 return;
 
-            var groupId = activeExecution.DecomposeGroupId!;
-            var revision = activeExecution.DecomposeRevision ?? string.Empty;
-            var attemptId = activeExecution.PlanExecutionAttempt?.AttemptId;
-
-            // Validate result scope if we got a successful parse
-            if (result is not null)
+            if (!PlanRepairReplayPolicy.TryCreatePendingResult(
+                    activeExecution, result, error, out var pending, out var rejection))
             {
-                if (!string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
-                    return;
-                if (result.ExecutionAttemptId is not null && attemptId is not null &&
-                    !string.Equals(result.ExecutionAttemptId, attemptId, StringComparison.Ordinal))
-                    return;
+                SquadDashTrace.Write("PlanRepair", $"Repair response was not persisted: {rejection}.");
+                return;
             }
-
-            var pending = new PendingRepairResult(
-                groupId,
-                revision,
-                activeExecution.RecoveryTaskId,
-                attemptId,
-                result is not null ? JsonSerializer.Serialize(result) : null,
-                error);
 
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with { PendingRepairResult = pending });
+            SquadDashTrace.Write("PlanRepair",
+                $"Persisted repaired task result plan={pending!.GroupId} task={pending.TaskId} " +
+                $"attempt={pending.AttemptId ?? "(legacy)"} before loop reclaim={_activeDecomposeGroupId is null}.");
         }
         catch (Exception ex)
         {
@@ -46422,6 +46428,28 @@ public partial class MainWindow : Window
     }
 
     private void PublishPlanProgress(Plan plan) => TryPublishPlanProgress(plan, out _);
+
+    private async Task RefreshApprovalRequestAfterGateGuidanceEditAsync(Plan plan)
+    {
+        if (_planApprovalRuntime is null || _inboxStore is null ||
+            !plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            return;
+
+        try
+        {
+            await _planApprovalRuntime.Requests.RefreshFromPlanAsync(plan);
+            var messages = _inboxStore.LoadAll();
+            _inboxPanel?.Refresh(messages);
+            var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+            if (_inboxStore.GetById(messageId) is { } message)
+                RefreshOpenApprovalInboxWindows(messageId, message);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Approval",
+                $"Could not refresh edited approval guidance for {plan.PlanId}: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Called when a decompose loop starts or resumes. Creates or updates the Plan in

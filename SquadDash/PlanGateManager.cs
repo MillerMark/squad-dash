@@ -16,6 +16,61 @@ internal static class PlanGateManager
     internal static bool CanEditGate(PlanApprovalGate? gate) =>
         gate?.Status == PlanGateStatus.Pending;
 
+    /// <summary>
+    /// Review guidance may be clarified until the human resolves the checkpoint. Editing these
+    /// fields never changes the boundary, execution status, request timestamps, or gate identity.
+    /// </summary>
+    internal static bool CanEditReviewContract(PlanApprovalGate? gate) =>
+        gate?.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval;
+
+    internal static Plan UpdateReviewContract(
+        Plan plan,
+        string gateId,
+        string message,
+        string question,
+        IReadOnlyList<PlanTaskProofRequirement>? proofRequirements)
+    {
+        var normalizedMessage = message.Trim();
+        var normalizedQuestion = question.Trim();
+        if (normalizedMessage.Length == 0 || normalizedQuestion.Length == 0)
+            return plan;
+
+        var changed = false;
+        var gates = plan.ApprovalGates.Select(gate =>
+        {
+            if (!string.Equals(gate.GateId, gateId, StringComparison.Ordinal) ||
+                !CanEditReviewContract(gate))
+                return gate;
+
+            var normalizedProofs = (proofRequirements ?? [])
+                .Where(requirement => !string.IsNullOrWhiteSpace(requirement.Description))
+                .Select(requirement => requirement with
+                {
+                    Description = requirement.Description.Trim(),
+                    Question = string.IsNullOrWhiteSpace(requirement.Question)
+                        ? null
+                        : requirement.Question.Trim(),
+                })
+                .ToArray();
+            IReadOnlyList<PlanTaskProofRequirement>? proofs = normalizedProofs.Length == 0
+                ? null
+                : normalizedProofs;
+            if (string.Equals(gate.Message, normalizedMessage, StringComparison.Ordinal) &&
+                string.Equals(gate.Question, normalizedQuestion, StringComparison.Ordinal) &&
+                (gate.ProofRequirements ?? []).SequenceEqual(proofs ?? []))
+                return gate;
+
+            changed = true;
+            return gate with
+            {
+                Message = normalizedMessage,
+                Question = normalizedQuestion,
+                ProofRequirements = proofs,
+            };
+        }).ToArray();
+        return changed ? plan with { ApprovalGates = gates } : plan;
+    }
+
     /// <summary>Returns true when <paramref name="taskId"/> has no DependsOn (root task).</summary>
     internal static bool IsRootTask(Plan plan, string taskId)
     {
@@ -49,11 +104,40 @@ internal static class PlanGateManager
     internal static PlanApprovalGate? FindEquivalentGate(Plan plan,
         IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds)
     {
-        return plan.ApprovalGates.FirstOrDefault(g =>
-            g.AfterTaskIds.OrderBy(x => x, StringComparer.Ordinal)
-                .SequenceEqual(afterIds.OrderBy(x => x, StringComparer.Ordinal)) &&
-            g.BeforeTaskIds.OrderBy(x => x, StringComparer.Ordinal)
-                .SequenceEqual(beforeIds.OrderBy(x => x, StringComparer.Ordinal)));
+        return plan.ApprovalGates.FirstOrDefault(g => SameBoundary(g, afterIds, beforeIds));
+    }
+
+    private static bool SameBoundary(PlanApprovalGate gate,
+        IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds) =>
+        gate.AfterTaskIds.OrderBy(x => x, StringComparer.Ordinal)
+            .SequenceEqual(afterIds.OrderBy(x => x, StringComparer.Ordinal)) &&
+        gate.BeforeTaskIds.OrderBy(x => x, StringComparer.Ordinal)
+            .SequenceEqual(beforeIds.OrderBy(x => x, StringComparer.Ordinal));
+
+    private static Plan? RestoreSuppressedEquivalentGate(
+        Plan plan,
+        IReadOnlyList<string> afterIds,
+        IReadOnlyList<string> beforeIds,
+        string? presentationAnchor)
+    {
+        var suppressed = plan.SuppressedApprovalGates ?? [];
+        var gate = suppressed.FirstOrDefault(candidate => SameBoundary(candidate, afterIds, beforeIds));
+        if (gate is null) return null;
+
+        var restored = gate with
+        {
+            Status = PlanGateStatus.Pending,
+            PlanRevision = plan.Revision,
+            PresentationAnchor = presentationAnchor ?? gate.PresentationAnchor,
+        };
+        var remaining = suppressed
+            .Where(candidate => !string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal))
+            .ToArray();
+        return plan with
+        {
+            ApprovalGates = [..plan.ApprovalGates, restored],
+            SuppressedApprovalGates = remaining.Length == 0 ? null : remaining,
+        };
     }
 
     /// <summary>
@@ -74,6 +158,14 @@ internal static class PlanGateManager
             HasEquivalentGate(plan, normalizedAfter, normalizedBefore))
             return plan;
 
+        var restoredPlan = RestoreSuppressedEquivalentGate(
+            plan, normalizedAfter, normalizedBefore, presentationAnchor);
+        if (restoredPlan is not null)
+            return removeSubsumedTaskGates
+                ? SuppressSubsumedTaskGates(restoredPlan, normalizedAfter, normalizedBefore,
+                    restoredPlan.ApprovalGates.Last().GateId)
+                : restoredPlan;
+
         var gate = new PlanApprovalGate(
             GateId:        NewGateId(plan),
             Message:       message,
@@ -83,11 +175,38 @@ internal static class PlanGateManager
             PlanRevision:  plan.Revision,
             PresentationAnchor: presentationAnchor);
 
-        var retained = removeSubsumedTaskGates
-            ? plan.ApprovalGates.Where(existing => !IsSubsumedTaskGate(
-                plan, existing, normalizedAfter, normalizedBefore)).ToArray()
-            : plan.ApprovalGates;
-        return plan with { ApprovalGates = [..retained, gate] };
+        var withGate = plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
+        return removeSubsumedTaskGates
+            ? SuppressSubsumedTaskGates(withGate, normalizedAfter, normalizedBefore, gate.GateId)
+            : withGate;
+    }
+
+    private static Plan SuppressSubsumedTaskGates(
+        Plan plan,
+        IReadOnlyCollection<string> groupAfter,
+        IReadOnlyCollection<string> groupBefore,
+        string retainedGateId)
+    {
+        var removed = plan.ApprovalGates
+            .Where(existing => !string.Equals(existing.GateId, retainedGateId, StringComparison.Ordinal) &&
+                               CanEditGate(existing) &&
+                               IsSubsumedTaskGate(plan, existing, groupAfter, groupBefore))
+            .ToArray();
+        if (removed.Length == 0) return plan;
+
+        var removedIds = removed.Select(gate => gate.GateId).ToHashSet(StringComparer.Ordinal);
+        var suppressed = (plan.SuppressedApprovalGates ?? [])
+            .Concat(removed)
+            .GroupBy(gate => gate.GateId, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToArray();
+        return plan with
+        {
+            ApprovalGates = plan.ApprovalGates
+                .Where(gate => !removedIds.Contains(gate.GateId))
+                .ToArray(),
+            SuppressedApprovalGates = suppressed,
+        };
     }
 
     private static bool IsSubsumedTaskGate(Plan plan, PlanApprovalGate existing,
@@ -130,6 +249,7 @@ internal static class PlanGateManager
     {
         var prefix = $"{plan.PlanId}-GATE-";
         var existingNumbers = plan.ApprovalGates
+            .Concat(plan.SuppressedApprovalGates ?? [])
             .Select(g => g.GateId)
             .Where(id => id.StartsWith(prefix, StringComparison.Ordinal))
             .Select(id => id[prefix.Length..])
@@ -179,6 +299,11 @@ internal static class PlanGateManager
                 HasEquivalentGate(plan, afterIds, beforeIds))
                 return plan;
 
+            var restoredPlan = RestoreSuppressedEquivalentGate(
+                plan, afterIds, beforeIds, $"task-after:{taskId}");
+            if (restoredPlan is not null)
+                return restoredPlan;
+
             var terminalGate = new PlanApprovalGate(
                 GateId: NewGateId(plan),
                 Message: message,
@@ -193,15 +318,28 @@ internal static class PlanGateManager
         return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}");
     }
 
-    /// <summary>Removes the gate with the given gateId. Returns plan unchanged if not found.</summary>
+    /// <summary>
+    /// Removes an editable gate from execution while retaining its authored metadata in the
+    /// suppressed-gate collection. Re-adding the same boundary restores the original gate.
+    /// </summary>
     internal static Plan RemoveGate(Plan plan, string gateId)
     {
+        var removed = plan.ApprovalGates.FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal) && CanEditGate(g));
+        if (removed is null) return plan;
+
         var remaining = plan.ApprovalGates
-            .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal) ||
-                        !CanEditGate(g))
+            .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal))
             .ToArray();
-        if (remaining.Length == plan.ApprovalGates.Count) return plan;
-        return plan with { ApprovalGates = remaining };
+        var suppressed = (plan.SuppressedApprovalGates ?? [])
+            .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal))
+            .Append(removed)
+            .ToArray();
+        return plan with
+        {
+            ApprovalGates = remaining,
+            SuppressedApprovalGates = suppressed,
+        };
     }
 
     /// <summary>
@@ -219,7 +357,20 @@ internal static class PlanGateManager
         {
             if (!CanEditGate(currentGate))
             {
-                merged.Add(currentGate);
+                if (CanEditReviewContract(currentGate) &&
+                    proposedById.TryGetValue(currentGate.GateId, out var proposedGuidanceGate))
+                {
+                    merged.Add(currentGate with
+                    {
+                        Message = proposedGuidanceGate.Message,
+                        Question = proposedGuidanceGate.Question,
+                        ProofRequirements = proposedGuidanceGate.ProofRequirements,
+                    });
+                }
+                else
+                {
+                    merged.Add(currentGate);
+                }
                 continue;
             }
 
@@ -237,8 +388,27 @@ internal static class PlanGateManager
             merged.Add(proposedGate);
         }
 
-        if (current.ApprovalGates.SequenceEqual(merged)) return current;
-        return current with { ApprovalGates = merged };
+        var proposedActiveIds = proposed.ApprovalGates
+            .Select(gate => gate.GateId)
+            .ToHashSet(StringComparer.Ordinal);
+        var mergedSuppressed = (current.SuppressedApprovalGates ?? [])
+            .Where(gate => !proposedActiveIds.Contains(gate.GateId))
+            .Concat(proposed.SuppressedApprovalGates ?? [])
+            .GroupBy(gate => gate.GateId, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .Where(gate => merged.All(active =>
+                !string.Equals(active.GateId, gate.GateId, StringComparison.Ordinal)))
+            .ToArray();
+        var currentSuppressed = current.SuppressedApprovalGates ?? [];
+
+        if (current.ApprovalGates.SequenceEqual(merged) &&
+            currentSuppressed.SequenceEqual(mergedSuppressed))
+            return current;
+        return current with
+        {
+            ApprovalGates = merged,
+            SuppressedApprovalGates = mergedSuppressed.Length == 0 ? null : mergedSuppressed,
+        };
     }
 
     /// <summary>

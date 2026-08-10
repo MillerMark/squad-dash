@@ -2203,8 +2203,6 @@ internal sealed class PromptExecutionController {
             _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow, "execute-coordinator-finally");
             SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=execute-coordinator-finally");
             _transcriptSink.CoordinatorThread.CurrentTurn = null;
-            _setIsPromptRunning(false);
-            _updateInteractiveControlState();
             var shouldRecheckRoutingRepair = _getPendingRoutingRepairRecheck();
             _setPendingRoutingRepairRecheck(false);
             _clearPendingSupplementalInstruction();
@@ -2219,20 +2217,26 @@ internal sealed class PromptExecutionController {
                 _maybePublishRoutingIssue("prompt-finished", false);
             }
 
-            if (_getRestartPending() && !_getIsClosing()) {
-                _close();
-            }
-            else if (!_getIsClosing()) {
-                if (_promptBoxState.IsPromptTextBoxEnabled)
-                    _promptBoxState.FocusPromptTextBox();
-            }
-
             if (gateHeld)
             {
                 CurrentDispatchedItem = null;
                 PendingQueueItemCount = 0;
                 _coordinatorTurnGate.Release();
                 SquadDashTrace.Write("PromptHealth", $"Coordinator turn gate released promptChars={visiblePrompt.Length} queueDispatchMetadataCleared=true");
+            }
+
+            // Idle is an externally observable completion signal: MainWindow may drain another
+            // prompt or resume a saved plan immediately. Publish it only after this turn has
+            // finished its settle work and released the coordinator serialization gate.
+            _setIsPromptRunning(false);
+            _updateInteractiveControlState();
+
+            if (_getRestartPending() && !_getIsClosing()) {
+                _close();
+            }
+            else if (!_getIsClosing()) {
+                if (_promptBoxState.IsPromptTextBoxEnabled)
+                    _promptBoxState.FocusPromptTextBox();
             }
         }
     }

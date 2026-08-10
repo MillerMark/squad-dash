@@ -478,4 +478,13 @@ internal sealed record Plan(
     /// <summary>When the latest accepted content revision replaced the preceding definition.</summary>
     [property: JsonPropertyName("revisedAt")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                    DateTimeOffset? RevisedAt = null);
+                                                    DateTimeOffset? RevisedAt = null,
+
+    /// <summary>
+    /// Pending approval gates that a reviewer toggled off while editing the plan. They remain
+    /// outside the executable gate list, but retain their authored question and proof contract so
+    /// toggling the same boundary back on is lossless across viewer closes and process restarts.
+    /// </summary>
+    [property: JsonPropertyName("suppressedApprovalGates")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                    IReadOnlyList<PlanApprovalGate>? SuppressedApprovalGates = null);

@@ -189,6 +189,39 @@ internal sealed class DurableApprovalRequestManager
     }
 
     /// <summary>
+    /// Rebuilds the human-facing approval request from the authoritative plan while preserving
+    /// its existing evidence snapshot and action version. Used when a reviewer clarifies an
+    /// awaiting gate's message, question, or human proof contract.
+    /// </summary>
+    internal async Task RefreshFromPlanAsync(
+        Plan plan,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(plan.PlanId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var existing = _inbox.GetById(BuildMessageId(plan.PlanId));
+            if (existing is null) return;
+
+            var state = DeserializeState(existing);
+            if (state is null) return;
+            var snapshot = DeserializeSnapshot(existing);
+            _inbox.Save(existing with
+            {
+                Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, snapshot),
+                Actions = BuildActions(plan, state),
+                Attachments = BuildAttachments(
+                    state, snapshot, existing.Attachments, plan),
+            });
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    /// <summary>
     /// Resolves a checkpoint: moves the gate ID from active to resolved history.
     /// If no active gates remain, marks the message read, removes actions, and archives it.
     /// </summary>

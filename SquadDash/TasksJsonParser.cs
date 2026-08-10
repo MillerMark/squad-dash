@@ -318,6 +318,12 @@ internal static class TasksJsonParser
                     return Fail("missing-gate-message", $"gate '{gate.GateId}' has an empty message");
                 }
 
+                if (string.IsNullOrWhiteSpace(gate.Question))
+                {
+                    return Fail("missing-gate-question",
+                        $"gate '{gate.GateId}' must tell the reviewer exactly what to verify or decide");
+                }
+
                 if (!gateIds.Add(gate.GateId))
                 {
                     return Fail("duplicate-gate-id", $"duplicate gate id '{gate.GateId}'");
