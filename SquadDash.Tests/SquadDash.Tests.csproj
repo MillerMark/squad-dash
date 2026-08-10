@@ -160,6 +160,7 @@
     <Compile Include="..\SquadDash\ModelProfile.cs" Link="Source\ModelProfile.cs" />
     <Compile Include="..\SquadDash\ModelProfileCategory.cs" Link="Source\ModelProfileCategory.cs" />
     <Compile Include="..\SquadDash\ModelProfileStore.cs" Link="Source\ModelProfileStore.cs" />
+    <Compile Include="..\SquadDash\ModelProfileResolver.cs" Link="Source\ModelProfileResolver.cs" />
     <Compile Include="..\SquadDash\LoopMdConfig.cs" Link="Source\LoopMdConfig.cs" />
     <Compile Include="..\SquadDash\LoopMdParser.cs" Link="Source\LoopMdParser.cs" />
     <Compile Include="..\SquadDash\LoopCliProjection.cs" Link="Source\LoopCliProjection.cs" />
