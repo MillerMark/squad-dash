@@ -5,6 +5,7 @@ import {
     buildDelegationHiddenContext,
     buildNamedAgentExecutionPrompt,
     buildNamedAgentPrompt,
+    findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
     normalizeAssistantResponseContent,
@@ -98,6 +99,90 @@ test("runPrompt passes explicit model to session config", async () => {
         });
 
     assert.equal(capturedConfig.model, "claude-sonnet-4.6");
+});
+
+test("named roster tool launches exact agent with its own provider profile", async () => {
+    const configs = [];
+    const started = [];
+    const completed = [];
+    let sessionNumber = 0;
+    const service = new SquadBridgeService({
+        onSubagentStarted(sessionId, agent) {
+            started.push({ sessionId, agent });
+        },
+        onSubagentCompleted(sessionId, agent) {
+            completed.push({ sessionId, agent });
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            return {
+                sessionId: `session-${sessionNumber}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({ content: sessionNumber === 1 ? "Coordinator done" : "Lyra report" })
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate the profile work", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{
+            handle: "lyra-morn",
+            displayName: "Lyra Morn",
+            role: "Model profiles",
+            charterContent: "# Lyra Morn\nOwn model profile work.",
+            model: "gpt-5-mini",
+            provider: {
+                baseUrl: "https://api.openai.example/v1",
+                type: "openai",
+                wireApi: "responses",
+                apiKey: "test-key"
+            },
+            profileAlias: "OpenAI lightweight"
+        }]
+    });
+
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    assert.ok(rosterTool);
+    const report = await rosterTool.handler({
+        agent_handle: "lyra-morn",
+        prompt: "Inspect profile routing.",
+        description: "Review model profile routing"
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-lyra",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Lyra report");
+    assert.equal(configs[1].model, "gpt-5-mini");
+    assert.equal(configs[1].provider.baseUrl, "https://api.openai.example/v1");
+    assert.equal(configs[1].provider.apiKey, "test-key");
+    assert.equal(started[0].agent.agentName, "lyra-morn");
+    assert.equal(started[0].agent.agentDisplayName, "Lyra Morn");
+    assert.equal(completed[0].agent.agentName, "lyra-morn");
+});
+
+test("counterfeit roster detection rejects roster-like and plan-bearing generic tasks", () => {
+    const routes = [{ handle: "lyra-morn", displayName: "Lyra Morn" }];
+
+    assert.equal(findCounterfeitRosterTaskHandle({
+        name: "lyra-profile-fixes",
+        prompt: "Review the model profile implementation."
+    }, routes), "lyra-morn");
+    assert.equal(findCounterfeitRosterTaskHandle({
+        name: "implementation-worker",
+        prompt: "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{\"agentHandle\":\"lyra-morn\"}"
+    }, routes), "host-authorized-plan-assignment");
+    assert.equal(findCounterfeitRosterTaskHandle({
+        name: "temporary-research",
+        prompt: "Research provider SDK behavior."
+    }, routes), undefined);
 });
 
 test("normalizes raw report tool JSON into assistant body text", () => {

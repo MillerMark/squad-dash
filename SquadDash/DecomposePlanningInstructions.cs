@@ -278,8 +278,8 @@ internal static class DecomposePlanningInstructions
         builder.AppendLine($"Task [{stepId}] has {assignments.Count} host-authorized primary assignment(s).");
         builder.AppendLine($"Execution attempt: `{executionAttempt.AttemptId}`.");
         builder.AppendLine("Launch exactly the assigned worker and wait for its result. Do not launch an additional coordinator-owned primary worker.");
-        builder.AppendLine("Use the coordinator's background `task` tool so native monitoring and wrap-up remain active.");
-        builder.AppendLine("A generic worker without the exact assignment envelope below is not the assigned roster agent.");
+        builder.AppendLine("Use the host-provided `delegate_roster_agent` tool with the exact assigned `agent_handle`; it preserves native monitoring and waits for the roster agent result.");
+        builder.AppendLine("Do not use the generic `task` tool for an assigned roster agent. SquadDash reserves it for temporary workers and will reject a roster-like or assignment-bearing generic launch.");
         builder.AppendLine();
 
         foreach (var assignment in assignments)
@@ -316,7 +316,7 @@ internal static class DecomposePlanningInstructions
             });
 
             builder.AppendLine($"### {agent.Name} — {assignment.Role}");
-            builder.AppendLine($"The worker prompt must contain this exact envelope on a top-level line:");
+            builder.AppendLine($"Call `delegate_roster_agent` with `agent_handle` set exactly to `{agent.Handle}`. Its `prompt` must contain this exact envelope on a top-level line:");
             builder.AppendLine($"{BackgroundAgentLaunchInfoResolver.AssignmentMarker}");
             builder.AppendLine(envelope);
             builder.AppendLine();
@@ -355,13 +355,10 @@ internal static class DecomposePlanningInstructions
             if (PlanAgentRoutingPolicy.Normalize(agentRoutingPolicy) == PlanAgentRoutingPolicy.Always)
             {
                 context += "\n\n## Requested roster routing for ordinary prompts\n" +
-                    "For every primary background delegation, prefer a qualified active roster member from `.squad/team.md`, " +
-                    "read and inject that member's complete charter, and include `" +
-                    BackgroundAgentLaunchInfoResolver.AssignmentMarker +
-                    "` followed by JSON containing `taskId`, `revision`, `agentHandle`, `role`, and `allowGenericChildren`. " +
-                    "Use `interactive` for taskId and revision outside an executable plan. This ordinary-prompt policy is advisory: " +
-                    "SquadDash will retain Temporary Agent identity because no host-owned plan attempt exists. Generic child workers " +
-                    "must retain generic identity and report through their requested roster parent.";
+                    "For every primary delegation to a qualified active roster member from `.squad/team.md`, use the host-provided " +
+                    "`delegate_roster_agent` tool with that member's exact `agent_handle`. SquadDash validates this handle and launches " +
+                    "the agent with its configured model profile and complete charter. Use the generic `task` tool only for genuinely " +
+                    "temporary workers; temporary children must retain generic identity and report through their roster parent.";
             }
             return context;
         }

@@ -51,7 +51,8 @@ internal static class BackgroundAgentLaunchInfoResolver {
         PlanExecutionAttemptState? activeAttempt = null,
         bool launchedByCoordinator = false,
         string? launchingOwnerToolCallId = null,
-        DateTimeOffset? startedAt = null) {
+        DateTimeOffset? startedAt = null,
+        string? trustedNamedAgentHandle = null) {
         if (string.IsNullOrWhiteSpace(toolCallId) || args.ValueKind != JsonValueKind.Object)
             return null;
 
@@ -69,21 +70,28 @@ internal static class BackgroundAgentLaunchInfoResolver {
         }
 
         var assignment = TryReadAssignment(prompt);
-        var assignedAgentHandle = assignment?.AgentHandle;
-        var authorized = activeAttempt?.FindAuthorization(
-            assignment?.AttemptId,
-            assignment?.TaskId,
-            assignment?.Revision,
-            assignedAgentHandle,
-            assignment?.Capability);
-        var rosterMatch = authorized is null ||
-                          !launchedByCoordinator ||
-                          !string.Equals(authorized.Role, assignment?.Role, StringComparison.Ordinal) ||
-                          authorized.AllowGenericChildren != assignment?.AllowGenericChildren ||
-                          !string.Equals(authorized.CharterSha256, assignment?.CharterSha256, StringComparison.Ordinal)
-            ? null
-            : roster.FirstOrDefault(candidate =>
-                string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(assignedAgentHandle), StringComparison.Ordinal));
+        var assignedAgentHandle = assignment?.AgentHandle ?? Normalize(trustedNamedAgentHandle);
+        TeamAgentDescriptor? rosterMatch = null;
+        if (assignment is not null || activeAttempt is not null) {
+            var authorized = activeAttempt?.FindAuthorization(
+                assignment?.AttemptId,
+                assignment?.TaskId,
+                assignment?.Revision,
+                assignedAgentHandle,
+                assignment?.Capability);
+            if (authorized is not null &&
+                launchedByCoordinator &&
+                string.Equals(authorized.Role, assignment?.Role, StringComparison.Ordinal) &&
+                authorized.AllowGenericChildren == assignment?.AllowGenericChildren &&
+                string.Equals(authorized.CharterSha256, assignment?.CharterSha256, StringComparison.Ordinal)) {
+                rosterMatch = roster.FirstOrDefault(candidate =>
+                    string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(assignedAgentHandle), StringComparison.Ordinal));
+            }
+        }
+        else if (launchedByCoordinator && !string.IsNullOrWhiteSpace(trustedNamedAgentHandle)) {
+            rosterMatch = roster.FirstOrDefault(candidate =>
+                string.Equals(NormalizeKey(candidate.AccentKey), NormalizeKey(trustedNamedAgentHandle), StringComparison.Ordinal));
+        }
         var verifiedRosterAssignment = rosterMatch is not null;
         var displayName = rosterMatch?.DisplayName ?? "Temporary Agent";
         if (string.IsNullOrWhiteSpace(displayName))

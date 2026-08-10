@@ -135,6 +135,64 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public void BuildNamedAgentRoute_CustomProfileCarriesProviderAndCopilotProfileSuppressesIt() {
+        var custom = new ModelProfile(
+            "openai-small", "OpenAI Small", "openai", "https://api.openai.example/v1",
+            "gpt-5-mini", "test-key");
+        var copilot = new ModelProfile(
+            "copilot", "GitHub Copilot", "copilot", null, "auto", null);
+
+        var customRoute = SquadSdkProcess.BuildNamedAgentRoute(
+            "lyra-morn", "Lyra Morn", "Model Profiles", "# Charter", custom);
+        var copilotRoute = SquadSdkProcess.BuildNamedAgentRoute(
+            "vesper-knox", "Vesper Knox", "Testing", null, copilot);
+
+        Assert.Multiple(() => {
+            Assert.That(customRoute.Model, Is.EqualTo("gpt-5-mini"));
+            Assert.That(customRoute.Provider, Is.Not.Null);
+            Assert.That(customRoute.Provider!.BaseUrl, Is.EqualTo("https://api.openai.example/v1"));
+            Assert.That(customRoute.Provider.Type, Is.EqualTo("openai"));
+            Assert.That(customRoute.Provider.ApiKey, Is.EqualTo("test-key"));
+            Assert.That(copilotRoute.Model, Is.Null);
+            Assert.That(copilotRoute.Provider, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task RunPromptAsync_WithNamedAgentRoutes_SerializesHostRosterAndProfile() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"session_ready","sessionId":"route-session","sessionResumed":false,"requestId":"' + $request.requestId + '"}')
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+        sut.NamedAgentRoutes = [SquadSdkProcess.BuildNamedAgentRoute(
+            "lyra-morn",
+            "Lyra Morn",
+            "Model Profiles",
+            "# Lyra charter",
+            new ModelProfile(
+                "openai-small", "OpenAI Small", "openai", "https://api.openai.example/v1",
+                "gpt-5-mini", "test-key"))];
+
+        await sut.RunPromptAsync("Delegate this work", _workspace.RootPath);
+
+        using var request = JsonDocument.Parse(FindLoggedRequestLine(requestLogPath, "prompt"));
+        var route = request.RootElement.GetProperty("namedAgentRoutes")[0];
+        Assert.Multiple(() => {
+            Assert.That(route.GetProperty("handle").GetString(), Is.EqualTo("lyra-morn"));
+            Assert.That(route.GetProperty("displayName").GetString(), Is.EqualTo("Lyra Morn"));
+            Assert.That(route.GetProperty("model").GetString(), Is.EqualTo("gpt-5-mini"));
+            Assert.That(route.GetProperty("provider").GetProperty("baseUrl").GetString(),
+                Is.EqualTo("https://api.openai.example/v1"));
+            Assert.That(route.GetProperty("profileAlias").GetString(), Is.EqualTo("OpenAI Small"));
+        });
+    }
+
+    [Test]
     public async Task RunPromptAsync_LocalByokProvider_DoesNotResumeSavedSession() {
         var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
 

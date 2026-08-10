@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace SquadDash;
@@ -681,9 +682,19 @@ internal sealed class AgentThreadRegistry {
         PlanExecutionAttemptState? activeAttempt = null,
         bool launchedByCoordinator = false,
         string? launchingOwnerToolCallId = null) {
-        if (!string.Equals(evt.ToolName, "task", StringComparison.OrdinalIgnoreCase) ||
+        var isTemporaryTask = string.Equals(evt.ToolName, "task", StringComparison.OrdinalIgnoreCase);
+        var isNamedRosterTask = string.Equals(evt.ToolName, "delegate_roster_agent", StringComparison.OrdinalIgnoreCase);
+        if ((!isTemporaryTask && !isNamedRosterTask) ||
             string.IsNullOrWhiteSpace(evt.ToolCallId)) {
             return null;
+        }
+
+        string? trustedNamedAgentHandle = null;
+        if (isNamedRosterTask &&
+            evt.Args.ValueKind == JsonValueKind.Object &&
+            evt.Args.TryGetProperty("agent_handle", out var handleProperty) &&
+            handleProperty.ValueKind == JsonValueKind.String) {
+            trustedNamedAgentHandle = handleProperty.GetString();
         }
 
         var launchInfo = BackgroundAgentLaunchInfoResolver.TryResolve(
@@ -693,7 +704,8 @@ internal sealed class AgentThreadRegistry {
             activeAttempt,
             launchedByCoordinator,
             launchingOwnerToolCallId,
-            TryParseTimestamp(evt.StartedAt));
+            TryParseTimestamp(evt.StartedAt),
+            trustedNamedAgentHandle);
         if (launchInfo is null)
             return null;
 

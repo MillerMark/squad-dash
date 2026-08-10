@@ -379,6 +379,35 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void CaptureBackgroundAgentLaunchInfo_TrustsHostNamedAgentToolWithExactRosterHandle() {
+        var registry = MakeRegistry(getKnownTeamAgentDescriptors: () => [
+            new TeamAgentDescriptor("Lyra Morn", "lyra-morn", "Model Profiles")
+        ]);
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {
+              "agent_handle": "lyra-morn",
+              "name": "profile-routing",
+              "description": "Review model profile routing",
+              "prompt": "Inspect the provider switch."
+            }
+            """);
+
+        var launch = registry.CaptureBackgroundAgentLaunchInfo(new SquadSdkEvent {
+            ToolName = "delegate_roster_agent",
+            ToolCallId = "tool-lyra",
+            Args = document.RootElement.Clone()
+        }, launchedByCoordinator: true);
+
+        Assert.That(launch, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(launch!.AssignedAgentHandle, Is.EqualTo("lyra-morn"));
+            Assert.That(launch.DisplayName, Is.EqualTo("Lyra Morn"));
+            Assert.That(launch.AccentKey, Is.EqualTo("lyra-morn"));
+            Assert.That(launch.IsVerifiedRosterAssignment, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void CaptureBackgroundAgentLaunchInfo_MapsToolCallIdentityToCancellableTaskId() {
         var registry = MakeRegistry(getKnownTeamAgentDescriptors: () => [
             new TeamAgentDescriptor("Talia Rune", "talia-rune", "Diagnostics")

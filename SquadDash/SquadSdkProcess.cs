@@ -72,6 +72,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// </summary>
     internal ModelProfile? ActiveProfile { get; set; }
 
+    /// <summary>
+    /// Host-validated named-agent routes exposed to coordinator sessions. Each route carries the
+    /// model/provider profile that must be used when that roster agent is launched.
+    /// </summary>
+    internal IReadOnlyList<SquadSdkNamedAgentRoute> NamedAgentRoutes { get; set; } = [];
+
     internal SquadSdkProcess(IWorkspacePaths workspacePaths)
         : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
     }
@@ -157,7 +163,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 configDirectory,
                 requestId,
                 Model: ActiveProfile?.Model ?? CopilotDefaultModel,
-                ApprovalGroupContext: approvalGroupContext);
+                ApprovalGroupContext: approvalGroupContext,
+                NamedAgentRoutes: NamedAgentRoutes);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -209,6 +216,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         await _promptLock.WaitAsync().ConfigureAwait(false);
         try {
             var requestId = Guid.NewGuid().ToString("N");
+            var agentRoute = ResolveNamedAgentRoute(targetAgentHandle);
             var request = new SquadSdkNamedAgentRequest(
                 targetAgentHandle,
                 selectedOption,
@@ -217,8 +225,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 coordinatorSessionId,
                 configDirectory,
                 requestId,
-                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
-                ApprovalGroupContext: approvalGroupContext);
+                Model: agentRoute?.Model ?? ActiveProfile?.Model ?? CopilotDefaultModel,
+                ApprovalGroupContext: approvalGroupContext,
+                AgentRoute: agentRoute);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -228,6 +237,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         finally {
             _promptLock.Release();
         }
+    }
+
+    private SquadSdkNamedAgentRoute? ResolveNamedAgentRoute(string targetAgentHandle) {
+        var normalized = targetAgentHandle.Trim().TrimStart('@');
+        return NamedAgentRoutes.FirstOrDefault(route =>
+            string.Equals(route.Handle, normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int CountLines(string text)
@@ -266,16 +281,19 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             SquadSdkPromptRequest promptRequest =>
                 $"Sent request type={promptRequest.Type} requestId={promptRequest.RequestId ?? "(none)"} " +
                 $"payloadChars={payload.Length} promptChars={promptRequest.Prompt.Length} promptLines={CountLines(promptRequest.Prompt)} " +
-                $"promptPreview=\"{BuildTracePreview(promptRequest.Prompt)}\" cwd={promptRequest.Cwd} sessionId={promptRequest.SessionId ?? "(new)"}",
+                $"promptPreview=\"{BuildTracePreview(promptRequest.Prompt)}\" cwd={promptRequest.Cwd} sessionId={promptRequest.SessionId ?? "(new)"} " +
+                $"namedAgentRoutes={promptRequest.NamedAgentRoutes?.Count ?? 0}",
             SquadSdkDelegateRequest delegateRequest =>
                 $"Sent request type={delegateRequest.Type} requestId={delegateRequest.RequestId ?? "(none)"} " +
                 $"payloadChars={payload.Length} selectedOptionChars={delegateRequest.SelectedOption.Length} " +
-                $"targetAgent={delegateRequest.TargetAgent} cwd={delegateRequest.Cwd} sessionId={delegateRequest.SessionId}",
+                $"targetAgent={delegateRequest.TargetAgent} cwd={delegateRequest.Cwd} sessionId={delegateRequest.SessionId} " +
+                $"namedAgentRoutes={delegateRequest.NamedAgentRoutes?.Count ?? 0}",
             SquadSdkNamedAgentRequest namedAgentRequest =>
                 $"Sent request type={namedAgentRequest.Type} requestId={namedAgentRequest.RequestId ?? "(none)"} " +
                 $"payloadChars={payload.Length} selectedOptionChars={namedAgentRequest.SelectedOption.Length} " +
                 $"handoffChars={namedAgentRequest.HandoffContext?.Length ?? 0} targetAgent={namedAgentRequest.TargetAgent} " +
-                $"cwd={namedAgentRequest.Cwd} sessionId={namedAgentRequest.SessionId ?? "(new)"}",
+                $"cwd={namedAgentRequest.Cwd} sessionId={namedAgentRequest.SessionId ?? "(new)"} " +
+                $"profile={namedAgentRequest.AgentRoute?.ProfileAlias ?? "(coordinator-default)"} model={namedAgentRequest.Model ?? "(auto)"}",
             SquadSdkRcPromptBroadcastRequest rcPromptRequest =>
                 $"Sent request type={rcPromptRequest.Type} payloadChars={payload.Length} textChars={rcPromptRequest.Text.Length} " +
                 $"textPreview=\"{BuildTracePreview(rcPromptRequest.Text)}\"",
@@ -366,7 +384,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             sessionId,
             configDirectory,
             requestId,
-            Model: ActiveProfile?.Model ?? CopilotDefaultModel);
+            Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+            NamedAgentRoutes: NamedAgentRoutes);
         await RunBridgeRequestOnceAsync(
             request,
             requestId,
@@ -713,6 +732,37 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
 
         return null;
+    }
+
+    internal static SquadSdkNamedAgentRoute BuildNamedAgentRoute(
+        string handle,
+        string displayName,
+        string? role,
+        string? charterContent,
+        ModelProfile? profile) {
+        var isCopilot = profile is null ||
+                        string.Equals(profile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase);
+        var model = string.Equals(profile?.Model, "auto", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : profile?.Model;
+        SquadSdkProviderConfiguration? provider = null;
+        if (!isCopilot && !string.IsNullOrWhiteSpace(profile?.ProviderUrl)) {
+            provider = new SquadSdkProviderConfiguration(
+                profile.ProviderUrl,
+                profile.ProviderType,
+                ResolveProfileWireApi(profile),
+                ApplicationSettingsStore.DecryptSettingValue(profile.ApiKey));
+        }
+
+        return new SquadSdkNamedAgentRoute(
+            handle.Trim().TrimStart('@').ToLowerInvariant(),
+            displayName.Trim(),
+            string.IsNullOrWhiteSpace(role) ? null : role.Trim(),
+            string.IsNullOrWhiteSpace(charterContent) ? null : charterContent.Trim(),
+            string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
+            provider,
+            profile?.Id,
+            profile?.Alias);
     }
 
     /// <summary>
@@ -1721,7 +1771,8 @@ internal sealed record SquadSdkPromptRequest(
     [property: JsonPropertyName("configDir")] string? ConfigDirectory = null,
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "prompt",
-    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null);
+    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
+    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null);
 
 internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("selectedOption")] string SelectedOption,
@@ -1732,7 +1783,8 @@ internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "delegate",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
-    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null);
+    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null,
+    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null);
 
 internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("targetAgent")] string TargetAgent,
@@ -1744,7 +1796,24 @@ internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "named_agent",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
-    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null);
+    [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null,
+    [property: JsonPropertyName("agentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? AgentRoute = null);
+
+internal sealed record SquadSdkNamedAgentRoute(
+    [property: JsonPropertyName("handle")] string Handle,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("role"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Role,
+    [property: JsonPropertyName("charterContent"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CharterContent,
+    [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model,
+    [property: JsonPropertyName("provider")] SquadSdkProviderConfiguration? Provider,
+    [property: JsonPropertyName("profileId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileId,
+    [property: JsonPropertyName("profileAlias"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileAlias);
+
+internal sealed record SquadSdkProviderConfiguration(
+    [property: JsonPropertyName("baseUrl")] string BaseUrl,
+    [property: JsonPropertyName("type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Type = null,
+    [property: JsonPropertyName("wireApi"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WireApi = null,
+    [property: JsonPropertyName("apiKey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApiKey = null);
 
 internal sealed record SquadSdkAbortRequest(
     [property: JsonPropertyName("requestId")] string RequestId,

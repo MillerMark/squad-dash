@@ -1509,24 +1509,31 @@ public partial class MainWindow : Window
             });
 
         _pec = new PromptExecutionController(
-            runPromptAsync: (prompt, cwd, sessionId, configDir) => _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir),
-            runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) =>
-                _bridge.RunNamedAgentDelegationAsync(
+            runPromptAsync: (prompt, cwd, sessionId, configDir) => {
+                RefreshBridgeNamedAgentRoutes();
+                return _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir);
+            },
+            runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) => {
+                RefreshBridgeNamedAgentRoutes();
+                return _bridge.RunNamedAgentDelegationAsync(
                     selectedOption,
                     targetAgentHandle,
                     cwd,
                     sessionId,
                     configDir,
-                    BuildApprovalGroupLaunchContext()),
-            runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir) =>
-                _bridge.RunNamedAgentDirectAsync(
+                    BuildApprovalGroupLaunchContext());
+            },
+            runNamedAgentDirectAsync: (targetAgentHandle, selectedOption, handoffContext, cwd, sessionId, configDir) => {
+                RefreshBridgeNamedAgentRoutes();
+                return _bridge.RunNamedAgentDirectAsync(
                     targetAgentHandle,
                     selectedOption,
                     handoffContext,
                     cwd,
                     sessionId,
                     configDir,
-                    BuildApprovalGroupLaunchContext()),
+                    BuildApprovalGroupLaunchContext());
+            },
             workspaceContext: _workspaceContextController,
             promptBoxState:   _promptBoxStateController,
             transcriptSink:   _transcriptPanelController,
@@ -25479,15 +25486,19 @@ public partial class MainWindow : Window
                     var previousByokSettings = _bridge.ByokProviderSettings;
                     var previousCopilotDefaultModel = _bridge.CopilotDefaultModel;
                     var previousActiveProfile = _bridge.ActiveProfile;
+                    var previousNamedAgentRoutes = _bridge.NamedAgentRoutes;
                     var currentByokSettings = BuildByokSettings(snapshot);
                     var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
                     var currentActiveProfile = ResolveActiveProfile(snapshot);
+                    var currentNamedAgentRoutes = BuildNamedAgentRoutes();
                     _bridge.ByokProviderSettings = currentByokSettings;
                     _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
                     _bridge.ActiveProfile = currentActiveProfile;
+                    _bridge.NamedAgentRoutes = currentNamedAgentRoutes;
                     if (!Equals(previousActiveProfile, currentActiveProfile) ||
                         !Equals(previousByokSettings, currentByokSettings) ||
-                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal)) {
+                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal) ||
+                        !previousNamedAgentRoutes.SequenceEqual(currentNamedAgentRoutes)) {
                         DetachCurrentSessionForModelSettingsChange("preferences-model-changed");
                         RestartBridgeForSettingsWhenIdle("preferences-model-changed");
                     }
@@ -37537,6 +37548,8 @@ public partial class MainWindow : Window
             "create" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "web_fetch" => StripUrlScheme(TryGetJsonString(evt.Args, "url")),
             "task" => TryGetJsonString(evt.Args, "description"),
+            "delegate_roster_agent" => TryGetJsonString(evt.Args, "description")
+                                       ?? TryGetJsonString(evt.Args, "agent_handle"),
             "skill" => TryGetJsonString(evt.Args, "skill") ?? evt.Skill,
             "store_memory" => TryGetJsonString(evt.Args, "subject") ?? TryGetJsonString(evt.Args, "fact"),
             "report_intent" => TryGetJsonString(evt.Args, "intent") ?? evt.Intent,
@@ -37590,6 +37603,66 @@ public partial class MainWindow : Window
             .Select(card => new TeamAgentDescriptor(card.Name, card.AccentStorageKey, card.RoleText))
             .ToArray();
     }
+
+    private void RefreshBridgeNamedAgentRoutes()
+    {
+        _bridge.NamedAgentRoutes = BuildNamedAgentRoutes();
+    }
+
+    private IReadOnlyList<SquadSdkNamedAgentRoute> BuildNamedAgentRoutes()
+    {
+        var profileStore = new ModelProfileStore(_settingsStore);
+        var profiles = profileStore.GetProfiles();
+        var assignments = profileStore.GetCategoryAssignments();
+        var routes = new List<SquadSdkNamedAgentRoute>();
+
+        foreach (var card in _agents.Where(candidate => !candidate.IsLeadAgent && !candidate.IsDynamicAgent))
+        {
+            var handle = card.AccentStorageKey.Trim().TrimStart('@').ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(handle) ||
+                routes.Any(route => string.Equals(route.Handle, handle, StringComparison.OrdinalIgnoreCase))) {
+                continue;
+            }
+
+            assignments.TryGetValue($"agent:{handle}", out var perAgentProfileId);
+            var profile = ModelProfileResolver.Resolve(
+                profiles,
+                assignments,
+                perAgentProfileId,
+                ResolveNamedAgentProfileCategory(handle));
+            string? charterContent = null;
+            if (!string.IsNullOrWhiteSpace(card.CharterPath) && File.Exists(card.CharterPath)) {
+                try {
+                    charterContent = File.ReadAllText(card.CharterPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                    SquadDashTrace.Write("Bridge", $"Could not load charter for named-agent route @{handle}: {ex.Message}");
+                }
+            }
+
+            routes.Add(SquadSdkProcess.BuildNamedAgentRoute(
+                handle,
+                card.Name,
+                card.RoleText,
+                charterContent,
+                profile));
+        }
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"Refreshed {routes.Count} named-agent route(s): " +
+            string.Join(", ", routes.Select(route => $"@{route.Handle}={route.ProfileAlias ?? "default"}/{route.Model ?? "auto"}")));
+        return routes;
+    }
+
+    private static string ResolveNamedAgentProfileCategory(string handle) => handle.ToLowerInvariant() switch
+    {
+        "rai" => ModelProfileCategory.RAI,
+        "scribe" => ModelProfileCategory.Scribe,
+        "ralph" => ModelProfileCategory.Ralph,
+        "fact-checker" => ModelProfileCategory.FactChecker,
+        _ => ModelProfileCategory.SpawnedNamedAgents
+    };
 
     private static string? StripUrlScheme(string? url)
     {
@@ -38222,6 +38295,7 @@ public partial class MainWindow : Window
                 _settingsManager.Replace(_settingsStore.SaveModelSettings(ModelProvider.GitHubCopilot, "auto"));
                 _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(_settingsSnapshot);
                 _bridge.ActiveProfile = ResolveActiveProfile(_settingsSnapshot);
+                RefreshBridgeNamedAgentRoutes();
                 SetInstallStatus("Model switched to 'auto'. Retry your prompt.");
                 ClearRuntimeIssue();
                 break;
@@ -40142,7 +40216,11 @@ public partial class MainWindow : Window
         var profileStore = new ModelProfileStore(_settingsStore);
         var profiles = profileStore.GetProfiles();
         var assignments = profileStore.GetCategoryAssignments();
-        return ModelProfileResolver.Resolve(profiles, assignments, perAgentOverrideProfileId: null, agentCategory: null);
+        return ModelProfileResolver.Resolve(
+            profiles,
+            assignments,
+            perAgentOverrideProfileId: null,
+            agentCategory: ModelProfileCategory.Coordinator);
     }
 
     private void RestartBridgeForSettingsWhenIdle(string reason)

@@ -36,6 +36,86 @@ internal sealed class BackgroundAgentLaunchInfoResolverTests {
     }
 
     [Test]
+    public void TryResolve_VerifiesHostValidatedNamedAgentToolHandleOutsidePlanAttempt() {
+        using var document = JsonDocument.Parse("""
+            {
+              "agent_handle": "lyra-morn",
+              "name": "profile-routing",
+              "description": "Review model profile routing",
+              "prompt": "Inspect the named-agent provider selection."
+            }
+            """);
+
+        var resolved = BackgroundAgentLaunchInfoResolver.TryResolve(
+            "tool-lyra",
+            document.RootElement,
+            [new TeamAgentDescriptor("Lyra Morn", "lyra-morn", "Model Profiles")],
+            launchedByCoordinator: true,
+            trustedNamedAgentHandle: "lyra-morn");
+
+        Assert.That(resolved, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Lyra Morn"));
+            Assert.That(resolved.AccentKey, Is.EqualTo("lyra-morn"));
+            Assert.That(resolved.AssignedAgentHandle, Is.EqualTo("lyra-morn"));
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.True);
+        });
+    }
+
+    [Test]
+    public void TryResolve_DoesNotVerifyUnknownHostValidatedNamedAgentHandle() {
+        using var document = JsonDocument.Parse("""
+            {
+              "agent_handle": "invented-agent",
+              "description": "Attempt an unknown named launch",
+              "prompt": "Do the work."
+            }
+            """);
+
+        var resolved = BackgroundAgentLaunchInfoResolver.TryResolve(
+            "tool-invented",
+            document.RootElement,
+            [new TeamAgentDescriptor("Lyra Morn", "lyra-morn", "Model Profiles")],
+            launchedByCoordinator: true,
+            trustedNamedAgentHandle: "invented-agent");
+
+        Assert.That(resolved, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(resolved!.DisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(resolved.AccentKey, Is.Null);
+            Assert.That(resolved.IsVerifiedRosterAssignment, Is.False);
+        });
+    }
+
+    [Test]
+    public void TryResolve_RequiresAssignmentEnvelopeWhenPlanAttemptIsActive() {
+        using var document = JsonDocument.Parse("""
+            {
+              "agent_handle": "lyra-morn",
+              "description": "Implement a plan step",
+              "prompt": "Implement the profile routing step."
+            }
+            """);
+        var assignment = new PlanExecutionAssignmentAttempt(
+            "lyra-morn", "implementer", false, "capability", "charter.md", "hash", []);
+        var attempt = new PlanExecutionAttemptState(
+            "attempt-1", "PLAN-1", "PLAN-1-001", "rev-1", "C:\\workspace",
+            DateTimeOffset.UtcNow, [assignment]);
+
+        var resolved = BackgroundAgentLaunchInfoResolver.TryResolve(
+            "tool-plan-lyra",
+            document.RootElement,
+            [new TeamAgentDescriptor("Lyra Morn", "lyra-morn", "Model Profiles")],
+            attempt,
+            launchedByCoordinator: true,
+            trustedNamedAgentHandle: "lyra-morn");
+
+        Assert.That(resolved, Is.Not.Null);
+        Assert.That(resolved!.IsVerifiedRosterAssignment, Is.False);
+        Assert.That(resolved.DisplayName, Is.EqualTo("Temporary Agent"));
+    }
+
+    [Test]
     public void TryResolve_FallsBackToHumanizedTaskPrefixWhenRosterMatchIsMissing() {
         using var document = JsonDocument.Parse("""
             {

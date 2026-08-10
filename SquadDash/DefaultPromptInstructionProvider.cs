@@ -95,6 +95,8 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
 
             Valid reasons are narrow: quick factual answer, the task is quick/trivial, user explicitly asked the Coordinator to handle it, no clear specialist exists, or launching an agent is somehow blocked. Otherwise, launch the appropriate agent instead of doing the work inline.
 
+            Launch roster members only with the host-provided `delegate_roster_agent` tool and their exact `agent_handle`. That tool validates roster identity and applies the configured named-agent model profile. Use the generic `task` tool only for genuinely temporary workers; do not give a temporary worker a roster member's name, handle, charter, or assignment envelope.
+
             If a delegated-agent tool reports a durable failure such as `Agent not found`, `Maximum concurrent agent limit`, or another repeated identical failure, do not retry the same tool call with the same arguments in a loop. Change strategy: use any agent results already available in the transcript, wait for currently running agents, summarize the blocker, or ask the user how to proceed.
             """,
         SubAgentApprovalGroup:

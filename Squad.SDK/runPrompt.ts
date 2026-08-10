@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
-import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
+import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest, type SquadNamedAgentRoute, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -22,6 +22,7 @@ type PromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    namedAgentRoutes?: SquadNamedAgentRoute[];
 };
 
 type DelegateRequest = {
@@ -34,6 +35,7 @@ type DelegateRequest = {
     configDir?: string;
     model?: string;
     approvalGroupContext?: string;
+    namedAgentRoutes?: SquadNamedAgentRoute[];
 };
 
 type NamedAgentRequest = {
@@ -47,6 +49,7 @@ type NamedAgentRequest = {
     configDir?: string;
     model?: string;
     approvalGroupContext?: string;
+    agentRoute?: SquadNamedAgentRoute;
 };
 
 type AbortRequest = {
@@ -159,6 +162,57 @@ function extractOptionalString(value: unknown): string | undefined {
 
 function extractRequiredOrUUID(value: unknown): string {
     return extractOptionalString(value) ?? randomUUID();
+}
+
+function tryParseNamedAgentRoute(value: unknown): SquadNamedAgentRoute | null {
+    if (!value || typeof value !== "object")
+        return null;
+
+    const record = value as Record<string, unknown>;
+    const handle = extractOptionalString(record.handle);
+    const displayName = extractOptionalString(record.displayName);
+    if (!handle || !displayName)
+        return null;
+
+    let provider: SquadNamedAgentRoute["provider"];
+    if (record.provider === null) {
+        provider = null;
+    }
+    else if (record.provider && typeof record.provider === "object") {
+        const rawProvider = record.provider as Record<string, unknown>;
+        const baseUrl = extractOptionalString(rawProvider.baseUrl);
+        if (!baseUrl)
+            return null;
+
+        provider = {
+            baseUrl,
+            type: extractOptionalString(rawProvider.type) as NonNullable<SquadNamedAgentRoute["provider"]>["type"],
+            wireApi: extractOptionalString(rawProvider.wireApi) as NonNullable<SquadNamedAgentRoute["provider"]>["wireApi"],
+            apiKey: extractOptionalString(rawProvider.apiKey),
+            bearerToken: extractOptionalString(rawProvider.bearerToken)
+        };
+    }
+
+    return {
+        handle,
+        displayName,
+        role: extractOptionalString(record.role),
+        charterContent: extractOptionalString(record.charterContent),
+        model: extractOptionalString(record.model),
+        provider,
+        profileId: extractOptionalString(record.profileId),
+        profileAlias: extractOptionalString(record.profileAlias)
+    };
+}
+
+function parseNamedAgentRoutes(value: unknown): SquadNamedAgentRoute[] | undefined {
+    if (!Array.isArray(value))
+        return undefined;
+
+    const routes = value
+        .map(tryParseNamedAgentRoute)
+        .filter((route): route is SquadNamedAgentRoute => route !== null);
+    return routes.length > 0 ? routes : undefined;
 }
 
 // DUP-009: consolidates the three onSubagent{Started,Completed,Failed} event shapes
@@ -393,6 +447,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
     const sessionId = extractOptionalString(parsed.sessionId);
     const configDir = extractOptionalString(parsed.configDir);
     const model = extractOptionalString(parsed.model);
+    const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
 
     return {
         type: "prompt",
@@ -401,7 +456,8 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
         cwd,
         sessionId,
         configDir,
-        model
+        model,
+        namedAgentRoutes
     };
 }
 
@@ -424,6 +480,7 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
     const configDir = extractOptionalString(parsed.configDir);
     const model = extractOptionalString(parsed.model);
     const approvalGroupContext = extractOptionalString(parsed.approvalGroupContext);
+    const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
 
     return {
         type: "delegate",
@@ -434,7 +491,8 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
         sessionId,
         configDir,
         model,
-        approvalGroupContext
+        approvalGroupContext,
+        namedAgentRoutes
     };
 }
 
@@ -455,7 +513,8 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
         sessionId: extractOptionalString(parsed.sessionId),
         configDir: extractOptionalString(parsed.configDir),
         model: extractOptionalString(parsed.model),
-        approvalGroupContext: extractOptionalString(parsed.approvalGroupContext)
+        approvalGroupContext: extractOptionalString(parsed.approvalGroupContext),
+        agentRoute: tryParseNamedAgentRoute(parsed.agentRoute) ?? undefined
     };
 }
 
@@ -1075,6 +1134,7 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         agentDisplayName: displayName,
         agentDescription: `Named agent: ${displayName}`,
         prompt: request.selectedOption,
+        model: request.agentRoute?.model ?? request.model,
         workingDirectory: request.cwd
     });
 
@@ -1103,7 +1163,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
                 targetAgent: handle,
                 charterContent,
                 configDir: request.configDir,
-                model: request.model,
+                model: request.agentRoute?.model ?? request.model,
+                agentRoute: request.agentRoute,
                 approvalGroupContext: request.approvalGroupContext
             },
             buildNamedAgentRunHandlers(request.requestId, toolCallId, handle, displayName, request.sessionId)

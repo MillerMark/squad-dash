@@ -11,10 +11,25 @@ export type SquadPromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    namedAgentRoutes?: SquadNamedAgentRoute[];
 };
 
 type SquadSessionRequest = SquadPromptRequest & {
     requireSameSession?: boolean;
+    providerOverride?: SquadSessionConfig["provider"] | null;
+    providerOverrideSpecified?: boolean;
+    exposeNamedAgentTool?: boolean;
+};
+
+export type SquadNamedAgentRoute = {
+    handle: string;
+    displayName: string;
+    role?: string;
+    charterContent?: string;
+    model?: string;
+    provider?: SquadSessionConfig["provider"] | null;
+    profileId?: string;
+    profileAlias?: string;
 };
 
 export type SquadDelegationRequest = {
@@ -25,6 +40,7 @@ export type SquadDelegationRequest = {
     selectedOption: string;
     targetAgent: string;
     approvalGroupContext?: string;
+    namedAgentRoutes?: SquadNamedAgentRoute[];
 };
 
 export type SquadNamedAgentRequest = {
@@ -37,6 +53,7 @@ export type SquadNamedAgentRequest = {
     configDir?: string;
     model?: string;
     approvalGroupContext?: string;
+    agentRoute?: SquadNamedAgentRoute;
 };
 
 export type SessionReadyInfo = {
@@ -248,6 +265,7 @@ type SessionState = {
     createdAt: number;
     completedPromptCount: number;
     workingDirectory: string;
+    namedAgentRoutes: SquadNamedAgentRoute[];
 };
 
 const GenericIdentityKeys = new Set([
@@ -454,11 +472,68 @@ function buildCustomProviderFromEnv(): SquadSessionConfig["provider"] | undefine
     return provider;
 }
 
-function resolveSessionModel(optionsModel: string | undefined): string | undefined {
-    return normalizeOptionalString(optionsModel) ??
-        normalizeOptionalString(process.env.COPILOT_MODEL) ??
+function resolveSessionModel(optionsModel: string | undefined, allowEnvironmentFallback = true): string | undefined {
+    const requestedModel = normalizeOptionalString(optionsModel);
+    if (requestedModel)
+        return requestedModel.toLowerCase() === "auto" ? undefined : requestedModel;
+
+    if (!allowEnvironmentFallback)
+        return undefined;
+
+    return normalizeOptionalString(process.env.COPILOT_MODEL) ??
         normalizeOptionalString(process.env.COPILOT_PROVIDER_MODEL_ID) ??
         normalizeOptionalString(process.env.COPILOT_PROVIDER_WIRE_MODEL);
+}
+
+type NamedAgentToolArgs = {
+    agent_handle?: string;
+    prompt?: string;
+    name?: string;
+    description?: string;
+    mode?: string;
+};
+
+function findNamedAgentRoute(routes: readonly SquadNamedAgentRoute[], requestedHandle: string | undefined): SquadNamedAgentRoute | undefined {
+    const normalized = normalizeAgentHandle(requestedHandle ?? "");
+    if (!normalized)
+        return undefined;
+
+    return routes.find(route => normalizeAgentHandle(route.handle) === normalized);
+}
+
+export function findCounterfeitRosterTaskHandle(
+    args: unknown,
+    routes: readonly SquadNamedAgentRoute[]
+): string | undefined {
+    const prompt = getStringValue(args, "prompt") ?? "";
+    if (prompt.includes("SQUADDASH_AGENT_ASSIGNMENT_JSON:"))
+        return "host-authorized-plan-assignment";
+
+    const taskName = normalizeAgentHandle(getStringValue(args, "name") ?? "");
+    const normalizedPrompt = prompt.toLowerCase();
+    if (!taskName && !normalizedPrompt)
+        return undefined;
+
+    for (const route of routes) {
+        const handle = normalizeAgentHandle(route.handle);
+        if (!handle)
+            continue;
+
+        const displayName = normalizeAgentHandle(route.displayName)
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "");
+        const firstName = displayName.split("-")[0];
+        const aliases = [handle, displayName, firstName]
+            .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+        if (aliases.some(alias =>
+            taskName === alias ||
+            taskName.startsWith(`${alias}-`) ||
+            normalizedPrompt.includes(`@${handle}`))) {
+            return handle;
+        }
+    }
+
+    return undefined;
 }
 
 const PendingRestartDeploymentEnv = {
@@ -1610,7 +1685,8 @@ export function buildDelegationHiddenContext(selectedOption: string, targetAgent
         "You are continuing inside the same coordinator session that produced the quick reply.",
         "Use the current session context, recent turn history, prior agent reports, tool results, and workspace files as the authoritative handoff context.",
         "You may think and inspect context before launching if needed.",
-        `You must launch @${normalizedTargetAgent} using the native subagent/tool path instead of answering inline in the coordinator voice.`,
+        `You must launch @${normalizedTargetAgent} with the host-provided \`delegate_roster_agent\` tool, using \`agent_handle\`: \`${normalizedTargetAgent}\`, instead of answering inline in the coordinator voice.`,
+        "Do not use the generic `task` tool for this named roster assignment; SquadDash reserves it for temporary workers.",
         "Do not narrate or promise a handoff unless the launch actually happens.",
         "If launching the target agent is impossible in this exact session, explain the concrete blocker instead of silently doing the work yourself."
     ];
@@ -1655,6 +1731,7 @@ export class SquadBridgeService {
                 sessionId: request.sessionId,
                 configDir: request.configDir,
                 model: request.model,
+                namedAgentRoutes: request.namedAgentRoutes,
                 requireSameSession: true
             },
             buildDelegationHiddenContext(
@@ -1674,7 +1751,10 @@ export class SquadBridgeService {
                 cwd: request.cwd,
                 sessionId: request.namedAgentSessionId,
                 configDir: request.configDir,
-                model: request.model,
+                model: request.agentRoute?.model ?? request.model,
+                providerOverride: request.agentRoute?.provider ?? null,
+                providerOverrideSpecified: request.agentRoute !== undefined,
+                exposeNamedAgentTool: false,
                 requireSameSession: false
             });
     }
@@ -1750,7 +1830,7 @@ export class SquadBridgeService {
 
             if (requestContext.aborted) {
                 handlers.onAborted?.();
-                return;
+                return "";
             }
 
             const finalContent =
@@ -1763,6 +1843,7 @@ export class SquadBridgeService {
                 handlers.onDelta?.(normalizedContent);
 
             handlers.onDone?.({ kind: "completed" });
+            return normalizedContent;
         }
         catch (error) {
             bridgeDiagnostic("runSessionRequest:sendAndWait:error", {
@@ -1774,7 +1855,7 @@ export class SquadBridgeService {
 
             if (requestContext.aborted) {
                 handlers.onAborted?.();
-                return;
+                return "";
             }
 
             if (options.sessionId && isRecoverableSessionReset(extractErrorMessage(error)))
@@ -2106,6 +2187,172 @@ export class SquadBridgeService {
         return this.client;
     }
 
+    private createNamedAgentTool(
+        getRoutes: () => readonly SquadNamedAgentRoute[],
+        options: SquadSessionRequest
+    ): NonNullable<SquadSessionConfig["tools"]>[number] {
+        const routeSummary = getRoutes()
+            .map(route => `@${normalizeAgentHandle(route.handle)} (${route.role || route.displayName})`)
+            .join(", ");
+
+        return {
+            name: "delegate_roster_agent",
+            description:
+                "Launch one host-verified SquadDash roster agent in an isolated session and wait for its result. " +
+                "Use this tool for named roster agents; use the built-in task tool only for genuinely temporary workers. " +
+                `Available roster agents: ${routeSummary}`,
+            parameters: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    agent_handle: {
+                        type: "string",
+                        description: "Exact roster handle from the available roster, without @."
+                    },
+                    prompt: {
+                        type: "string",
+                        description: "Complete work brief for the named agent, including any required assignment envelope."
+                    },
+                    name: {
+                        type: "string",
+                        description: "Optional concise task identifier for monitoring."
+                    },
+                    description: {
+                        type: "string",
+                        description: "Optional short human-readable description of the delegated work."
+                    },
+                    mode: {
+                        type: "string",
+                        enum: ["background", "sync"],
+                        description: "Optional monitoring hint. The tool always waits for the named agent result."
+                    }
+                },
+                required: ["agent_handle", "prompt"]
+            },
+            handler: async (rawArgs, invocation) => {
+                const args = (rawArgs && typeof rawArgs === "object" ? rawArgs : {}) as NamedAgentToolArgs;
+                const routes = getRoutes();
+                const route = findNamedAgentRoute(routes, args.agent_handle);
+                if (!route) {
+                    const requested = normalizeOptionalString(args.agent_handle) ?? "(missing)";
+                    throw new Error(
+                        `Unknown SquadDash roster handle '${requested}'. Choose one of: ${routes.map(item => item.handle).join(", ")}.`);
+                }
+
+                const prompt = normalizeOptionalString(args.prompt);
+                if (!prompt)
+                    throw new Error("Named-agent delegation requires a non-empty prompt.");
+
+                return await this.runNamedAgentTool(route, prompt, args, invocation, options);
+            }
+        };
+    }
+
+    private async runNamedAgentTool(
+        route: SquadNamedAgentRoute,
+        prompt: string,
+        args: NamedAgentToolArgs,
+        invocation: { sessionId: string; toolCallId: string },
+        outerOptions: SquadSessionRequest
+    ): Promise<string> {
+        const handle = normalizeAgentHandle(route.handle);
+        const startedAt = Date.now();
+        let totalToolCalls = 0;
+        let totalTokens = 0;
+        const lifecycle: SubagentLifecycleInfo = {
+            toolCallId: invocation.toolCallId,
+            agentId: `named-${invocation.toolCallId}`,
+            agentName: handle,
+            agentDisplayName: route.displayName,
+            agentDescription: normalizeOptionalString(args.description) ?? route.role ?? `Named agent: ${route.displayName}`,
+            prompt,
+            model: route.model,
+            workingDirectory: outerOptions.cwd
+        };
+
+        this.bridgeHandlers.onSubagentStarted?.(invocation.sessionId, lifecycle);
+
+        try {
+            const response = await this.runSessionRequest(
+                buildNamedAgentPrompt({
+                    selectedOption: prompt,
+                    targetAgent: handle,
+                    charterContent: route.charterContent
+                }),
+                {
+                    onThinking: text => this.bridgeHandlers.onSubagentThinkingDelta?.(
+                        invocation.sessionId,
+                        {
+                            parentToolCallId: invocation.toolCallId,
+                            agentId: lifecycle.agentId,
+                            agentName: handle,
+                            agentDisplayName: route.displayName,
+                            agentDescription: lifecycle.agentDescription,
+                            reasoningText: text
+                        }),
+                    onDelta: text => this.bridgeHandlers.onSubagentMessageDelta?.(
+                        invocation.sessionId,
+                        {
+                            parentToolCallId: invocation.toolCallId,
+                            agentId: lifecycle.agentId,
+                            agentName: handle,
+                            agentDisplayName: route.displayName,
+                            agentDescription: lifecycle.agentDescription,
+                            text
+                        }),
+                    onUsage: usage => {
+                        totalTokens = usage.totalTokens ??
+                            ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+                        if (!lifecycle.model && usage.model)
+                            lifecycle.model = usage.model;
+                    },
+                    onToolStart: tool => {
+                        totalToolCalls++;
+                        this.bridgeHandlers.onSubagentToolStart?.(
+                            invocation.sessionId,
+                            lifecycle,
+                            { ...tool, parentToolCallId: invocation.toolCallId });
+                    },
+                    onToolProgress: tool => this.bridgeHandlers.onSubagentToolProgress?.(
+                        invocation.sessionId,
+                        lifecycle,
+                        { ...tool, parentToolCallId: invocation.toolCallId }),
+                    onToolComplete: tool => this.bridgeHandlers.onSubagentToolComplete?.(
+                        invocation.sessionId,
+                        lifecycle,
+                        { ...tool, parentToolCallId: invocation.toolCallId })
+                },
+                {
+                    cwd: outerOptions.cwd,
+                    configDir: outerOptions.configDir,
+                    model: route.model,
+                    providerOverride: route.provider ?? null,
+                    providerOverrideSpecified: true,
+                    exposeNamedAgentTool: false,
+                    requireSameSession: false
+                });
+
+            this.bridgeHandlers.onSubagentCompleted?.(invocation.sessionId, {
+                ...lifecycle,
+                totalToolCalls,
+                totalTokens,
+                durationMs: Date.now() - startedAt
+            });
+            return response || `@${handle} completed the delegated task without a textual report.`;
+        }
+        catch (error) {
+            const message = extractErrorMessage(error) ?? String(error);
+            this.bridgeHandlers.onSubagentFailed?.(invocation.sessionId, {
+                ...lifecycle,
+                error: message,
+                totalToolCalls,
+                totalTokens,
+                durationMs: Date.now() - startedAt
+            });
+            throw error;
+        }
+    }
+
     private async getOrCreateSession(options: SquadSessionRequest): Promise<{ state: SessionState; sessionReady: SessionAcquireTelemetry; }> {
         bridgeDiagnostic("getOrCreateSession:start", {
             cwd: options.cwd,
@@ -2118,6 +2365,8 @@ export class SquadBridgeService {
         if (options.sessionId) {
             const existingState = this.sessions.get(options.sessionId);
             if (existingState) {
+                if (options.namedAgentRoutes)
+                    existingState.namedAgentRoutes = options.namedAgentRoutes;
                 bridgeDiagnostic("getOrCreateSession:bridge-cache", {
                     sessionId: options.sessionId,
                     durationMs: Date.now() - acquireStartedAt
@@ -2134,16 +2383,37 @@ export class SquadBridgeService {
         }
 
         let stateRef: SessionState | undefined;
-        const customProvider = buildCustomProviderFromEnv();
-        const sessionConfig = {
+        const customProvider = options.providerOverrideSpecified
+            ? options.providerOverride ?? undefined
+            : buildCustomProviderFromEnv();
+        const namedAgentRoutes = options.namedAgentRoutes ?? [];
+        const sessionConfig: SquadSessionConfig = {
             onPermissionRequest: async () => approvePermissionRequest(),
             streaming: true,
             workingDirectory: options.cwd,
             configDir: options.configDir,
-            model: resolveSessionModel(options.model),
+            model: resolveSessionModel(options.model, !options.providerOverrideSpecified),
             provider: customProvider,
+            tools: options.exposeNamedAgentTool === false
+                ? undefined
+                : [this.createNamedAgentTool(() => stateRef?.namedAgentRoutes ?? namedAgentRoutes, options)],
             hooks: {
                 onPreToolUse: (input: { toolName: string; toolArgs: unknown; cwd?: string }) => {
+                    if (input.toolName === "task") {
+                        const counterfeitHandle = findCounterfeitRosterTaskHandle(
+                            input.toolArgs,
+                            stateRef?.namedAgentRoutes ?? namedAgentRoutes);
+                        if (counterfeitHandle) {
+                            return {
+                                permissionDecision: "deny" as const,
+                                additionalContext:
+                                    "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
+                                    `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
+                                    "Use task only for genuinely temporary workers."
+                            };
+                        }
+                    }
+
                     const rewrite = maybeRewritePowerShellToolArgs(
                         input.toolName,
                         input.toolArgs,
@@ -2236,7 +2506,9 @@ export class SquadBridgeService {
         }
 
         const existing = this.sessions.get(session.sessionId);
-        if (existing)
+        if (existing) {
+            if (options.namedAgentRoutes)
+                existing.namedAgentRoutes = options.namedAgentRoutes;
             return {
                 state: existing,
                 sessionReady: {
@@ -2248,6 +2520,7 @@ export class SquadBridgeService {
                     sessionResumeFailureMessage
                 }
             };
+        }
 
         const state: SessionState = {
             session,
@@ -2259,7 +2532,8 @@ export class SquadBridgeService {
             lastAssistantMessageContent: "",
             createdAt: Date.now(),
             completedPromptCount: 0,
-            workingDirectory: options.cwd
+            workingDirectory: options.cwd,
+            namedAgentRoutes
         };
 
         stateRef = state;
