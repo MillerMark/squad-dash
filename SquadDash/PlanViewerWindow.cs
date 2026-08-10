@@ -1211,6 +1211,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var chipSize = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
                         var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
                         verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker");
+                        verityChip.Tag = $"agent:{VerityCrossHandle}";
+                        WireSelectionClick(verityChip);
                         var currentShieldWidth = Math.Round(chipSize * 29.0 / 31.0);
                         var chipLeft = left + validationWidth / 2 + currentShieldWidth / 2 + 4 * _scaleFactor;
                         Canvas.SetLeft(verityChip, chipLeft);
@@ -2046,6 +2048,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var chipSize = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
                     var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
                     verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker (verifying)");
+                    verityChip.Tag = $"agent:{VerityCrossHandle}";
+                    WireSelectionClick(verityChip);
                     Canvas.SetLeft(verityChip, position.X + NodeWidth - chipSize - 4 * _scaleFactor);
                     Canvas.SetTop(verityChip, position.Y - chipSize);
                     Panel.SetZIndex(verityChip, 35);
