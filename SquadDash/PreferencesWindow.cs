@@ -67,12 +67,14 @@ internal sealed class PreferencesWindow : Window {
     private readonly List<ModelProfile> _profiles;
     private readonly Dictionary<string, string> _categoryAssignments;
     private readonly ListBox _profileListBox;
+    private readonly TextBox _profileAliasBox;
     private readonly Button _addProfileButton;
     private readonly Button _removeProfileButton;
     private readonly Button _setDefaultButton;
     private readonly StackPanel _categoryAssignmentsPanel;
     private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _suppressProfileSave;
+    private string? _currentlyEditedProfileId;
     private readonly TextBox _cleanupPromptBox;
     private readonly ComboBox _planAgentRoutingPolicyComboBox;
     // ── Sound notification controls ──────────────────────────────────────
@@ -622,6 +624,15 @@ internal sealed class PreferencesWindow : Window {
         _profileListBox.SetResourceReference(ListBox.BorderBrushProperty, "InputBorder");
         _profileListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
         _profileListBox.SelectionChanged += ProfileListBox_SelectionChanged;
+
+        _profileAliasBox = new TextBox {
+            Padding = new Thickness(6, 4, 6, 4),
+            Height = 30
+        };
+        _profileAliasBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
+        _profileAliasBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        _profileAliasBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _profileAliasBox.LostFocus += (_, _) => SaveProfileAliasNow();
 
         _addProfileButton = new Button {
             Content = "Add",
@@ -1414,26 +1425,20 @@ internal sealed class PreferencesWindow : Window {
         // Provider detail section - reuse existing panels
         AddSectionHeader(form, "Profile Settings", topMargin: 8);
 
-        AddLabel(form, "Provider:");
+        AddLabel(form, "Profile Name:");
+        form.Children.Add(_profileAliasBox);
+
+        AddLabel(form, "Provider:", topMargin: 8);
         form.Children.Add(_githubCopilotProviderRadio);
         form.Children.Add(_customModelProviderRadio);
 
         AddLabel(_githubCopilotModelPanel, "Default Model:", topMargin: 8);
         _githubCopilotModelPanel.Children.Add(_copilotModelComboBox);
-        _copilotModelStatusText.Text = "Use auto to let GitHub Copilot choose. Loading available models...";
+        _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose. Loading available models...";
         _githubCopilotModelPanel.Children.Add(_copilotModelStatusText);
         form.Children.Add(_githubCopilotModelPanel);
 
         // ── Custom model provider panel content ──
-        var byokDevWarning = new TextBlock {
-            Text = "Custom provider support is experimental. Use an OpenAI-compatible endpoint such as Ollama /v1.",
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeights.Bold,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
-            Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x8C, 0x00)),
-            Margin = new Thickness(0, 8, 0, 12)
-        };
-        _customModelProviderPanel.Children.Add(byokDevWarning);
 
         AddLabel(_customModelProviderPanel, "Provider URL:");
         _customModelProviderPanel.Children.Add(_byokProviderUrlBox);
@@ -1537,11 +1542,11 @@ internal sealed class PreferencesWindow : Window {
                 throw new InvalidOperationException("The Copilot API returned no models.");
 
             PopulateCopilotModelOptions(modelIds, currentModel);
-            _copilotModelStatusText.Text = "Use auto to let GitHub Copilot choose. Model list loaded from GitHub Copilot.";
+            _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose. Model list loaded from GitHub Copilot.";
         }
         catch (Exception ex) {
             PopulateCopilotModelOptions(KnownCopilotModelOptions, currentModel);
-            _copilotModelStatusText.Text = $"Use auto to let GitHub Copilot choose. Using the built-in list because live model discovery failed: {ex.Message}";
+            _copilotModelStatusText.Text = $"Use 'auto' to let GitHub Copilot choose. Using the built-in list because live model discovery failed: {ex.Message}";
             SquadDashTrace.Write("Preferences", $"Copilot model discovery failed: {ex.Message}");
         }
     }
@@ -2634,6 +2639,10 @@ internal sealed class PreferencesWindow : Window {
 
     private void ProfileListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
         if (_suppressProfileSave) return;
+        
+        // Save the currently edited profile before switching to the new one
+        SaveCurrentlyEditedProfile();
+        
         LoadSelectedProfileIntoControls();
         UpdateProfileButtons();
         UpdateCategoryCheckBoxes();
@@ -2645,6 +2654,11 @@ internal sealed class PreferencesWindow : Window {
 
         _suppressProfileSave = true;
         try {
+            // Track which profile is now being edited
+            _currentlyEditedProfileId = profile.Id;
+            
+            _profileAliasBox.Text = profile.Alias ?? string.Empty;
+            
             var isCopilot = string.Equals(profile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase);
             _githubCopilotProviderRadio.IsChecked = isCopilot;
             _customModelProviderRadio.IsChecked = !isCopilot;
@@ -2747,6 +2761,9 @@ internal sealed class PreferencesWindow : Window {
         if (profile is null)
             return _profiles[0]; // fallback
 
+        var alias = _profileAliasBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(alias)) alias = profile.Alias;
+
         var isCopilot = _githubCopilotProviderRadio.IsChecked == true;
         string providerType;
         string? providerUrl;
@@ -2771,12 +2788,72 @@ internal sealed class PreferencesWindow : Window {
         }
 
         return profile with {
+            Alias = alias,
             ProviderType = providerType,
             ProviderUrl = providerUrl,
             Model = model,
             ApiKey = apiKey,
             OfflineMode = offlineMode
         };
+    }
+
+    private void SaveCurrentlyEditedProfile() {
+        // Save the profile that was being edited before switching selection
+        if (_currentlyEditedProfileId is null) return;
+        
+        var profile = _profiles.FirstOrDefault(p => string.Equals(p.Id, _currentlyEditedProfileId, StringComparison.OrdinalIgnoreCase));
+        if (profile is null) return;
+
+        // Read from controls but use the tracked profile ID (not the new selection)
+        var alias = _profileAliasBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(alias)) alias = profile.Alias;
+
+        var isCopilot = _githubCopilotProviderRadio.IsChecked == true;
+        string providerType;
+        string? providerUrl;
+        string? model;
+        string? apiKey;
+        bool offlineMode;
+
+        if (isCopilot) {
+            providerType = "copilot";
+            providerUrl = null;
+            model = ReadCopilotDefaultModelInput();
+            apiKey = null;
+            offlineMode = false;
+        }
+        else {
+            providerType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "openai";
+            providerUrl = ByokProviderSettings.NormalizeProviderUrl(_byokProviderUrlBox.Text);
+            model = string.IsNullOrWhiteSpace(_byokModelBox.Text.Trim()) ? null : _byokModelBox.Text.Trim();
+            apiKey = _byokApiKeyRevealBox.IsVisible ? _byokApiKeyRevealBox.Text : _byokApiKeyPasswordBox.Password;
+            if (string.IsNullOrWhiteSpace(apiKey)) apiKey = null;
+            offlineMode = _byokOfflineModeCheckBox.IsChecked == true;
+        }
+
+        var updated = profile with {
+            Alias = alias,
+            ProviderType = providerType,
+            ProviderUrl = providerUrl,
+            Model = model,
+            ApiKey = apiKey,
+            OfflineMode = offlineMode
+        };
+
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, _currentlyEditedProfileId, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) _profiles[idx] = updated;
+        SaveProfilesNow();
+    }
+
+    private void SaveProfileAliasNow() {
+        if (_suppressProfileSave) return;
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+        var updated = ReadSelectedProfileFromControls();
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) _profiles[idx] = updated;
+        SaveProfilesNow();
+        RefreshProfileListBox();
     }
 
     private void SaveProfilesNow() {

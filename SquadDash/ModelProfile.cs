@@ -12,4 +12,10 @@ internal sealed record ModelProfile(
     string? Model,
     string? ApiKey,
     bool OfflineMode = false,
-    bool IsDefault = false);
+    bool IsDefault = false) {
+    
+    /// <summary>
+    /// Returns a copy with the Alias updated. Used for profile rename.
+    /// </summary>
+    internal ModelProfile WithAlias(string newAlias) => this with { Alias = newAlias };
+};
