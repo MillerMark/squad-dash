@@ -117,7 +117,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
 
-        Title     = plan.Group.GroupTitle;
+        Title     = $"Plan — {plan.Group.GroupTitle}";
         Width     = 1200;
         Height    = 720;
         MinWidth  = 760;
@@ -2574,7 +2574,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
     {
         RebuildPreservingScroll(plan, durablePlan);
-        Title = plan.Group.GroupTitle;
+        Title = $"Plan — {plan.Group.GroupTitle}";
     }
 
     internal void NotifyThemeChanged()
@@ -2895,8 +2895,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _                               => "ValidationPendingShield",
         };
 
-        var shieldWidth = 29 * s;
-        var shieldHeight = 31 * s;
+        var shieldHeight = Math.Round(BaseNodeHeight * 0.375 * s);
+        var shieldWidth = Math.Round(shieldHeight * 29.0 / 31.0);
 
         var grid = new Grid
         {
