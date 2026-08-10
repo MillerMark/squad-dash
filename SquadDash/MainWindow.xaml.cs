@@ -9242,6 +9242,22 @@ public partial class MainWindow : Window
             details.Style = transcriptExpanderStyle;
         stack.Children.Add(details);
 
+        copyButton.Click += (_, _) => {
+            try {
+                Clipboard.SetText(string.Join("\n\n", new[] {
+                    content.Title,
+                    content.Summary,
+                    content.ChangedFilesSummary,
+                    content.TechnicalDetails,
+                    content.RecoveryGuidance
+                }.Where(text => !string.IsNullOrWhiteSpace(text))));
+                copyTip.Content = "Details copied to the clipboard.";
+            }
+            catch (System.Runtime.InteropServices.COMException) {
+                copyTip.Content = "The clipboard is busy. Try Copy Details again.";
+            }
+        };
+
         var readiness = new TextBlock
         {
             Text = content.RecoveryGuidance,

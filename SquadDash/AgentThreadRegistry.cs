@@ -511,7 +511,7 @@ internal sealed class AgentThreadRegistry {
 
         thread.Title = ResolveThreadDisplayName(thread.AgentDisplayName, thread.AgentName, thread.AgentId);
         thread.StatusText = statusText;
-        thread.DetailText = detailText;
+        thread.DetailText = BuildFailureDetailText(thread, evt, statusText, detailText);
         thread.WasObservedAsBackgroundTask = true;
         thread.IsCurrentBackgroundRun = !IsTerminalBackgroundStatus(statusText);
         if (DateTimeOffset.TryParse(evt.StartedAt, out var startedAt))
@@ -711,6 +711,66 @@ internal sealed class AgentThreadRegistry {
 
     private static DateTimeOffset? TryParseTimestamp(string? value) =>
         DateTimeOffset.TryParse(value, out var parsed) ? parsed : null;
+
+    private static string BuildFailureDetailText(TranscriptThreadState thread, SquadSdkEvent evt, string statusText, string? detailText) {
+        var providerError = FirstNonEmpty(evt.Reason, evt.Message, evt.OutputText, evt.PartialOutput, evt.Text, evt.Description, detailText, thread.ErrorText);
+        var retryParts = new List<string>();
+
+        if (evt.TotalToolCalls is { } retryCount && retryCount > 0)
+            retryParts.Add(retryCount == 1 ? "1 retry" : $"{retryCount} retries");
+        if (evt.DurationMs is { } durationMs && durationMs > 0)
+            retryParts.Add($"{durationMs}ms total retry delay");
+        if (evt.SessionResumeDurationMs is { } resumeDelay && resumeDelay > 0)
+            retryParts.Add($"{resumeDelay}ms resume delay");
+        if (evt.TimeToFirstResponseMs is { } responseMs && responseMs > 0)
+            retryParts.Add($"{responseMs}ms to first response");
+
+        var statusBits = new List<string>();
+        if (!string.IsNullOrWhiteSpace(evt.SessionReuseKind))
+            statusBits.Add(evt.SessionReuseKind.Trim());
+        if (!string.IsNullOrWhiteSpace(evt.SessionResumeFailureMessage))
+            statusBits.Add(RedactSecrets(evt.SessionResumeFailureMessage));
+        if (evt.SessionAgeMs is { } ageMs && ageMs > 0)
+            statusBits.Add($"session age {ageMs}ms");
+        if (!string.IsNullOrWhiteSpace(evt.RequestId))
+            statusBits.Add($"request {RedactSecrets(evt.RequestId)}");
+
+        var normalizedStatus = statusText.Trim();
+        var failureKind = normalizedStatus.Equals("cancelled", StringComparison.OrdinalIgnoreCase) ? "Cancelled" :
+            normalizedStatus.Equals("interrupted", StringComparison.OrdinalIgnoreCase) ? "Interrupted" :
+            normalizedStatus.Equals("timeout", StringComparison.OrdinalIgnoreCase) || normalizedStatus.Contains("timeout", StringComparison.OrdinalIgnoreCase) ? "Timed out" :
+            normalizedStatus.Contains("thrott", StringComparison.OrdinalIgnoreCase) || normalizedStatus.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ? "Throttled" :
+            normalizedStatus.Equals("failed", StringComparison.OrdinalIgnoreCase) ? "Failed" :
+            "Failed";
+
+        var segments = new List<string> { failureKind };
+        if (!string.IsNullOrWhiteSpace(providerError))
+            segments.Add(RedactSecrets(providerError.Trim()));
+        if (retryParts.Count > 0)
+            segments.Add(string.Join(", ", retryParts));
+        if (statusBits.Count > 0)
+            segments.Add(string.Join(", ", statusBits));
+
+        return string.Join(" — ", segments.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string? FirstNonEmpty(params string?[] values) {
+        foreach (var value in values) {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return null;
+    }
+
+    private static string RedactSecrets(string value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return System.Text.RegularExpressions.Regex.Replace(value,
+            @"(?i)(api[_-]?key|token|secret|password|bearer)\s*[:=]\s*\S+",
+            m => m.Groups[1].Value + ": [REDACTED]");
+    }
 
     internal void ApplyBackgroundLaunchInfo(TranscriptThreadState thread, BackgroundAgentLaunchInfo launchInfo) {
         if (!string.IsNullOrWhiteSpace(launchInfo.AssignedTaskId))
