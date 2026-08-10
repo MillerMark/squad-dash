@@ -66,6 +66,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// </summary>
     internal string? CopilotDefaultModel { get; set; }
 
+    /// <summary>
+    /// Resolved model profile that determines the provider configuration and model for this bridge.
+    /// When set, takes precedence over <see cref="ByokProviderSettings"/> and <see cref="CopilotDefaultModel"/>.
+    /// </summary>
+    internal ModelProfile? ActiveProfile { get; set; }
+
     internal SquadSdkProcess(IWorkspacePaths workspacePaths)
         : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
     }
@@ -150,7 +156,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 sessionId,
                 configDirectory,
                 requestId,
-                Model: CopilotDefaultModel,
+                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
                 ApprovalGroupContext: approvalGroupContext);
             await RunBridgeRequestOnceAsync(
                 request,
@@ -211,7 +217,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 coordinatorSessionId,
                 configDirectory,
                 requestId,
-                Model: CopilotDefaultModel,
+                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
                 ApprovalGroupContext: approvalGroupContext);
             await RunBridgeRequestOnceAsync(
                 request,
@@ -326,6 +332,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private bool ShouldStartFreshPromptSessionForLocalByok() {
+        if (ActiveProfile is { ProviderUrl.Length: > 0 } profile)
+            return IsLocalProviderUrl(profile.ProviderUrl);
+
         if (ByokProviderSettings is not { ProviderUrl.Length: > 0 } byok)
             return false;
 
@@ -357,7 +366,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             sessionId,
             configDirectory,
             requestId,
-            Model: CopilotDefaultModel);
+            Model: ActiveProfile?.Model ?? CopilotDefaultModel);
         await RunBridgeRequestOnceAsync(
             request,
             requestId,
@@ -625,7 +634,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         };
         psi.ArgumentList.Add(bridgeScriptPath);
 
-        if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
+        if (ActiveProfile is { ProviderUrl: { Length: > 0 } profileProviderUrl } activeProfile) {
+            PopulateProfileEnvironment(psi, activeProfile);
+        } else if (ByokProviderSettings is { ProviderUrl: { Length: > 0 } providerUrl } byok) {
             psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = providerUrl;
 
             if (!string.IsNullOrEmpty(byok.Model))
@@ -683,6 +694,52 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
 
         return null;
+    }
+
+    internal static string? ResolveProfileWireApi(ModelProfile profile) {
+        if (!string.Equals(profile.ProviderType, "openai", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!Uri.TryCreate(profile.ProviderUrl, UriKind.Absolute, out var uri))
+            return null;
+
+        var host = uri.Host;
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase) ||
+            uri.Port == 11434 ||
+            host.Contains("ollama", StringComparison.OrdinalIgnoreCase)) {
+            return "completions";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Populates <c>COPILOT_PROVIDER_*</c> environment variables on <paramref name="psi"/>
+    /// from the resolved <paramref name="profile"/>. Only sets variables for non-empty values.
+    /// </summary>
+    internal static void PopulateProfileEnvironment(ProcessStartInfo psi, ModelProfile profile) {
+        psi.EnvironmentVariables["COPILOT_PROVIDER_BASE_URL"] = profile.ProviderUrl;
+
+        if (!string.IsNullOrEmpty(profile.Model))
+            psi.EnvironmentVariables["COPILOT_PROVIDER_MODEL_ID"] = profile.Model;
+
+        if (!string.IsNullOrEmpty(profile.ProviderType))
+            psi.EnvironmentVariables["COPILOT_PROVIDER_TYPE"] = profile.ProviderType;
+
+        var wireApi = ResolveProfileWireApi(profile);
+        if (!string.IsNullOrEmpty(wireApi))
+            psi.EnvironmentVariables["COPILOT_PROVIDER_WIRE_API"] = wireApi;
+
+        if (!string.IsNullOrEmpty(profile.ApiKey))
+            psi.EnvironmentVariables["COPILOT_PROVIDER_API_KEY"] = profile.ApiKey;
+
+        if (profile.OfflineMode)
+            psi.EnvironmentVariables["COPILOT_OFFLINE"] = "true";
+
+        SquadDashTrace.Write("Bridge",
+            $"ActiveProfile — url={profile.ProviderUrl} model={profile.Model ?? "(none)"} type={profile.ProviderType ?? "(default)"} wireApi={wireApi ?? "(default)"} apiKey={(string.IsNullOrEmpty(profile.ApiKey) ? "not set" : "set")} offline={profile.OfflineMode}");
     }
 
     private static string ResolveBridgeScriptPath(string sdkDirectory) {
@@ -1012,7 +1069,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
     /// <summary>
     /// Kills the active bridge process (if any) so it will restart with fresh env vars on the next request.
-    /// Call this after updating <see cref="ByokProviderSettings"/> to ensure the new settings take effect.
+    /// Call this after updating <see cref="ActiveProfile"/> (or legacy <see cref="ByokProviderSettings"/>)
+    /// to ensure the new settings take effect.
     /// </summary>
     internal void RestartBridgeForNewSettings() =>
         _ = ResetProcess(new OperationCanceledException("The Squad bridge was restarted before the prompt completed."));
@@ -1518,7 +1576,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         try {
             process.Start();
 
-            var request = new SquadSdkPromptRequest(prompt, workingDirectory, sessionId, Model: CopilotDefaultModel);
+            var request = new SquadSdkPromptRequest(prompt, workingDirectory, sessionId, Model: ActiveProfile?.Model ?? CopilotDefaultModel);
             var payload = JsonSerializer.Serialize(request);
             await process.StandardInput.WriteLineAsync(payload).ConfigureAwait(false);
             await process.StandardInput.FlushAsync().ConfigureAwait(false);

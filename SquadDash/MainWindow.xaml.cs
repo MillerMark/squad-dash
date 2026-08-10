@@ -866,6 +866,7 @@ public partial class MainWindow : Window
         _bridge = new SquadSdkProcess(_workspacePaths);
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
         _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
+        _bridge.ActiveProfile = ResolveActiveProfile(initialSettings);
         _bridge.BridgeDiagnosticsEnabled = initialSettings.BridgeDiagnosticsEnabled;
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
@@ -25471,11 +25472,15 @@ public partial class MainWindow : Window
                     RefreshDeveloperRuntimeIssuePreview();
                     var previousByokSettings = _bridge.ByokProviderSettings;
                     var previousCopilotDefaultModel = _bridge.CopilotDefaultModel;
+                    var previousActiveProfile = _bridge.ActiveProfile;
                     var currentByokSettings = BuildByokSettings(snapshot);
                     var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
+                    var currentActiveProfile = ResolveActiveProfile(snapshot);
                     _bridge.ByokProviderSettings = currentByokSettings;
                     _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
-                    if (!Equals(previousByokSettings, currentByokSettings) ||
+                    _bridge.ActiveProfile = currentActiveProfile;
+                    if (!Equals(previousActiveProfile, currentActiveProfile) ||
+                        !Equals(previousByokSettings, currentByokSettings) ||
                         !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal)) {
                         DetachCurrentSessionForModelSettingsChange("preferences-model-changed");
                         RestartBridgeForSettingsWhenIdle("preferences-model-changed");
@@ -38210,6 +38215,7 @@ public partial class MainWindow : Window
             case WorkspaceIssueActionKind.SwitchModelToAuto:
                 _settingsManager.Replace(_settingsStore.SaveModelSettings(ModelProvider.GitHubCopilot, "auto"));
                 _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(_settingsSnapshot);
+                _bridge.ActiveProfile = ResolveActiveProfile(_settingsSnapshot);
                 SetInstallStatus("Model switched to 'auto'. Retry your prompt.");
                 ClearRuntimeIssue();
                 break;
@@ -40123,6 +40129,14 @@ public partial class MainWindow : Window
         return string.Equals(model, "auto", StringComparison.OrdinalIgnoreCase)
             ? null
             : model;
+    }
+
+    private ModelProfile? ResolveActiveProfile(ApplicationSettingsSnapshot snapshot)
+    {
+        var profileStore = new ModelProfileStore(_settingsStore);
+        var profiles = profileStore.GetProfiles();
+        var assignments = profileStore.GetCategoryAssignments();
+        return ModelProfileResolver.Resolve(profiles, assignments, perAgentOverrideProfileId: null, agentCategory: null);
     }
 
     private void RestartBridgeForSettingsWhenIdle(string reason)
