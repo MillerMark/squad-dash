@@ -16,6 +16,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double BaseNodeHeight = 112;
     private const double BaseColumnSpacing = 360;
     private const double BaseRowSpacing = 152;
+    private const string VerityCrossHandle = "verity-cross";
 
     private double _scaleFactor;
     private double NodeWidth;
@@ -1200,6 +1201,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Panel.SetZIndex(visual, 30);
                 canvas.Children.Add(visual);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
+
+                // Show Verity Cross avatar while a validation is actively running.
+                if (validationStatus == PlanValidationStatus.Validating && _resolveAgentAvatar is not null)
+                {
+                    var verityInfo = _resolveAgentAvatar(VerityCrossHandle);
+                    if (verityInfo is not null)
+                    {
+                        var chipSize = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
+                        var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
+                        verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker");
+                        var currentShieldWidth = Math.Round(chipSize * 29.0 / 31.0);
+                        var chipLeft = left + validationWidth / 2 + currentShieldWidth / 2 + 4 * _scaleFactor;
+                        Canvas.SetLeft(verityChip, chipLeft);
+                        Canvas.SetTop(verityChip, top);
+                        Panel.SetZIndex(verityChip, 31);
+                        canvas.Children.Add(verityChip);
+                    }
+                }
                 validationRailRight = Math.Max(validationRailRight, left + validationWidth);
                 // Full visual height: shield (26) + title margin (3) + title maxHeight (32) + bottom padding (5)
                 validationBottom = Math.Max(validationBottom, top + ValidationShieldPresenter.BaseShieldStackSpacing * _scaleFactor);
@@ -2016,6 +2035,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
                 Panel.SetZIndex(avatarPanel, 35);
                 canvas.Children.Add(avatarPanel);
+            }
+
+            // Show Verity Cross avatar on the right side while a task is being verified.
+            if (activityState == PlanTaskActivityState.Verifying && _resolveAgentAvatar is not null)
+            {
+                var verityInfo = _resolveAgentAvatar(VerityCrossHandle);
+                if (verityInfo is not null)
+                {
+                    var chipSize = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
+                    var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
+                    verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker (verifying)");
+                    Canvas.SetLeft(verityChip, position.X + NodeWidth - chipSize - 4 * _scaleFactor);
+                    Canvas.SetTop(verityChip, position.Y - chipSize);
+                    Panel.SetZIndex(verityChip, 35);
+                    canvas.Children.Add(verityChip);
+                }
             }
 
             borderByTask[task.Id] = border;
