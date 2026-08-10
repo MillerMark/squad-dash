@@ -72,6 +72,13 @@ Good final step: "Verify that clicking 'Export' in the Reports panel produces a 
 containing all filtered rows, by running `dotnet test --filter ReportExportIntegration` and
 confirming the test exercises the full UI→service→file path."
 
+Validation nodes and independent task verification are executed by Verity Cross, the built-in
+`fact-checker` agent. Their assertions must therefore be provable by AI-accessible repository,
+command, artifact, or previously approved evidence. Never put a requirement for a person to look at
+the UI, hear audio, judge visual quality, or observe a restart directly into a validation assertion.
+Declare it as a `proofRequirements` entry with `live-ui-observation`, `restart-observation`, or
+`human-observation`; SquadDash will promote it to an explicit human approval checkpoint.
+
 ## TASKS_JSON schema
 
 All fields shown below except `delivery` are required. Emit the marker on a bare top-level line. A Markdown JSON

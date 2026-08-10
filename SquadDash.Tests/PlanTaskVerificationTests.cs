@@ -180,6 +180,17 @@ internal sealed class PlanTaskVerificationTests
 
         Assert.Multiple(() =>
         {
+            Assert.That(prompt, Does.Contain("Verity Cross"));
+            Assert.That(prompt, Does.Contain("`fact-checker` utility slot"));
+            Assert.That(prompt, Does.Contain("`general-purpose` agent type"));
+            Assert.That(prompt, Does.Contain("which may be named `Fact Checker` or `Verity Cross`"));
+            Assert.That(prompt, Does.Contain("If it is absent, launch the agent as `Fact Checker`"));
+            Assert.That(prompt, Does.Contain("Do not perform the verification yourself"));
+            Assert.That(prompt, Does.Contain("human-review-required"));
+        });
+
+        Assert.Multiple(() =>
+        {
             Assert.That(prompt, Does.Contain("Treat every explicit current-task requirement as binding"));
             Assert.That(prompt, Does.Contain("candidate handoff declares it in `deferredWork`"));
             Assert.That(prompt, Does.Contain("`P-2` — Wire consumer"));

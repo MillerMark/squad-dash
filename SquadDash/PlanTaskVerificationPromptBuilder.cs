@@ -14,6 +14,16 @@ internal static class PlanTaskVerificationPromptBuilder
         string diffSummary)
     {
         var builder = new StringBuilder();
+        builder.AppendLine("This verification must be performed by the Squad CLI built-in `fact-checker` utility agent.");
+        builder.AppendLine("You are the coordinator, not the verifier. Use the `task` tool exactly once in synchronous mode to launch the " +
+                           "Squad `fact-checker` utility slot, using the CLI's `general-purpose` agent type. If " +
+                           "`.squad/agents/fact-checker/charter.md` exists, use its identity (which may be named `Fact Checker` or `Verity Cross`). " +
+                           "If it is absent, launch the agent as `Fact Checker` with this built-in role: independently verify claims, inspect counter-hypotheses, " +
+                           "separate evidence from assertion, and recommend accept, rework, or human review. Pass the complete verification assignment and required result schema to the agent. " +
+                           "Do not perform the verification yourself and do not substitute the implementation agent, a generic reviewer, or prose-only findings.");
+        builder.AppendLine("After the fact-checker returns, relay its PLAN_TASK_VERIFICATION_JSON result exactly as the only top-level result. " +
+                           "If it cannot establish a claim without human observation, it must use `human-review-required`; it must never simulate or imply a human observation.");
+        builder.AppendLine();
         builder.AppendLine("Independently verify the candidate task result below. Do not modify the repository.");
         builder.AppendLine("Your job is to find missing or overstated work, unsupported claims, disconnected production wiring, " +
                            "and tests that pass without proving the behavior requested by the task.");
@@ -92,6 +102,7 @@ internal static class PlanTaskVerificationPromptBuilder
     {
         var builder = new StringBuilder();
         builder.AppendLine("Your verification completed, but the response omitted the required structured result.");
+        builder.AppendLine("The completed verification must be the spawned `fact-checker` utility agent's result. Do not replace it with the coordinator's own assessment.");
         builder.AppendLine("Do not inspect files again, run tools, modify the repository, or launch workers.");
         builder.AppendLine("Convert the findings already reached into the required result. Do not omit, soften, or reinterpret a discrepancy.");
         if (!string.IsNullOrWhiteSpace(priorFindings))
