@@ -25,6 +25,37 @@ internal sealed class DiffLine {
     public DiffLineKind Kind { get; }
 }
 
+internal static class DiffLinePresenter {
+    internal static TextBlock Create(string text, DiffLineKind kind) {
+        var textBlock = new TextBlock {
+            Text = text,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
+            Padding = new Thickness(4, 1, 4, 1),
+            TextWrapping = TextWrapping.NoWrap
+        };
+        switch (kind) {
+            case DiffLineKind.Added:
+                textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
+                textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 107, 174, 214));
+                break;
+            case DiffLineKind.Removed:
+                textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffRemovedText");
+                textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 224, 112, 112));
+                break;
+            case DiffLineKind.Header:
+                textBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                textBlock.FontSize = (double)Application.Current.Resources["FontSizeSmall"];
+                textBlock.Opacity = 0.8;
+                break;
+            default:
+                textBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                break;
+        }
+        return textBlock;
+    }
+}
+
 internal sealed class DiffHoverPopup : Popup {
     internal const int MaxDisplayLines = 40;
     internal const double MaxPopupHeight = 300;
@@ -55,37 +86,7 @@ internal sealed class DiffHoverPopup : Popup {
         };
 
         foreach (var line in linesToDisplay) {
-            var textBlock = new TextBlock {
-                Text = line.Text,
-                FontFamily = new FontFamily("Consolas"),
-                FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-                Padding = new Thickness(4, 1, 4, 1),
-                TextWrapping = TextWrapping.NoWrap
-            };
-
-            switch (line.Kind) {
-                case DiffLineKind.Added:
-                    textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffAddedText");
-                    // Blue tint at ~10% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 107, 174, 214));
-                    break;
-
-                case DiffLineKind.Removed:
-                    textBlock.SetResourceReference(TextBlock.ForegroundProperty, "DiffRemovedText");
-                    // Red tint at ~10% opacity
-                    textBlock.Background = new SolidColorBrush(Color.FromArgb(26, 224, 112, 112));
-                    break;
-
-                case DiffLineKind.Header:
-                    textBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                    textBlock.FontSize = (double)Application.Current.Resources["FontSizeSmall"];
-                    textBlock.Opacity = 0.8;
-                    break;
-
-                case DiffLineKind.Context:
-                    textBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-                    break;
-            }
+            var textBlock = DiffLinePresenter.Create(line.Text, line.Kind);
 
             stackPanel.Children.Add(textBlock);
         }

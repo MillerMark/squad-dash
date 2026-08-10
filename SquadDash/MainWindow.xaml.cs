@@ -49862,20 +49862,21 @@ public partial class MainWindow : Window
             var sha = url[(url.LastIndexOf('/') + 1)..];
             if (!string.IsNullOrWhiteSpace(sha) && !await IsCommitOnRemoteAsync(sha).ConfigureAwait(false))
             {
-                var push = Dispatcher.Invoke(() => MessageBox.Show(
-                    this,
-                    "This commit doesn't appear to have been pushed to GitHub yet.\n\nWould you like to push all changes now?",
-                    "Commit not found",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question) == MessageBoxResult.Yes);
-
-                if (push)
+                await Dispatcher.InvokeAsync(async () =>
                 {
-                    var pushed = await PushToOriginAsync().ConfigureAwait(false);
-                    if (pushed)
-                        _squadCliAdapter.OpenExternalLink(url);
-                }
-
+                    var folderPath = _currentWorkspace?.FolderPath;
+                    if (string.IsNullOrWhiteSpace(folderPath)) return;
+                    try
+                    {
+                        var viewer = await CommitViewerWindow.CreateAsync(folderPath, sha);
+                        viewer.Owner = this;
+                        viewer.Show();
+                    }
+                    catch (Exception ex)
+                    {
+                        UIErrorHelper.ShowWarning("Open Commit", $"SquadDash could not load this local commit.\n\n{ex.Message}");
+                    }
+                }).Task.Unwrap();
                 return;
             }
         }
