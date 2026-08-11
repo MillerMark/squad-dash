@@ -413,6 +413,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 2)
         };
         _pttAutoSendRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        _pttAutoSendRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _pttDoNothingRadio = new RadioButton {
             Name = "Ptt_DoNothing",
             Content = "Do nothing",
@@ -421,8 +422,9 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 2)
         };
         _pttDoNothingRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        _pttDoNothingRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
-        var currentOpenAiKey = currentSettings.OpenAiSpeechApiKey ?? string.Empty;
+        var currentOpenAiKey= currentSettings.OpenAiSpeechApiKey ?? string.Empty;
         _openAiSpeechKeyPasswordBox = new PasswordBox {
             Password = currentOpenAiKey,
             Padding = new Thickness(6, 4, 6, 4),
@@ -517,6 +519,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 6)
         };
         _githubCopilotProviderRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        _githubCopilotProviderRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _customModelProviderRadio = new RadioButton {
             Content = "Custom Model",
             GroupName = "ModelProvider",
@@ -524,8 +527,9 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 6)
         };
         _customModelProviderRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        _customModelProviderRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
-        _copilotModelComboBox = new ComboBox {
+        _copilotModelComboBox= new ComboBox {
             Height = 30,
             Margin = new Thickness(0, 0, 0, 12),
             IsEditable = true,
@@ -540,10 +544,10 @@ internal sealed class PreferencesWindow : Window {
         SelectCopilotModel(savedCopilotModel);
         _copilotModelStatusText = new TextBlock {
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, -8, 0, 12)
         };
         _copilotModelStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _copilotModelStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         _githubCopilotModelPanel = new StackPanel {
             Visibility = useCustomModelProvider ? Visibility.Collapsed : Visibility.Visible
@@ -619,10 +623,10 @@ internal sealed class PreferencesWindow : Window {
         _byokOfflineModeCheckBox.SetResourceReference(ForegroundProperty, "BodyText");
         _byokTestStatusText = new TextBlock {
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 0, 0),
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"]
+            Margin = new Thickness(10, 0, 0, 0)
         };
         _byokTestStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _byokTestStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         // ── Model profile controls ───────────────────────────────────────
         _modelProfileStore = new ModelProfileStore(_settingsStore);
@@ -630,7 +634,7 @@ internal sealed class PreferencesWindow : Window {
         _categoryAssignments = new Dictionary<string, string>(_modelProfileStore.GetCategoryAssignments(), StringComparer.OrdinalIgnoreCase);
 
         _profileListBox = new ListBox {
-            Height = 120,
+            Height = 90,
             Margin = new Thickness(0, 0, 0, 8),
             SelectionMode = SelectionMode.Single
         };
@@ -681,11 +685,11 @@ internal sealed class PreferencesWindow : Window {
 
         _assignmentCalloutText = new TextBlock {
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 4, 0, 0),
             Visibility = Visibility.Collapsed
         };
         _assignmentCalloutText.SetResourceReference(TextBlock.ForegroundProperty, "SystemInfoText");
+        _assignmentCalloutText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         _undoButton = new Button {
             Content = "Undo",
@@ -727,10 +731,10 @@ internal sealed class PreferencesWindow : Window {
         };
         _ntfyUrlText = new TextBlock {
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             FontFamily = new System.Windows.Media.FontFamily("Consolas")
         };
         _ntfyUrlText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _ntfyUrlText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
 
         _notifyAiTurnCheckBox = MakeCheckBox("AI turn completes", GetToggle(currentSettings, "assistant_turn_complete", true));
         _notifyGitCommitCheckBox = MakeCheckBox("Git commit pushed (agent-authored only)", GetToggle(currentSettings, "git_commit_pushed", false));
@@ -1128,6 +1132,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, -12, 0, 12)
         };
         routingHelp.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        routingHelp.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(routingHelp);
 
         return WrapInScrollViewer(form);
@@ -1163,10 +1168,10 @@ internal sealed class PreferencesWindow : Window {
 
         var regionHint = new TextBlock {
             Text = "e.g. eastus, westus2, westeurope",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 3, 0, 0)
         };
         regionHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        regionHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         azureSection.Children.Add(regionHint);
 
         form.Children.Add(azureSection);
@@ -1194,11 +1199,11 @@ internal sealed class PreferencesWindow : Window {
 
         var langHint = new TextBlock {
             Text = "Select the spoken language. Azure uses the full locale (e.g. fr-FR); Whisper uses the language prefix (e.g. fr). Auto-detect works for both providers but is slightly slower.",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 6),
             TextWrapping = TextWrapping.Wrap
         };
         langHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        langHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(langHint);
         form.Children.Add(_speechLanguageComboBox);
 
@@ -1225,8 +1230,9 @@ internal sealed class PreferencesWindow : Window {
         // ── Push-to-talk ──────────────────────────────────────────────────
         AddSectionHeader(form, "Push-to-talk");
 
-        var pttHint = new TextBlock { FontSize = (double)Application.Current.Resources["FontSizeSmall"], Margin = new Thickness(0, 4, 0, 4), TextWrapping = TextWrapping.Wrap };
+        var pttHint = new TextBlock { Margin = new Thickness(0, 4, 0, 4), TextWrapping = TextWrapping.Wrap };
         pttHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        pttHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         pttHint.Inlines.Add(new Run("Double-tap and hold the "));
         pttHint.Inlines.Add(new Bold(new Run("Ctrl")));
         pttHint.Inlines.Add(new Run(" key to use PTT."));
@@ -1238,8 +1244,9 @@ internal sealed class PreferencesWindow : Window {
 
         pttStack.Children.Add(_pttAutoSendRadio);
 
-        var autoSendSubHint = new TextBlock { FontSize = (double)Application.Current.Resources["FontSizeSmall"], Margin = new Thickness(20, 2, 0, 8), TextWrapping = TextWrapping.Wrap };
+        var autoSendSubHint = new TextBlock { Margin = new Thickness(20, 2, 0, 8), TextWrapping = TextWrapping.Wrap };
         autoSendSubHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        autoSendSubHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         autoSendSubHint.Inlines.Add(new Run("(unless I'm using voice to modify "));
         autoSendSubHint.Inlines.Add(new Bold(new Run("existing")));
         autoSendSubHint.Inlines.Add(new Run(" text or I tap the "));
@@ -1249,8 +1256,9 @@ internal sealed class PreferencesWindow : Window {
 
         pttStack.Children.Add(_pttDoNothingRadio);
 
-        var doNothingSubHint = new TextBlock { FontSize = (double)Application.Current.Resources["FontSizeSmall"], Margin = new Thickness(20, 2, 0, 8), TextWrapping = TextWrapping.Wrap };
+        var doNothingSubHint = new TextBlock { Margin = new Thickness(20, 2, 0, 8), TextWrapping = TextWrapping.Wrap };
         doNothingSubHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        doNothingSubHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         doNothingSubHint.Inlines.Add(new Run("(I'll press "));
         doNothingSubHint.Inlines.Add(new Bold(new Run("Enter")));
         doNothingSubHint.Inlines.Add(new Run(" to send/queue the prompt when I'm ready)"));
@@ -1273,10 +1281,10 @@ internal sealed class PreferencesWindow : Window {
 
         var gridHint = new TextBlock {
             Text = "Double-click a cell to edit.",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 2, 0, 6)
         };
         gridHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        gridHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(gridHint);
 
         var replacementsGrid = new DataGrid {
@@ -1406,10 +1414,10 @@ internal sealed class PreferencesWindow : Window {
         var hint = new TextBlock {
             Text = "Optionally auto-start a public tunnel when Remote Access starts, for access from outside your local network.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 12)
         };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        hint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(hint);
 
         AddLabel(form, "Tunnel Provider:");
@@ -1445,10 +1453,10 @@ internal sealed class PreferencesWindow : Window {
         var hint = new TextBlock {
             Text = "Manage model profiles. Each profile configures an AI provider. Assign profiles to agent categories below.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 12)
         };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        hint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(hint);
 
         form.Children.Add(_profileListBox);
@@ -1483,10 +1491,10 @@ internal sealed class PreferencesWindow : Window {
 
         var urlHint = new TextBlock {
             Text = "e.g. http://localhost:11434/v1 or http://localhost:11434",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 3, 0, 12)
         };
         urlHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        urlHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         _customModelProviderPanel.Children.Add(urlHint);
 
         AddLabel(_customModelProviderPanel, "Model:");
@@ -1557,10 +1565,10 @@ internal sealed class PreferencesWindow : Window {
         var assignHint = new TextBlock {
             Text = "Assign this profile to agent categories. Each category uses at most one profile.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 8)
         };
         assignHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        assignHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(assignHint);
 
         BuildCategoryCheckBoxes();
@@ -1738,6 +1746,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         deliveryLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        deliveryLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         deliveryRow.Children.Add(deliveryLabel);
         var deliveryCombo = new ComboBox { Width = 140, Height = 28 };
         deliveryCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
@@ -1777,10 +1786,10 @@ internal sealed class PreferencesWindow : Window {
 
         var scanHint = new TextBlock {
             Text = "Scan with ntfy phone app",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 2)
         };
         scanHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        scanHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         ntfyStack.Children.Add(scanHint);
         ntfyStack.Children.Add(_ntfyUrlText);
 
@@ -1790,6 +1799,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 8)
         };
         notifyWhenLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        notifyWhenLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(notifyWhenLabel);
 
         form.Children.Add(_notifyAiTurnCheckBox);
@@ -1820,10 +1830,10 @@ internal sealed class PreferencesWindow : Window {
         var headerHint = new TextBlock {
             Text = "Play a sound when events occur. Check the box to enable; enter a path to a .mp3 or .wav file for a custom sound, leave blank to use the default Windows alert sound, or enter a quoted phrase like \"Prompt complete\" to have text-to-speech speak it. Right-click a path box to test.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 16)
         };
         headerHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        headerHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(headerHint);
 
         var evtGrid = new Grid();
@@ -1864,10 +1874,10 @@ internal sealed class PreferencesWindow : Window {
         var ttsHint = new TextBlock {
             Text = "When a sound-event path is a quoted phrase like \"Done!\", SquadDash speaks it aloud using the TTS provider below.",
             TextWrapping = TextWrapping.Wrap,
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             Margin = new Thickness(0, 0, 0, 12)
         };
         ttsHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        ttsHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(ttsHint);
 
         // ── Row: Provider ─────────────────────────────────────────────────────────
@@ -1881,6 +1891,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         ttsProviderLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        ttsProviderLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         Grid.SetColumn(ttsProviderLabel, 0);
 
         var ttsProviderCombo = new ComboBox {
@@ -1910,6 +1921,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         azureVoiceLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        azureVoiceLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         Grid.SetColumn(azureVoiceLabel, 0);
 
         var azureVoiceCombo = new ComboBox {
@@ -1939,6 +1951,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         openAiVoiceLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        openAiVoiceLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         Grid.SetColumn(openAiVoiceLabel, 0);
 
         var openAiVoiceCombo = new ComboBox {
@@ -1959,6 +1972,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         openAiModelLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        openAiModelLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         Grid.SetColumn(openAiModelLabel, 2);
 
         var openAiModelCombo = new ComboBox { Height = 28 };
@@ -2023,10 +2037,10 @@ internal sealed class PreferencesWindow : Window {
 
         var ttsErrorText = new TextBlock {
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 6, 0, 0),
-            FontSize = (double)Application.Current.Resources["FontSizeBody"]
+            Margin = new Thickness(0, 6, 0, 0)
         };
         ttsErrorText.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
+        ttsErrorText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         var copyErrorButton = new Button {
             Content = "📋 Copy error",
@@ -2169,7 +2183,7 @@ internal sealed class PreferencesWindow : Window {
 
         // Col 2: Browse button — auto width
         var browseBtn = new Button {
-            Content = "Browse…",
+            Content = "\u2026",
             Padding = new Thickness(10, 4, 10, 4),
             Height = 28,
             Margin = new Thickness(0, 3, 0, 3),
@@ -2177,6 +2191,7 @@ internal sealed class PreferencesWindow : Window {
             VerticalAlignment = VerticalAlignment.Center
         };
         browseBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        browseBtn.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         Grid.SetRow(browseBtn, rowIndex);
         Grid.SetColumn(browseBtn, 2);
         grid.Children.Add(browseBtn);
@@ -2222,6 +2237,7 @@ internal sealed class PreferencesWindow : Window {
     private static (CheckBox cb, TextBox tb) MakeSoundRow(bool enabled, string customPath) {
         var cb = new CheckBox { IsChecked = enabled, Margin = new Thickness(0, 0, 0, 4) };
         cb.SetResourceReference(ForegroundProperty, "BodyText");
+        cb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         var tb = new TextBox {
             Text = customPath ?? string.Empty,
             IsEnabled = enabled,
@@ -2231,6 +2247,7 @@ internal sealed class PreferencesWindow : Window {
         tb.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         tb.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         tb.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        tb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         return (cb, tb);
     }
 
@@ -2244,11 +2261,11 @@ internal sealed class PreferencesWindow : Window {
 
         var hint = new TextBlock {
             Text = "This prompt is sent automatically when you press Ctrl+Shift+C with text selected in any markdown source editor. When the AI revision lands, the original selection is replaced with the cleaned-up version. You can work elsewhere in the document while waiting for AI to return.",
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"],
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0)
         };
         hint.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        hint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(hint);
 
         return WrapInScrollViewer(form);
@@ -3150,6 +3167,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 6)
         };
         cb.SetResourceReference(ForegroundProperty, "BodyText");
+        cb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         return cb;
     }
 
@@ -3161,6 +3179,7 @@ internal sealed class PreferencesWindow : Window {
             TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap
         };
         label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         parent.Children.Add(label);
     }
 
@@ -3293,6 +3312,7 @@ internal sealed class PreferencesWindow : Window {
                 Margin    = new Thickness(0, 0, 12, 0),
             };
             cb.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+            cb.SetResourceReference(CheckBox.FontSizeProperty, "FontSizeBody");
             cb.Checked   += OnChanged;
             cb.Unchecked += OnChanged;
             return cb;
