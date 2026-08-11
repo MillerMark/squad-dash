@@ -3392,20 +3392,43 @@ public partial class MainWindow : Window
             }
 
             var groupState = TrackFirstEligiblePlanStep(_activeDecomposeGroupId);
-            if (groupState == DecomposeGroupExecutionState.AwaitingApproval &&
-                durablePlan is not null &&
-                !PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(durablePlan))
+            var boundaryAction = PlanExecutionBoundaryPolicy.ResolvePreIteration(
+                durablePlan,
+                groupState);
+            if (boundaryAction == PlanPreIterationBoundaryAction.Continue)
             {
-                SquadDashTrace.Write(
-                    "Loop",
-                    $"Executing Plan retained at non-human boundary group={_activeDecomposeGroupId}; awaiting validation or dependency progress.");
+                if (groupState == DecomposeGroupExecutionState.AwaitingApproval)
+                {
+                    SquadDashTrace.Write(
+                        "Loop",
+                        $"Executing Plan retained at non-human boundary group={_activeDecomposeGroupId}; awaiting validation or dependency progress.");
+                }
                 return;
             }
-            if (groupState is DecomposeGroupExecutionState.Blocked or
-                DecomposeGroupExecutionState.AwaitingApproval or
-                DecomposeGroupExecutionState.Complete or
-                DecomposeGroupExecutionState.Missing or
-                DecomposeGroupExecutionState.Unreadable)
+            if (boundaryAction == PlanPreIterationBoundaryAction.ActivateApproval &&
+                durablePlan is not null)
+            {
+                var readyGateIds = ApprovalGateReadinessEvaluator.GetReadyGateIds(
+                    ApprovalGateReadinessEvaluator.EvaluateGates(durablePlan));
+                var boundaryTaskId = durablePlan.ApprovalGates
+                    .Where(gate => readyGateIds.Contains(gate.GateId, StringComparer.Ordinal))
+                    .SelectMany(gate => gate.AfterTaskIds)
+                    .LastOrDefault()
+                    ?? durablePlan.Tasks.LastOrDefault(task =>
+                        task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)?.TaskId
+                    ?? _activeDecomposeGroupId;
+                SquadDashTrace.Write(
+                    "Loop",
+                    $"Executing Plan activating approval before next iteration group={_activeDecomposeGroupId} task={boundaryTaskId}.");
+                await ProcessPlanApprovalsAfterStepAsync(
+                    _activeDecomposeGroupId,
+                    durablePlan.Revision,
+                    boundaryTaskId,
+                    groupState,
+                    durablePlan);
+                return;
+            }
+            if (boundaryAction == PlanPreIterationBoundaryAction.Stop)
             {
                 SquadDashTrace.Write(
                     "Loop",
@@ -14621,9 +14644,36 @@ public partial class MainWindow : Window
         }
 
         LoadTasksPanel();
+        var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(acceptedPlan!);
+        var hasReadyApprovalBoundary = nextValidation is null &&
+                                       HasReadyPendingApprovalGate(acceptedPlan!);
+        var mustAwaitApproval = hasReadyApprovalBoundary &&
+                                PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
         ShowSystemTranscriptEntry(combinedAmendmentGate is null
-            ? $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task."
+            ? mustAwaitApproval
+                ? $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Opening the required human approval checkpoint."
+                : $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task."
             : $"✓ Accepted verified amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task.");
+
+        if (hasReadyApprovalBoundary)
+        {
+            // Recovery acceptance deliberately remains interrupted until the next boundary is
+            // known. Once that boundary is a ready gate, the approval runtime owns the durable
+            // state and must activate it before any native loop-stop callback can run.
+            acceptedPlan = PlanStoreUpdater.ApplyApprovalBoundaryRecovery(acceptedPlan!);
+            await ProcessPlanApprovalsAfterStepAsync(
+                acceptedPlan.PlanId,
+                acceptedPlan.Revision,
+                taskId,
+                mustAwaitApproval
+                    ? DecomposeGroupExecutionState.AwaitingApproval
+                    : DecomposeGroupExecutionState.Eligible,
+                acceptedPlan);
+            var boundaryPlan = _planStore.Load(acceptedPlan.PlanId) ?? acceptedPlan;
+            if (boundaryPlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+                return true;
+            acceptedPlan = boundaryPlan;
+        }
         // Continue from the canonical durable plan. tasks.md is intentionally a lossy UI/task
         // projection and does not contain outputs, inputs, approval gates, or validation nodes;
         // sending that projection back through TASKS_JSON validation can reject valid plans after

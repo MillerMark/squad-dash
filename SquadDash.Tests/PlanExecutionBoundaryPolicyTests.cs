@@ -6,6 +6,42 @@ namespace SquadDash.Tests;
 internal sealed class PlanExecutionBoundaryPolicyTests
 {
     [Test]
+    public void PreIteration_ReadyHumanGate_ActivatesApprovalInsteadOfGenericStop()
+    {
+        var plan = MakePlan(PlanValidationStatus.Passed, includeApprovalGate: true);
+
+        Assert.That(
+            PlanExecutionBoundaryPolicy.ResolvePreIteration(
+                plan,
+                DecomposeGroupExecutionState.AwaitingApproval),
+            Is.EqualTo(PlanPreIterationBoundaryAction.ActivateApproval));
+    }
+
+    [Test]
+    public void PreIteration_ValidationTakesPriority_ContinuesWithoutActivatingApproval()
+    {
+        var plan = MakePlan(PlanValidationStatus.Ready, includeApprovalGate: true);
+
+        Assert.That(
+            PlanExecutionBoundaryPolicy.ResolvePreIteration(
+                plan,
+                DecomposeGroupExecutionState.AwaitingApproval),
+            Is.EqualTo(PlanPreIterationBoundaryAction.Continue));
+    }
+
+    [Test]
+    public void PreIteration_BlockedGroup_UsesTerminalStop()
+    {
+        var plan = MakePlan(PlanValidationStatus.Passed);
+
+        Assert.That(
+            PlanExecutionBoundaryPolicy.ResolvePreIteration(
+                plan,
+                DecomposeGroupExecutionState.Blocked),
+            Is.EqualTo(PlanPreIterationBoundaryAction.Stop));
+    }
+
+    [Test]
     public void ReadyValidation_WinsOverHumanApprovalBoundary()
     {
         var plan = MakePlan(PlanValidationStatus.Ready, includeApprovalGate: true);

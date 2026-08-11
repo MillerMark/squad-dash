@@ -7,6 +7,24 @@ namespace SquadDash;
 /// </summary>
 internal static class PlanExecutionBoundaryPolicy
 {
+    internal static PlanPreIterationBoundaryAction ResolvePreIteration(
+        Plan? plan,
+        DecomposeGroupExecutionState groupState)
+    {
+        if (groupState == DecomposeGroupExecutionState.AwaitingApproval && plan is not null)
+            return ShouldStopForHumanApproval(plan)
+                ? PlanPreIterationBoundaryAction.ActivateApproval
+                : PlanPreIterationBoundaryAction.Continue;
+
+        return groupState is DecomposeGroupExecutionState.Blocked or
+            DecomposeGroupExecutionState.AwaitingApproval or
+            DecomposeGroupExecutionState.Complete or
+            DecomposeGroupExecutionState.Missing or
+            DecomposeGroupExecutionState.Unreadable
+                ? PlanPreIterationBoundaryAction.Stop
+                : PlanPreIterationBoundaryAction.Continue;
+    }
+
     internal static PlanValidationNode? SelectValidation(
         Plan plan,
         string? activeValidationId = null)
@@ -60,4 +78,11 @@ internal static class PlanExecutionBoundaryPolicy
         SelectValidation(plan) is null &&
         plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.Pending) &&
         ApprovalGateReadinessEvaluator.ShouldStopForApproval(plan);
+}
+
+internal enum PlanPreIterationBoundaryAction
+{
+    Continue,
+    ActivateApproval,
+    Stop,
 }

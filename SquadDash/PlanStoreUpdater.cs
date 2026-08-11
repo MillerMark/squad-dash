@@ -1361,8 +1361,8 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
-    /// Clears a generic interruption that occurred while handing a passed validation off to a
-    /// ready human-approval boundary. The approval runtime immediately follows this transition
+    /// Clears a generic interruption while handing accepted work or a passed validation off to
+    /// a ready human-approval boundary. The approval runtime immediately follows this transition
     /// and owns activation of the gate itself.
     /// </summary>
     internal static Plan ApplyApprovalBoundaryRecovery(Plan existing) => existing with

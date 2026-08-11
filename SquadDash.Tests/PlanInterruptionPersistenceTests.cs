@@ -81,6 +81,42 @@ internal sealed class PlanInterruptionPersistenceTests
     }
 
     [Test]
+    public void Apply_ApprovalPausedPlanDoesNotBecomeGenericInterruption()
+    {
+        var persistCalled = false;
+        var awaitingApproval = PlanFactory.CreateExecuting("PLAN-1", null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "GATE-1", "Review completed work", ["PLAN-1-001"], ["PLAN-1-002"],
+                    PlanGateStatus.AwaitingApproval),
+            ],
+        };
+
+        var result = PlanInterruptionPersistence.Apply(
+            awaitingApproval,
+            "PLAN-1",
+            null,
+            "Plan execution stopped before the current task was accepted.",
+            0,
+            null,
+            preferDurableTaskId: true,
+            persist: _ =>
+            {
+                persistCalled = true;
+                return (true, null);
+            });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanInterruptionPersistenceOutcome.NotNeeded));
+            Assert.That(persistCalled, Is.False);
+        });
+    }
+
+    [Test]
     public void Apply_ErrorKeepsCapturedRoundTaskAheadOfAdvancedDurableProgress()
     {
         Plan? persisted = null;
