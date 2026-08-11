@@ -140,6 +140,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
                         glyph.HorizontalAlignment = HorizontalAlignment.Left;
                         glyph.VerticalAlignment = VerticalAlignment.Top;
                         glyph.Margin = new Thickness(1, 2, 0, 0);
+                        glyph.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                            CommitViewerLayout.BuildUncertainCommitToolTip(commit.Explanation));
                         row.Children.Add(glyph);
                     }
                 }
@@ -152,7 +154,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
                 Content = content,
                 Tag = commit,
                 ToolTip = commit.IsUncertain
-                    ? commit.Explanation ?? "Included because it occurred in the captured evidence range, but SquadDash could not confidently attribute it to this step."
+                    ? ToolTipHelper.MakeThemedToolTip(
+                        CommitViewerLayout.BuildUncertainCommitToolTip(commit.Explanation))
                     : commit.Explanation
             });
         }

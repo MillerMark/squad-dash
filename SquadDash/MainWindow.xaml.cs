@@ -50310,7 +50310,7 @@ public partial class MainWindow : Window
         {
             var entries = commits.Select(commit => new CommitViewerEntry(
                 commit.Commit,
-                commit.Relation is PlanRecoveryCommitRelation.Unknown or PlanRecoveryCommitRelation.Unrelated,
+                commit.Relation is PlanRecoveryCommitRelation.Unknown,
                 commit.Reason)).ToArray();
             var viewer = await CommitViewerWindow.CreateAsync(folderPath, entries);
             viewer.Owner = this;

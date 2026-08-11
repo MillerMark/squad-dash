@@ -4,4 +4,14 @@ internal static class CommitViewerLayout
 {
     internal static double CalculateWindowWidth(double workingWidth, double minimumWidth = 720) =>
         Math.Max(minimumWidth, Math.Min(1600, workingWidth * 0.75));
+
+    internal static string BuildUncertainCommitToolTip(string? explanation)
+    {
+        const string summary =
+            "Commit attribution is uncertain. SquadDash included this commit as evidence, " +
+            "but could not confirm that it belongs to this step.";
+        return string.IsNullOrWhiteSpace(explanation)
+            ? summary
+            : $"{summary}\n\nWhy it is uncertain: {explanation.Trim()}";
+    }
 }
