@@ -829,7 +829,8 @@ internal sealed class PreferencesWindow : Window {
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(footer);
 
-        var saveButton = new Button { Content = "Close", Width = 88, Height = 30, Name = "Preferences_SaveButton" };
+        var saveButton = new Button { Content = "Close", Width = 88, Name = "Preferences_SaveButton" };
+        saveButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         saveButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         DockPanel.SetDock(saveButton, Dock.Right);
         saveButton.Click += SaveButton_Click;
