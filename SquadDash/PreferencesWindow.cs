@@ -1564,6 +1564,7 @@ internal sealed class PreferencesWindow : Window {
         form.Children.Add(assignHint);
 
         BuildCategoryCheckBoxes();
+        UpdateCategoryCheckBoxes();
         form.Children.Add(_categoryAssignmentsPanel);
         form.Children.Add(_assignmentCalloutText);
 
