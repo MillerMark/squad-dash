@@ -519,6 +519,57 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_DuringHydration_CannotEraseSavedQueueState() {
+        var manager = MakeManager();
+        var savedEntries = Enumerable.Range(1, 20)
+            .Select(index => new QueuedPromptEntry($"queued prompt {index}", IsDictated: false))
+            .ToArray();
+        manager.ConversationState = WorkspaceConversationState.Empty with {
+            QueuedPromptEntries = savedEntries,
+            QueueRightmostHeld = true,
+            QueueActiveTabIndex = 7,
+            LoopQueuedToDequeue = true,
+        };
+
+        manager.BeginQueuedPromptsStateHydration();
+        manager.UpdateQueuedPromptsState(Array.Empty<PromptQueueItem>());
+
+        Assert.Multiple(() => {
+            Assert.That(manager.ConversationState.QueuedPromptEntries, Has.Count.EqualTo(20));
+            Assert.That(manager.ConversationState.QueueRightmostHeld, Is.True);
+            Assert.That(manager.ConversationState.QueueActiveTabIndex, Is.EqualTo(7));
+            Assert.That(manager.ConversationState.LoopQueuedToDequeue, Is.True);
+        });
+
+        manager.CompleteQueuedPromptsStateHydration();
+        manager.UpdateQueuedPromptsState(Array.Empty<PromptQueueItem>());
+        Assert.That(manager.ConversationState.QueuedPromptEntries, Is.Null,
+            "Explicit queue changes must persist normally after hydration completes.");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_PreservesQueuedEditorStateAndSelectedTab() {
+        var manager = MakeManager();
+        var item = new PromptQueueItem {
+            Text = "select this text",
+            SequenceNumber = 1,
+            CaretIndex = 11,
+            SelectionStart = 7,
+            SelectionLength = 4,
+        };
+
+        manager.UpdateQueuedPromptsState([item], activeTabIndex: 0);
+
+        var entry = manager.ConversationState.QueuedPromptEntries!.Single();
+        Assert.Multiple(() => {
+            Assert.That(manager.ConversationState.QueueActiveTabIndex, Is.Zero);
+            Assert.That(entry.CaretIndex, Is.EqualTo(11));
+            Assert.That(entry.SelectionStart, Is.EqualTo(7));
+            Assert.That(entry.SelectionLength, Is.EqualTo(4));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void UpdateQueuedPromptsState_PreservesLockedHostPresentation()
     {
         var manager = MakeManager();

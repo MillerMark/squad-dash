@@ -39,6 +39,9 @@ internal sealed class TranscriptConversationManager {
     private long _latestRequestedConversationSaveVersion;
     private readonly DispatcherTimer _agentThreadSnapshotPersistTimer;
     private bool _hasPendingAgentThreadSnapshotPersist;
+    // MainWindow closes this gate before startup/workspace hydration. Queue UI
+    // callbacks may render in that period, but cannot replace the durable queue.
+    private bool _queuedPromptsStateHydrated = true;
 
     // Lazy-render store: agent thread FlowDocuments are NOT populated at startup.
     // Turns are stored here and flushed into the document the first time the user
@@ -1290,6 +1293,14 @@ internal sealed class TranscriptConversationManager {
         int? activeTabIndex = null,
         int? queueDayCounter = null,
         string? queueCounterDate = null) {
+        if (!_queuedPromptsStateHydrated)
+        {
+            SquadDashTrace.Write(
+                "Queue",
+                $"UpdateQueuedPromptsState suppressed during hydration: incomingCount={items.Count} held={queueRightmostHeld} activeTabIndex={activeTabIndex?.ToString() ?? "null"} loopQueued={loopQueuedToDequeue}");
+            return;
+        }
+
         IReadOnlyList<QueuedPromptEntry>? entries = null;
         if (items.Count > 0)
         {
@@ -1316,7 +1327,7 @@ internal sealed class TranscriptConversationManager {
                 return new QueuedPromptEntry(
                     i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse,
                     i.SimDelaySeconds, i.QueueNumber, i.SourceTag, i.IsLocked, i.DisplayLabel,
-                    i.ReadOnlyDisplayText);
+                    i.ReadOnlyDisplayText, i.CaretIndex, i.SelectionStart, i.SelectionLength);
             }).ToArray();
         }
         var previousState = _conversationState;
@@ -1345,6 +1356,10 @@ internal sealed class TranscriptConversationManager {
             _conversationState = updatedState;
         }
     }
+
+    internal void BeginQueuedPromptsStateHydration() => _queuedPromptsStateHydrated = false;
+
+    internal void CompleteQueuedPromptsStateHydration() => _queuedPromptsStateHydrated = true;
 
     private static bool QueuePersistenceStateChanged(
         WorkspaceConversationState previous,
@@ -1381,6 +1396,9 @@ internal sealed class TranscriptConversationManager {
                 a.IsLocked         != b.IsLocked ||
                 a.DisplayLabel     != b.DisplayLabel ||
                 a.ReadOnlyDisplayText != b.ReadOnlyDisplayText ||
+                a.CaretIndex       != b.CaretIndex ||
+                a.SelectionStart   != b.SelectionStart ||
+                a.SelectionLength  != b.SelectionLength ||
                 !FollowUpAttachmentDtosEqual(a.Attachments, b.Attachments))
                 return false;
         }

@@ -1060,7 +1060,10 @@ internal sealed record QueuedPromptEntry(
     string? SourceTag = null,
     bool IsLocked = false,
     string? DisplayLabel = null,
-    string? ReadOnlyDisplayText = null);
+    string? ReadOnlyDisplayText = null,
+    int CaretIndex = 0,
+    int SelectionStart = 0,
+    int SelectionLength = 0);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

@@ -426,6 +426,9 @@ public partial class MainWindow : Window
     private PromptQueue _promptQueue => _promptQueueCoordinator.Queue;
     private bool _queueManuallyPaused;
     private bool _queuePausePending;
+    // True until the durable queue, selected tab, editor selection, pause, and
+    // loop handoff have all been restored for the active workspace.
+    private bool _queueStateHydrationInProgress = true;
     private bool _bridgeStallShowing;
     private int    _queueDayCounter;      // per-day, per-workspace queue sequence number
     private string _queueCounterDate = ""; // local date string "yyyy-MM-dd" for _queueDayCounter
@@ -1114,6 +1117,7 @@ public partial class MainWindow : Window
                 UpdateFollowUpStrip();
             },
             setPromptIsDictated: isDictated => _promptHasVoiceInput = isDictated);
+        _conversationManager.BeginQueuedPromptsStateHydration();
         // Wire the near-top prepend trigger: when the user scrolls within 400 px of the
         // top of the coordinator transcript, TranscriptScrollController calls this to
         // load the next batch of older turns from the virtual window.
@@ -3575,6 +3579,22 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BeginQueueStateHydration()
+    {
+        _queueStateHydrationInProgress = true;
+        _conversationManager.BeginQueuedPromptsStateHydration();
+    }
+
+    private void CompleteQueueStateHydration()
+    {
+        _queueStateHydrationInProgress = false;
+        _conversationManager.CompleteQueuedPromptsStateHydration();
+        SyncQueuePanel();
+        SquadDashTrace.Write(
+            "Queue",
+            $"Queue hydration completed: count={_promptQueue.Count} paused={_queueManuallyPaused} held={IsRightmostQueueTabActive()} activeTabIndex={GetActiveQueueTabIndex()?.ToString() ?? "null"} loopQueued={_loopQueued}");
+    }
+
     private void SyncQueuePanel()
     {
         var swFull = Stopwatch.StartNew();
@@ -3747,8 +3767,11 @@ public partial class MainWindow : Window
         }
         // Save true when paused, false (not null) when resuming. Using null would cause the
         // merge logic in SaveDocsPanelState to preserve any stale "true" from a prior session.
-        _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? (bool?)true : false };
-        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        if (!_queueStateHydrationInProgress)
+        {
+            _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? (bool?)true : false };
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+        }
     }
 
     private void SyncPromptTextBoxSimBorder()
@@ -4320,7 +4343,7 @@ public partial class MainWindow : Window
         OnQueueTabClicked(tabIds[nextIndex]);
     }
 
-    private void OnQueueTabClicked(string? id)
+    private void OnQueueTabClicked(string? id, bool persistState = true)
     {
         if (_activeTabId == id) return;
 
@@ -4404,6 +4427,18 @@ public partial class MainWindow : Window
 
         if (wasRightmostHold && CanAutoDispatchPromptQueue("rightmost-tab-released"))
             _ = DrainQueueIfNeededAsync();
+        if (persistState)
+        {
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items,
+                _followUpAttachments,
+                queueRightmostHeld: IsRightmostQueueTabActive(),
+                loopQueuedToDequeue: _loopQueued,
+                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+                activeTabIndex: GetActiveQueueTabIndex(),
+                queueDayCounter: _queueDayCounter,
+                queueCounterDate: _queueCounterDate);
+        }
         SyncPromptTextBoxSimBorder();
     }
 
@@ -29930,6 +29965,7 @@ public partial class MainWindow : Window
         }
 
         _conversationManager.SaveWorkspaceInputState();
+        BeginQueueStateHydration();
 
         var openWsSw = Stopwatch.StartNew();
 
@@ -30179,6 +30215,9 @@ public partial class MainWindow : Window
                 restoredItem.IsLocked = entry.IsLocked;
                 restoredItem.DisplayLabel = entry.DisplayLabel;
                 restoredItem.ReadOnlyDisplayText = entry.ReadOnlyDisplayText;
+                restoredItem.CaretIndex = entry.CaretIndex;
+                restoredItem.SelectionStart = entry.SelectionStart;
+                restoredItem.SelectionLength = entry.SelectionLength;
                 if (entry.IsSimEntry)
                 {
                     restoredItem.IsSimEntry      = true;
@@ -30209,8 +30248,7 @@ public partial class MainWindow : Window
             if (savedActiveTabIndex.HasValue && savedActiveTabIndex.Value < _promptQueue.Items.Count)
             {
                 var restoredTabId = _promptQueue.Items[savedActiveTabIndex.Value].Id;
-                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(restoredTabId),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                OnQueueTabClicked(restoredTabId);
             }
 
             SquadDashTrace.Write("Queue", $"Restore(entries): count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={wasHeld} shiftHeld={_startupShiftHeld} items={DescribeQueueForTrace(_promptQueue.Items)}");
@@ -30218,8 +30256,7 @@ public partial class MainWindow : Window
             {
                 // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
                 // item's tab so the user must explicitly Send or switch away before it dispatches.
-                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                OnQueueTabClicked(_promptQueue.Items[0].Id);
                 // OnQueueTabClicked → SyncQueuePanel renders "Queue is draining (active tab pausing
                 // dispatch)". If the queue was ALSO manually paused at shutdown, re-apply the pause
                 // styling at a lower priority so it wins over the tab-derived label.
@@ -30279,8 +30316,7 @@ public partial class MainWindow : Window
             if (savedActiveTabIndex.HasValue && savedActiveTabIndex.Value < _promptQueue.Items.Count)
             {
                 var restoredTabId = _promptQueue.Items[savedActiveTabIndex.Value].Id;
-                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(restoredTabId),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                OnQueueTabClicked(restoredTabId);
             }
 
             SquadDashTrace.Write("Queue", $"Restore(legacy): count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={wasHeld} shiftHeld={_startupShiftHeld} items={DescribeQueueForTrace(_promptQueue.Items)}");
@@ -30288,8 +30324,7 @@ public partial class MainWindow : Window
             {
                 // Restore the rightmost-tab hold (or Shift-hold on startup): select the first
                 // item's tab so the user must explicitly Send or switch away before it dispatches.
-                _ = Dispatcher.InvokeAsync(() => OnQueueTabClicked(_promptQueue.Items[0].Id),
-                    System.Windows.Threading.DispatcherPriority.Background);
+                OnQueueTabClicked(_promptQueue.Items[0].Id);
                 // Re-apply manual pause label after tab-derived "Queue is draining" label fires.
                 if (savedQueuePaused)
                     _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
@@ -30356,6 +30391,10 @@ public partial class MainWindow : Window
             _pec.ActiveDraftSimEntry = (savedDraftSimResponse, delay);
             SquadDashTrace.Write("Queue", $"Restore: active-draft sim entry restored (delay={delay}s)");
         }
+
+        // All queue-owned startup state is now coherent. Publish one canonical
+        // snapshot before queued dispatcher work or loop/plan resume callbacks run.
+        CompleteQueueStateHydration();
 
         // Restore per-workspace loop settings (override global app settings).
         var savedState = _conversationManager.ConversationState;
@@ -39389,13 +39428,20 @@ public partial class MainWindow : Window
             // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
             // preventing a duplicate queue entry on the next launch.
             bool queueWasRightmostHeld = IsRightmostQueueTabActive();
+            int? queueActiveTabIndex = GetActiveQueueTabIndex();
             if (_activeTabId is not null)
-                OnQueueTabClicked(null);
-            // Re-apply the hold flag after OnQueueTabClicked: SyncQueuePanel() inside that
-            // call always writes queueRightmostHeld=false (because _activeTabId is now null),
-            // so we must re-persist the true value after the switch completes.
-            if (queueWasRightmostHeld)
-                _conversationManager.UpdateQueuedPromptsState(_promptQueue.Items, _followUpAttachments, queueRightmostHeld: true, activeDraftSimEntry: _pec.ActiveDraftSimEntry, activeTabIndex: GetActiveQueueTabIndex());
+                OnQueueTabClicked(null, persistState: false);
+            // Persist the pre-switch tab identity. OnQueueTabClicked(null) flushes the active
+            // item's live text/caret/selection into the queue item before this snapshot.
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items,
+                _followUpAttachments,
+                queueRightmostHeld: queueWasRightmostHeld,
+                loopQueuedToDequeue: _loopQueued,
+                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+                activeTabIndex: queueActiveTabIndex,
+                queueDayCounter: _queueDayCounter,
+                queueCounterDate: _queueCounterDate);
             SquadDashTrace.Write("Queue", $"Shutdown save: count={_promptQueue.Count} changedAt={QueueLastChangedForTrace()} wasHeld={queueWasRightmostHeld} restartPending={_restartPending} items={DescribeQueueForTrace(_promptQueue.Items)}");
             _conversationManager.CaptureWorkspaceInputState();
             CaptureWindowPlacement();
