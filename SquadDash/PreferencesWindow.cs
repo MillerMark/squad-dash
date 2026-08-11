@@ -245,9 +245,9 @@ internal sealed class PreferencesWindow : Window {
         _onWorkHoursSaved     = onWorkHoursSaved;
 
         Title = "Options";
-        Width = 640;
+        Width = 960;
         Height = 1000;
-        MinWidth = 540;
+        MinWidth = 810;
         MinHeight = 560;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.CanResize;
@@ -840,6 +840,7 @@ internal sealed class PreferencesWindow : Window {
         footer.Children.Add(_statusText);
 
         var footerSep = new Separator();
+        footerSep.SetResourceReference(Control.BackgroundProperty, "LineColor");
         DockPanel.SetDock(footerSep, Dock.Bottom);
         root.Children.Add(footerSep);
 
