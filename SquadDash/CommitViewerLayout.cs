@@ -14,4 +14,16 @@ internal static class CommitViewerLayout
             ? summary
             : $"{summary}\n\nWhy it is uncertain: {explanation.Trim()}";
     }
+
+    internal static bool IsCommitAttributionUncertain(string relation, string? explanation)
+    {
+        if (string.Equals(relation, PlanRecoveryCommitRelation.Unknown, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.IsNullOrWhiteSpace(explanation)) return false;
+
+        return explanation.Contains("predates baseline", StringComparison.OrdinalIgnoreCase) ||
+               explanation.Contains("predates the baseline", StringComparison.OrdinalIgnoreCase) ||
+               explanation.Contains("outside the captured baseline", StringComparison.OrdinalIgnoreCase) ||
+               explanation.Contains("outside the assessed baseline", StringComparison.OrdinalIgnoreCase);
+    }
 }

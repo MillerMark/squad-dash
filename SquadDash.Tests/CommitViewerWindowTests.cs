@@ -27,4 +27,19 @@ internal sealed class CommitViewerWindowTests
             Assert.That(text, Does.Contain("predates the captured task baseline"));
         });
     }
+
+    [TestCase(PlanRecoveryCommitRelation.Unknown, "Unclear.", true)]
+    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates the baseline.", true)]
+    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates baseline.", true)]
+    [TestCase(PlanRecoveryCommitRelation.Task, "Confirmed inside the captured range.", false)]
+    [TestCase(PlanRecoveryCommitRelation.Unrelated, "Confirmed recovery infrastructure.", false)]
+    public void AttributionUncertainty_IncludesTaskCommitsOutsideRecoveryBaseline(
+        string relation,
+        string explanation,
+        bool expected)
+    {
+        Assert.That(
+            CommitViewerLayout.IsCommitAttributionUncertain(relation, explanation),
+            Is.EqualTo(expected));
+    }
 }
