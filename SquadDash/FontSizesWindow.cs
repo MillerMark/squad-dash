@@ -82,9 +82,9 @@ internal sealed class FontSizesWindow : Window
         {
             Text = "Font Size Explorer",
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 0, 0),
-            FontSize = 13
+            Margin = new Thickness(10, 0, 0, 0)
         };
+        titleText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         titleBar.Children.Add(titleText);
 
@@ -145,9 +145,9 @@ internal sealed class FontSizesWindow : Window
         _refHeader = new TextBlock
         {
             Text = "Select a font size",
-            Margin = new Thickness(8, 6, 8, 4),
-            FontSize = 11
+            Margin = new Thickness(8, 6, 8, 4)
         };
+        _refHeader.SetResourceReference(FontSizeProperty, "FontSizeTiny");
         _refHeader.SetResourceReference(ForegroundProperty, "SubtleText");
         DockPanel.SetDock(_refHeader, Dock.Top);
         rightPanel.Children.Add(_refHeader);
@@ -190,9 +190,9 @@ internal sealed class FontSizesWindow : Window
             var none = new TextBlock
             {
                 Text = "(none found)",
-                FontStyle = FontStyles.Italic,
-                FontSize = 11
+                FontStyle = FontStyles.Italic
             };
+            none.SetResourceReference(FontSizeProperty, "FontSizeTiny");
             none.SetResourceReference(ForegroundProperty, "SubtleText");
             _fileList.Items.Add(none);
             return;
@@ -204,10 +204,10 @@ internal sealed class FontSizesWindow : Window
             var fileTb = new TextBlock
             {
                 Text = rel,
-                FontSize = 11,
                 Margin = new Thickness(4, 2, 4, 2),
                 ToolTip = fullPath
             };
+            fileTb.SetResourceReference(FontSizeProperty, "FontSizeTiny");
             fileTb.SetResourceReference(ForegroundProperty, "LabelText");
 
             var fileCm = new ContextMenu();
