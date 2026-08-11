@@ -14171,24 +14171,33 @@ public partial class MainWindow : Window
                     context.TaskId,
                     DecomposeGroupExecutionState.Complete,
                     updated);
+
+                // A newly-ready gate does not necessarily stop the plan. Reload the result of
+                // approval advancement before selecting the next boundary: a gate can block a
+                // later task while independent work remains executable now.
+                updated = _planStore.Load(durable.PlanId) ?? updated;
+                nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(updated);
             }
-            else if (nextTaskId is null &&
-                     nextValidation is null &&
-                     PlanValidationReadinessEvaluator.AllRequiredPassed(updated) &&
-                     ApprovalGateReadinessEvaluator.AllRequiredApproved(updated))
+
+            switch (AssessedPlanContinuationPolicy.Resolve(updated, nextTaskId, nextValidation))
             {
-                updated = PlanStoreUpdater.ApplyCompleted(updated);
-                if (!TryPublishPlanProgress(updated, out var completionError))
-                    throw new IOException(completionError ?? "The completed plan could not be saved.");
-                PublishPlanCompletionSummary(updated);
-                ScheduleDecomposeSystemEntry(PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(updated));
-            }
-            else
-            {
-                await StartBackloggedDecomposeGroupAsync(
-                    currentGroup with { HostRevision = durable.Revision },
-                    continuationTaskId: null,
-                    continuationPaths: []);
+                case AssessedPlanContinuationAction.Complete:
+                    updated = PlanStoreUpdater.ApplyCompleted(updated);
+                    if (!TryPublishPlanProgress(updated, out var completionError))
+                        throw new IOException(completionError ?? "The completed plan could not be saved.");
+                    PublishPlanCompletionSummary(updated);
+                    ScheduleDecomposeSystemEntry(PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(updated));
+                    break;
+
+                case AssessedPlanContinuationAction.StartExecution:
+                    await StartBackloggedDecomposeGroupAsync(
+                        currentGroup with { HostRevision = durable.Revision },
+                        continuationTaskId: null,
+                        continuationPaths: []);
+                    break;
+
+                case AssessedPlanContinuationAction.RemainStopped:
+                    break;
             }
         }
         catch (Exception ex)
