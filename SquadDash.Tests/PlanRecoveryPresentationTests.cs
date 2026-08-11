@@ -25,6 +25,20 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.That(PlanRecoveryPresentationBuilder.ShouldShowGenericReason(null), Is.True);
     }
 
+    [TestCase("5", "Task title", "Step 5")]
+    [TestCase(" 5 ", "Task title", "Step 5")]
+    [TestCase("Step 5", "Task title", "Step 5")]
+    [TestCase(null, "Add profile grid", "Add profile grid")]
+    public void FormatStepLabel_AddsStepPrefixToNumericLabels(
+        string? displayLabel,
+        string fallbackTitle,
+        string expected)
+    {
+        Assert.That(
+            PlanRecoveryPresentationBuilder.FormatStepLabel(displayLabel, fallbackTitle),
+            Is.EqualTo(expected));
+    }
+
     [Test]
     public void BuildStatusMessage_WithCommitEvidence_LeadsWithCommittedWorkState()
     {

@@ -13190,7 +13190,9 @@ public partial class MainWindow : Window
         {
             var durableTask = durablePlan!.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
-            var stepLabel = durableTask?.DisplayStepLabel ?? durableTask?.Title ?? taskTitle;
+            var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                durableTask?.DisplayStepLabel,
+                durableTask?.Title ?? taskTitle);
             var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 6);
             assessmentParagraph.Inlines.Add(new Run($"{stepLabel} appears implemented "));
             var evidenceLink = new Hyperlink(new Run("(evidence)"))

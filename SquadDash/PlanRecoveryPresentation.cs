@@ -19,6 +19,16 @@ internal static class PlanRecoveryPresentationBuilder
     internal static bool ShouldShowGenericReason(PlanRecoveryDecisionEvidence? assessment) =>
         assessment is null;
 
+    internal static string FormatStepLabel(string? displayStepLabel, string fallbackTitle)
+    {
+        var label = string.IsNullOrWhiteSpace(displayStepLabel)
+            ? fallbackTitle.Trim()
+            : displayStepLabel.Trim();
+        return int.TryParse(label, out var stepNumber)
+            ? $"Step {stepNumber}"
+            : label;
+    }
+
     internal static string BuildStatusMessage(bool hasCommittedWork) =>
         hasCommittedWork
             ? "Plan execution stopped unexpectedly after producing committed work. Recovery is available."
