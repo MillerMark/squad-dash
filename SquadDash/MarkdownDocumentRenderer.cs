@@ -612,6 +612,21 @@ internal sealed class MarkdownDocumentRenderer {
                 continue;
             }
 
+            if (TryReadPlanId(text, i, out var planIdEnd, out var planId)) {
+                flush(buffer.ToString());
+                buffer.Clear();
+                var planUrl = $"app://open-plan:{Uri.EscapeDataString(planId)}";
+                var planLink = new Hyperlink(new Run(planId)) {
+                    Tag = planUrl,
+                    ToolTip = $"Open plan visualizer: {planId}"
+                };
+                planLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                planLink.Click += (_, _) => _onLinkClicked(planUrl);
+                inlines.Add(planLink);
+                i = planIdEnd;
+                continue;
+            }
+
             var workspaceGitHubUrl = _getWorkspaceGitHubUrl();
             if (!string.IsNullOrWhiteSpace(workspaceGitHubUrl) &&
                 TryReadCommitHash(text, i, out var hashEnd, out var hash)) {
@@ -840,6 +855,91 @@ internal sealed class MarkdownDocumentRenderer {
             char.IsWhiteSpace(c) || c is ')' or ']' or '}' or '>' or '.' or ',' or '!' or '?' or ';' or ':' or '/' or '\\' or '\'' or '"' or '`';
     }
 
+    /// <summary>
+    /// Detects a plan ID starting at <paramref name="startIndex"/>.
+    /// Plan IDs follow the pattern: one or more uppercase word segments separated by hyphens,
+    /// followed by an 8-digit date (YYYYMMDD), optionally followed by a hyphen and a numeric
+    /// task suffix. Examples: <c>MODELPROF-20260810</c>, <c>ROUTEPROBE-20260728-001</c>.
+    /// </summary>
+    // internal for unit testing via InternalsVisibleTo
+    internal static bool TryReadPlanId(string text, int startIndex, out int nextIndex, out string planId) {
+        nextIndex = startIndex;
+        planId = string.Empty;
+
+        // Must be preceded by a word boundary (whitespace or opening punctuation)
+        if (startIndex > 0 && !IsPlanIdStartBoundary(text[startIndex - 1]))
+            return false;
+
+        // Must start with an uppercase ASCII letter
+        if (startIndex >= text.Length || text[startIndex] < 'A' || text[startIndex] > 'Z')
+            return false;
+
+        var end = startIndex;
+
+        // Consume one or more uppercase word segments, each separated by a single hyphen.
+        // A word segment is one or more uppercase letters or digits, starting with an uppercase letter.
+        while (true) {
+            // Consume uppercase letters and digits for one segment
+            var segStart = end;
+            while (end < text.Length && (text[end] is >= 'A' and <= 'Z' or >= '0' and <= '9'))
+                end++;
+
+            if (end == segStart) return false; // empty segment
+
+            // After the last uppercase segment, we expect a hyphen then an 8-digit date
+            if (end >= text.Length || text[end] != '-')
+                return false;
+
+            var hyphenPos = end;
+            end++; // skip '-'
+
+            // Check if the next 8 characters are digits (the date portion)
+            if (end + 8 <= text.Length && IsEightDigitDate(text, end)) {
+                end += 8;
+
+                // Optional task suffix: -NNN (hyphen followed by one or more digits)
+                if (end < text.Length && text[end] == '-') {
+                    var suffixStart = end + 1;
+                    var suffixEnd = suffixStart;
+                    while (suffixEnd < text.Length && text[suffixEnd] >= '0' && text[suffixEnd] <= '9')
+                        suffixEnd++;
+                    if (suffixEnd > suffixStart) {
+                        // Only consume the suffix if it ends at a word boundary
+                        if (suffixEnd >= text.Length || IsPlanIdEndBoundary(text[suffixEnd]))
+                            end = suffixEnd;
+                    }
+                }
+
+                // Must end at a word boundary
+                if (end < text.Length && !IsPlanIdEndBoundary(text[end]))
+                    return false;
+
+                planId = text[startIndex..end];
+                nextIndex = end;
+                return true;
+            }
+
+            // Not a date — this segment could be another uppercase prefix segment.
+            // Continue scanning from after the hyphen (segStart for next word is current end).
+            // But if the character after the hyphen is not an uppercase letter, it's not a plan ID.
+            if (end >= text.Length || text[end] < 'A' || text[end] > 'Z')
+                return false;
+        }
+
+        static bool IsEightDigitDate(string text, int pos) {
+            for (var k = pos; k < pos + 8; k++) {
+                if (text[k] < '0' || text[k] > '9') return false;
+            }
+            return true;
+        }
+
+        static bool IsPlanIdStartBoundary(char c) =>
+            char.IsWhiteSpace(c) || c is '(' or '[' or '{' or '<' or ':' or '/' or '\\' or '\'' or '"' or '`';
+
+        static bool IsPlanIdEndBoundary(char c) =>
+            char.IsWhiteSpace(c) || c is ')' or ']' or '}' or '>' or '.' or ',' or '!' or '?' or ';' or ':' or '/' or '\\' or '\'' or '"' or '`';
+    }
+
     /// <summary>
     /// Detects a bare http:// or https:// URL starting at <paramref name="startIndex"/>.
     /// URLs are terminated by whitespace or certain punctuation characters that commonly
