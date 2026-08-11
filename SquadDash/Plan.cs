@@ -185,7 +185,7 @@ internal sealed record PlanTask(
                                                 string? ParentTaskId      = null,
     [property: JsonPropertyName("commit")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? Commit            = null,
+                                                 string? Commit            = null,
     [property: JsonPropertyName("completedAt")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                 DateTimeOffset? CompletedAt = null,
@@ -234,7 +234,10 @@ internal sealed record PlanTask(
                                                 string? AmendmentGateId = null,
     [property: JsonPropertyName("displayStepLabel")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? DisplayStepLabel = null);
+                                                string? DisplayStepLabel = null,
+    [property: JsonPropertyName("commits")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanEvidenceCommit>? Commits = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -386,7 +389,15 @@ internal sealed record PlanInterruptionData(
                                                         string? PartialWorkEvidence = null,
     [property: JsonPropertyName("taskCommitEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        PlanTaskCommitEvidence? TaskCommitEvidence = null);
+                                                        PlanTaskCommitEvidence? TaskCommitEvidence = null,
+    [property: JsonPropertyName("recoveryAssessment")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        PlanRecoveryDecisionEvidence? RecoveryAssessment = null);
+
+internal sealed record PlanRecoveryDecisionEvidence(
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("commits")] IReadOnlyList<PlanEvidenceCommit> Commits,
+    [property: JsonPropertyName("assessedAt")] DateTimeOffset AssessedAt);
 
 /// <summary>
 /// Host-validated provenance for a commit produced by the interrupted task. This is deliberately
@@ -403,7 +414,15 @@ internal sealed record PlanTaskCommitEvidence(
     [property: JsonPropertyName("summary")]            string Summary,
     [property: JsonPropertyName("verification")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        DecomposeStepVerification? Verification = null);
+                                                        DecomposeStepVerification? Verification = null,
+    [property: JsonPropertyName("commits")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        IReadOnlyList<PlanEvidenceCommit>? Commits = null);
+
+internal sealed record PlanEvidenceCommit(
+    [property: JsonPropertyName("commit")] string Commit,
+    [property: JsonPropertyName("relation")] string Relation,
+    [property: JsonPropertyName("reason")] string Reason);
 
 // ─── Root aggregate ────────────────────────────────────────────────────────────
 

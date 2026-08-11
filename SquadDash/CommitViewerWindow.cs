@@ -10,18 +10,21 @@ namespace SquadDash;
 internal sealed class CommitViewerWindow : ChromedWindow
 {
     private readonly string _repositoryPath;
-    private readonly string _commitSha;
+    private readonly IReadOnlyList<CommitViewerEntry> _commits;
+    private string _commitSha;
+    private readonly ListBox _commitList = new();
     private readonly ListBox _fileList = new();
     private readonly StackPanel _diffPanel = new();
     private readonly TextBlock _heading = new();
     private readonly TextBlock _status = new();
 
-    private CommitViewerWindow(string repositoryPath, string commitSha)
+    private CommitViewerWindow(string repositoryPath, IReadOnlyList<CommitViewerEntry> commits)
         : base(captionHeight: CloseButtonHeight)
     {
         _repositoryPath = repositoryPath;
-        _commitSha = commitSha;
-        Title = $"Commit {ShortSha(commitSha)}";
+        _commits = commits;
+        _commitSha = commits[0].Sha;
+        Title = commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
         Width = 1120;
         Height = 760;
         MinWidth = 720;
@@ -55,15 +58,35 @@ internal sealed class CommitViewerWindow : ChromedWindow
         diffScroll.SetResourceReference(BackgroundProperty, "CardSurface");
         diffScroll.SetResourceReference(StyleProperty, "RosterScrollViewerStyle");
 
+        _commitList.BorderThickness = new Thickness(0);
+        _commitList.Padding = new Thickness(5);
+        _commitList.SetResourceReference(BackgroundProperty, "CardSurface");
+        _commitList.SelectionChanged += CommitList_SelectionChanged;
+
         var split = new Grid();
+        if (commits.Count > 1)
+        {
+            split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(245) });
+            split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
+        }
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(_fileList, 0);
+        var offset = commits.Count > 1 ? 2 : 0;
+        if (commits.Count > 1)
+        {
+            Grid.SetColumn(_commitList, 0);
+            var commitSplitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
+            commitSplitter.SetResourceReference(BackgroundProperty, "LineColor");
+            Grid.SetColumn(commitSplitter, 1);
+            split.Children.Add(_commitList);
+            split.Children.Add(commitSplitter);
+        }
+        Grid.SetColumn(_fileList, offset);
         var splitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
         splitter.SetResourceReference(BackgroundProperty, "LineColor");
-        Grid.SetColumn(splitter, 1);
-        Grid.SetColumn(diffScroll, 2);
+        Grid.SetColumn(splitter, offset + 1);
+        Grid.SetColumn(diffScroll, offset + 2);
         split.Children.Add(_fileList);
         split.Children.Add(splitter);
         split.Children.Add(diffScroll);
@@ -77,13 +100,44 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
     internal static async Task<CommitViewerWindow> CreateAsync(string repositoryPath, string commitSha)
     {
-        var window = new CommitViewerWindow(repositoryPath, commitSha);
+        var window = new CommitViewerWindow(repositoryPath, [new CommitViewerEntry(commitSha)]);
         await window.LoadCommitAsync();
         return window;
     }
 
+    internal static async Task<CommitViewerWindow> CreateAsync(
+        string repositoryPath, IReadOnlyList<CommitViewerEntry> commits)
+    {
+        if (commits.Count == 0) throw new ArgumentException("At least one commit is required.", nameof(commits));
+        var window = new CommitViewerWindow(repositoryPath, commits);
+        foreach (var commit in commits)
+        {
+            var label = new TextBlock { Text = $"{ShortSha(commit.Sha)}{(commit.IsUncertain ? "  ?" : string.Empty)}" };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "TableCellText");
+            window._commitList.Items.Add(new ListBoxItem
+            {
+                Content = label,
+                Tag = commit,
+                ToolTip = commit.IsUncertain
+                    ? commit.Explanation ?? "Included because it occurred in the captured evidence range, but SquadDash could not confidently attribute it to this step."
+                    : commit.Explanation
+            });
+        }
+        if (commits.Count > 1) window._commitList.SelectedIndex = 0;
+        else await window.LoadCommitAsync();
+        return window;
+    }
+
+    private async void CommitList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_commitList.SelectedItem is not ListBoxItem { Tag: CommitViewerEntry commit }) return;
+        _commitSha = commit.Sha;
+        await LoadCommitAsync();
+    }
+
     private async Task LoadCommitAsync()
     {
+        _fileList.Items.Clear();
         _heading.Text = $"Loading commit {ShortSha(_commitSha)}…";
         var description = await RunGitAsync("show", "-s", "--format=%s%n%an · %ad", "--date=local", _commitSha);
         var stats = await RunGitAsync("diff-tree", "--root", "--no-commit-id", "-r", "--numstat", _commitSha);
@@ -224,3 +278,5 @@ internal sealed class CommitViewerWindow : ChromedWindow
     private static string ShortSha(string sha) => sha.Length > 8 ? sha[..8] : sha;
     private sealed record CommitFile(string Path, int Added, int Removed, bool IsBinary);
 }
+
+internal sealed record CommitViewerEntry(string Sha, bool IsUncertain = false, string? Explanation = null);

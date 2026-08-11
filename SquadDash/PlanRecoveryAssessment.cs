@@ -44,7 +44,10 @@ internal sealed record PlanRecoveryAssessmentResponse(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("remainingWork")] IReadOnlyList<string>? RemainingWork,
     [property: JsonPropertyName("verification")] DecomposeStepVerification? Verification,
-    [property: JsonPropertyName("commits")] IReadOnlyList<PlanRecoveryCommitAssessment> Commits);
+    [property: JsonPropertyName("commits")] IReadOnlyList<PlanRecoveryCommitAssessment> Commits,
+    [property: JsonPropertyName("supportingCommits")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanRecoveryCommitAssessment>? SupportingCommits = null);
 
 internal static class PlanRecoveryAssessmentParser
 {
@@ -79,6 +82,13 @@ internal static class PlanRecoveryAssessmentParser
                     Relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty,
                 })
                 .ToArray(),
+            SupportingCommits = (response.SupportingCommits ?? [])
+                .Where(commit => commit is not null)
+                .Select(commit => commit with
+                {
+                    Relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty,
+                })
+                .ToArray(),
         };
         if (response is null ||
             string.IsNullOrWhiteSpace(response.RecoveryAssessmentId) ||
@@ -105,6 +115,14 @@ internal static class PlanRecoveryAssessmentParser
                 !PlanRecoveryCommitRelation.IsValid(commit.Relation)))
         {
             error = "Every assessed commit requires a commit, reason, and valid relation.";
+            return false;
+        }
+        if ((response.SupportingCommits ?? []).Any(commit =>
+                string.IsNullOrWhiteSpace(commit.Commit) ||
+                string.IsNullOrWhiteSpace(commit.Reason) ||
+                !PlanRecoveryCommitRelation.IsValid(commit.Relation)))
+        {
+            error = "Every supporting commit requires a commit, reason, and valid relation.";
             return false;
         }
 

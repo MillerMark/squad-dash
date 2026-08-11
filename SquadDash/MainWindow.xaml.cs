@@ -9934,7 +9934,8 @@ public partial class MainWindow : Window
                 _loopRoundExecutionIdentity?.PlanId,
                 _loopRoundExecutionIdentity?.TaskId,
                 taskId),
-            initializeRepository: InitializeRepositoryForPlanAsync)
+            initializeRepository: InitializeRepositoryForPlanAsync,
+            onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -11194,6 +11195,17 @@ public partial class MainWindow : Window
         ActiveLoopExecutionState activeExecution)
     {
         if (_CodeHealthGroupRunner is null || _planStore is null) return;
+        if (_currentWorkspace is not null && !string.IsNullOrWhiteSpace(result.Commit))
+        {
+            var commitOutput = await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                $"rev-list --reverse \"{activeExecution.PendingTaskVerification?.BaselineCommit ?? _decomposeIterationBaselineCommit}..{result.Commit}\"");
+            var commits = commitOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(commit => new PlanEvidenceCommit(
+                    commit, PlanRecoveryCommitRelation.Task, "Commit produced within this step's host-recorded baseline range."))
+                .ToArray();
+            if (commits.Length > 0) result = result with { Commits = commits };
+        }
         if (!_CodeHealthGroupRunner.ApplyStepResult(result, out var error))
         {
             StopAndOfferDecomposeRecovery(groupId, taskId, revision,
@@ -13169,6 +13181,52 @@ public partial class MainWindow : Window
             : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
+        if (assessmentEvidence is not null &&
+            string.Equals(durablePlan?.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
+        {
+            var durableTask = durablePlan!.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+            var stepLabel = durableTask?.DisplayStepLabel ?? durableTask?.Title ?? taskTitle;
+            var assessmentHeading = CreateTranscriptParagraph(bottomMargin: 4);
+            assessmentHeading.Inlines.Add(new Run("Assessment finished — plan still stopped")
+                { FontWeight = FontWeights.SemiBold });
+            blocks.Add(assessmentHeading);
+
+            var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            assessmentParagraph.Inlines.Add(new Run($"{stepLabel} appears implemented "));
+            var evidenceLink = new Hyperlink(new Run("(evidence)"))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Review the commits, changed files, and assessment evidence"),
+            };
+            evidenceLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            evidenceLink.Click += (_, _) => _ = OpenEvidenceViewerAsync(assessmentEvidence.Commits);
+            assessmentParagraph.Inlines.Add(evidenceLink);
+            assessmentParagraph.Inlines.Add(new Run(
+                ", but its commits could not be attributed confidently enough for automatic acceptance. " +
+                "SquadDash cannot confirm that the existing work completes this step. No repository changes were made."));
+            blocks.Add(assessmentParagraph);
+
+            AddAsyncAction(
+                $"Accept {stepLabel} as Complete",
+                $"Review and explicitly accept the existing evidence for {stepLabel}, mark only this step complete, and continue the plan.",
+                async () =>
+                {
+                    var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
+                    await AdoptVerifiedCommitRangeAsync(latest);
+                });
+            AddAsyncAction(
+                $"Continue Working on {stepLabel}",
+                $"Keep {stepLabel} incomplete and continue from the existing repository state.",
+                async () => await RetryDecomposeTaskAsync(plan, taskId));
+            AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
+                () => QueueDecomposeReplan(plan, taskId));
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
         if (durablePlan is not null && PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan))
         {
             var isReworkPause = PlanRecoveryResumePolicy.IsReworkPreflightPause(durablePlan);
@@ -13583,12 +13641,17 @@ public partial class MainWindow : Window
               "verification": { "status": "passed|failed|not_run", "command": "...", "summary": "..." },
               "commits": [
                 { "commit": "full SHA", "relation": "task|mixed|unrelated|unknown", "reason": "..." }
+              ],
+              "supportingCommits": [
+                { "commit": "full SHA", "relation": "task|mixed|unknown", "reason": "why older evidence is relevant" }
               ]
             }
 
             Complete requires passed verification and at least one task or mixed commit. Use inconclusive whenever the
             evidence cannot safely distinguish task work from unrelated work. Do not include recovery choices or execute
             a recovery action; SquadDash owns that decision.
+            When relevant implementation commits predate the captured baseline, include them chronologically in
+            supportingCommits and explain why each is included. Use relation unknown when attribution is uncertain.
             """;
     }
 
@@ -13768,6 +13831,14 @@ public partial class MainWindow : Window
             normalizedAssessments.Add(assessment with { Commit = resolved });
         }
         var normalizedResponse = response with { Commits = normalizedAssessments };
+        var normalizedSupporting = new List<PlanRecoveryCommitAssessment>();
+        foreach (var assessment in response.SupportingCommits ?? [])
+        {
+            var resolved = (await RunGitAsync(
+                workspace, $"rev-parse --verify \"{assessment.Commit}^{{commit}}\"")).Trim();
+            normalizedSupporting.Add(assessment with { Commit = resolved });
+        }
+        normalizedResponse = normalizedResponse with { SupportingCommits = normalizedSupporting };
         if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
                 normalizedResponse, actualCommits, out var attributed, out var coverageError))
         {
@@ -13807,9 +13878,33 @@ public partial class MainWindow : Window
                 await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
                 break;
             default:
-                KeepPlanStoppedAfterAssessment(
-                    context,
-                    "AI could not determine the task state safely: " + response.Summary);
+                var evidenceCommits = (normalizedResponse.SupportingCommits ?? [])
+                    .Concat(normalizedResponse.Commits)
+                    .GroupBy(commit => commit.Commit, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .Select(commit => new PlanEvidenceCommit(commit.Commit, commit.Relation, commit.Reason))
+                    .ToArray();
+                var terminalCommit = evidenceCommits.LastOrDefault()?.Commit ?? context.AssessedHead;
+                var decisionEvidence = new PlanRecoveryDecisionEvidence(
+                    response.Summary, evidenceCommits, DateTimeOffset.UtcNow);
+                var interruption = durable.InterruptionData ?? new PlanInterruptionData(
+                    response.Summary, "human-review-required", 0, context.TaskId);
+                var commitEvidence = new PlanTaskCommitEvidence(
+                    context.TaskId, null, context.BaselineCommit, terminalCommit,
+                    response.Summary, response.Verification, evidenceCommits);
+                var assessedPlan = durable with
+                {
+                    InterruptionData = interruption with
+                    {
+                        Reason = response.Summary,
+                        RecoveryState = "human-review-required",
+                        TaskCommitEvidence = commitEvidence,
+                        RecoveryAssessment = decisionEvidence,
+                    }
+                };
+                _planStore.Save(assessedPlan);
+                _broker.Publish(new PlanProgressEvent(assessedPlan.PlanId, assessedPlan));
+                KeepPlanStoppedAfterAssessment(context, response.Summary);
                 break;
         }
     }
@@ -50175,6 +50270,26 @@ public partial class MainWindow : Window
         }
 
         await OpenExternalLinkWithCommitCheckAsync($"{_workspaceGitHubUrl}/commit/{sha}");
+    }
+
+    private async Task OpenEvidenceViewerAsync(IReadOnlyList<PlanEvidenceCommit> commits)
+    {
+        var folderPath = _currentWorkspace?.FolderPath;
+        if (string.IsNullOrWhiteSpace(folderPath) || commits.Count == 0) return;
+        try
+        {
+            var entries = commits.Select(commit => new CommitViewerEntry(
+                commit.Commit,
+                commit.Relation is PlanRecoveryCommitRelation.Unknown or PlanRecoveryCommitRelation.Unrelated,
+                commit.Reason)).ToArray();
+            var viewer = await CommitViewerWindow.CreateAsync(folderPath, entries);
+            viewer.Owner = this;
+            viewer.Show();
+        }
+        catch (Exception ex)
+        {
+            UIErrorHelper.ShowWarning("Open Evidence", $"SquadDash could not load this evidence.\n\n{ex.Message}");
+        }
     }
 
     private async Task<bool> IsCommitOnRemoteAsync(string sha)

@@ -45,6 +45,30 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void InconclusiveAssessment_PreservesChronologicalSupportingCommits()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
+             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"dddddddd",
+             "classification":"inconclusive","summary":"Older work may implement the step.",
+             "remainingWork":[],"verification":null,
+             "commits":[{"commit":"dddddddd","relation":"unrelated","reason":"Recovery infrastructure."}],
+             "supportingCommits":[
+               {"commit":"bbbbbbbb","relation":"task","reason":"Introduced the feature."},
+               {"commit":"cccccccc","relation":"unknown","reason":"May refine the feature."}
+             ]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.SupportingCommits!.Select(commit => commit.Commit),
+                Is.EqualTo(new[] { "bbbbbbbb", "cccccccc" }));
+            Assert.That(response.SupportingCommits![1].Relation, Is.EqualTo(PlanRecoveryCommitRelation.Unknown));
+        });
+    }
+
+    [Test]
     public void MarkerlessAssessment_NormalizesNullCollectionsAndClassificationCasing()
     {
         var text = """

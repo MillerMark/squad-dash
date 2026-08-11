@@ -1808,6 +1808,7 @@ internal static class PlanStoreUpdater
             return task with
             {
                 Commit = string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
+                Commits = result.Commits ?? task.Commits,
                 CompletedAt = result.Status == "complete"
                     ? task.CompletedAt ?? completedAt
                     : task.CompletedAt,

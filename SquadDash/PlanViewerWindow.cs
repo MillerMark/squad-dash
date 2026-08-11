@@ -43,6 +43,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
+    private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
@@ -85,7 +86,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<string>? onOpenCommit = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
-        Func<Task<bool>>? initializeRepository = null)
+        Func<Task<bool>>? initializeRepository = null,
+        Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -115,6 +117,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
+        _onOpenCommits = onOpenCommits;
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
 
@@ -1717,6 +1720,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             if (durableTask?.Commit is { } commitSha && commitSha.Length > 0)
             {
+                var evidenceCommits = durableTask.Commits is { Count: > 0 }
+                    ? durableTask.Commits
+                    : [new PlanEvidenceCommit(commitSha, PlanRecoveryCommitRelation.Task, "Accepted terminal commit for this step.")];
+                var hasMultipleCommits = evidenceCommits.Count > 1;
                 var shortSha = commitSha.Length >= 7 ? commitSha[..7] : commitSha;
                 var commitBlock = new TextBlock
                 {
@@ -1726,21 +1733,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                var commitLink = new Hyperlink(new Run(shortSha))
+                var canOpen = hasMultipleCommits ? _onOpenCommits is not null : _onOpenCommit is not null;
+                var commitLink = new Hyperlink(new Run(hasMultipleCommits ? $"{evidenceCommits.Count} commits" : shortSha))
                 {
-                    Cursor = _onOpenCommit is null ? Cursors.Arrow : Cursors.Hand,
-                    IsEnabled = _onOpenCommit is not null,
-                    ToolTip = _onOpenCommit is null
+                    Cursor = canOpen ? Cursors.Hand : Cursors.Arrow,
+                    IsEnabled = canOpen,
+                    ToolTip = !canOpen
                         ? null
-                        : ToolTipHelper.MakeThemedToolTip("Open this commit on GitHub"),
+                        : ToolTipHelper.MakeThemedToolTip(hasMultipleCommits ? "Review commits and changed files" : "Open this commit"),
                 };
                 commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                if (_onOpenCommit is not null)
+                if (hasMultipleCommits && _onOpenCommits is not null)
+                {
+                    var capturedCommits = evidenceCommits;
+                    commitLink.Click += (_, _) => _onOpenCommits(capturedCommits);
+                }
+                else if (_onOpenCommit is not null)
                 {
                     var capturedCommitSha = commitSha;
                     commitLink.Click += (_, _) => _onOpenCommit(capturedCommitSha);
                 }
-                commitBlock.Inlines.Add(new Run("Commit "));
+                commitBlock.Inlines.Add(new Run(hasMultipleCommits ? string.Empty : "Commit "));
                 commitBlock.Inlines.Add(commitLink);
                 Grid.SetRow(commitBlock, 2);
                 content.Children.Add(commitBlock);
@@ -4092,11 +4105,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(summaryPara);
         }
 
-        // 7. Commit
+        // 7. Commit evidence
         if (!string.IsNullOrWhiteSpace(task.Commit))
         {
-            AddSectionHeader("Commit");
-            var commitPara = new Paragraph(new Run(task.Commit) { FontFamily = new FontFamily("Consolas") });
+            var commits = task.Commits is { Count: > 0 }
+                ? task.Commits
+                : [new PlanEvidenceCommit(task.Commit, PlanRecoveryCommitRelation.Task, "Accepted terminal commit for this step.")];
+            AddSectionHeader(commits.Count > 1 ? "Commits" : "Commit");
+            var label = commits.Count > 1 ? $"{commits.Count} commits" : task.Commit;
+            var commitPara = new Paragraph();
+            var commitLink = new Hyperlink(new Run(label) { FontFamily = new FontFamily("Consolas") })
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(commits.Count > 1 ? "Review commits and changed files" : "Open this commit"),
+            };
+            commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            if (commits.Count > 1 && _onOpenCommits is not null)
+                commitLink.Click += (_, _) => _onOpenCommits(commits);
+            else if (_onOpenCommit is not null)
+                commitLink.Click += (_, _) => _onOpenCommit(task.Commit);
+            commitPara.Inlines.Add(commitLink);
             commitPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
             commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             commitPara.Margin = new Thickness(0, 0, 0, 12);
