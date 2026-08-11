@@ -166,6 +166,23 @@ internal sealed class ModelProfileStoreTests {
     }
 
     [Test]
+    public void AgentOverrides_RoundTripAndClear() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var profileStore = new ModelProfileStore(store);
+
+        profileStore.SaveAgentOverride("agent-alpha", "profile-a");
+
+        var loaded = profileStore.GetAgentOverrides();
+        Assert.That(loaded["agent-alpha"], Is.EqualTo("profile-a"));
+
+        profileStore.ClearAgentOverride("agent-alpha");
+        var cleared = profileStore.GetAgentOverrides();
+        Assert.That(cleared.ContainsKey("agent-alpha"), Is.False);
+    }
+
+    [Test]
     public void LegacyMigration_AnthropicProvider_ProducesAnthropicProfile() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");

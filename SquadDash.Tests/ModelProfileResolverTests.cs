@@ -116,6 +116,23 @@ internal sealed class ModelProfileResolverTests {
     }
 
     [Test]
+    public void ResolveWithReason_ReturnsOverrideMetadata() {
+        var overrides = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase) {
+            ["agent-123"] = "prof-b"
+        };
+
+        var result = ModelProfileResolver.ResolveWithReason(AllProfiles, null, "agent-123", null, overrides);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Profile, Is.Not.Null);
+            Assert.That(result.Profile!.Id, Is.EqualTo("prof-b"));
+            Assert.That(result.Reason, Is.EqualTo(ModelProfileResolutionReason.Override));
+            Assert.That(result.ExplicitOverrideProfileId, Is.EqualTo("prof-b"));
+            Assert.That(result.ExplicitOverrideProfile, Is.Not.Null);
+        });
+    }
+
+    [Test]
     public void CategoryLookup_IsCaseInsensitive() {
         var assignments = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase) {
             ["COORDINATOR"] = "prof-b"

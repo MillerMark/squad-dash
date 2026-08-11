@@ -4,6 +4,19 @@ using System.Linq;
 
 namespace SquadDash;
 
+internal enum ModelProfileResolutionReason {
+    Override,
+    CategoryAssignment,
+    Default,
+    Unavailable
+}
+
+internal sealed record ModelProfileResolutionResult(
+    ModelProfile? Profile,
+    ModelProfileResolutionReason Reason,
+    string? ExplicitOverrideProfileId,
+    ModelProfile? ExplicitOverrideProfile);
+
 /// <summary>
 /// Pure resolver that determines the effective <see cref="ModelProfile"/> for an agent context
 /// using deterministic precedence: per-agent override → category assignment → default profile.
@@ -22,14 +35,34 @@ internal static class ModelProfileResolver {
         string? perAgentOverrideProfileId,
         string? agentCategory) {
 
+        return ResolveWithReason(profiles, categoryAssignments, perAgentOverrideProfileId, agentCategory).Profile;
+    }
+
+    internal static ModelProfile? Resolve(
+        IReadOnlyList<ModelProfile>? profiles,
+        IReadOnlyDictionary<string, string>? categoryAssignments,
+        string? agentHandle,
+        string? agentCategory,
+        IReadOnlyDictionary<string, string>? agentOverrides) {
+
+        return ResolveWithReason(profiles, categoryAssignments, agentHandle, agentCategory, agentOverrides).Profile;
+    }
+
+    internal static ModelProfileResolutionResult ResolveWithReason(
+        IReadOnlyList<ModelProfile>? profiles,
+        IReadOnlyDictionary<string, string>? categoryAssignments,
+        string? perAgentOverrideProfileId,
+        string? agentCategory) {
+
         if (profiles is null || profiles.Count == 0)
-            return null;
+            return new ModelProfileResolutionResult(null, ModelProfileResolutionReason.Unavailable, null, null);
 
         // 1. Per-agent override
+        ModelProfile? overrideProfile = null;
         if (!string.IsNullOrEmpty(perAgentOverrideProfileId)) {
-            var overrideProfile = FindById(profiles, perAgentOverrideProfileId);
+            overrideProfile = FindById(profiles, perAgentOverrideProfileId);
             if (overrideProfile is not null)
-                return overrideProfile;
+                return new ModelProfileResolutionResult(overrideProfile, ModelProfileResolutionReason.Override, perAgentOverrideProfileId, overrideProfile);
         }
 
         // 2. Category assignment
@@ -38,14 +71,52 @@ internal static class ModelProfileResolver {
                 if (string.Equals(kvp.Key, agentCategory, StringComparison.OrdinalIgnoreCase)) {
                     var categoryProfile = FindById(profiles, kvp.Value);
                     if (categoryProfile is not null)
-                        return categoryProfile;
+                        return new ModelProfileResolutionResult(categoryProfile, ModelProfileResolutionReason.CategoryAssignment, perAgentOverrideProfileId, overrideProfile);
                     break;
                 }
             }
         }
 
         // 3. Default profile
-        return profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0];
+        return new ModelProfileResolutionResult(profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0], ModelProfileResolutionReason.Default, perAgentOverrideProfileId, overrideProfile);
+    }
+
+    internal static ModelProfileResolutionResult ResolveWithReason(
+        IReadOnlyList<ModelProfile>? profiles,
+        IReadOnlyDictionary<string, string>? categoryAssignments,
+        string? agentHandle,
+        string? agentCategory,
+        IReadOnlyDictionary<string, string>? agentOverrides) {
+
+        if (profiles is null || profiles.Count == 0)
+            return new ModelProfileResolutionResult(null, ModelProfileResolutionReason.Unavailable, null, null);
+
+        string? overrideProfileId = null;
+        ModelProfile? overrideProfile = null;
+        if (!string.IsNullOrWhiteSpace(agentHandle) && agentOverrides is not null) {
+            foreach (var kvp in agentOverrides) {
+                if (string.Equals(kvp.Key, agentHandle, StringComparison.OrdinalIgnoreCase)) {
+                    overrideProfileId = kvp.Value;
+                    overrideProfile = FindById(profiles, kvp.Value);
+                    if (overrideProfile is not null)
+                        return new ModelProfileResolutionResult(overrideProfile, ModelProfileResolutionReason.Override, overrideProfileId, overrideProfile);
+                    break;
+                }
+            }
+        }
+
+        if (!string.IsNullOrEmpty(agentCategory) && categoryAssignments is not null) {
+            foreach (var kvp in categoryAssignments) {
+                if (string.Equals(kvp.Key, agentCategory, StringComparison.OrdinalIgnoreCase)) {
+                    var categoryProfile = FindById(profiles, kvp.Value);
+                    if (categoryProfile is not null)
+                        return new ModelProfileResolutionResult(categoryProfile, ModelProfileResolutionReason.CategoryAssignment, overrideProfileId, overrideProfile);
+                    break;
+                }
+            }
+        }
+
+        return new ModelProfileResolutionResult(profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0], ModelProfileResolutionReason.Default, overrideProfileId, overrideProfile);
     }
 
     private static ModelProfile? FindById(IReadOnlyList<ModelProfile> profiles, string id) {

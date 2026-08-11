@@ -101,6 +101,22 @@ internal sealed class ModelProfileStore {
     }
 
     /// <summary>
+    /// Returns the current explicit per-agent profile overrides.
+    /// </summary>
+    internal IReadOnlyDictionary<string, string> GetAgentOverrides() {
+        var snapshot = _settingsStore.Load();
+        return snapshot.AgentModelOverrides ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal void SaveAgentOverride(string agentHandle, string profileId) {
+        _settingsStore.SaveAgentOverride(agentHandle, profileId);
+    }
+
+    internal void ClearAgentOverride(string agentHandle) {
+        _settingsStore.ClearAgentOverride(agentHandle);
+    }
+
+    /// <summary>
     /// Builds a single default <see cref="ModelProfile"/> from legacy single-provider fields.
     /// </summary>
     internal static IReadOnlyList<ModelProfile> MigrateLegacyProfile(ApplicationSettingsSnapshot snapshot) {

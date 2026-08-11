@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,7 +8,7 @@ using System.Windows.Media.Imaging;
 namespace SquadDash;
 
 internal sealed class AgentInfoWindow : ChromedWindow {
-    private AgentInfoWindow(AgentStatusCard card, string? workspaceFolderPath, string agentImageAssetsDirectory)
+    private AgentInfoWindow(AgentStatusCard card, string? workspaceFolderPath, string agentImageAssetsDirectory, ModelProfileStore profileStore)
         : base(captionHeight: 28, resizeMode: ResizeMode.NoResize) {
         Title = card.Name;
         SizeToContent = SizeToContent.WidthAndHeight;
@@ -70,6 +71,40 @@ internal sealed class AgentInfoWindow : ChromedWindow {
             root.Children.Add(rolePill);
         }
 
+        var profileInfo = BuildProfileInfo(profileStore, card);
+        if (profileInfo is not null) {
+            var profileBorder = new Border {
+                Margin = new Thickness(24, 0, 24, 16),
+                Padding = new Thickness(14, 12, 14, 12),
+                CornerRadius = new CornerRadius(10),
+                BorderThickness = new Thickness(1)
+            };
+            profileBorder.SetResourceReference(Border.BackgroundProperty, "WindowSurface");
+            profileBorder.SetResourceReference(Border.BorderBrushProperty, "CardBorder");
+
+            var profileStack = new StackPanel();
+            var profileTitle = new TextBlock {
+                Text = "Model profile",
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            profileTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            profileStack.Children.Add(profileTitle);
+
+            foreach (var line in profileInfo) {
+                var block = new TextBlock {
+                    Text = line,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 2)
+                };
+                block.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                profileStack.Children.Add(block);
+            }
+
+            profileBorder.Child = profileStack;
+            root.Children.Add(profileBorder);
+        }
+
         // Bio
         var bioText = LoadBio(card, workspaceFolderPath);
         if (!string.IsNullOrWhiteSpace(bioText)) {
@@ -91,10 +126,59 @@ internal sealed class AgentInfoWindow : ChromedWindow {
 
     }
 
-    public static void Show(Window owner, AgentStatusCard card, string? workspaceFolderPath, string agentImageAssetsDirectory) {
-        var window = new AgentInfoWindow(card, workspaceFolderPath, agentImageAssetsDirectory) { Owner = owner };
+    public static void Show(Window owner, AgentStatusCard card, string? workspaceFolderPath, string agentImageAssetsDirectory, ModelProfileStore profileStore) {
+        var window = new AgentInfoWindow(card, workspaceFolderPath, agentImageAssetsDirectory, profileStore) { Owner = owner };
         window.Show();
     }
+
+    private static IReadOnlyList<string>? BuildProfileInfo(ModelProfileStore profileStore, AgentStatusCard card) {
+        var profiles = profileStore.GetProfiles();
+        if (profiles.Count == 0)
+            return null;
+
+        var assignments = profileStore.GetCategoryAssignments();
+        var overrides = profileStore.GetAgentOverrides();
+        var handle = NormalizeHandle(card.AccentStorageKey) ?? NormalizeHandle(card.Name);
+        var category = ResolveCategory(handle);
+        var resolution = ModelProfileResolver.ResolveWithReason(profiles, assignments, handle, category, overrides);
+
+        var lines = new List<string> {
+            $"Effective profile: {resolution.Profile?.Alias ?? "Unavailable"}",
+            $"Reason: {GetReasonLabel(resolution.Reason)}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(resolution.ExplicitOverrideProfileId))
+            lines.Add($"Override: {resolution.ExplicitOverrideProfile?.Alias ?? resolution.ExplicitOverrideProfileId}");
+
+        return lines;
+    }
+
+    private static string? ResolveCategory(string? handle) {
+        if (string.IsNullOrWhiteSpace(handle))
+            return null;
+
+        return handle.Trim().ToLowerInvariant() switch {
+            "rai" => ModelProfileCategory.RAI,
+            "scribe" => ModelProfileCategory.Scribe,
+            "ralph" => ModelProfileCategory.Ralph,
+            "fact-checker" => ModelProfileCategory.FactChecker,
+            _ => ModelProfileCategory.SpawnedNamedAgents
+        };
+    }
+
+    private static string? NormalizeHandle(string? value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim().TrimStart('@').ToLowerInvariant();
+    }
+
+    private static string GetReasonLabel(ModelProfileResolutionReason reason) => reason switch {
+        ModelProfileResolutionReason.Override => "Override",
+        ModelProfileResolutionReason.CategoryAssignment => "Category assignment",
+        ModelProfileResolutionReason.Default => "Default",
+        _ => "Unavailable"
+    };
 
     private static ImageSource? ResolveImage(AgentStatusCard card, string? workspaceFolderPath, string agentImageAssetsDirectory) {
         if (card.AgentImageSource is not null)

@@ -197,6 +197,7 @@ public partial class MainWindow : Window
     private Action<ShowMainTranscriptMessage>?     _onShowMainTranscript;
     private Action<HideMainTranscriptMessage>?     _onHideMainTranscript;
     private readonly ApplicationSettingsStore _settingsStore;
+    private readonly ModelProfileStore _modelProfileStore;
     private readonly SquadTeamRosterLoader _teamRosterLoader;
     private readonly SquadRoutingDocumentService _routingDocumentService;
     private readonly SquadInstallationStateService _installationStateService;
@@ -822,6 +823,7 @@ public partial class MainWindow : Window
     internal MainWindow(string? startupFolder = null, WorkspaceOwnershipLease? startupWorkspaceLease = null, IWorkspacePaths? workspacePaths = null, ScreenshotRefreshOptions? screenshotRefreshOptions = null, bool noWorkspaceOnStart = false, IServiceProvider? serviceProvider = null)
     {
         _settingsStore = serviceProvider?.GetRequiredService<ApplicationSettingsStore>() ?? new ApplicationSettingsStore();
+        _modelProfileStore = serviceProvider?.GetRequiredService<ModelProfileStore>() ?? new ModelProfileStore(_settingsStore);
         _teamRosterLoader = serviceProvider?.GetRequiredService<SquadTeamRosterLoader>() ?? new SquadTeamRosterLoader();
         _routingDocumentService = serviceProvider?.GetRequiredService<SquadRoutingDocumentService>() ?? new SquadRoutingDocumentService();
         _installationStateService = serviceProvider?.GetRequiredService<SquadInstallationStateService>() ?? new SquadInstallationStateService();
@@ -21520,7 +21522,7 @@ public partial class MainWindow : Window
         {
             if (sender is not MenuItem { Tag: AgentStatusCard agentCard })
                 return;
-            AgentInfoWindow.Show(this, agentCard, _currentWorkspace?.FolderPath, _workspacePaths.AgentImageAssetsDirectory);
+            AgentInfoWindow.Show(this, agentCard, _currentWorkspace?.FolderPath, _workspacePaths.AgentImageAssetsDirectory, _modelProfileStore);
         }
         catch (Exception ex)
         {
@@ -32551,13 +32553,31 @@ public partial class MainWindow : Window
         var titleBlock = new TextBlock
         {
             Text = initialBaseText,
-            ToolTip = BuildGpaTooltip(baseDisplayName),
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.None
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        titleBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(agent, thread, initialBaseText, null);
+        titleBlock.PreviewMouseRightButtonUp += (_, e) =>
+        {
+            try
+            {
+                var menu = CreateAgentModelOverrideContextMenu(agent, thread);
+                if (menu is null)
+                    return;
+
+                menu.PlacementTarget = titleBlock;
+                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                menu.IsOpen = true;
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException("SecondaryTranscript.ModelOverrideMenu", ex);
+            }
+        };
 
         var navUp = CreateSecondaryNavButton(up: true);
         var navDown = CreateSecondaryNavButton(up: false);
@@ -32928,6 +32948,110 @@ public partial class MainWindow : Window
             ? displayName.Replace("GPA", "General Purpose Agent", StringComparison.Ordinal)
             : null;
 
+    private ToolTip BuildSecondaryTranscriptInfoTooltip(
+        AgentStatusCard agent,
+        TranscriptThreadState thread,
+        string baseText,
+        string? relativeTime) =>
+        MakeThemedToolTip(BuildSecondaryTranscriptInfoTooltipText(agent, thread, baseText, relativeTime));
+
+    private string BuildSecondaryTranscriptInfoTooltipText(
+        AgentStatusCard agent,
+        TranscriptThreadState thread,
+        string baseText,
+        string? relativeTime)
+    {
+        var lines = new List<string>();
+        lines.Add(BuildGpaTooltip(baseText) ?? baseText);
+        if (!string.IsNullOrWhiteSpace(relativeTime))
+            lines.Add(relativeTime);
+
+        var handle = GetThreadModelOverrideHandle(thread, agent);
+        var category = GetThreadModelProfileCategory(thread, handle);
+        var resolution = ResolveThreadModelProfile(thread, handle, category);
+        lines.Add(string.Empty);
+        lines.Add($"Effective profile: {resolution.Profile?.Alias ?? "Unavailable"}");
+        lines.Add($"Reason: {GetModelProfileReasonLabel(resolution.Reason)}");
+        if (!string.IsNullOrWhiteSpace(resolution.ExplicitOverrideProfileId))
+        {
+            var overrideLabel = resolution.ExplicitOverrideProfile?.Alias ?? resolution.ExplicitOverrideProfileId;
+            lines.Add($"Override: {overrideLabel}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private ContextMenu? CreateAgentModelOverrideContextMenu(AgentStatusCard agent, TranscriptThreadState thread)
+    {
+        var handle = GetThreadModelOverrideHandle(thread, agent);
+        if (string.IsNullOrWhiteSpace(handle))
+            return null;
+
+        var menu = MakeMenu();
+        var item = MakeItem("Model override...");
+        item.Click += (_, _) => OpenAgentModelOverrideDialog(thread, handle);
+        menu.Items.Add(item);
+        return menu;
+    }
+
+    private void OpenAgentModelOverrideDialog(TranscriptThreadState thread, string agentHandle)
+    {
+        var dialog = new ModelOverrideDialog(_modelProfileStore, agentHandle)
+        {
+            Owner = this
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            RefreshBridgeNamedAgentRoutes();
+            RefreshSecondaryTranscriptTitle(thread);
+        }
+    }
+
+    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard agent)
+    {
+        return NormalizeQuickReplyAgentHandle(thread.RequestedAgentHandle)
+            ?? NormalizeQuickReplyAgentHandle(thread.AgentCardKey)
+            ?? NormalizeQuickReplyAgentHandle(agent.AccentStorageKey)
+            ?? NormalizeQuickReplyAgentHandle(thread.AgentName);
+    }
+
+    private static string? GetThreadModelProfileCategory(TranscriptThreadState thread, string? handle)
+    {
+        if (!string.IsNullOrWhiteSpace(handle))
+            return ResolveNamedAgentProfileCategory(handle);
+
+        if (!string.IsNullOrWhiteSpace(thread.AgentType))
+            return ResolveNamedAgentProfileCategory(thread.AgentType);
+
+        return null;
+    }
+
+    private ModelProfileResolutionResult ResolveThreadModelProfile(
+        TranscriptThreadState thread,
+        string? handle,
+        string? category)
+    {
+        var profiles = _modelProfileStore.GetProfiles();
+        var assignments = _modelProfileStore.GetCategoryAssignments();
+        var overrides = _modelProfileStore.GetAgentOverrides();
+
+        return ModelProfileResolver.ResolveWithReason(
+            profiles,
+            assignments,
+            handle,
+            category,
+            overrides);
+    }
+
+    private static string GetModelProfileReasonLabel(ModelProfileResolutionReason reason) => reason switch
+    {
+        ModelProfileResolutionReason.Override => "Override",
+        ModelProfileResolutionReason.CategoryAssignment => "Category assignment",
+        ModelProfileResolutionReason.Default => "Default",
+        _ => "Unavailable"
+    };
+
     private (string BaseText, string RelativeTime) BuildSecondaryTranscriptTitleParts(AgentStatusCard agent, TranscriptThreadState thread)
     {
         var displayName = AbbreviateAgentName(
@@ -32971,9 +33095,7 @@ public partial class MainWindow : Window
             ? $"{baseText} - {relativeTime}"
             : baseText;
 
-        var tooltipText = !string.IsNullOrWhiteSpace(relativeTime)
-            ? $"{baseText}\n{relativeTime}"
-            : baseText;
+        var tooltipText = BuildSecondaryTranscriptInfoTooltipText(entry.Agent, entry.Thread, baseText, relativeTime);
 
         var availableWidth = entry.HeaderDock.ActualWidth
             - entry.RightStack.ActualWidth
@@ -38004,9 +38126,9 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<SquadSdkNamedAgentRoute> BuildNamedAgentRoutes()
     {
-        var profileStore = new ModelProfileStore(_settingsStore);
-        var profiles = profileStore.GetProfiles();
-        var assignments = profileStore.GetCategoryAssignments();
+        var profiles = _modelProfileStore.GetProfiles();
+        var assignments = _modelProfileStore.GetCategoryAssignments();
+        var overrides = _modelProfileStore.GetAgentOverrides();
         var routes = new List<SquadSdkNamedAgentRoute>();
 
         foreach (var card in _agents.Where(candidate => !candidate.IsLeadAgent && !candidate.IsDynamicAgent))
@@ -38017,12 +38139,12 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            assignments.TryGetValue($"agent:{handle}", out var perAgentProfileId);
             var profile = ModelProfileResolver.Resolve(
                 profiles,
                 assignments,
-                perAgentProfileId,
-                ResolveNamedAgentProfileCategory(handle));
+                handle,
+                ResolveNamedAgentProfileCategory(handle),
+                overrides);
             string? charterContent = null;
             if (!string.IsNullOrWhiteSpace(card.CharterPath) && File.Exists(card.CharterPath)) {
                 try {

@@ -935,6 +935,46 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveAgentOverride(string agentHandle, string profileId) {
+        if (string.IsNullOrWhiteSpace(agentHandle))
+            throw new ArgumentException("Agent handle cannot be empty.", nameof(agentHandle));
+        if (string.IsNullOrWhiteSpace(profileId))
+            throw new ArgumentException("Profile ID cannot be empty.", nameof(profileId));
+
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var overrides = current.AgentModelOverrides is null
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(current.AgentModelOverrides, StringComparer.OrdinalIgnoreCase);
+        overrides[agentHandle.Trim()] = profileId.Trim();
+
+        var updated = current with {
+            AgentModelOverrides = overrides
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
+    public ApplicationSettingsSnapshot ClearAgentOverride(string agentHandle) {
+        if (string.IsNullOrWhiteSpace(agentHandle))
+            throw new ArgumentException("Agent handle cannot be empty.", nameof(agentHandle));
+
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        if (current.AgentModelOverrides is null || current.AgentModelOverrides.Count == 0)
+            return current;
+
+        var overrides = new Dictionary<string, string>(current.AgentModelOverrides, StringComparer.OrdinalIgnoreCase);
+        if (!overrides.Remove(agentHandle.Trim()))
+            return current;
+
+        var updated = current with {
+            AgentModelOverrides = overrides.Count == 0 ? null : overrides
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
@@ -1404,6 +1444,11 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Categories not present in this dictionary fall back to the default profile.
     /// </summary>
     public IReadOnlyDictionary<string, string>? CategoryAssignments { get; init; }
+
+    /// <summary>
+    /// Maps agent handles to explicit profile IDs. Takes precedence over category assignments.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? AgentModelOverrides { get; init; }
 
     /// <summary>
     /// Ordered list of regex find/replace rules applied to every voice phrase
@@ -1885,6 +1930,9 @@ internal sealed record ApplicationSettingsSnapshot(
             ByokOfflineMode = ByokOfflineMode,
             ModelProfiles = ModelProfiles,
             CategoryAssignments = CategoryAssignments,
+            AgentModelOverrides = AgentModelOverrides is null
+                ? null
+                : new Dictionary<string, string>(AgentModelOverrides, StringComparer.OrdinalIgnoreCase),
             LoopMode = LoopMode,
             LoopContinuousContext = LoopContinuousContext,
             LoopActiveOnExit = LoopActiveOnExit,
