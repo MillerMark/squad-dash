@@ -389,20 +389,20 @@ internal sealed class PreferencesWindow : Window {
             Name = "SpeechProvider_Azure",
             Content = "Azure Cognitive Services",
             GroupName = "SpeechProvider",
-            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
             Margin = new Thickness(0, 0, 0, 6),
             IsChecked = !isOpenAi
         };
+        _azureSpeechRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _azureSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _openAiSpeechRadio = new RadioButton {
             Name = "SpeechProvider_OpenAiWhisper",
             Content = "OpenAI Whisper",
             GroupName = "SpeechProvider",
-            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
             Margin = new Thickness(0, 0, 0, 6),
             IsChecked = isOpenAi
         };
+        _openAiSpeechRadio.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _openAiSpeechRadio.SetResourceReference(Control.ForegroundProperty, "LabelText");
 
         _pttAutoSendRadio = new RadioButton {
@@ -796,7 +796,8 @@ internal sealed class PreferencesWindow : Window {
         var titleLayout = new DockPanel();
         titleBar.Children.Add(titleLayout);
 
-        var closeBtn = new Button { Width = 46, Height = 32, FontSize = 13, Content = "✕" };
+        var closeBtn = new Button { Width = 46, Height = 32, Content = "✕" };
+        closeBtn.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         closeBtn.SetResourceReference(Button.StyleProperty, "CaptionCloseButtonStyle");
         closeBtn.Click += (_, _) => Close();
         WindowChrome.SetIsHitTestVisibleInChrome(closeBtn, true);
@@ -1033,7 +1034,7 @@ internal sealed class PreferencesWindow : Window {
         arrow.SetValue(TextBlock.TextProperty, "▼");
         arrow.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
         arrow.SetValue(TextBlock.MarginProperty, new Thickness(0, 0, 5, 0));
-        arrow.SetValue(TextBlock.FontSizeProperty, 10.0);
+        arrow.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeTiny");
         arrow.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
 
         var cp = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1041,7 +1042,7 @@ internal sealed class PreferencesWindow : Window {
         cp.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
         cp.SetValue(TextElement.FontWeightProperty, FontWeights.SemiBold);
         cp.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-        cp.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
+        cp.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
 
         headerRow.AppendChild(arrow);
         headerRow.AppendChild(cp);
@@ -1093,7 +1094,7 @@ internal sealed class PreferencesWindow : Window {
         var cp = new FrameworkElementFactory(typeof(ContentPresenter));
         cp.SetValue(ContentPresenter.ContentSourceProperty, "Header");
         cp.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-        cp.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
+        cp.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         // Foreground and FontWeight are inherited from the TreeViewItem — no local value here.
 
         border.AppendChild(cp);
@@ -3190,9 +3191,9 @@ internal sealed class PreferencesWindow : Window {
         var header = new TextBlock {
             Text = text,
             FontWeight = FontWeights.SemiBold,
-            FontSize = (double)Application.Current.Resources["FontSizeMedium"],
             Margin = new Thickness(0, topMargin, 0, 12)
         };
+        header.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         header.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
         parent.Children.Add(header);
     }
