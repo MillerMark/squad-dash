@@ -4,6 +4,28 @@ namespace SquadDash.Tests;
 internal sealed class PlanRecoveryPresentationTests
 {
     [Test]
+    public void AssessedHumanReview_SuppressesDuplicatedGenericReason()
+    {
+        var assessment = new PlanRecoveryDecisionEvidence(
+            "The evidence needs human review.",
+            [new PlanEvidenceCommit("abcdef12", PlanRecoveryCommitRelation.Unknown, "Attribution is uncertain.")],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessment), Is.False);
+            Assert.That(PlanRecoveryPresentationBuilder.AssessmentStoppedMessage,
+                Is.EqualTo("Assessment finished — plan still stopped."));
+        });
+    }
+
+    [Test]
+    public void OrdinaryInterruption_KeepsGenericReason()
+    {
+        Assert.That(PlanRecoveryPresentationBuilder.ShouldShowGenericReason(null), Is.True);
+    }
+
+    [Test]
     public void BuildStatusMessage_WithCommitEvidence_LeadsWithCommittedWorkState()
     {
         Assert.That(

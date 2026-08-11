@@ -14,6 +14,11 @@ internal sealed record PlanRecoveryPresentation(
 /// </summary>
 internal static class PlanRecoveryPresentationBuilder
 {
+    internal const string AssessmentStoppedMessage = "Assessment finished — plan still stopped.";
+
+    internal static bool ShouldShowGenericReason(PlanRecoveryDecisionEvidence? assessment) =>
+        assessment is null;
+
     internal static string BuildStatusMessage(bool hasCommittedWork) =>
         hasCommittedWork
             ? "Plan execution stopped unexpectedly after producing committed work. Recovery is available."

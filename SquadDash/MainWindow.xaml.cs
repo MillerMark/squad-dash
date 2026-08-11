@@ -13140,15 +13140,19 @@ public partial class MainWindow : Window
         CoordinatorThread.Document.Blocks.Add(recoverySurface);
         var blocks = recoverySurface.Blocks;
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
-        var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
-            durablePlan?.InterruptionData?.Reason);
-        var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-        var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
-        var reasonRun = new Run(compactReason) { FontWeight = FontWeights.SemiBold };
-        reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-        reasonParagraph.Inlines.Add(reasonLabel);
-        reasonParagraph.Inlines.Add(reasonRun);
-        blocks.Add(reasonParagraph);
+        var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
+        if (PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
+        {
+            var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
+                durablePlan?.InterruptionData?.Reason);
+            var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
+            var reasonRun = new Run(compactReason) { FontWeight = FontWeights.SemiBold };
+            reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            reasonParagraph.Inlines.Add(reasonLabel);
+            reasonParagraph.Inlines.Add(reasonRun);
+            blocks.Add(reasonParagraph);
+        }
 
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
         planLinkParagraph.Inlines.Add(new Run("Plan: "));
@@ -13181,18 +13185,12 @@ public partial class MainWindow : Window
             : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
 
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
         if (assessmentEvidence is not null &&
             string.Equals(durablePlan?.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
         {
             var durableTask = durablePlan!.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
             var stepLabel = durableTask?.DisplayStepLabel ?? durableTask?.Title ?? taskTitle;
-            var assessmentHeading = CreateTranscriptParagraph(bottomMargin: 4);
-            assessmentHeading.Inlines.Add(new Run("Assessment finished — plan still stopped")
-                { FontWeight = FontWeights.SemiBold });
-            blocks.Add(assessmentHeading);
-
             var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 6);
             assessmentParagraph.Inlines.Add(new Run($"{stepLabel} appears implemented "));
             var evidenceLink = new Hyperlink(new Run("(evidence)"))
@@ -13904,7 +13902,8 @@ public partial class MainWindow : Window
                 };
                 _planStore.Save(assessedPlan);
                 _broker.Publish(new PlanProgressEvent(assessedPlan.PlanId, assessedPlan));
-                KeepPlanStoppedAfterAssessment(context, response.Summary);
+                ShowSystemTranscriptEntry(PlanRecoveryPresentationBuilder.AssessmentStoppedMessage);
+                AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
                 break;
         }
     }
