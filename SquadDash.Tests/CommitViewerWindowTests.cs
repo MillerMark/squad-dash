@@ -15,25 +15,26 @@ internal sealed class CommitViewerWindowTests
     }
 
     [Test]
-    public void UncertainCommitToolTip_ExplainsMeaningAndSpecificReason()
+    public void UncertainCommitToolTip_IsConciseAndDoesNotRepeatCommitDetails()
     {
         var text = CommitViewerLayout.BuildUncertainCommitToolTip(
             "The commit predates the captured task baseline.");
 
         Assert.Multiple(() =>
         {
-            Assert.That(text, Does.Contain("could not confirm that it belongs to this step"));
-            Assert.That(text, Does.Contain("Why it is uncertain"));
-            Assert.That(text, Does.Contain("predates the captured task baseline"));
+            Assert.That(text, Is.EqualTo(
+                "SquadDash included this commit as evidence, but could not confirm that it belongs to this step."));
+            Assert.That(text, Does.Not.Contain("Why it is uncertain"));
+            Assert.That(text, Does.Not.Contain("predates"));
         });
     }
 
     [TestCase(PlanRecoveryCommitRelation.Unknown, "Unclear.", true)]
-    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates the baseline.", true)]
-    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates baseline.", true)]
+    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates the baseline.", false)]
+    [TestCase(PlanRecoveryCommitRelation.Task, "This task commit predates baseline.", false)]
     [TestCase(PlanRecoveryCommitRelation.Task, "Confirmed inside the captured range.", false)]
-    [TestCase(PlanRecoveryCommitRelation.Unrelated, "Confirmed recovery infrastructure.", false)]
-    public void AttributionUncertainty_IncludesTaskCommitsOutsideRecoveryBaseline(
+    [TestCase(PlanRecoveryCommitRelation.Unrelated, "Confirmed recovery infrastructure.", true)]
+    public void AttributionUncertainty_MarksCommitsNotConfirmedAsPartOfTheStep(
         string relation,
         string explanation,
         bool expected)
