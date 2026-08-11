@@ -2007,6 +2007,11 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
 
         e.Cancel = true;
+
+        // When the JS click handler's e.preventDefault() doesn't suppress navigation
+        // (e.g. in IE7 compatibility mode where addEventListener may not fire), the
+        // Navigating event is the fallback that opens the URL in the system browser.
+        HandleLinkNavigation(e.Uri.ToString());
     }
 
     private void NavigateTo(string filePath) {
