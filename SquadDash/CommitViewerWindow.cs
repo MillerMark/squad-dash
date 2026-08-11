@@ -153,10 +153,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
             {
                 Content = content,
                 Tag = commit,
-                ToolTip = commit.IsUncertain
-                    ? ToolTipHelper.MakeThemedToolTip(
-                        CommitViewerLayout.BuildUncertainCommitToolTip(commit.Explanation))
-                    : commit.Explanation
+                ToolTip = CommitViewerLayout.BuildCommitToolTip(commit.IsUncertain, commit.Explanation) is { } tip
+                    ? ToolTipHelper.MakeThemedToolTip(tip.ToString()!)
+                    : null
             });
         }
         if (commits.Count > 1) window._commitList.SelectedIndex = 0;

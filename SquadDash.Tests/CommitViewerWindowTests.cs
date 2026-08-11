@@ -43,4 +43,16 @@ internal sealed class CommitViewerWindowTests
             CommitViewerLayout.IsCommitAttributionUncertain(relation, explanation),
             Is.EqualTo(expected));
     }
+
+    [Test]
+    public void TaskCommitBeforeRecoveryBaseline_UsesPlainLanguageHint()
+    {
+        var hint = CommitViewerLayout.BuildCommitToolTip(
+            false,
+            "This is the primary implementation commit; it predates the baseline.");
+
+        Assert.That(hint, Is.EqualTo(
+            "This commit appears to implement this step, but an interruption prevented SquadDash " +
+            "from automatically confirming the step as complete."));
+    }
 }

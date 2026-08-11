@@ -15,4 +15,17 @@ internal static class CommitViewerLayout
         return string.Equals(relation, PlanRecoveryCommitRelation.Unknown, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(relation, PlanRecoveryCommitRelation.Unrelated, StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static string? BuildCommitToolTip(bool isUncertain, string? explanation)
+    {
+        if (isUncertain) return BuildUncertainCommitToolTip(explanation);
+        if (!string.IsNullOrWhiteSpace(explanation) &&
+            (explanation.Contains("predates baseline", StringComparison.OrdinalIgnoreCase) ||
+             explanation.Contains("predates the baseline", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "This commit appears to implement this step, but an interruption prevented SquadDash " +
+                   "from automatically confirming the step as complete.";
+        }
+        return explanation;
+    }
 }
