@@ -32,6 +32,21 @@ internal static class PlanRecoveryPresentationBuilder
     internal static bool ShouldPromptForCommitReview(bool explicitStepAcceptance) =>
         !explicitStepAcceptance;
 
+    internal static IReadOnlyList<PlanEvidenceCommit> ResolveTaskEvidence(Plan plan, PlanTask task)
+    {
+        if (task.Commits is { Count: > 0 }) return task.Commits;
+        if (!string.IsNullOrWhiteSpace(task.Commit))
+            return [new PlanEvidenceCommit(
+                task.Commit, PlanRecoveryCommitRelation.Task, "Accepted terminal commit for this step.")];
+
+        var interruption = plan.InterruptionData;
+        if (string.Equals(interruption?.InterruptedTaskId, task.TaskId, StringComparison.Ordinal) &&
+            interruption?.RecoveryAssessment?.Commits is { Count: > 0 } recoveryCommits)
+            return recoveryCommits;
+
+        return [];
+    }
+
     internal static string BuildStatusMessage(bool hasCommittedWork) =>
         hasCommittedWork
             ? "Plan execution stopped unexpectedly after producing committed work. Recovery is available."

@@ -1789,12 +1789,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Grid.SetRow(nodeDescription, 1);
             content.Children.Add(nodeDescription);
 
-            if (durableTask?.Commit is { } commitSha && commitSha.Length > 0)
+            var taskEvidence = durableTask is null || durablePlan is null
+                ? Array.Empty<PlanEvidenceCommit>()
+                : PlanRecoveryPresentationBuilder.ResolveTaskEvidence(durablePlan, durableTask).ToArray();
+            if (taskEvidence.Length > 0)
             {
-                var evidenceCommits = durableTask.Commits is { Count: > 0 }
-                    ? durableTask.Commits
-                    : [new PlanEvidenceCommit(commitSha, PlanRecoveryCommitRelation.Task, "Accepted terminal commit for this step.")];
-                var hasMultipleCommits = evidenceCommits.Count > 1;
+                var evidenceCommits = taskEvidence;
+                var hasMultipleCommits = evidenceCommits.Length > 1;
+                var commitSha = evidenceCommits[^1].Commit;
                 var shortSha = commitSha.Length >= 7 ? commitSha[..7] : commitSha;
                 var commitBlock = new TextBlock
                 {
@@ -1805,7 +1807,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 var canOpen = hasMultipleCommits ? _onOpenCommits is not null : _onOpenCommit is not null;
-                var commitLink = new Hyperlink(new Run(hasMultipleCommits ? $"{evidenceCommits.Count} commits" : shortSha))
+                var commitLink = new Hyperlink(new Run(hasMultipleCommits ? $"{evidenceCommits.Length} commits" : shortSha))
                 {
                     Cursor = canOpen ? Cursors.Hand : Cursors.Arrow,
                     IsEnabled = canOpen,
@@ -4177,24 +4179,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         // 7. Commit evidence
-        if (!string.IsNullOrWhiteSpace(task.Commit))
+        var detailEvidence = _durablePlan is null
+            ? Array.Empty<PlanEvidenceCommit>()
+            : PlanRecoveryPresentationBuilder.ResolveTaskEvidence(_durablePlan, task).ToArray();
+        if (detailEvidence.Length > 0)
         {
-            var commits = task.Commits is { Count: > 0 }
-                ? task.Commits
-                : [new PlanEvidenceCommit(task.Commit, PlanRecoveryCommitRelation.Task, "Accepted terminal commit for this step.")];
-            AddSectionHeader(commits.Count > 1 ? "Commits" : "Commit");
-            var label = commits.Count > 1 ? $"{commits.Count} commits" : task.Commit;
+            var commits = detailEvidence;
+            AddSectionHeader(commits.Length > 1 ? "Commits" : "Commit");
+            var label = commits.Length > 1 ? $"{commits.Length} commits" : commits[0].Commit;
             var commitPara = new Paragraph();
             var commitLink = new Hyperlink(new Run(label) { FontFamily = new FontFamily("Consolas") })
             {
                 Cursor = Cursors.Hand,
-                ToolTip = ToolTipHelper.MakeThemedToolTip(commits.Count > 1 ? "Review commits and changed files" : "Open this commit"),
+                ToolTip = ToolTipHelper.MakeThemedToolTip(commits.Length > 1 ? "Review commits and changed files" : "Open this commit"),
             };
             commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            if (commits.Count > 1 && _onOpenCommits is not null)
+            if (commits.Length > 1 && _onOpenCommits is not null)
                 commitLink.Click += (_, _) => _onOpenCommits(commits);
             else if (_onOpenCommit is not null)
-                commitLink.Click += (_, _) => _onOpenCommit(task.Commit);
+                commitLink.Click += (_, _) => _onOpenCommit(commits[0].Commit);
             commitPara.Inlines.Add(commitLink);
             commitPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
             commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");

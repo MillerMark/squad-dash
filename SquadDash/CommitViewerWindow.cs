@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace SquadDash;
@@ -25,12 +27,13 @@ internal sealed class CommitViewerWindow : ChromedWindow
         _commits = commits;
         _commitSha = commits[0].Sha;
         Title = commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
-        Width = 1120;
+        Width = commits.Count > 1 ? 1400 : 1120;
         Height = 760;
         MinWidth = 720;
         MinHeight = 440;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        if (commits.Count > 1) Loaded += (_, _) => SizeForActiveMonitor();
 
         _heading.FontSize = 18;
         _heading.FontWeight = FontWeights.SemiBold;
@@ -66,7 +69,7 @@ internal sealed class CommitViewerWindow : ChromedWindow
         var split = new Grid();
         if (commits.Count > 1)
         {
-            split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(245) });
+            split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
             split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
         }
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
@@ -110,13 +113,43 @@ internal sealed class CommitViewerWindow : ChromedWindow
     {
         if (commits.Count == 0) throw new ArgumentException("At least one commit is required.", nameof(commits));
         var window = new CommitViewerWindow(repositoryPath, commits);
+        var alignUncertainGlyphs = commits.Any(commit => commit.IsUncertain);
         foreach (var commit in commits)
         {
-            var label = new TextBlock { Text = $"{ShortSha(commit.Sha)}{(commit.IsUncertain ? "  ?" : string.Empty)}" };
+            var subject = (await window.RunGitAsync("show", "-s", "--format=%s", commit.Sha)).Trim();
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(subject) ? ShortSha(commit.Sha) : subject,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
             label.SetResourceReference(TextBlock.ForegroundProperty, "TableCellText");
+            FrameworkElement content = label;
+            if (alignUncertainGlyphs)
+            {
+                var row = new Grid { Margin = new Thickness(2, 5, 4, 5) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                if (commit.IsUncertain)
+                {
+                    var glyph = Application.Current?.TryFindResource("TaskAwaitingHumanApproval") as Viewbox;
+                    if (glyph is not null)
+                    {
+                        glyph.Width = 8;
+                        glyph.Height = 13;
+                        glyph.HorizontalAlignment = HorizontalAlignment.Left;
+                        glyph.VerticalAlignment = VerticalAlignment.Top;
+                        glyph.Margin = new Thickness(1, 2, 0, 0);
+                        row.Children.Add(glyph);
+                    }
+                }
+                Grid.SetColumn(label, 1);
+                row.Children.Add(label);
+                content = row;
+            }
             window._commitList.Items.Add(new ListBoxItem
             {
-                Content = label,
+                Content = content,
                 Tag = commit,
                 ToolTip = commit.IsUncertain
                     ? commit.Explanation ?? "Included because it occurred in the captured evidence range, but SquadDash could not confidently attribute it to this step."
@@ -126,6 +159,19 @@ internal sealed class CommitViewerWindow : ChromedWindow
         if (commits.Count > 1) window._commitList.SelectedIndex = 0;
         else await window.LoadCommitAsync();
         return window;
+    }
+
+    private void SizeForActiveMonitor()
+    {
+        var handle = new WindowInteropHelper(Owner ?? this).Handle;
+        var monitor = MonitorFromWindow(handle, MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info))
+        {
+            var dpi = VisualTreeHelper.GetDpi(this);
+            var workingWidth = (info.Work.Right - info.Work.Left) / dpi.DpiScaleX;
+            Width = CommitViewerLayout.CalculateWindowWidth(workingWidth, MinWidth);
+        }
     }
 
     private async void CommitList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -277,6 +323,27 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
     private static string ShortSha(string sha) => sha.Length > 8 ? sha[..8] : sha;
     private sealed record CommitFile(string Path, int Added, int Removed, bool IsBinary);
+
+    private const uint MonitorDefaultToNearest = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 }
 
 internal sealed record CommitViewerEntry(string Sha, bool IsUncertain = false, string? Explanation = null);

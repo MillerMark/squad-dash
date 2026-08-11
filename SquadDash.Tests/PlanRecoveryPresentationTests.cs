@@ -50,6 +50,37 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void ResolveTaskEvidence_UsesRecoveryCommitsForActiveIncompleteStep()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Active step", "Work", [], "high", PlanTaskStatus.Executing,
+            DisplayStepLabel: "5");
+        var commits = new[]
+        {
+            new PlanEvidenceCommit("commit-1", PlanRecoveryCommitRelation.Task, "Feature work."),
+            new PlanEvidenceCommit("commit-2", PlanRecoveryCommitRelation.Unknown, "Attribution uncertain."),
+        };
+        var plan = TestPlan(null) with
+        {
+            Tasks = [task],
+            InterruptionData = TestPlan(null).InterruptionData! with
+            {
+                RecoveryAssessment = new PlanRecoveryDecisionEvidence(
+                    "Needs review.", commits, DateTimeOffset.UtcNow),
+            },
+        };
+
+        var resolved = PlanRecoveryPresentationBuilder.ResolveTaskEvidence(plan, task);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(task.Commit, Is.Null, "The active step must remain incomplete.");
+            Assert.That(resolved.Select(commit => commit.Commit),
+                Is.EqualTo(new[] { "commit-1", "commit-2" }));
+        });
+    }
+
+    [Test]
     public void BuildStatusMessage_WithCommitEvidence_LeadsWithCommittedWorkState()
     {
         Assert.That(
