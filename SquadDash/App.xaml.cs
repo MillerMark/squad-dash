@@ -48,7 +48,9 @@ namespace SquadDash {
 
             var services = new ServiceCollection();
             services.AddSingleton<ApplicationSettingsStore>();
-            services.AddSingleton<ModelProfileStore>();
+            // Keep startup activation deterministic and make the dependency explicit.
+            services.AddSingleton(provider => new ModelProfileStore(
+                provider.GetRequiredService<ApplicationSettingsStore>()));
             services.AddSingleton<SquadTeamRosterLoader>();
             services.AddSingleton<SquadRoutingDocumentService>();
             services.AddSingleton<SquadInstallationStateService>();

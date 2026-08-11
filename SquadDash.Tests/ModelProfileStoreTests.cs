@@ -6,6 +6,16 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class ModelProfileStoreTests {
+    [Test]
+    public void Constructor_IsDiscoverableByDependencyInjectionActivation()
+    {
+        var constructor = typeof(ModelProfileStore).GetConstructor(
+            [typeof(ApplicationSettingsStore)]);
+
+        Assert.That(constructor, Is.Not.Null,
+            "The startup service container requires a public constructor for conventional activation.");
+    }
+
 
     [Test]
     public void LegacyMigration_CopilotProvider_ProducesDefaultCopilotProfile() {

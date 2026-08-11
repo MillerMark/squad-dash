@@ -12,7 +12,7 @@ namespace SquadDash;
 internal sealed class ModelProfileStore {
     private readonly ApplicationSettingsStore _settingsStore;
 
-    internal ModelProfileStore(ApplicationSettingsStore settingsStore) {
+    public ModelProfileStore(ApplicationSettingsStore settingsStore) {
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
     }
 
