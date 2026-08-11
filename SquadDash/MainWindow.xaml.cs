@@ -9909,6 +9909,22 @@ public partial class MainWindow : Window
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
+        var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
+                                    !string.IsNullOrWhiteSpace(interruptedTaskId);
+        Action<Plan>? onContinueInterruptedTask = hasRecoveryAssessment
+            ? current =>
+            {
+                PrepareForHostRecoveryAction();
+                _ = RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
+            }
+            : null;
+        Action<Plan>? onReplanRemainingWork = hasRecoveryAssessment
+            ? current =>
+            {
+                PrepareForHostRecoveryAction();
+                QueueDecomposeReplan(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
+            }
+            : null;
         Action<Plan, string>? onApproveGate = durablePlan?.ApprovalGates.Any(gate =>
             gate.Status == PlanGateStatus.AwaitingApproval) == true
             ? (p, gateId) =>
@@ -9935,7 +9951,9 @@ public partial class MainWindow : Window
                 _loopRoundExecutionIdentity?.TaskId,
                 taskId),
             initializeRepository: InitializeRepositoryForPlanAsync,
-            onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits))
+            onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
+            onContinueInterruptedTask: onContinueInterruptedTask,
+            onReplanRemainingWork: onReplanRemainingWork)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };

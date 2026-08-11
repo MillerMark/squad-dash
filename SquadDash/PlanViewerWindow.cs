@@ -44,6 +44,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
+    private readonly Action<Plan>? _onContinueInterruptedTask;
+    private readonly Action<Plan>? _onReplanRemainingWork;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
@@ -87,7 +89,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
         Func<Task<bool>>? initializeRepository = null,
-        Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null)
+        Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
+        Action<Plan>? onContinueInterruptedTask = null,
+        Action<Plan>? onReplanRemainingWork = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -118,6 +122,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
+        _onContinueInterruptedTask = onContinueInterruptedTask;
+        _onReplanRemainingWork = onReplanRemainingWork;
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
 
@@ -215,6 +221,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onResumePlan       = _onResumePlan;
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
         var onEndPlan          = _onEndPlan;
+        var onContinueInterruptedTask = _onContinueInterruptedTask;
+        var onReplanRemainingWork = _onReplanRemainingWork;
         var onApproveGate      = _onApproveGate;
         var group = plan.Group;
 
@@ -289,6 +297,69 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         if (durablePlan is not null &&
+            durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+            durablePlan.InterruptionData?.RecoveryAssessment is not null)
+        {
+            var assessmentPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            var interruptedTaskId = durablePlan.InterruptionData.InterruptedTaskId;
+            var interruptedTask = durablePlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal));
+            var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                interruptedTask?.DisplayStepLabel,
+                interruptedTask?.Title ?? interruptedTaskId ?? "Interrupted Step");
+
+            if (onAdoptVerifiedCommitRange is not null)
+            {
+                var acceptButton = TranscriptQuickReplyFactory.CreateButton(
+                    $"Accept {stepLabel} as Complete", quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        $"Review and explicitly accept the existing evidence for {stepLabel}, mark only this step complete, and continue the plan."));
+                acceptButton.Focusable = false;
+                acceptButton.Click += async (_, _) =>
+                {
+                    assessmentPanel.IsEnabled = false;
+                    try
+                    {
+                        if (await onAdoptVerifiedCommitRange(durablePlan)) Close();
+                        else assessmentPanel.IsEnabled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        assessmentPanel.IsEnabled = true;
+                        UIErrorHelper.ShowError("Accept Completed Step", ex.Message, this);
+                    }
+                };
+                assessmentPanel.Children.Add(acceptButton);
+            }
+            if (onContinueInterruptedTask is not null)
+            {
+                var continueButton = TranscriptQuickReplyFactory.CreateButton(
+                    $"Continue Working on {stepLabel}", quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        $"Keep {stepLabel} incomplete and continue from the existing repository state."));
+                continueButton.Focusable = false;
+                continueButton.Click += (_, _) => { onContinueInterruptedTask(durablePlan); Close(); };
+                assessmentPanel.Children.Add(continueButton);
+            }
+            if (onReplanRemainingWork is not null)
+            {
+                var replanButton = TranscriptQuickReplyFactory.CreateButton(
+                    "Replan Remaining Work", quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Replace this blocked step with smaller, dependency-aware steps."));
+                replanButton.Focusable = false;
+                replanButton.Click += (_, _) => { onReplanRemainingWork(durablePlan); Close(); };
+                assessmentPanel.Children.Add(replanButton);
+            }
+            header.Children.Add(assessmentPanel);
+        }
+
+        if (durablePlan is not null &&
+            durablePlan.InterruptionData?.RecoveryAssessment is null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
             (onResumePlan is not null || onAdoptVerifiedCommitRange is not null || onEndPlan is not null))
         {
