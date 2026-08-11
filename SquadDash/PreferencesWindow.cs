@@ -1317,6 +1317,7 @@ internal sealed class PreferencesWindow : Window {
         headerStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.DataGridColumnHeader.ForegroundProperty, new DynamicResourceExtension("LabelText")));
         headerStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.DataGridColumnHeader.BorderBrushProperty, new DynamicResourceExtension("SubtleBorder")));
         headerStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.DataGridColumnHeader.PaddingProperty, new Thickness(6, 4, 6, 4)));
+        headerStyle.Setters.Add(new Setter(System.Windows.Controls.Primitives.DataGridColumnHeader.FontSizeProperty, new DynamicResourceExtension("FontSizeBody")));
         replacementsGrid.ColumnHeaderStyle = headerStyle;
 
         var cellStyle = new Style(typeof(DataGridCell));
@@ -1365,7 +1366,6 @@ internal sealed class PreferencesWindow : Window {
 
         var addBtn = new Button {
             Content = "Add Rule",
-            Height = 28,
             Padding = new Thickness(12, 4, 12, 4),
             Margin = new Thickness(0, 0, 8, 0)
         };
@@ -1382,7 +1382,6 @@ internal sealed class PreferencesWindow : Window {
 
         var removeBtn = new Button {
             Content = "Remove Selected",
-            Height = 28,
             Padding = new Thickness(12, 4, 12, 4)
         };
         removeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
