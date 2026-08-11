@@ -312,7 +312,6 @@ internal sealed class PreferencesWindow : Window {
         _userNameBox = new TextBox {
             Text = string.IsNullOrWhiteSpace(currentSettings.UserName) ? "User" : currentSettings.UserName,
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
             Margin = new Thickness(0, 0, 0, 20)
         };
         _userNameBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -321,7 +320,6 @@ internal sealed class PreferencesWindow : Window {
         _userNameBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _planAgentRoutingPolicyComboBox = new ComboBox {
-            Height = 30,
             Margin = new Thickness(0, 0, 0, 20)
         };
         _planAgentRoutingPolicyComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
@@ -347,8 +345,7 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyPasswordBox = new PasswordBox {
             Name = "SpeechProvider_AzureApiKey",
             Password = currentApiKey,
-            Padding = new Thickness(6, 4, 6, 4),
-            Height = 30
+            Padding = new Thickness(6, 4, 6, 4)
         };
         _apiKeyPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _apiKeyPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
@@ -357,7 +354,6 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyRevealBox = new TextBox {
             Text = currentApiKey,
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
             Visibility = Visibility.Collapsed
         };
         _apiKeyRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -368,15 +364,14 @@ internal sealed class PreferencesWindow : Window {
         _speechRegionBox = new TextBox {
             Name = "SpeechProvider_AzureRegion",
             Text = currentSettings.SpeechRegion ?? string.Empty,
-            Padding = new Thickness(6, 4, 6, 4),
-            Height = 30
+            Padding = new Thickness(6, 4, 6, 4)
         };
         _speechRegionBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _speechRegionBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _speechRegionBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         _speechRegionBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
-        _speechLanguageComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 4, 0, 0) };
+        _speechLanguageComboBox = new ComboBox { Margin = new Thickness(0, 4, 0, 0) };
         _speechLanguageComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         _speechLanguageComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         foreach (var (display, locale) in SpeechLanguageOptions)
@@ -433,8 +428,7 @@ internal sealed class PreferencesWindow : Window {
         var currentOpenAiKey= currentSettings.OpenAiSpeechApiKey ?? string.Empty;
         _openAiSpeechKeyPasswordBox = new PasswordBox {
             Password = currentOpenAiKey,
-            Padding = new Thickness(6, 4, 6, 4),
-            Height = 30
+            Padding = new Thickness(6, 4, 6, 4)
         };
         _openAiSpeechKeyPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _openAiSpeechKeyPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
@@ -443,7 +437,6 @@ internal sealed class PreferencesWindow : Window {
         _openAiSpeechKeyRevealBox = new TextBox {
             Text = currentOpenAiKey,
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
             Visibility = Visibility.Collapsed
         };
         _openAiSpeechKeyRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -489,7 +482,7 @@ internal sealed class PreferencesWindow : Window {
             currentSettings.VoiceReplacementRules.Select(r =>
                 new VoiceReplacementRuleViewModel { Pattern = r.Pattern, Replacement = r.Replacement }));
 
-        _tunnelModeComboBox= new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
+        _tunnelModeComboBox= new ComboBox { Margin = new Thickness(0, 0, 0, 12) };
         _tunnelModeComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         _tunnelModeComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "None", Tag = (string?)null });
@@ -505,8 +498,7 @@ internal sealed class PreferencesWindow : Window {
         var currentTunnelToken = currentSettings.TunnelToken ?? string.Empty;
         _tunnelTokenPasswordBox = new PasswordBox {
             Password = currentTunnelToken,
-            Padding = new Thickness(6, 4, 6, 4),
-            Height = 30
+            Padding = new Thickness(6, 4, 6, 4)
         };
         _tunnelTokenPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _tunnelTokenPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
@@ -515,7 +507,6 @@ internal sealed class PreferencesWindow : Window {
         _tunnelTokenRevealBox = new TextBox {
             Text = currentTunnelToken,
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
             Visibility = Visibility.Collapsed
         };
         _tunnelTokenRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -669,8 +660,6 @@ internal sealed class PreferencesWindow : Window {
 
         _addProfileButton = new Button {
             Content = "Add",
-            Width = 70,
-            Height = 28,
             Padding = new Thickness(8, 3, 8, 3)
         };
         _addProfileButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
@@ -679,8 +668,6 @@ internal sealed class PreferencesWindow : Window {
 
         _removeProfileButton = new Button {
             Content = "Remove",
-            Width = 70,
-            Height = 28,
             Margin = new Thickness(6, 0, 0, 0),
             Padding = new Thickness(8, 3, 8, 3)
         };
@@ -690,8 +677,6 @@ internal sealed class PreferencesWindow : Window {
 
         _setDefaultButton = new Button {
             Content = "Set Default",
-            Width = 90,
-            Height = 28,
             Margin = new Thickness(6, 0, 0, 0),
             Padding = new Thickness(8, 3, 8, 3)
         };
@@ -711,8 +696,6 @@ internal sealed class PreferencesWindow : Window {
 
         _undoButton = new Button {
             Content = "Undo",
-            Width = 70,
-            Height = 28,
             Margin = new Thickness(6, 0, 0, 0),
             Padding = new Thickness(8, 3, 8, 3),
             IsEnabled = false
@@ -1777,7 +1760,7 @@ internal sealed class PreferencesWindow : Window {
         deliveryLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         deliveryLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         deliveryRow.Children.Add(deliveryLabel);
-        var deliveryCombo = new ComboBox { Width = 140, Height = 28 };
+        var deliveryCombo = new ComboBox { Width = 140 };
         deliveryCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
         deliveryCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         deliveryCombo.Items.Add(new ComboBoxItem { Content = "ntfy.sh", IsSelected = true });
@@ -1801,7 +1784,6 @@ internal sealed class PreferencesWindow : Window {
 
         var generateTopicButton = new Button {
             Content = "Generate Random Topic",
-            Height = 28,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 0, 0, 12)
         };
@@ -2226,7 +2208,6 @@ internal sealed class PreferencesWindow : Window {
         var browseBtn = new Button {
             Content = "\u2026",
             Padding = new Thickness(10, 4, 10, 4),
-            Height = 28,
             Margin = new Thickness(0, 3, 0, 3),
             IsEnabled = isEnabled,
             VerticalAlignment = VerticalAlignment.Center
@@ -2282,8 +2263,7 @@ internal sealed class PreferencesWindow : Window {
         var tb = new TextBox {
             Text = customPath ?? string.Empty,
             IsEnabled = enabled,
-            Padding = new Thickness(6, 4, 6, 4),
-            Height = 28
+            Padding = new Thickness(6, 4, 6, 4)
         };
         tb.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         tb.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
