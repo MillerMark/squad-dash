@@ -52,6 +52,18 @@ type NamedAgentRequest = {
     agentRoute?: SquadNamedAgentRoute;
 };
 
+function buildPromptFailureContext(request: PromptRequest | DelegateRequest | NamedAgentRequest): Record<string, unknown> {
+    const route = request.type === "named_agent" ? request.agentRoute : undefined;
+    return {
+        model: route?.model ?? request.model,
+        profileId: route?.profileId,
+        profileAlias: route?.profileAlias,
+        providerBaseUrl: route?.provider?.baseUrl,
+        providerType: route?.provider?.type,
+        wireApi: route?.provider?.wireApi
+    };
+}
+
 type AbortRequest = {
     type: "abort";
     requestId?: string;
@@ -232,6 +244,11 @@ function emitSubagentLifecycle(
         agentDescription: subagent.agentDescription,
         prompt: subagent.prompt,
         model: subagent.model,
+        profileId: subagent.profileId,
+        profileAlias: subagent.profileAlias,
+        providerBaseUrl: subagent.providerBaseUrl,
+        providerType: subagent.providerType,
+        wireApi: subagent.wireApi,
         totalToolCalls: subagent.totalToolCalls,
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
@@ -1615,7 +1632,8 @@ async function main() {
             emit({
                 type: "error",
                 requestId: directRequest.requestId,
-                message: err instanceof Error ? err.message : String(err)
+                message: err instanceof Error ? err.message : String(err),
+                ...buildPromptFailureContext(directRequest)
             });
         }
         finally {
@@ -1813,7 +1831,8 @@ async function main() {
                 emit({
                     type: "error",
                     requestId: request.requestId,
-                    message: err instanceof Error ? err.message : String(err)
+                    message: err instanceof Error ? err.message : String(err),
+                    ...buildPromptFailureContext(request)
                 });
             })
             .finally(() => {

@@ -5462,7 +5462,7 @@ public partial class MainWindow : Window
                 PromoteBypassedDecomposePlans(null);
                 _pec.ActiveToolName = null;
                 _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.Now, "bridge-done-final-notification");
-                UpdateLeadAgent("Error", string.Empty, evt.Message ?? "Unknown error");
+                HandlePromptFailure(evt);
                 UpdateSessionState("Error");
                 FlushDeferredSystemLines();
                 SoundNotifications.Play(SoundEvent.PromptError);
@@ -6030,22 +6030,53 @@ public partial class MainWindow : Window
         }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
-        var summary = BackgroundTaskPresenter.BuildThreadFailureSummary(thread, evt.Message);
+        var agentLabel = BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread);
+        var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
+        var summary = failure.BuildThreadSummary(agentLabel);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
+        thread.ErrorText = failure.RawError;
+        thread.DetailText = summary;
         RecordPlanAgentCompletion(thread, evt, succeeded: false);
         _agentThreadRegistry.FinalizeAgentThread(thread);
+        ProviderFailureTranscriptBlockFactory.Append(thread, failure, agentLabel);
+        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, agentLabel);
+        ScrollToEndIfAtBottom(thread);
+        ScrollToEndIfAtBottom(CoordinatorThread);
         UpdateCompletedTimeFooters();
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
         CompleteDirectQuickReplyAgentThread(thread, "subagent_failed");
 
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
-        _backgroundTaskPresenter.AppendBackgroundNotice(summary, ThemeBrush("TaskFailureText"), BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":failed");
+        _backgroundTaskPresenter.AppendBackgroundNotice(
+            summary,
+            ThemeBrush("TaskFailureText"),
+            BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":failed",
+            appendWhenIdle: false);
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_failed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
         DrainQueueAfterBackgroundWorkChanged("subagent-failed");
         TryCompletePendingRestart("subagent-failed");
     }
+
+    private void HandlePromptFailure(SquadSdkEvent evt)
+    {
+        var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
+        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator");
+        ScrollToEndIfAtBottom(CoordinatorThread);
+        UpdateLeadAgent("Error", string.Empty, failure.BuildThreadSummary("Coordinator"));
+        SquadDashTrace.Write(
+            "UI",
+            $"Prompt failed category={failure.Category} message={failure.RawError}");
+    }
+
+    private static ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
+        new(
+            evt.Model,
+            evt.ProfileAlias,
+            evt.ProviderBaseUrl,
+            evt.ProviderType,
+            evt.WireApi);
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {

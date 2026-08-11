@@ -166,6 +166,10 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(configs[1].provider.apiKey, "test-key");
     assert.equal(started[0].agent.agentName, "lyra-morn");
     assert.equal(started[0].agent.agentDisplayName, "Lyra Morn");
+    assert.equal(started[0].agent.profileAlias, "OpenAI lightweight");
+    assert.equal(started[0].agent.providerBaseUrl, "https://api.openai.example/v1");
+    assert.equal(started[0].agent.providerType, "openai");
+    assert.equal(started[0].agent.wireApi, "responses");
     assert.equal(completed[0].agent.agentName, "lyra-morn");
 });
 

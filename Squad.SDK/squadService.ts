@@ -146,6 +146,11 @@ export type SubagentLifecycleInfo = {
     prompt?: string;
     error?: string;
     model?: string;
+    profileId?: string;
+    profileAlias?: string;
+    providerBaseUrl?: string;
+    providerType?: string;
+    wireApi?: string;
     totalToolCalls?: number;
     totalTokens?: number;
     durationMs?: number;
@@ -1162,6 +1167,11 @@ function normalizeSubagentLifecycle(event: unknown): SubagentLifecycleInfo | nul
         prompt: getEventStringValue(event, "prompt"),
         error: extractSubagentError(event),
         model: getEventStringValue(event, "model"),
+        profileId: getEventStringValue(event, "profileId"),
+        profileAlias: getEventStringValue(event, "profileAlias"),
+        providerBaseUrl: getEventStringValue(event, "providerBaseUrl"),
+        providerType: getEventStringValue(event, "providerType"),
+        wireApi: getEventStringValue(event, "wireApi"),
         totalToolCalls: getEventNumberValue(event, "totalToolCalls"),
         totalTokens: getEventNumberValue(event, "totalTokens"),
         durationMs: getEventNumberValue(event, "durationMs"),
@@ -2030,6 +2040,11 @@ export class SquadBridgeService {
             prompt: subagent.prompt ?? existing?.prompt,
             error: subagent.error ?? existing?.error,
             model: subagent.model ?? existing?.model,
+            profileId: subagent.profileId ?? existing?.profileId,
+            profileAlias: subagent.profileAlias ?? existing?.profileAlias,
+            providerBaseUrl: subagent.providerBaseUrl ?? existing?.providerBaseUrl,
+            providerType: subagent.providerType ?? existing?.providerType,
+            wireApi: subagent.wireApi ?? existing?.wireApi,
             totalToolCalls: subagent.totalToolCalls ?? existing?.totalToolCalls,
             totalTokens: subagent.totalTokens ?? existing?.totalTokens,
             durationMs: subagent.durationMs ?? existing?.durationMs,
@@ -2295,6 +2310,11 @@ export class SquadBridgeService {
             agentDescription: normalizeOptionalString(args.description) ?? route.role ?? `Named agent: ${route.displayName}`,
             prompt,
             model: route.model,
+            profileId: route.profileId,
+            profileAlias: route.profileAlias,
+            providerBaseUrl: route.provider?.baseUrl,
+            providerType: route.provider?.type,
+            wireApi: route.provider?.wireApi,
             workingDirectory: outerOptions.cwd
         };
 

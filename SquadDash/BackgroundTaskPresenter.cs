@@ -629,14 +629,14 @@ internal sealed class BackgroundTaskPresenter {
             AppendBackgroundNotice(_lastCompletedBackgroundTaskSummary, _themeBrush("TaskSuccessText"), announcementKey);
     }
 
-    internal void AppendBackgroundNotice(string text, Brush color, string announcementKey) {
+    internal void AppendBackgroundNotice(string text, Brush color, string announcementKey, bool appendWhenIdle = true) {
         if (string.IsNullOrWhiteSpace(text) || ShouldSuppressBackgroundAnnouncement(announcementKey))
             return;
 
         _lastBackgroundAnnouncementKey = announcementKey;
         _lastBackgroundAnnouncementAt  = DateTimeOffset.Now;
 
-        if (!_isPromptRunning() && _currentTurn() is null)
+        if (appendWhenIdle && !_isPromptRunning() && _currentTurn() is null)
             _appendLine("[background] " + text, color);
     }
 

@@ -74,6 +74,11 @@ public sealed class SquadSdkEvent {
     public string? LatestIntent { get; set; }
     public string[]? RecentActivity { get; set; }
     public string? Model { get; set; }
+    public string? ProfileId { get; set; }
+    public string? ProfileAlias { get; set; }
+    public string? ProviderBaseUrl { get; set; }
+    public string? ProviderType { get; set; }
+    public string? WireApi { get; set; }
     public int? TotalToolCalls { get; set; }
     public int? TotalInputTokens { get; set; }
     public int? TotalOutputTokens { get; set; }
