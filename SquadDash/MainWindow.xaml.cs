@@ -6042,6 +6042,7 @@ public partial class MainWindow : Window
         ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, agentLabel);
         ScrollToEndIfAtBottom(thread);
         ScrollToEndIfAtBottom(CoordinatorThread);
+        StopRequiredPlanWorkAfterProviderFailure(thread, failure, agentLabel);
         UpdateCompletedTimeFooters();
         SquadDashTrace.Write("UI", $"Subagent failed {summary}");
         CompleteDirectQuickReplyAgentThread(thread, "subagent_failed");
@@ -6057,6 +6058,56 @@ public partial class MainWindow : Window
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
         DrainQueueAfterBackgroundWorkChanged("subagent-failed");
         TryCompletePendingRestart("subagent-failed");
+    }
+
+    private void StopRequiredPlanWorkAfterProviderFailure(
+        TranscriptThreadState thread,
+        ProviderFailurePresentation failure,
+        string agentLabel)
+    {
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var planExecutionActive = _activeDecomposeGroupId is not null || activeExecution?.IsExecutingPlan == true;
+        if (!ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+                failure.Category,
+                _isPromptRunning,
+                planExecutionActive,
+                thread.AssignedPlanTaskId,
+                thread.RosterIdentityVerified))
+        {
+            return;
+        }
+
+        var reason =
+            $"Required plan agent {agentLabel} could not start because {failure.Title}. " +
+            "SquadDash stopped the coordinator and plan loop so no dependent work runs with a missing required result.";
+        SquadDashTrace.Write(
+            "UI",
+            $"Required plan agent provider failure is stopping execution task={thread.AssignedPlanTaskId} " +
+            $"agent={thread.AgentName ?? agentLabel} category={failure.Category}");
+
+        SuppressLoopResume("required-plan-agent-provider-failure");
+        if (_promptQueue.Count > 0)
+            SetQueuePaused(true);
+
+        if (IsLoopRunning)
+        {
+            if (_activeLoopMode == LoopMode.NativeAgents)
+            {
+                _loopController.RequestAbort();
+                _loopFollowUpTcs?.TrySetResult(false);
+            }
+            else
+            {
+                _ = _bridge.StopLoopAsync();
+            }
+        }
+
+        _bridge.InterruptPrompt(reason);
+        StartCoordinatorAbortWatchdog(
+            "required-plan-agent-provider-failure",
+            "[interrupted: required plan agent provider failure]");
+        ScheduleDecomposeSystemEntry(
+            reason + " Correct the provider profile, then use Assess & Continue to recover the preserved task state.");
     }
 
     private void HandlePromptFailure(SquadSdkEvent evt)
@@ -9043,7 +9094,8 @@ public partial class MainWindow : Window
     private async Task<bool> RetryDecomposeTaskAsync(
         PendingDecomposePlan plan,
         string taskId,
-        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null,
+        bool allowUncommittedPreservedWork = false)
     {
         if (_currentWorkspace is null) return false;
         if (_isPromptRunning || _loopController.IsRunning)
@@ -9070,12 +9122,38 @@ public partial class MainWindow : Window
         var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
         var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
         DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var preservedPaths);
-        if (preservedPaths.Count > 0)
+        if (PlanRecoveryCommitReadiness.RequiresCommit(
+                preservedPaths.Count,
+                allowUncommittedPreservedWork))
         {
-            var dialog = new ConfirmPreservedWorkDialog(taskId, preservedPaths, owner: this);
-            dialog.ShowDialog();
-            if (!dialog.Confirmed)
-                return false;
+            var headBeforeWait = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            var blocked = new PlanPreflightBlockedException(
+                "Preserved work is uncommitted",
+                preservedPaths,
+                currentGroup.Branch);
+            ShowTranscriptPlanPreflightRecovery(
+                plan,
+                action: "assess-and-continue",
+                branchOverride: currentGroup.Branch,
+                blocked,
+                sourceActionsPanel: null,
+                CoordinatorThread.Document.Blocks,
+                retryOverride: () => RetryDecomposeTaskAsync(
+                    plan,
+                    taskId,
+                    assessedRecoveryContinuation,
+                    allowUncommittedPreservedWork: true),
+                contentFactory: exception => PlanPreflightRecoveryContent.FromPreservedWork(exception, taskId),
+                retryLabel: "Continue Preserved Work",
+                readinessOverride: async () =>
+                {
+                    var workspaceClean = await IsPlanPreflightWorkspaceCleanAsync(plan.Group.GroupId);
+                    if (!workspaceClean) return false;
+                    var currentHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+                    return PlanRecoveryCommitReadiness.IsReady(workspaceClean, headBeforeWait, currentHead);
+                },
+                autoRetryWhenReady: true);
+            return false;
         }
 
         var writer = new DecomposedTasksWriter();
@@ -9191,7 +9269,9 @@ public partial class MainWindow : Window
         BlockCollection blocks,
         Func<Task<bool>>? retryOverride = null,
         Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent>? contentFactory = null,
-        string retryLabel = "Retry")
+        string retryLabel = "Retry",
+        Func<Task<bool>>? readinessOverride = null,
+        bool autoRetryWhenReady = false)
     {
         foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
                      block.Tag is PlanPreflightRecoveryTag tag &&
@@ -9373,12 +9453,17 @@ public partial class MainWindow : Window
             };
             copyFeedbackTimer.Start();
         };
-        retryButton.Click += async (_, _) =>
+        var retryInFlight = false;
+        retryButton.Click += async (_, _) => await RetryPlanAsync("Checking the workspace and retrying…");
+
+        async Task RetryPlanAsync(string progressText)
         {
+            if (retryInFlight) return;
+            retryInFlight = true;
             buttons.IsEnabled = false;
             readiness.Text = exception.RequiresRepositoryInitialization
                 ? "Initializing the repository…"
-                : "Checking the workspace and retrying…";
+                : progressText;
             try
             {
                 if (exception.RequiresRepositoryInitialization &&
@@ -9404,7 +9489,7 @@ public partial class MainWindow : Window
                 if (blocks.Contains(container)) blocks.Remove(container);
                 ShowTranscriptPlanPreflightRecovery(
                     plan, action, branchOverride, blocked, sourceActionsPanel, blocks,
-                    retryOverride, contentFactory, retryLabel);
+                    retryOverride, contentFactory, retryLabel, readinessOverride, autoRetryWhenReady);
             }
             catch (Exception ex)
             {
@@ -9412,7 +9497,11 @@ public partial class MainWindow : Window
                 readiness.Text = "Retry failed. Expand technical details or review the error output.";
                 HandleUiCallbackException("Decompose plan", ex);
             }
-        };
+            finally
+            {
+                retryInFlight = false;
+            }
+        }
 
         var pollInFlight = false;
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
@@ -9426,18 +9515,25 @@ public partial class MainWindow : Window
             pollInFlight = true;
             try
             {
-                if (!await IsPlanPreflightWorkspaceCleanAsync()) return;
+                var ready = readinessOverride is null
+                    ? await IsPlanPreflightWorkspaceCleanAsync()
+                    : await readinessOverride();
+                if (!ready) return;
                 timer.Stop();
                 summary.Visibility = Visibility.Collapsed;
                 files.Visibility = Visibility.Collapsed;
                 details.Visibility = Visibility.Collapsed;
                 utilities.Visibility = Visibility.Collapsed;
                 copyButton.Visibility = Visibility.Collapsed;
-                readiness.Text = "Workspace is clean. Retry is ready.";
+                readiness.Text = autoRetryWhenReady
+                    ? "Committed changes detected. Resuming automatically…"
+                    : "Workspace is clean. Retry is ready.";
                 readiness.FontWeight = FontWeights.Bold;
                 readiness.Margin = new Thickness(0, 6, 0, 6);
                 card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
                 retryButton.FontWeight = FontWeights.SemiBold;
+                if (autoRetryWhenReady)
+                    await RetryPlanAsync("Committed changes detected. Resuming automatically…");
             }
             finally { pollInFlight = false; }
         };

@@ -88,6 +88,59 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void PreservedWorkRecoveryContent_WaitsInTranscriptAndExplainsAutomaticResume()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Preserved work is uncommitted",
+            ["SquadDash/MainWindow.xaml.cs", "SquadDash.Tests/RecoveryTests.cs"],
+            "feature/recovery");
+
+        var content = PlanPreflightRecoveryContent.FromPreservedWork(exception, "PLAN-005");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.Title, Is.EqualTo("Waiting for uncommitted changes"));
+            Assert.That(content.Summary, Does.Contain("PLAN-005"));
+            Assert.That(content.Summary, Does.Contain("plan remains stopped").IgnoreCase);
+            Assert.That(content.RecoveryGuidance, Does.Contain("resume the remaining work automatically"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("Continue Preserved Work"));
+            Assert.That(content.ChangedFilesSummary, Does.Contain("SquadDash/MainWindow.xaml.cs"));
+            Assert.That(content.ClipboardText, Does.Contain("SquadDash.Tests/RecoveryTests.cs"));
+        });
+    }
+
+    [TestCase(true, "abc123", "def456", true)]
+    [TestCase(false, "abc123", "def456", false)]
+    [TestCase(true, "abc123", "abc123", false)]
+    [TestCase(true, null, "def456", false)]
+    [TestCase(true, "abc123", null, false)]
+    public void PreservedWorkCommitReadiness_RequiresCleanWorkspaceAndAdvancedHead(
+        bool workspaceClean,
+        string? headBeforeWait,
+        string? currentHead,
+        bool expected)
+    {
+        Assert.That(
+            PlanRecoveryCommitReadiness.IsReady(workspaceClean, headBeforeWait, currentHead),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase(2, false, true)]
+    [TestCase(2, true, false)]
+    [TestCase(0, false, false)]
+    public void PreservedWorkCommitReadiness_AllowsExplicitManualBypass(
+        int preservedPathCount,
+        bool allowUncommittedPreservedWork,
+        bool expected)
+    {
+        Assert.That(
+            PlanRecoveryCommitReadiness.RequiresCommit(
+                preservedPathCount,
+                allowUncommittedPreservedWork),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
     public void ReworkRecoveryContent_ExplainsThatReopenIsPreservedAndOffersResume()
     {
         var exception = new PlanPreflightBlockedException(

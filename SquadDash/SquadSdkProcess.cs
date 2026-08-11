@@ -29,6 +29,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private readonly Dictionary<string, PendingBridgeRequest> _pendingRequests = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingBackgroundCancelRequest> _pendingBackgroundCancels = new(StringComparer.Ordinal);
     private readonly HashSet<string> _userAbortRequestIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _systemInterruptReasons = new(StringComparer.Ordinal);
     private readonly TimeSpan _promptInactivityTimeout;
     private readonly TimeSpan _promptTimeoutPollInterval;
     private readonly IWorkspacePaths? _workspacePaths;
@@ -420,6 +421,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 if (TryRemoveUserAbortRequestId(requestId))
                     throw new OperationCanceledException("Prompt aborted by user.");
 
+                if (TryRemoveSystemInterruptReason(requestId, out var interruptReason))
+                    throw new OperationCanceledException(interruptReason);
+
                 throw new OperationCanceledException("The Squad bridge reported the prompt was aborted without a local abort request.");
             }
 
@@ -430,6 +434,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             lock (_stateLock) {
                 _pendingRequests.Remove(requestId);
                 _userAbortRequestIds.Remove(requestId);
+                _systemInterruptReasons.Remove(requestId);
                 if (string.Equals(_activePromptRequestId, requestId, StringComparison.Ordinal))
                     _activePromptRequestId = null;
             }
@@ -1246,10 +1251,41 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         _ = SendAbortRequestAsync(requestId);
     }
 
+    public void InterruptPrompt(string reason) {
+        string? requestId;
+        lock (_stateLock) {
+            requestId = _activePromptRequestId;
+            if (!string.IsNullOrWhiteSpace(requestId))
+                _systemInterruptReasons[requestId] = string.IsNullOrWhiteSpace(reason)
+                    ? "The prompt was interrupted by SquadDash."
+                    : reason.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(requestId)) {
+            SquadDashTrace.Write("Bridge", "InterruptPrompt requested, but no active prompt request was registered.");
+            return;
+        }
+
+        SquadDashTrace.Write("Bridge", $"InterruptPrompt requested requestId={requestId} reason={reason}");
+        _ = SendAbortRequestAsync(requestId);
+    }
+
     private bool TryRemoveUserAbortRequestId(string requestId) {
         lock (_stateLock) {
             return _userAbortRequestIds.Remove(requestId);
         }
+    }
+
+    private bool TryRemoveSystemInterruptReason(string requestId, out string reason) {
+        lock (_stateLock) {
+            if (_systemInterruptReasons.Remove(requestId, out var storedReason)) {
+                reason = storedReason;
+                return true;
+            }
+        }
+
+        reason = string.Empty;
+        return false;
     }
 
     public async Task RunLoopAsync(

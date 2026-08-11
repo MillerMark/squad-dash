@@ -79,6 +79,44 @@ internal sealed class ProviderFailurePresentationTests
         Assert.That(result.Title, Is.EqualTo("Azure deployment not found"));
     }
 
+    [TestCase(ProviderFailureCategory.Authentication, true)]
+    [TestCase(ProviderFailureCategory.DeploymentOrModel, true)]
+    [TestCase(ProviderFailureCategory.EndpointOrProtocol, true)]
+    [TestCase(ProviderFailureCategory.RateLimitOrQuota, false)]
+    [TestCase(ProviderFailureCategory.Timeout, false)]
+    [TestCase(ProviderFailureCategory.Network, false)]
+    [TestCase(ProviderFailureCategory.ProviderService, false)]
+    [TestCase(ProviderFailureCategory.Unknown, false)]
+    public void RequiredPlanAgentFailure_OnlyHardConfigurationFailuresInterrupt(
+        ProviderFailureCategory category,
+        bool expected)
+    {
+        var result = ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+            category,
+            coordinatorPromptRunning: true,
+            planExecutionActive: true,
+            assignedPlanTaskId: "MODELPROF-005",
+            rosterIdentityVerified: true);
+
+        Assert.That(result, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void RequiredPlanAgentFailure_DoesNotInterruptOptionalOrUnverifiedWork()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+                ProviderFailureCategory.DeploymentOrModel, true, true, null, true), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+                ProviderFailureCategory.DeploymentOrModel, true, true, "MODELPROF-005", false), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+                ProviderFailureCategory.DeploymentOrModel, false, true, "MODELPROF-005", true), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+                ProviderFailureCategory.DeploymentOrModel, true, false, "MODELPROF-005", true), Is.False);
+        });
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void TranscriptBlock_RendersRawErrorAsThemedReadOnlyCodeBlock()
     {

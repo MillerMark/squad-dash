@@ -137,6 +137,47 @@ internal sealed record PlanPreflightRecoveryContent(
             details,
             clipboardDetails);
     }
+
+    internal static PlanPreflightRecoveryContent FromPreservedWork(
+        PlanPreflightBlockedException exception,
+        string taskId)
+    {
+        var count = exception.ChangedPaths.Count;
+        var files = FormatChangedPaths(exception.ChangedPaths, capForDisplay: true);
+        var allFiles = FormatChangedPaths(exception.ChangedPaths, capForDisplay: false);
+        var details =
+            $"Condition: {exception.Condition}\n" +
+            $"Task: {taskId}\n" +
+            $"Changed files: {count}\n\n{files}";
+        var clipboardDetails =
+            $"Condition: {exception.Condition}\n" +
+            $"Task: {taskId}\n" +
+            $"Changed files: {count}\n\n{allFiles}";
+
+        return new PlanPreflightRecoveryContent(
+            "Waiting for uncommitted changes",
+            $"SquadDash preserved the recovery assessment for {taskId}, but {count} uncommitted " +
+            $"{(count == 1 ? "file must" : "files must")} be resolved before the remaining work can resume. " +
+            "The plan remains stopped.",
+            files,
+            "Commit the preserved work. SquadDash is watching the repository and will resume the remaining work " +
+            "automatically after the workspace is clean and HEAD advances. Select Continue Preserved Work only if " +
+            "you intentionally want to resume without creating that commit.",
+            details,
+            clipboardDetails);
+    }
+}
+
+internal static class PlanRecoveryCommitReadiness
+{
+    internal static bool RequiresCommit(int preservedPathCount, bool allowUncommittedPreservedWork) =>
+        preservedPathCount > 0 && !allowUncommittedPreservedWork;
+
+    internal static bool IsReady(bool workspaceClean, string? headBeforeWait, string? currentHead) =>
+        workspaceClean &&
+        !string.IsNullOrWhiteSpace(headBeforeWait) &&
+        !string.IsNullOrWhiteSpace(currentHead) &&
+        !string.Equals(headBeforeWait.Trim(), currentHead.Trim(), StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Classifies interruptions that can resume without assessing uncertain task work.</summary>
