@@ -717,7 +717,6 @@ internal sealed class PreferencesWindow : Window {
         _notificationTopicBox = new TextBox {
             Text = (currentSettings.NotificationEndpoint != null && currentSettings.NotificationEndpoint.TryGetValue("topic", out var ntfyTopic_) ? ntfyTopic_ : null) ?? GenerateDefaultTopic(currentSettings),
             Padding = new Thickness(6, 4, 6, 4),
-            Height = 30,
             Margin = new Thickness(0, 0, 0, 6)
         };
         _notificationTopicBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
@@ -1824,7 +1823,6 @@ internal sealed class PreferencesWindow : Window {
 
         var testButton = new Button {
             Content = "Test Notification",
-            Height = 30,
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 12, 0, 0)
         };
