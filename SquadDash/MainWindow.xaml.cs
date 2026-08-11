@@ -40634,8 +40634,26 @@ public partial class MainWindow : Window
             hasDocRevisionInFlight:          MarkdownDocumentWindow.AnyRevisionInFlight,
             promptAppearsStalled:            _pec.PromptAppearsDeadShown,
             isCommitHistoryCategorizationInFlight: _commitActivityGraphWindow?.IsCategorizationInFlight == true,
-            isPlanRecoveryAssessmentInFlight: _pendingPlanRecoveryAssessment is not null ||
-                                              _planRecoveryAssessmentApplying);
+            isPlanRecoveryAssessmentInFlight: _planRecoveryAssessmentApplying);
+
+    private void AbandonIdlePlanRecoveryAssessmentForRestart(string reason)
+    {
+        if (_pendingPlanRecoveryAssessment is null ||
+            !RestartDeferralPolicy.CanAbandonQueuedPlanRecoveryAssessment(
+                _isPromptRunning,
+                _planRecoveryAssessmentApplying))
+        {
+            return;
+        }
+
+        var removed = _promptQueue.RemoveByTag(PlanRecoveryAssessmentQueueTag);
+        _pendingPlanRecoveryAssessment = null;
+        SquadDashTrace.Write(
+            "Shutdown",
+            $"Abandoned non-running plan recovery assessment before restart reason={reason} queuedItems={removed}.");
+        if (removed > 0)
+            SyncQueuePanel();
+    }
 
     private bool DeferPendingRestartIfBlocked(string reason)
     {
@@ -40661,6 +40679,10 @@ public partial class MainWindow : Window
     {
         if (!_restartPending || _isClosing || _mainWindowClosingInProgress)
             return false;
+
+        // A queued, non-running assessment is regenerable from durable plan and Git
+        // evidence. Do not let a manually paused queue deadlock a requested restart.
+        AbandonIdlePlanRecoveryAssessmentForRestart(reason);
 
         if (DeferPendingRestartIfBlocked(reason))
             return false;
