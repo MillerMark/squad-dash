@@ -5959,6 +5959,7 @@ public partial class MainWindow : Window
             thread.CurrentTurn.ResponseEntries[^1].InboxMessageId = messageId;
 
         FinalizeCurrentTurnResponse(thread);
+        AppendModelAttributionLine(thread, evt);
         thread.ResponseStreamed = false;
         FindAgentCardForThread(thread)?.NotifyTurnEnded();
 
@@ -5966,6 +5967,45 @@ public partial class MainWindow : Window
         UpdateAgentCardFromThread(thread);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_message");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Appends a visually subordinate model attribution line (e.g. "Model: alias · provider · model")
+    /// to the agent thread's transcript when more than one model profile is configured and the event
+    /// carries a non-empty <see cref="SquadSdkEvent.ProfileAlias"/>.  The text is also appended to
+    /// the turn's <see cref="TranscriptTurnView.ResponseTextBuilder"/> so it participates in
+    /// transcript search and highlight geometry aligns with the smaller font size.
+    /// </summary>
+    private void AppendModelAttributionLine(TranscriptThreadState thread, SquadSdkEvent evt)
+    {
+        if (string.IsNullOrEmpty(evt.ProfileAlias))
+            return;
+        if (_modelProfileStore.GetProfiles().Count <= 1)
+            return;
+
+        var provider = string.Equals(evt.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase)
+            ? "GitHub Copilot"
+            : evt.ProviderType ?? "custom";
+        var text = string.IsNullOrEmpty(evt.Model)
+            ? $"Model: {evt.ProfileAlias} \u00B7 {provider}"
+            : $"Model: {evt.ProfileAlias} \u00B7 {provider} \u00B7 {evt.Model}";
+
+        // Include the attribution text in the turn response builder so the line participates
+        // in transcript search (SearchAgentThread scans ResponseTextBuilder content).
+        if (thread.CurrentTurn is not null)
+        {
+            if (thread.CurrentTurn.ResponseTextBuilder.Length > 0)
+                thread.CurrentTurn.ResponseTextBuilder.AppendLine();
+            thread.CurrentTurn.ResponseTextBuilder.Append(text);
+        }
+
+        var paragraph = CreateTranscriptParagraph(bottomMargin: 4);
+        var run = new Run(text);
+        run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        run.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        paragraph.Inlines.Add(run);
+        thread.Document.Blocks.Add(paragraph);
+        ScrollToEndIfAtBottom(thread);
     }
 
     private void ReconcileFinalSubagentResponseText(TranscriptThreadState thread, string finalText)
