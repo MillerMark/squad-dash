@@ -9890,7 +9890,9 @@ public partial class MainWindow : Window
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
             durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
                 ? hasRecordedTaskEvidence
-                    ? AdoptVerifiedCommitRangeAsync
+                    ? durablePlan.InterruptionData?.RecoveryAssessment is not null
+                        ? planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: true)
+                        : planToReview => AdoptVerifiedCommitRangeAsync(planToReview, explicitStepAcceptance: false)
                     : AssessInterruptedPlanFromDurableAsync
                 : null;
         var interruptedTaskIsAmendment = durablePlan?.Tasks.Any(task =>
@@ -13232,7 +13234,7 @@ public partial class MainWindow : Window
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
-                    await AdoptVerifiedCommitRangeAsync(latest);
+                    await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
                 });
             AddAsyncAction(
                 $"Continue Working on {stepLabel}",
@@ -14296,7 +14298,9 @@ public partial class MainWindow : Window
 
     // ── Recovery action: Adopt verified commit range ─────────────────────────
 
-    private async Task<bool> AdoptVerifiedCommitRangeAsync(Plan displayedPlan)
+    private async Task<bool> AdoptVerifiedCommitRangeAsync(
+        Plan displayedPlan,
+        bool explicitStepAcceptance = false)
     {
         if (_currentWorkspace is null || _planStore is null) return false;
         var workspace = _currentWorkspace.FolderPath;
@@ -14456,8 +14460,12 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var selected = VerifiedCommitRangeDialog.Show(
-            this, taskId, baselineCommit, candidates, hostRecordedRange: recordedEvidence is not null);
+        var selected = !PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance) &&
+                       recordedEvidence is not null
+            ? candidates.LastOrDefault(entry => string.Equals(
+                entry.Commit, recordedEvidence.Commit, StringComparison.OrdinalIgnoreCase))
+            : VerifiedCommitRangeDialog.Show(
+                this, taskId, baselineCommit, candidates, hostRecordedRange: recordedEvidence is not null);
         if (selected is null) return false;
         var selectedIndex = candidates.ToList().FindIndex(entry =>
             string.Equals(entry.Commit, selected.Commit, StringComparison.OrdinalIgnoreCase));
@@ -14508,19 +14516,22 @@ public partial class MainWindow : Window
         var combinedApprovalText = combinedAmendmentGate is null
             ? ""
             : " and approve the human checkpoint that requested this amendment";
-        var confirmation = MessageBox.Show(
-            this,
-            $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
-            $"as the completed result for {taskId}{combinedApprovalText} and continue the plan?\n\n" +
-            $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
-            $"Changed files:\n{changedFileLines}{warning}\n\n" +
-            "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
-            "Confirm that this preserved work satisfies the task.",
-            combinedAmendmentGate is null ? "Accept Commit and Continue" : "Approve Amendment and Continue",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question,
-            MessageBoxResult.No);
-        if (confirmation != MessageBoxResult.Yes) return false;
+        if (PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance))
+        {
+            var confirmation = MessageBox.Show(
+                this,
+                $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
+                $"as the completed result for {taskId}{combinedApprovalText} and continue the plan?\n\n" +
+                $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
+                $"Changed files:\n{changedFileLines}{warning}\n\n" +
+                "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
+                "Confirm that this preserved work satisfies the task.",
+                combinedAmendmentGate is null ? "Accept Commit and Continue" : "Approve Amendment and Continue",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+            if (confirmation != MessageBoxResult.Yes) return false;
+        }
 
         var terminalCommit = selected.Commit[..7];
         var firstCommit = selectedRange[0].Commit[..7];

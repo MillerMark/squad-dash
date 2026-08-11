@@ -40,6 +40,16 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void ExplicitStepAcceptance_DoesNotPromptForTheSameDecisionAgain()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(true), Is.False);
+            Assert.That(PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(false), Is.True);
+        });
+    }
+
+    [Test]
     public void BuildStatusMessage_WithCommitEvidence_LeadsWithCommittedWorkState()
     {
         Assert.That(

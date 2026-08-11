@@ -29,6 +29,9 @@ internal static class PlanRecoveryPresentationBuilder
             : label;
     }
 
+    internal static bool ShouldPromptForCommitReview(bool explicitStepAcceptance) =>
+        !explicitStepAcceptance;
+
     internal static string BuildStatusMessage(bool hasCommittedWork) =>
         hasCommittedWork
             ? "Plan execution stopped unexpectedly after producing committed work. Recovery is available."
