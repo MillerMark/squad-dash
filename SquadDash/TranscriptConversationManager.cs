@@ -903,6 +903,52 @@ internal sealed class TranscriptConversationManager {
         }, "SaveWorkspaceInputState");
     }
 
+    /// <summary>
+    /// Seals the current workspace state before the window changes its workspace pointer.
+    /// This deliberately performs the final write synchronously: a background save for the
+    /// next workspace must never supersede the old workspace's queue snapshot.
+    /// </summary>
+    internal bool TrySaveWorkspaceStateForTransition(string reason) {
+        var workspace = _getWorkspace();
+        if (workspace is null)
+            return true;
+
+        try {
+            var (caretIndex, selectionStart, selectionLength) = _getPromptCaretState();
+            var state = IncludeCurrentCoordinatorTurnIfPresent(_conversationState with {
+                SessionId = _currentSessionId,
+                PromptDraft = _getPromptText(),
+                PromptDraftCaretIndex = caretIndex,
+                PromptDraftSelectionStart = selectionStart,
+                PromptDraftSelectionLength = selectionLength,
+                PromptHistory = _promptHistory.Select(entry => entry.Text).ToArray(),
+                Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: true),
+            }, $"WorkspaceTransition:{reason}");
+
+            // Registering a newer version makes any older queued snapshot stale. If an
+            // older write is already in progress, the store's serialization gate ensures
+            // this final snapshot runs after it and wins deterministically.
+            var version = RegisterConversationSaveRequest();
+            _conversationState = state;
+            var savedState = SaveConversationStateSerially(
+                workspace.FolderPath,
+                state,
+                version,
+                skipIfStale: false);
+            ApplySavedConversationStateIfCurrent(version, savedState);
+            SquadDashTrace.Write(
+                "Persistence",
+                $"Workspace transition state sealed reason={reason} workspace={workspace.FolderPath} queueCount={state.QueuedPromptEntries?.Count ?? 0}.");
+            return true;
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write(
+                "Persistence",
+                $"Workspace transition state save failed reason={reason} workspace={workspace.FolderPath}: {ex}");
+            return false;
+        }
+    }
+
     internal void CaptureWorkspaceInputState() {
         var workspace = _getWorkspace();
         if (workspace is null)
@@ -1482,6 +1528,19 @@ internal sealed class TranscriptConversationManager {
         PersistConversationStateInBackground(
             _conversationState,
             nameof(UpdateActiveLoopExecutionState));
+    }
+
+    internal void UpdatePendingManualLoopResumeState(ActiveLoopExecutionState? execution) {
+        var normalized = ActiveLoopExecutionState.Normalize(execution);
+        if (Equals(_conversationState.PendingManualLoopResume, normalized))
+            return;
+
+        _conversationState = _conversationState with {
+            PendingManualLoopResume = normalized,
+        };
+        PersistConversationStateInBackground(
+            _conversationState,
+            nameof(UpdatePendingManualLoopResumeState));
     }
 
     internal void NavigateHistory(int direction) {

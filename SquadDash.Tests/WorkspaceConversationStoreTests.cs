@@ -650,6 +650,33 @@ internal sealed class WorkspaceConversationStoreTests {
         Assert.That(saved.QueuedPromptEntries, Is.Null);
     }
 
+    [Test]
+    public void Save_AllowsAQueueOnlyWorkspaceToBeDrainedExplicitly()
+    {
+        var queuedAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with
+            {
+                QueuedPromptEntries = [new QueuedPromptEntry("queued prompt", false)],
+                QueueLastChangedAt = queuedAt,
+            });
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with
+            {
+                QueueLastChangedAt = queuedAt.AddSeconds(30),
+            });
+
+        var loaded = _store.Load(_workspacePath);
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.QueuedPromptEntries, Is.Null);
+            Assert.That(loaded.QueueLastChangedAt, Is.EqualTo(queuedAt.AddSeconds(30)));
+        });
+    }
+
     // ── Clear persistence ─────────────────────────────────────────────────────
 
     [Test]
@@ -729,6 +756,29 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(loaded.ActiveLoopExecution?.DecomposeGroupId, Is.EqualTo("GODCLASS-20260725"));
             Assert.That(loaded.ActiveLoopExecution?.DecomposeRevision, Is.EqualTo("revision-123"));
             Assert.That(loaded.ActiveLoopExecution?.LastCompletedIteration, Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public void SaveAndLoad_RoundTripsPendingManualLoopResume()
+    {
+        var pending = new ActiveLoopExecutionState(
+            @"D:\repo\.squad\loop.md",
+            "queued scope",
+            LastCompletedIteration: 6);
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with { PendingManualLoopResume = pending });
+
+        var loaded = _store.Load(_workspacePath).PendingManualLoopResume;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded, Is.Not.Null);
+            Assert.That(loaded!.LoopPath, Is.EqualTo(pending.LoopPath));
+            Assert.That(loaded.FilterText, Is.EqualTo("queued scope"));
+            Assert.That(loaded.LastCompletedIteration, Is.EqualTo(6));
         });
     }
 

@@ -113,6 +113,22 @@ internal sealed class PromptQueueTests {
         });
     }
 
+    [Test]
+    public void Clear_RemovesEveryItemAndRaisesRemovalForEachOne() {
+        var queue = new PromptQueue();
+        queue.Enqueue("first", 1);
+        queue.Enqueue("second", 2);
+        var removed = new List<string>();
+        queue.ItemRemoved += item => removed.Add(item.Text);
+
+        queue.Clear();
+
+        Assert.Multiple(() => {
+            Assert.That(queue.Count, Is.Zero);
+            Assert.That(removed, Is.EqualTo(new[] { "first", "second" }));
+        });
+    }
+
     // ── HasReadyItems ─────────────────────────────────────────────────────────
 
     [Test]

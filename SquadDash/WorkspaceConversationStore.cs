@@ -397,8 +397,12 @@ internal sealed class WorkspaceConversationStore {
                state.PromptHistory.Count > 0 ||
                state.Turns.Count > 0 ||
                state.GetThreads().Count > 0 ||
+               state.QueuedPromptEntries is { Count: > 0 } ||
+               state.QueuedPrompts is { Count: > 0 } ||
+               state.QueueLastChangedAt is not null ||
                !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId) ||
-               state.ActiveLoopExecution is not null;
+               state.ActiveLoopExecution is not null ||
+               state.PendingManualLoopResume is not null;
     }
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
@@ -479,6 +483,7 @@ internal sealed class WorkspaceConversationStore {
                 ? null
                 : state.ActiveExecutingPlanGroupId.Trim(),
             ActiveLoopExecution       = ActiveLoopExecutionState.Normalize(state.ActiveLoopExecution),
+            PendingManualLoopResume   = ActiveLoopExecutionState.Normalize(state.PendingManualLoopResume),
             ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
             ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
@@ -849,6 +854,11 @@ internal sealed record WorkspaceConversationState(
     /// This is deliberately separate from the mutable Tasks-panel filter and selected loop UI.
     /// </summary>
     public ActiveLoopExecutionState? ActiveLoopExecution { get; init; }
+    /// <summary>
+    /// A non-plan loop deliberately held after a normal close. It is never an automatic
+    /// startup claim; the transcript must offer the user an explicit Resume Loop action.
+    /// </summary>
+    public ActiveLoopExecutionState? PendingManualLoopResume { get; init; }
     /// <summary>Sim response for the active-draft tab set by /test-queue $ActiveDraft$. Null when not in sim mode.</summary>
     public string? ActiveDraftSimResponse { get; init; }
     /// <summary>Delay in seconds for the active-draft sim entry. Only meaningful when ActiveDraftSimResponse is non-null.</summary>

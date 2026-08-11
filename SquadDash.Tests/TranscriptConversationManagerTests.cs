@@ -570,6 +570,39 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void WorkspaceTransitionSave_SealsQueueAndEditorStateBeforeWorkspaceChanges() {
+        using var workspace = new TestWorkspace();
+        var workspacePath = workspace.GetPath("workspace-transition");
+        Directory.CreateDirectory(workspacePath);
+        var promptText = "draft for the old workspace";
+        var manager = MakeManager(
+            getPromptText: () => promptText,
+            workspace: SessionWorkspace.Create(workspacePath));
+        var item = new PromptQueueItem {
+            Text = "queued old-workspace prompt",
+            SequenceNumber = 1,
+            CaretIndex = 12,
+            SelectionStart = 7,
+            SelectionLength = 5,
+        };
+        manager.UpdateQueuedPromptsState([item], activeTabIndex: 0);
+
+        var saved = manager.TrySaveWorkspaceStateForTransition("test");
+        var reloaded = new WorkspaceConversationStore().Load(workspacePath);
+
+        Assert.Multiple(() => {
+            Assert.That(saved, Is.True);
+            Assert.That(reloaded.PromptDraft, Is.EqualTo(promptText));
+            Assert.That(reloaded.QueueActiveTabIndex, Is.Zero);
+            Assert.That(reloaded.QueuedPromptEntries, Has.Count.EqualTo(1));
+            Assert.That(reloaded.QueuedPromptEntries![0].Text, Is.EqualTo(item.Text));
+            Assert.That(reloaded.QueuedPromptEntries[0].CaretIndex, Is.EqualTo(12));
+            Assert.That(reloaded.QueuedPromptEntries[0].SelectionStart, Is.EqualTo(7));
+            Assert.That(reloaded.QueuedPromptEntries[0].SelectionLength, Is.EqualTo(5));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void UpdateQueuedPromptsState_PreservesLockedHostPresentation()
     {
         var manager = MakeManager();

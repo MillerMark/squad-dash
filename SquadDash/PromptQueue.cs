@@ -158,6 +158,19 @@ internal sealed class PromptQueue {
         return toRemove.Count;
     }
 
+    /// <summary>
+    /// Removes every item while preserving the same removal notifications used by
+    /// dispatch and user deletion. Used when detaching a window from one workspace
+    /// before hydrating another workspace's queue.
+    /// </summary>
+    public void Clear()
+    {
+        var removed = _items.ToArray();
+        _items.Clear();
+        foreach (var item in removed)
+            ItemRemoved?.Invoke(item);
+    }
+
     /// <summary>Removes a specific item instance from the queue.</summary>
     public void RemoveItem(PromptQueueItem item)
     {

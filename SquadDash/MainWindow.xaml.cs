@@ -284,6 +284,9 @@ public partial class MainWindow : Window
     private QuickReplyButtonPayload[] _currentQuickReplyPayloads = [];
     private DateTime _quickRepliesShownAt = DateTime.MinValue;
     private const int QuickReplyReadWindowMs = 400;
+    private const string ManualLoopResumeMessage =
+        "The previous loop run did not finish before SquadDash closed. It remains paused and will not resume automatically.";
+    private const string ManualLoopResumeSurfaceTag = "manual-loop-resume";
     private TranscriptResponseEntry? _lastQuickReplyEntry;
     private TranscriptResponseEntry? _routingIssueQuickReplyEntry;
     private TranscriptResponseEntry? _teamRootPollutionQuickReplyEntry;
@@ -823,7 +826,7 @@ public partial class MainWindow : Window
     internal MainWindow(string? startupFolder = null, WorkspaceOwnershipLease? startupWorkspaceLease = null, IWorkspacePaths? workspacePaths = null, ScreenshotRefreshOptions? screenshotRefreshOptions = null, bool noWorkspaceOnStart = false, IServiceProvider? serviceProvider = null)
     {
         _settingsStore = serviceProvider?.GetRequiredService<ApplicationSettingsStore>() ?? new ApplicationSettingsStore();
-        _modelProfileStore = serviceProvider?.GetRequiredService<ModelProfileStore>() ?? new ModelProfileStore(_settingsStore);
+        _modelProfileStore = serviceProvider?.GetService<ModelProfileStore>() ?? new ModelProfileStore(_settingsStore);
         _teamRosterLoader = serviceProvider?.GetRequiredService<SquadTeamRosterLoader>() ?? new SquadTeamRosterLoader();
         _routingDocumentService = serviceProvider?.GetRequiredService<SquadRoutingDocumentService>() ?? new SquadRoutingDocumentService();
         _installationStateService = serviceProvider?.GetRequiredService<SquadInstallationStateService>() ?? new SquadInstallationStateService();
@@ -3587,6 +3590,73 @@ public partial class MainWindow : Window
         _conversationManager.BeginQueuedPromptsStateHydration();
     }
 
+    private int? FlushSelectedQueueEditorToDraft()
+    {
+        var activeTabIndex = GetActiveQueueTabIndex();
+        if (_activeTabId is null)
+            return activeTabIndex;
+
+        var current = _promptQueue.Items.FirstOrDefault(item => item.Id == _activeTabId);
+        if (current is not null && !current.IsLocked)
+        {
+            current.Text = PromptTextBox.Text;
+            current.CaretIndex = PromptTextBox.CaretIndex;
+            current.SelectionStart = PromptTextBox.SelectionStart;
+            current.SelectionLength = PromptTextBox.SelectionLength;
+        }
+
+        _activeTabId = null;
+        SetPromptTextBoxLogicalBuffer(
+            _queuePreEditDraft ?? string.Empty,
+            _queuePreEditDraftCaretIndex,
+            _queuePreEditDraftSelectionStart,
+            _queuePreEditDraftSelectionLength,
+            "queue-editor-flush");
+        _queuePreEditDraft = null;
+        ApplyPromptEditorLockState();
+        return activeTabIndex;
+    }
+
+    private bool SaveAndDetachQueueForWorkspaceTransition()
+    {
+        if (_currentWorkspace is not null)
+        {
+            var queueWasRightmostHeld = IsRightmostQueueTabActive();
+            var activeTabIndex = FlushSelectedQueueEditorToDraft();
+            _conversationManager.UpdateQueuedPromptsState(
+                _promptQueue.Items,
+                _followUpAttachments,
+                queueRightmostHeld: queueWasRightmostHeld,
+                loopQueuedToDequeue: _loopQueued,
+                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
+                activeTabIndex: activeTabIndex,
+                queueDayCounter: _queueDayCounter,
+                queueCounterDate: _queueCounterDate);
+            if (!_conversationManager.TrySaveWorkspaceStateForTransition("open-workspace"))
+                return false;
+        }
+
+        BeginQueueStateHydration();
+        _promptQueue.Clear();
+        _followUpAttachments.Clear();
+        _activeTabId = null;
+        _queuePreEditDraft = null;
+        _queuePreEditDraftCaretIndex = 0;
+        _queuePreEditDraftSelectionStart = 0;
+        _queuePreEditDraftSelectionLength = 0;
+        _queueManuallyPaused = false;
+        _queuePausePending = false;
+        _rightmostTabHoldNotificationFired = false;
+        _loopQueued = false;
+        _loopQueuedResumeFromIteration = 0;
+        _queueDayCounter = 0;
+        _queueCounterDate = string.Empty;
+        _pec.ActiveDraftSimEntry = null;
+        SetPromptTextBoxLogicalBuffer(string.Empty, 0, 0, 0, "workspace-queue-detach");
+        SyncQueuePanel();
+        return true;
+    }
+
     private void CompleteQueueStateHydration()
     {
         _queueStateHydrationInProgress = false;
@@ -4345,7 +4415,7 @@ public partial class MainWindow : Window
         OnQueueTabClicked(tabIds[nextIndex]);
     }
 
-    private void OnQueueTabClicked(string? id, bool persistState = true)
+    private void OnQueueTabClicked(string? id)
     {
         if (_activeTabId == id) return;
 
@@ -4429,18 +4499,6 @@ public partial class MainWindow : Window
 
         if (wasRightmostHold && CanAutoDispatchPromptQueue("rightmost-tab-released"))
             _ = DrainQueueIfNeededAsync();
-        if (persistState)
-        {
-            _conversationManager.UpdateQueuedPromptsState(
-                _promptQueue.Items,
-                _followUpAttachments,
-                queueRightmostHeld: IsRightmostQueueTabActive(),
-                loopQueuedToDequeue: _loopQueued,
-                activeDraftSimEntry: _pec.ActiveDraftSimEntry,
-                activeTabIndex: GetActiveQueueTabIndex(),
-                queueDayCounter: _queueDayCounter,
-                queueCounterDate: _queueCounterDate);
-        }
         SyncPromptTextBoxSimBorder();
     }
 
@@ -8111,6 +8169,7 @@ public partial class MainWindow : Window
         LoopMode mode,
         ActiveLoopExecutionState? requestedExecution = null)
     {
+        _conversationManager.UpdatePendingManualLoopResumeState(null);
         _activeLoopMode = mode;
         var queuedExecution = requestedExecution ?? BuildGeneralLoopExecutionState();
         _conversationManager.UpdateActiveLoopExecutionState(queuedExecution);
@@ -13208,6 +13267,66 @@ public partial class MainWindow : Window
             plan.PlanId,
             plan.Revision,
             taskId);
+    }
+
+    private void RestorePendingManualLoopResumeSurface()
+    {
+        var oldSurfaces = CoordinatorThread.Document.Blocks
+            .OfType<Section>()
+            .Where(section => string.Equals(
+                section.Tag as string,
+                ManualLoopResumeSurfaceTag,
+                StringComparison.Ordinal))
+            .ToList();
+        foreach (var oldSurface in oldSurfaces)
+            CoordinatorThread.Document.Blocks.Remove(oldSurface);
+
+        var pendingExecution = _conversationManager.ConversationState.PendingManualLoopResume;
+        if (pendingExecution is null)
+            return;
+
+        var alreadyRecorded = _conversationManager.ConversationState.Turns.Any(turn =>
+            turn.ResponseText?.Contains(ManualLoopResumeMessage, StringComparison.Ordinal) == true);
+        if (!alreadyRecorded)
+            ShowSystemTranscriptEntry(ManualLoopResumeMessage);
+
+        var surface = new Section { Tag = ManualLoopResumeSurfaceTag };
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var resumeButton = TranscriptQuickReplyFactory.CreateButton(
+            "Resume Loop",
+            _transcriptFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Resume the saved loop from its last completed iteration. Queued prompts will run first."));
+        resumeButton.Click += async (_, _) =>
+        {
+            var execution = _conversationManager.ConversationState.PendingManualLoopResume;
+            if (execution is null)
+            {
+                CoordinatorThread.Document.Blocks.Remove(surface);
+                return;
+            }
+
+            resumeButton.IsEnabled = false;
+            var mode = _conversationManager.ConversationState.LoopMode ?? _settingsSnapshot.LoopMode;
+            try
+            {
+                _conversationManager.UpdatePendingManualLoopResumeState(null);
+                CoordinatorThread.Document.Blocks.Remove(surface);
+                await QueueOrStartLoopAsync(mode, execution);
+            }
+            catch (Exception ex)
+            {
+                _conversationManager.UpdatePendingManualLoopResumeState(execution);
+                resumeButton.IsEnabled = true;
+                HandleUiCallbackException("Resume saved loop", ex);
+            }
+        };
+        panel.Children.Add(resumeButton);
+        surface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            panel,
+            ManualLoopResumeSurfaceTag));
+        CoordinatorThread.Document.Blocks.Add(surface);
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     private void AppendDecomposeRecoveryActions(
@@ -29966,8 +30085,14 @@ public partial class MainWindow : Window
             }
         }
 
-        _conversationManager.SaveWorkspaceInputState();
-        BeginQueueStateHydration();
+        if (!SaveAndDetachQueueForWorkspaceTransition())
+        {
+            workspaceLease?.Dispose();
+            UIErrorHelper.ShowWarning(
+                "Workspace Not Changed",
+                "SquadDash could not save the current prompt queue. The current workspace remains open so no queued work is lost.");
+            return;
+        }
 
         var openWsSw = Stopwatch.StartNew();
 
@@ -30247,9 +30372,11 @@ public partial class MainWindow : Window
             SyncQueuePanel();
 
             // Restore active tab selection before held/drain decision so label logic sees correct state.
-            if (savedActiveTabIndex.HasValue && savedActiveTabIndex.Value < _promptQueue.Items.Count)
+            if (QueueRestorePolicy.NormalizeActiveTabIndex(
+                    savedActiveTabIndex,
+                    _promptQueue.Items.Count) is { } restoredTabIndex)
             {
-                var restoredTabId = _promptQueue.Items[savedActiveTabIndex.Value].Id;
+                var restoredTabId = _promptQueue.Items[restoredTabIndex].Id;
                 OnQueueTabClicked(restoredTabId);
             }
 
@@ -30315,9 +30442,11 @@ public partial class MainWindow : Window
             SyncQueuePanel();
 
             // Restore active tab selection before held/drain decision so label logic sees correct state.
-            if (savedActiveTabIndex.HasValue && savedActiveTabIndex.Value < _promptQueue.Items.Count)
+            if (QueueRestorePolicy.NormalizeActiveTabIndex(
+                    savedActiveTabIndex,
+                    _promptQueue.Items.Count) is { } restoredTabIndex)
             {
-                var restoredTabId = _promptQueue.Items[savedActiveTabIndex.Value].Id;
+                var restoredTabId = _promptQueue.Items[restoredTabIndex].Id;
                 OnQueueTabClicked(restoredTabId);
             }
 
@@ -30397,6 +30526,7 @@ public partial class MainWindow : Window
         // All queue-owned startup state is now coherent. Publish one canonical
         // snapshot before queued dispatcher work or loop/plan resume callbacks run.
         CompleteQueueStateHydration();
+        RestorePendingManualLoopResumeSurface();
 
         // Restore per-workspace loop settings (override global app settings).
         var savedState = _conversationManager.ConversationState;
@@ -39533,11 +39663,24 @@ public partial class MainWindow : Window
             // A crash or kill signal never reaches this handler, so the flag also stays true there.
             if (_settingsSnapshot.LoopActiveOnExit && !_restartPending)
                 _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
-            if (!_restartPending && _conversationManager.ConversationState.ActiveLoopExecution is not null)
+            var closeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+            switch (LoopCloseRecoveryPolicy.Resolve(closeExecution, _restartPending))
             {
-                // A normal user close is an explicit decision not to auto-resume. A
-                // build-triggered restart preserves the workspace envelope instead.
-                _conversationManager.UpdateActiveLoopExecutionState(null);
+                case LoopCloseRecoveryAction.PreserveAutomaticResume:
+                    _conversationManager.UpdatePendingManualLoopResumeState(null);
+                    break;
+
+                case LoopCloseRecoveryAction.OfferManualResume:
+                    _conversationManager.UpdatePendingManualLoopResumeState(closeExecution);
+                    _conversationManager.UpdateActiveLoopExecutionState(null);
+                    break;
+
+                case LoopCloseRecoveryAction.UsePlanRecovery:
+                    // A normal close lets the durable plan repair path present its richer
+                    // Assess/Resume actions rather than offering a generic loop restart.
+                    _conversationManager.UpdatePendingManualLoopResumeState(null);
+                    _conversationManager.UpdateActiveLoopExecutionState(null);
+                    break;
             }
             // RC is intentionally NOT cleared on clean shutdown — we always want RC to auto-resume
             // on the next launch with the same token so the phone's saved link keeps working.
@@ -39550,11 +39693,9 @@ public partial class MainWindow : Window
             // CaptureWorkspaceInputState reads the actual draft — not the queue item's text —
             // preventing a duplicate queue entry on the next launch.
             bool queueWasRightmostHeld = IsRightmostQueueTabActive();
-            int? queueActiveTabIndex = GetActiveQueueTabIndex();
-            if (_activeTabId is not null)
-                OnQueueTabClicked(null, persistState: false);
-            // Persist the pre-switch tab identity. OnQueueTabClicked(null) flushes the active
-            // item's live text/caret/selection into the queue item before this snapshot.
+            int? queueActiveTabIndex = FlushSelectedQueueEditorToDraft();
+            // Persist the pre-switch tab identity. FlushSelectedQueueEditorToDraft flushes the
+            // active item's live text/caret/selection without triggering a second state write or drain.
             _conversationManager.UpdateQueuedPromptsState(
                 _promptQueue.Items,
                 _followUpAttachments,

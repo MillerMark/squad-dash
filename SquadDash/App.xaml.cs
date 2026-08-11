@@ -48,6 +48,7 @@ namespace SquadDash {
 
             var services = new ServiceCollection();
             services.AddSingleton<ApplicationSettingsStore>();
+            services.AddSingleton<ModelProfileStore>();
             services.AddSingleton<SquadTeamRosterLoader>();
             services.AddSingleton<SquadRoutingDocumentService>();
             services.AddSingleton<SquadInstallationStateService>();
