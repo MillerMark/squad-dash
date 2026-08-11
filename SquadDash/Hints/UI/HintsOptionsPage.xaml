@@ -28,6 +28,7 @@
                  BorderThickness="1"
                  Padding="4,3"
                  Margin="0,0,0,20"
+                 FontSize="{DynamicResource FontSizeBody}"
                  LostFocus="MinGapBox_LostFocus" />
 
         <!-- Clear history -->
@@ -39,6 +40,7 @@
         <Button x:Name="ClearHistoryButton"
                 Content="Reset hint history"
                 Style="{StaticResource ThemedButtonStyle}"
+                FontSize="{DynamicResource FontSizeBody}"
                 HorizontalAlignment="Left"
                 Click="ClearHistoryButton_Click" />
 

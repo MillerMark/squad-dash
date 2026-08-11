@@ -318,12 +318,14 @@ internal sealed class PreferencesWindow : Window {
         _userNameBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _userNameBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _userNameBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _userNameBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _planAgentRoutingPolicyComboBox = new ComboBox {
             Height = 30,
             Margin = new Thickness(0, 0, 0, 20)
         };
         _planAgentRoutingPolicyComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _planAgentRoutingPolicyComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _planAgentRoutingPolicyComboBox.Items.Add(new ComboBoxItem {
             Content = "Plan execution only (recommended)",
             Tag = PlanAgentRoutingPolicy.PlanExecutionOnly
@@ -351,6 +353,7 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _apiKeyPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
         _apiKeyPasswordBox.SetResourceReference(PasswordBox.ForegroundProperty, "LabelText");
+        _apiKeyPasswordBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _apiKeyRevealBox = new TextBox {
             Text = currentApiKey,
             Padding = new Thickness(6, 4, 6, 4),
@@ -360,6 +363,7 @@ internal sealed class PreferencesWindow : Window {
         _apiKeyRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _apiKeyRevealBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _apiKeyRevealBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _apiKeyRevealBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _speechRegionBox = new TextBox {
             Name = "SpeechProvider_AzureRegion",
@@ -370,9 +374,11 @@ internal sealed class PreferencesWindow : Window {
         _speechRegionBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _speechRegionBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _speechRegionBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _speechRegionBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _speechLanguageComboBox = new ComboBox { Height = 30, Margin = new Thickness(0, 4, 0, 0) };
         _speechLanguageComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _speechLanguageComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         foreach (var (display, locale) in SpeechLanguageOptions)
         {
             var item = new ComboBoxItem { Content = display, Tag = locale };
@@ -433,6 +439,7 @@ internal sealed class PreferencesWindow : Window {
         _openAiSpeechKeyPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _openAiSpeechKeyPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
         _openAiSpeechKeyPasswordBox.SetResourceReference(PasswordBox.ForegroundProperty, "LabelText");
+        _openAiSpeechKeyPasswordBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _openAiSpeechKeyRevealBox = new TextBox {
             Text = currentOpenAiKey,
             Padding = new Thickness(6, 4, 6, 4),
@@ -442,6 +449,7 @@ internal sealed class PreferencesWindow : Window {
         _openAiSpeechKeyRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _openAiSpeechKeyRevealBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _openAiSpeechKeyRevealBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _openAiSpeechKeyRevealBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _cleanupPromptBox= new TextBox {
             Text = currentSettings.CleanupPrompt,
@@ -455,6 +463,7 @@ internal sealed class PreferencesWindow : Window {
         _cleanupPromptBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _cleanupPromptBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _cleanupPromptBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _cleanupPromptBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         // ── Sound notification controls ───────────────────────────────────
         (_soundPromptCompleteCheckBox,        _soundPromptCompletePathBox)        = MakeSoundRow(currentSettings.Sound_PromptComplete_Enabled,        currentSettings.Sound_PromptComplete_CustomPath);
@@ -482,6 +491,7 @@ internal sealed class PreferencesWindow : Window {
 
         _tunnelModeComboBox= new ComboBox { Height = 30, Margin = new Thickness(0, 0, 0, 12) };
         _tunnelModeComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _tunnelModeComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "None", Tag = (string?)null });
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "ngrok", Tag = "ngrok" });
         _tunnelModeComboBox.Items.Add(new ComboBoxItem { Content = "Cloudflare", Tag = "cloudflare" });
@@ -501,6 +511,7 @@ internal sealed class PreferencesWindow : Window {
         _tunnelTokenPasswordBox.SetResourceReference(PasswordBox.BackgroundProperty, "TextBoxBackground");
         _tunnelTokenPasswordBox.SetResourceReference(PasswordBox.BorderBrushProperty, "InputBorder");
         _tunnelTokenPasswordBox.SetResourceReference(PasswordBox.ForegroundProperty, "LabelText");
+        _tunnelTokenPasswordBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _tunnelTokenRevealBox = new TextBox {
             Text = currentTunnelToken,
             Padding = new Thickness(6, 4, 6, 4),
@@ -510,6 +521,7 @@ internal sealed class PreferencesWindow : Window {
         _tunnelTokenRevealBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _tunnelTokenRevealBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _tunnelTokenRevealBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _tunnelTokenRevealBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         var useCustomModelProvider = currentSettings.ModelProvider == ModelProvider.Custom;
         _githubCopilotProviderRadio = new RadioButton {
@@ -536,6 +548,7 @@ internal sealed class PreferencesWindow : Window {
             IsTextSearchEnabled = true
         };
         _copilotModelComboBox.SetResourceReference(StyleProperty, "ThemedEditableComboBoxStyle");
+        _copilotModelComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         foreach (var model in KnownCopilotModelOptions)
             _copilotModelComboBox.Items.Add(model);
         var savedCopilotModel = ApplicationSettingsSnapshot.NormalizeCopilotDefaultModel(currentSettings.CopilotDefaultModel);
@@ -641,6 +654,7 @@ internal sealed class PreferencesWindow : Window {
         _profileListBox.SetResourceReference(ListBox.BackgroundProperty, "TextBoxBackground");
         _profileListBox.SetResourceReference(ListBox.BorderBrushProperty, "InputBorder");
         _profileListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
+        _profileListBox.SetResourceReference(Control.FontSizeProperty, "FontSizeSmall");
         _profileListBox.SelectionChanged += ProfileListBox_SelectionChanged;
 
         _profileAliasBox = new TextBox {
@@ -650,6 +664,7 @@ internal sealed class PreferencesWindow : Window {
         _profileAliasBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _profileAliasBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _profileAliasBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _profileAliasBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _profileAliasBox.LostFocus += (_, _) => SaveProfileAliasNow();
 
         _addProfileButton = new Button {
@@ -659,6 +674,7 @@ internal sealed class PreferencesWindow : Window {
             Padding = new Thickness(8, 3, 8, 3)
         };
         _addProfileButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _addProfileButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _addProfileButton.Click += AddProfile_Click;
 
         _removeProfileButton = new Button {
@@ -669,6 +685,7 @@ internal sealed class PreferencesWindow : Window {
             Padding = new Thickness(8, 3, 8, 3)
         };
         _removeProfileButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _removeProfileButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _removeProfileButton.Click += RemoveProfile_Click;
 
         _setDefaultButton = new Button {
@@ -679,6 +696,7 @@ internal sealed class PreferencesWindow : Window {
             Padding = new Thickness(8, 3, 8, 3)
         };
         _setDefaultButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _setDefaultButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _setDefaultButton.Click += SetDefault_Click;
 
         _categoryAssignmentsPanel = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -700,6 +718,7 @@ internal sealed class PreferencesWindow : Window {
             IsEnabled = false
         };
         _undoButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _undoButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _undoButton.Click += UndoProfile_Click;
 
         RefreshProfileListBox();
@@ -710,6 +729,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 16)
         };
         _notificationsEnabledCheckBox.SetResourceReference(ForegroundProperty, "BodyText");
+        _notificationsEnabledCheckBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _notificationTopicBox = new TextBox {
             Text = (currentSettings.NotificationEndpoint != null && currentSettings.NotificationEndpoint.TryGetValue("topic", out var ntfyTopic_) ? ntfyTopic_ : null) ?? GenerateDefaultTopic(currentSettings),
@@ -720,6 +740,7 @@ internal sealed class PreferencesWindow : Window {
         _notificationTopicBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
         _notificationTopicBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _notificationTopicBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _notificationTopicBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _notificationTopicBox.TextChanged += (_, _) => UpdateQrCode();
 
         _qrCodeImage = new Image {
@@ -1342,8 +1363,14 @@ internal sealed class PreferencesWindow : Window {
         editingElementStyle.Setters.Add(new Setter(TextBox.BackgroundProperty, new DynamicResourceExtension("TextBoxBackground")));
         editingElementStyle.Setters.Add(new Setter(TextBox.ForegroundProperty, new DynamicResourceExtension("LabelText")));
         editingElementStyle.Setters.Add(new Setter(TextBox.BorderBrushProperty, new DynamicResourceExtension("InputBorder")));
+        editingElementStyle.Setters.Add(new Setter(TextBox.FontSizeProperty, new DynamicResourceExtension("FontSizeSmall")));
         patternCol.EditingElementStyle = editingElementStyle;
         replacementCol.EditingElementStyle = editingElementStyle;
+
+        var elementStyle = new Style(typeof(TextBlock));
+        elementStyle.Setters.Add(new Setter(TextBlock.FontSizeProperty, new DynamicResourceExtension("FontSizeSmall")));
+        patternCol.ElementStyle = elementStyle;
+        replacementCol.ElementStyle = elementStyle;
 
         form.Children.Add(replacementsGrid);
 
@@ -1359,6 +1386,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 8, 0)
         };
         addBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        addBtn.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         addBtn.Click += (_, _) => {
             var newRule = new VoiceReplacementRuleViewModel();
             newRule.PropertyChanged += (_, _) => SaveVoiceReplacementsNow();
@@ -1374,6 +1402,7 @@ internal sealed class PreferencesWindow : Window {
             Padding = new Thickness(12, 4, 12, 4)
         };
         removeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        removeBtn.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         removeBtn.Click += (_, _) => {
             if (replacementsGrid.SelectedItem is VoiceReplacementRuleViewModel selected)
                 _voiceReplacementRules.Remove(selected);
@@ -1750,6 +1779,7 @@ internal sealed class PreferencesWindow : Window {
         deliveryRow.Children.Add(deliveryLabel);
         var deliveryCombo = new ComboBox { Width = 140, Height = 28 };
         deliveryCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        deliveryCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         deliveryCombo.Items.Add(new ComboBoxItem { Content = "ntfy.sh", IsSelected = true });
         deliveryRow.Children.Add(deliveryCombo);
         form.Children.Add(deliveryRow);
@@ -1776,6 +1806,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 0, 0, 12)
         };
         generateTopicButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        generateTopicButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         generateTopicButton.Click += (_, _) => {
             _notificationTopicBox.Text = GenerateRandomTopic(currentSettings);
             UpdateQrCode();
@@ -1816,6 +1847,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 12, 0, 0)
         };
         testButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        testButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         testButton.Click += TestButton_Click;
         form.Children.Add(testButton);
 
@@ -1837,7 +1869,7 @@ internal sealed class PreferencesWindow : Window {
         form.Children.Add(headerHint);
 
         var evtGrid = new Grid();
-        evtGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        evtGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 200 });
         evtGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         evtGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1899,6 +1931,7 @@ internal sealed class PreferencesWindow : Window {
             ToolTip = "Which service to use when a sound event path is a quoted phrase like \"Done!\"."
         };
         ttsProviderCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        ttsProviderCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         ttsProviderCombo.Items.Add("Azure Speech");
         ttsProviderCombo.Items.Add("OpenAI TTS");
         ttsProviderCombo.SelectedIndex = currentSettings.Tts_Provider == TtsProvider.OpenAI ? 1 : 0;
@@ -1929,7 +1962,8 @@ internal sealed class PreferencesWindow : Window {
             Height = 28,
             ToolTip = "Azure Neural voice name, e.g. en-US-JennyNeural. Type manually or select from the list once loaded."
         };
-        azureVoiceCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        azureVoiceCombo.SetResourceReference(StyleProperty, "ThemedEditableComboBoxStyle");
+        azureVoiceCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         Grid.SetColumn(azureVoiceCombo, 1);
 
         azureVoiceRow.Children.Add(azureVoiceLabel);
@@ -1960,6 +1994,7 @@ internal sealed class PreferencesWindow : Window {
             ToolTip = "OpenAI TTS voice."
         };
         openAiVoiceCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        openAiVoiceCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         foreach (var v in new[] { "alloy", "echo", "fable", "onyx", "nova", "shimmer" })
             openAiVoiceCombo.Items.Add(v);
         openAiVoiceCombo.SelectedItem = currentSettings.Tts_OpenAi_Voice ?? "alloy";
@@ -1977,6 +2012,7 @@ internal sealed class PreferencesWindow : Window {
 
         var openAiModelCombo = new ComboBox { Height = 28 };
         openAiModelCombo.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        openAiModelCombo.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         openAiModelCombo.Items.Add("tts-1 (fast)");
         openAiModelCombo.Items.Add("tts-1-hd (quality)");
         openAiModelCombo.SelectedIndex = currentSettings.Tts_OpenAi_Model == OpenAiTtsModel.HD ? 1 : 0;
@@ -2004,7 +2040,11 @@ internal sealed class PreferencesWindow : Window {
             openAiRow.Visibility     = isAzure ? Visibility.Collapsed : Visibility.Visible;
             SaveTtsNow();
         };
-        azureVoiceCombo.SelectionChanged  += (_, _) => SaveTtsNow();
+        azureVoiceCombo.SelectionChanged  += (_, _) => {
+            if (azureVoiceCombo.SelectedItem is string voice)
+                azureVoiceCombo.Text = voice;
+            SaveTtsNow();
+        };
         azureVoiceCombo.AddHandler(TextBoxBase.TextChangedEvent,
             new TextChangedEventHandler((_, _) => SaveTtsNow()));
         openAiVoiceCombo.SelectionChanged += (_, _) => SaveTtsNow();
@@ -2034,6 +2074,7 @@ internal sealed class PreferencesWindow : Window {
             MinWidth = 120
         };
         testButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        testButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
 
         var ttsErrorText = new TextBlock {
             TextWrapping = TextWrapping.Wrap,
@@ -3041,6 +3082,7 @@ internal sealed class PreferencesWindow : Window {
                 Margin = new Thickness(0, 0, 0, 6)
             };
             cb.SetResourceReference(ForegroundProperty, "BodyText");
+            cb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
             cb.Checked += CategoryCheckBox_Changed;
             cb.Unchecked += CategoryCheckBox_Changed;
             _categoryCheckBoxes[category] = cb;
@@ -3223,6 +3265,7 @@ internal sealed class PreferencesWindow : Window {
             Margin = new Thickness(0, 6, 0, 0),
             Cursor = Cursors.Hand
         };
+        link.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         var run = new System.Windows.Documents.Run(text);
         run.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "ActionLinkText");
         link.Inlines.Add(run);
@@ -3271,6 +3314,7 @@ internal sealed class PreferencesWindow : Window {
             Padding             = new Thickness(10, 2, 10, 2),
         };
         startTourButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
+        startTourButton.SetResourceReference(Button.FontSizeProperty, "FontSizeBody");
         startTourButton.Click += (_, _) => _startGuidedTour?.Invoke();
         stack.Children.Add(startTourButton);
 
@@ -3342,6 +3386,7 @@ internal sealed class PreferencesWindow : Window {
         {
             var cb = new ComboBox { Width = 110, HorizontalAlignment = HorizontalAlignment.Left };
             cb.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+            cb.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
             foreach (var label in hourLabels)
             {
                 var item = new ComboBoxItem { Content = label };
@@ -3489,6 +3534,7 @@ internal sealed class PreferencesWindow : Window {
 
                 var idx = voices.IndexOf(currentVoice);
                 combo.SelectedIndex = idx >= 0 ? idx : 0;
+                combo.Text = voices.Count > 0 ? voices[idx >= 0 ? idx : 0] : string.Empty;
             });
         }
         catch (Exception ex)
@@ -3498,6 +3544,7 @@ internal sealed class PreferencesWindow : Window {
                 combo.Items.Clear();
                 combo.Items.Add(currentVoice);
                 combo.SelectedIndex = 0;
+                combo.Text = currentVoice;
                 combo.IsEnabled = true;
                 Debug.WriteLine($"Azure voice load failed: {ex.Message}");
             });
