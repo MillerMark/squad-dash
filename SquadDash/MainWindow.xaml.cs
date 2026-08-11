@@ -2993,7 +2993,7 @@ public partial class MainWindow : Window
         var recoveryAssessmentMayFinishBeforeRestart = _restartPending &&
             _pendingPlanRecoveryAssessment is not null &&
             _promptQueue.Items.Any(item => string.Equals(
-                item.SourceTag, "plan-recovery-assessment", StringComparison.Ordinal));
+                item.SourceTag, PlanRecoveryAssessmentQueueTag, StringComparison.Ordinal));
         if (_isPromptRunning || _queueDrainActive || IsNativeLoopRunning || _isClosing ||
             (_restartPending && !recoveryAssessmentMayFinishBeforeRestart))
             return false;
@@ -6086,14 +6086,20 @@ public partial class MainWindow : Window
             $"agent={thread.AgentName ?? agentLabel} category={failure.Category}");
 
         SuppressLoopResume("required-plan-agent-provider-failure");
+        DiscardObsoletePlanQueueItems("required-plan-agent-provider-failure");
         if (_promptQueue.Count > 0)
             SetQueuePaused(true);
+
+        // Register the descriptive system interruption before aborting the loop. This
+        // keeps provider failures out of the ordinary user-abort path and sends only one
+        // bridge abort request for native loops.
+        _bridge.InterruptPrompt(reason);
 
         if (IsLoopRunning)
         {
             if (_activeLoopMode == LoopMode.NativeAgents)
             {
-                _loopController.RequestAbort();
+                _loopController.RequestAbort(abortActivePrompt: false);
                 _loopFollowUpTcs?.TrySetResult(false);
             }
             else
@@ -6102,7 +6108,6 @@ public partial class MainWindow : Window
             }
         }
 
-        _bridge.InterruptPrompt(reason);
         StartCoordinatorAbortWatchdog(
             "required-plan-agent-provider-failure",
             "[interrupted: required plan agent provider failure]");
@@ -6568,6 +6573,7 @@ public partial class MainWindow : Window
 
     private void OnNativeLoopError(string msg)
     {
+        DiscardObsoletePlanQueueItems("native-loop-error");
         var failedRound = _loopRoundExecutionIdentity;
         var failureIdentity = LoopRoundExecutionIdentity.ResolveFailure(
             failedRound,
@@ -9183,7 +9189,28 @@ public partial class MainWindow : Window
     }
 
     private const string PlanContinuationQueueTag = "plan-continuation";
+    private const string PlanRecoveryAssessmentQueueTag = "plan-recovery-assessment";
     private const string QueuedLoopJobTag = "queued-loop-job";
+
+    private int DiscardObsoletePlanQueueItems(
+        string reason,
+        bool includeRecoveryAssessments = false)
+    {
+        var removedContinuations = _promptQueue.RemoveByTag(PlanContinuationQueueTag);
+        var removedAssessments = includeRecoveryAssessments
+            ? _promptQueue.RemoveByTag(PlanRecoveryAssessmentQueueTag)
+            : 0;
+        var removed = removedContinuations + removedAssessments;
+        if (removed == 0)
+            return 0;
+
+        SquadDashTrace.Write(
+            "Queue",
+            $"Discarded obsolete plan queue items reason={reason} " +
+            $"continuations={removedContinuations} assessments={removedAssessments}.");
+        SyncQueuePanel();
+        return removed;
+    }
 
     private static bool IsHostQueueItem(PromptQueueItem item) =>
         string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal) ||
@@ -13462,7 +13489,7 @@ public partial class MainWindow : Window
         _promptQueue.EnqueueAtFront(
             prompt,
             _promptQueueCoordinator.NextSequenceNumber(),
-            sourceTag: "plan-recovery-assessment",
+            sourceTag: PlanRecoveryAssessmentQueueTag,
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
@@ -13477,6 +13504,17 @@ public partial class MainWindow : Window
         if (_lastQuickReplyEntry?.AllowQuickReplies == true)
             _pec.DisableQuickReplies(_lastQuickReplyEntry);
         ClearActiveQuickReplyState();
+        // Recovery assessment payloads contain an in-memory assessment identity and
+        // cannot be replayed after an interruption or restart. Gather fresh evidence
+        // after removing stale payloads only when no live assessment owns them.
+        DiscardObsoletePlanQueueItems(
+            "host-recovery-action",
+            includeRecoveryAssessments: _pendingPlanRecoveryAssessment is null);
+        if (_queueManuallyPaused || _queuePausePending)
+        {
+            SquadDashTrace.Write("Queue", "Explicit recovery action resumed the paused prompt queue.");
+            SetQueuePaused(false);
+        }
         ResetQueuePausedState();
         _loopFollowUpTcs?.TrySetResult(true);
     }
@@ -13567,7 +13605,7 @@ public partial class MainWindow : Window
                 _promptQueue.EnqueueAtFront(
                     BuildPlanRecoveryAssessmentRepairPrompt(context, error, rawResponse),
                     _promptQueueCoordinator.NextSequenceNumber(),
-                    sourceTag: "plan-recovery-assessment",
+                    sourceTag: PlanRecoveryAssessmentQueueTag,
                     isSystemInjected: true);
                 SyncQueuePanel();
                 SyncSendButton();
@@ -37016,29 +37054,43 @@ public partial class MainWindow : Window
         SquadSdkEvent evt,
         out ToolTranscriptEntry entry)
     {
-        if (thread.CurrentTurn is null || string.IsNullOrWhiteSpace(evt.ToolCallId))
+        var toolCallId = evt.ToolCallId?.Trim();
+        var hasToolCallId = !string.IsNullOrWhiteSpace(toolCallId);
+        ToolTranscriptEntry existingEntry = null!;
+        var hasExistingEntry = hasToolCallId &&
+                               _agentThreadRegistry.TryGetToolEntry(toolCallId!, out existingEntry);
+        var routing = ToolEventRoutingPolicy.Resolve(
+            hasToolCallId,
+            hasExistingEntry,
+            thread.CurrentTurn is not null);
+
+        if (routing == ToolEventRoutingDecision.Ignore)
         {
             entry = null!;
             return false;
         }
 
-        if (_agentThreadRegistry.TryGetToolEntry(evt.ToolCallId, out entry))
+        if (routing == ToolEventRoutingDecision.UseExistingEntry)
         {
+            entry = existingEntry!;
             SyncTaskToolTranscriptLink(entry);
             return true;
         }
+
+        // ToolEventRoutingPolicy only permits creation while a turn is active.
+        var currentTurn = thread.CurrentTurn!;
 
         // Coalesce consecutive read_agent polls for the same agent_id into one row.
         if (string.Equals(evt.ToolName, "read_agent", StringComparison.OrdinalIgnoreCase))
         {
             var agentId = TryGetJsonString(evt.Args, "agent_id");
-            if (!string.IsNullOrWhiteSpace(agentId) && thread.CurrentTurn is not null)
+            if (!string.IsNullOrWhiteSpace(agentId))
             {
-                var existing = ReadAgentSatelliteCoalescer.FindActiveEntry(thread.CurrentTurn.ToolEntries, agentId);
+                var existing = ReadAgentSatelliteCoalescer.FindActiveEntry(currentTurn.ToolEntries, agentId);
                 if (existing is not null)
                 {
                     existing.PollCount++;
-                    _agentThreadRegistry.SetToolEntry(evt.ToolCallId, existing);
+                    _agentThreadRegistry.SetToolEntry(toolCallId!, existing);
                     SyncTaskToolTranscriptLink(existing);
                     entry = existing;
                     return true;
@@ -37047,12 +37099,12 @@ public partial class MainWindow : Window
         }
 
         entry = CreateToolEntry(
-            GetOrCreateThinkingBlockForNewTool(thread.CurrentTurn),
-            evt.ToolCallId,
+            GetOrCreateThinkingBlockForNewTool(currentTurn),
+            toolCallId!,
             CreateToolDescriptor(evt),
             TryFormatJson(evt.Args),
             ParseTimestamp(evt.StartedAt));
-        _agentThreadRegistry.SetToolEntry(evt.ToolCallId, entry);
+        _agentThreadRegistry.SetToolEntry(toolCallId!, entry);
         return true;
     }
 

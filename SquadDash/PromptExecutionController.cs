@@ -2416,7 +2416,8 @@ internal sealed class PromptExecutionController {
         var coordinatorTurn = _transcriptSink.CoordinatorThread.CurrentTurn;
         foreach (var entry in _transcriptSink.GetToolEntries().Where(item =>
                      !item.IsCompleted &&
-                     ReferenceEquals(item.Turn, coordinatorTurn))) {
+                     item.Turn.OwnerThread.Kind == TranscriptThreadKind.Coordinator &&
+                     (coordinatorTurn is null || ReferenceEquals(item.Turn, coordinatorTurn)))) {
             entry.IsCompleted = true;
             entry.Success     = false;
             entry.FinishedAt  = DateTimeOffset.Now;

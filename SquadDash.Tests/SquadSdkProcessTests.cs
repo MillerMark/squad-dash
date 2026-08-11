@@ -537,6 +537,45 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task InterruptPrompt_SupersedesAnEarlierGenericAbortForSameRequest() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'abort') {
+                    Start-Sleep -Milliseconds 150
+                    Write-Output ('{"type":"aborted","requestId":"' + $request.requestId + '"}')
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("hello", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        sut.AbortPrompt();
+        sut.InterruptPrompt("Required provider configuration failed.");
+
+        var ex = Assert.ThrowsAsync<OperationCanceledException>(async () => await promptTask);
+        Assert.That(ex!.Message, Is.EqualTo("Required provider configuration failed."));
+    }
+
+    [Test]
     public async Task RunPromptAsync_DoesNotTimeoutWhileBridgeKeepsSendingEvents() {
         await using var sut = new SquadSdkProcess(
             () => BuildPowerShellScriptStartInfo("""

@@ -98,6 +98,21 @@ internal sealed class PromptQueueTests {
         Assert.That(queue.Count, Is.EqualTo(1));
     }
 
+    [Test]
+    public void RemoveByTag_RemovesOnlyMatchingItemsAndReportsCount() {
+        var queue = new PromptQueue();
+        queue.Enqueue("continue plan", 1, isSystemInjected: true, sourceTag: "plan-continuation");
+        queue.Enqueue("user work", 2, sourceTag: "user");
+        queue.Enqueue("duplicate continuation", 3, isSystemInjected: true, sourceTag: "plan-continuation");
+
+        var removed = queue.RemoveByTag("plan-continuation");
+
+        Assert.Multiple(() => {
+            Assert.That(removed, Is.EqualTo(2));
+            Assert.That(queue.Items.Select(item => item.Text), Is.EqualTo(new[] { "user work" }));
+        });
+    }
+
     // ── HasReadyItems ─────────────────────────────────────────────────────────
 
     [Test]

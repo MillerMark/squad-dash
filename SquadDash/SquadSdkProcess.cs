@@ -418,11 +418,15 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             pendingRequest.MarkActivity();
             var outcome = await WaitForPromptOutcomeAsync(pendingRequest).ConfigureAwait(false);
             if (outcome == BridgeRequestOutcome.Aborted) {
+                // A system interruption is more specific than the generic user-abort
+                // signal. Prefer it even if both signals raced for the same request.
+                if (TryRemoveSystemInterruptReason(requestId, out var interruptReason)) {
+                    TryRemoveUserAbortRequestId(requestId);
+                    throw new OperationCanceledException(interruptReason);
+                }
+
                 if (TryRemoveUserAbortRequestId(requestId))
                     throw new OperationCanceledException("Prompt aborted by user.");
-
-                if (TryRemoveSystemInterruptReason(requestId, out var interruptReason))
-                    throw new OperationCanceledException(interruptReason);
 
                 throw new OperationCanceledException("The Squad bridge reported the prompt was aborted without a local abort request.");
             }
@@ -1237,7 +1241,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string? requestId;
         lock (_stateLock) {
             requestId = _activePromptRequestId;
-            if (!string.IsNullOrWhiteSpace(requestId))
+            if (!string.IsNullOrWhiteSpace(requestId) &&
+                !_systemInterruptReasons.ContainsKey(requestId))
                 _userAbortRequestIds.Add(requestId);
         }
 
@@ -1255,10 +1260,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string? requestId;
         lock (_stateLock) {
             requestId = _activePromptRequestId;
-            if (!string.IsNullOrWhiteSpace(requestId))
+            if (!string.IsNullOrWhiteSpace(requestId)) {
+                // The system reason owns this request from this point forward, even if
+                // an ordinary abort was registered moments earlier by loop teardown.
+                _userAbortRequestIds.Remove(requestId);
                 _systemInterruptReasons[requestId] = string.IsNullOrWhiteSpace(reason)
                     ? "The prompt was interrupted by SquadDash."
                     : reason.Trim();
+            }
         }
 
         if (string.IsNullOrWhiteSpace(requestId)) {

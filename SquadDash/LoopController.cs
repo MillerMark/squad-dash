@@ -105,11 +105,16 @@ internal sealed class LoopController {
             StopState = LoopStopState.StopRequested;
     }
 
-    /// <summary>Immediate abort: calls <c>abortPrompt</c> and cancels the loop CTS.</summary>
-    internal void RequestAbort() {
+    /// <summary>
+    /// Immediately aborts the loop and cancels its CTS. The caller may suppress the
+    /// ordinary prompt-abort callback when it has already issued a richer system
+    /// interruption directly to the bridge.
+    /// </summary>
+    internal void RequestAbort(bool abortActivePrompt = true) {
         StopState      = LoopStopState.Aborted;
         _stopRequested = true;
-        _abortPrompt();
+        if (abortActivePrompt)
+            _abortPrompt();
         _cts?.Cancel();
     }
 

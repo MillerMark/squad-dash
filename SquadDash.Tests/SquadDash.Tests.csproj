@@ -279,6 +279,7 @@
     <Compile Include="..\SquadDash\TranscriptCopyService.cs" Link="Source\TranscriptCopyService.cs" />
     <Compile Include="..\SquadDash\TranscriptThreadState.cs" Link="Source\TranscriptThreadState.cs" />
     <Compile Include="..\SquadDash\ToolTranscriptEntry.cs" Link="Source\ToolTranscriptEntry.cs" />
+    <Compile Include="..\SquadDash\ToolEventRoutingPolicy.cs" Link="Source\ToolEventRoutingPolicy.cs" />
     <Compile Include="..\SquadDash\HostCommandDescriptor.cs" Link="Source\HostCommandDescriptor.cs" />
     <Compile Include="..\SquadDash\HostCommandInvocation.cs" Link="Source\HostCommandInvocation.cs" />
     <Compile Include="..\SquadDash\HostCommandResult.cs" Link="Source\HostCommandResult.cs" />

@@ -109,6 +109,41 @@ internal sealed class LoopControllerTests {
         Assert.That(controller.IsRunning, Is.False);
     }
 
+    [Test]
+    public async Task RequestAbort_WhenPromptWasSystemInterrupted_DoesNotSendSecondAbort() {
+        var iterStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var promptCts = new CancellationTokenSource();
+        var abortCallCount = 0;
+        string? errorMsg = null;
+
+        var controller = new LoopController(
+            executePromptAsync: async (_, __) => {
+                iterStartedTcs.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, promptCts.Token);
+            },
+            abortPrompt: () => abortCallCount++,
+            onIterationStarted: _ => { },
+            onStopped: () => finishedTcs.TrySetResult(),
+            onError: msg => { errorMsg = msg; finishedTcs.TrySetResult(); },
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        await iterStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        controller.RequestAbort(abortActivePrompt: false);
+        promptCts.Cancel(); // represents the already-issued system bridge interruption
+        await finishedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() => {
+            Assert.That(abortCallCount, Is.Zero);
+            Assert.That(errorMsg, Is.EqualTo("Loop aborted."));
+            Assert.That(controller.StopState, Is.EqualTo(LoopStopState.Aborted));
+            Assert.That(controller.IsRunning, Is.False);
+        });
+    }
+
     // ── State transitions ─────────────────────────────────────────────────────
 
     [Test]

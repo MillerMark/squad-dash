@@ -145,7 +145,8 @@ internal sealed class PromptQueue {
     /// <summary>
     /// Removes all items whose <see cref="PromptQueueItem.SourceTag"/> matches <paramref name="tag"/>.
     /// </summary>
-    public void RemoveByTag(string tag)
+    /// <returns>The number of removed items.</returns>
+    public int RemoveByTag(string tag)
     {
         var toRemove = _items.Where(i => i.SourceTag == tag).ToList();
         foreach (var item in toRemove)
@@ -153,6 +154,8 @@ internal sealed class PromptQueue {
             _items.Remove(item);
             ItemRemoved?.Invoke(item);
         }
+
+        return toRemove.Count;
     }
 
     /// <summary>Removes a specific item instance from the queue.</summary>
