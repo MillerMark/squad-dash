@@ -13630,10 +13630,10 @@ public partial class MainWindow : Window
             {
                 var assessedContinuation = new AssessedRecoveryContinuationState(
                     planId, context.TaskId, response.Summary, response.RemainingWork!);
-                var started = await RetryDecomposeTaskAsync(
+                ShowSystemTranscriptEntry(
+                    $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and is resuming only the remaining work.");
+                await RetryDecomposeTaskAsync(
                     context.Plan, context.TaskId, assessedContinuation);
-                if (started) ShowSystemTranscriptEntry(
-                    $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and resumed only the remaining work.");
                 break;
             }
             case PlanRecoveryClassification.NotStarted:
