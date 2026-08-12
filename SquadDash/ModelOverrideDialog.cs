@@ -34,7 +34,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         _agentDisplayName = agentDisplayName;
         _agentImageSource = agentImageSource;
 
-        Title = "Model override";
+        Title = "AI model override";
         Width = 440;
         SizeToContent = SizeToContent.Height;
         MinWidth = 400;
@@ -48,48 +48,38 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var outerBorder = ApplyOuterBorder();
         outerBorder.Child = root;
-
-        // Issue 1: use FontSizeSubtitle (one step below FontSizeTitle) and enable wrapping
-        var titleBlock = new TextBlock {
-            Text = $"Choose a profile override for {_agentDisplayName ?? _agentHandle}",
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 12)
-        };
-        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        root.Children.Add(titleBlock);
 
         var identityPanel = new StackPanel {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 0, 0, 14)
         };
-        Grid.SetRow(identityPanel, 1);
+        Grid.SetRow(identityPanel, 0);
         root.Children.Add(identityPanel);
 
         if (_agentImageSource is not null) {
             var avatarBorder = new Border {
-                Width = 29,
-                Height = 29,
-                CornerRadius = new CornerRadius(14.5),
+                Width = 58,
+                Height = 58,
+                CornerRadius = new CornerRadius(29),
                 ClipToBounds = true
             };
-            avatarBorder.Child = new System.Windows.Controls.Image {
+            var img = new System.Windows.Controls.Image {
                 Source = _agentImageSource,
                 Stretch = Stretch.UniformToFill
             };
+            System.Windows.Media.RenderOptions.SetBitmapScalingMode(img, System.Windows.Media.BitmapScalingMode.HighQuality);
+            avatarBorder.Child = img;
             identityPanel.Children.Add(avatarBorder);
         } else {
             var displayName = _agentDisplayName ?? _agentHandle;
             var initial = displayName.Length > 0 ? displayName[0].ToString() : "?";
             var placeholderBorder = new Border {
-                Width = 29,
-                Height = 29,
-                CornerRadius = new CornerRadius(14.5),
+                Width = 58,
+                Height = 58,
+                CornerRadius = new CornerRadius(29),
                 ClipToBounds = true
             };
             placeholderBorder.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
@@ -121,30 +111,30 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         var profileRow = new StackPanel {
             Margin = new Thickness(0, 0, 0, 14)
         };
-        Grid.SetRow(profileRow, 2);
+        Grid.SetRow(profileRow, 1);
         root.Children.Add(profileRow);
 
         _profiles = _profileStore.GetProfiles();
         _currentOverrideProfileId = FindCurrentOverrideProfileId();
 
-        // Issue 3: replace ComboBox with radio buttons; first option is "Not set"
-        BuildProfileRadioButtons(profileRow);
-
-        var hintText = new TextBlock {
-            Text = "This profile will be used in future prompts to this agent.",
+        var subheading = new TextBlock {
+            Text = "Future prompts to this agent will use:",
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 8, 0, 0)
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
         };
-        hintText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        hintText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
-        profileRow.Children.Add(hintText);
+        subheading.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        subheading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        profileRow.Children.Add(subheading);
+
+        BuildProfileRadioButtons(profileRow);
 
         var buttonRow = new StackPanel {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 8, 0, 0)
         };
-        Grid.SetRow(buttonRow, 3);
+        Grid.SetRow(buttonRow, 2);
         root.Children.Add(buttonRow);
 
         var cancelButton = new Button {
