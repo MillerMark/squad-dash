@@ -166,8 +166,11 @@ public class TranscriptApprovalCardBuilderTests
         Assert.Multiple(() =>
         {
             Assert.That(card.QuestionBlock, Is.Not.Null);
-            Assert.That(card.QuestionBlock!.Text, Does.StartWith("Does clicking an item"));
-            Assert.That(card.QuestionBlock.FontWeight, Is.EqualTo(FontWeights.SemiBold));
+            var questionText = new TextRange(
+                card.QuestionBlock!.ContentStart,
+                card.QuestionBlock.ContentEnd).Text;
+            Assert.That(questionText, Does.StartWith("Does clicking an item"));
+            Assert.That(card.QuestionBlock.FontWeight, Is.EqualTo(FontWeights.Normal));
             Assert.That(card.InspectPlanLink, Is.Null);
             Assert.That(openedPlan, Is.True);
         });
@@ -211,7 +214,7 @@ public class TranscriptApprovalCardBuilderTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(directText, Has.Some.Contains("Full evidence is here."));
+            Assert.That(directText, Has.Some.Contains("ready for review (evidence)."));
             Assert.That(directText, Has.Some.Contains("See your inbox message for more detail."));
             Assert.That(directText, Has.None.Contains("Gate:"));
             Assert.That(directText, Has.None.Contains("Review completed tasks before continuing"));
@@ -256,10 +259,10 @@ public class TranscriptApprovalCardBuilderTests
         {
             Assert.That(helpText, Does.Contain("Does the Step 6 behavior work?"));
             Assert.That(helpText, Does.Contain("Does the Step 7 transcript look correct?"));
-            Assert.That(directText, Has.Some.Contains("Step 6 ready for review. Full evidence is here."));
-            Assert.That(directText, Has.Some.Contains("Step 7 ready for review. Full evidence is here."));
+            Assert.That(directText, Has.Some.Contains("Step 6 ready for review (evidence)."));
+            Assert.That(directText, Has.Some.Contains("Step 7 ready for review (evidence)."));
             var step7Index = Array.FindIndex(directText,
-                text => text.Contains("Step 7 ready for review.", StringComparison.Ordinal));
+                text => text.Contains("Step 7 ready for review", StringComparison.Ordinal));
             var inboxIndex = Array.FindIndex(directText,
                 text => text.Contains("See your inbox message for more detail.", StringComparison.Ordinal));
             Assert.That(inboxIndex, Is.GreaterThan(step7Index));

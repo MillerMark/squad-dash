@@ -129,7 +129,7 @@ internal static class TranscriptApprovalCardBuilder
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         headerPanel.Children.Add(titleBlock);
         stack.Children.Add(headerPanel);
 
@@ -173,11 +173,17 @@ internal static class TranscriptApprovalCardBuilder
             foreach (var (questionGate, question) in gatesWithQuestions)
             {
                 var step = ResolveGateStepLabel(plan, questionGate);
-                var itemBlock = CreateStyledTextBlock(
-                    string.IsNullOrWhiteSpace(step) ? question! : $"Step {step}: {question}",
-                    fontSize + 1,
-                    "ImportantText");
-                itemBlock.FontWeight = FontWeights.SemiBold;
+                var itemBlock = CreateStyledTextBlock(string.Empty, fontSize + 1, "ImportantText");
+                if (!string.IsNullOrWhiteSpace(step))
+                {
+                    var stepPrefix = new Run($"Step {step}: ");
+                    stepPrefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    itemBlock.Inlines.Add(stepPrefix);
+                }
+                var questionRun = new Run(question!);
+                questionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                itemBlock.Inlines.Add(questionRun);
+                itemBlock.FontWeight = FontWeights.Normal;
                 itemBlock.TextWrapping = TextWrapping.Wrap;
                 itemBlock.Margin = new Thickness(0, 0, 0, 5);
                 AutomationProperties.SetName(itemBlock, "Approval question");
@@ -212,10 +218,10 @@ internal static class TranscriptApprovalCardBuilder
                 var summary = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
                 summary.Inlines.Add(new Run(
                     string.IsNullOrWhiteSpace(stepLabel)
-                        ? $"{task.Title} ready for review. Full evidence is "
-                        : $"Step {stepLabel} ready for review. Full evidence is "));
+                        ? $"{task.Title} ready for review ("
+                        : $"Step {stepLabel} ready for review ("));
                 var canOpenEvidence = onOpenEvidence is not null || onOpenInbox is not null;
-                var taskEvidenceLink = new Hyperlink(new Run("here"))
+                var taskEvidenceLink = new Hyperlink(new Run("evidence"))
                 {
                     Cursor = canOpenEvidence ? Cursors.Hand : Cursors.Arrow,
                     IsEnabled = canOpenEvidence,
@@ -240,7 +246,7 @@ internal static class TranscriptApprovalCardBuilder
                 }
                 inboxLink ??= taskEvidenceLink;
                 summary.Inlines.Add(taskEvidenceLink);
-                summary.Inlines.Add(new Run("."));
+                summary.Inlines.Add(new Run(")."));
                 summary.Margin = new Thickness(0, 0, 0, 3);
                 stack.Children.Add(summary);
             }
@@ -388,7 +394,7 @@ internal static class TranscriptApprovalCardBuilder
         // ── Approval note input ──────────────────────────────────────────
         var noteSection = new StackPanel();
         var noteLabel = CreateStyledTextBlock("Approval note (optional):", fontSize - 1, "SubtleText");
-        noteLabel.Margin = new Thickness(0, 4, 0, 2);
+        noteLabel.Margin = new Thickness(0, 8, 0, 2);
         noteSection.Children.Add(noteLabel);
 
         var noteBox = new TextBox
@@ -398,7 +404,7 @@ internal static class TranscriptApprovalCardBuilder
             AcceptsReturn = false,
             TextWrapping = TextWrapping.Wrap,
             FontSize = fontSize - 1,
-            Margin = new Thickness(0, 0, 0, 8),
+            Margin = new Thickness(0, 0, 0, 12),
             Padding = new Thickness(6, 3, 6, 3),
             BorderThickness = new Thickness(1),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
