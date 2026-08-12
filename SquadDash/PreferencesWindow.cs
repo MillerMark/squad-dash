@@ -73,6 +73,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly Button _addProfileButton;
     private readonly Button _removeProfileButton;
     private readonly Button _setDefaultButton;
+    private Button _toggleEnabledButton = null!;
     private readonly StackPanel _categoryAssignmentsPanel;
     private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _suppressProfileSave;
@@ -683,6 +684,15 @@ internal sealed class PreferencesWindow : Window {
         _setDefaultButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         _setDefaultButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
         _setDefaultButton.Click += SetDefault_Click;
+
+        _toggleEnabledButton = new Button {
+            Content = "Disable",
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(8, 3, 8, 3)
+        };
+        _toggleEnabledButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _toggleEnabledButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        _toggleEnabledButton.Click += ToggleEnabled_Click;
 
         _categoryAssignmentsPanel = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
 
@@ -1477,11 +1487,11 @@ internal sealed class PreferencesWindow : Window {
         buttonRow.Children.Add(_addProfileButton);
         buttonRow.Children.Add(_removeProfileButton);
         buttonRow.Children.Add(_setDefaultButton);
+        buttonRow.Children.Add(_toggleEnabledButton);
         buttonRow.Children.Add(_undoButton);
         form.Children.Add(buttonRow);
 
         // Provider detail section - reuse existing panels
-        AddSectionHeader(form, "Profile Settings", topMargin: 8);
 
         AddLabel(form, "Profile Name:");
         form.Children.Add(_profileAliasBox);
@@ -2784,6 +2794,8 @@ internal sealed class PreferencesWindow : Window {
         var profile = GetSelectedProfile();
         _removeProfileButton.IsEnabled = _profiles.Count > 1 && profile is not null && !profile.IsDefault;
         _setDefaultButton.IsEnabled = profile is not null && !profile.IsDefault;
+        _toggleEnabledButton.IsEnabled = profile is not null;
+        _toggleEnabledButton.Content = profile is { IsEnabled: false } ? "Enable" : "Disable";
     }
 
     private void AddProfile_Click(object sender, RoutedEventArgs e) {
@@ -2840,6 +2852,20 @@ internal sealed class PreferencesWindow : Window {
 
         _profilesDirty = true;
         RefreshProfileListBox();
+    }
+
+    private void ToggleEnabled_Click(object sender, RoutedEventArgs e) {
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+
+        PushUndoSnapshot();
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0) return;
+
+        _profiles[idx] = _profiles[idx] with { IsEnabled = !_profiles[idx].IsEnabled };
+        _profilesDirty = true;
+        RefreshProfileListBox();
+        UpdateProfileButtons();
     }
 
     private ModelProfile ReadSelectedProfileFromControls() {

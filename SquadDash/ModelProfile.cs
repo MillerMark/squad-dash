@@ -13,6 +13,7 @@ internal sealed record ModelProfile(
     string? ApiKey,
     bool OfflineMode = false,
     bool IsDefault = false,
+    bool IsEnabled = true,
     string? WireApi = null) {
     
     /// <summary>

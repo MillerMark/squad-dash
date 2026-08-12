@@ -61,7 +61,7 @@ internal static class ModelProfileResolver {
         ModelProfile? overrideProfile = null;
         if (!string.IsNullOrEmpty(perAgentOverrideProfileId)) {
             overrideProfile = FindById(profiles, perAgentOverrideProfileId);
-            if (overrideProfile is not null)
+            if (overrideProfile is not null && overrideProfile.IsEnabled)
                 return new ModelProfileResolutionResult(overrideProfile, ModelProfileResolutionReason.Override, perAgentOverrideProfileId, overrideProfile);
         }
 
@@ -70,15 +70,17 @@ internal static class ModelProfileResolver {
             foreach (var kvp in categoryAssignments) {
                 if (string.Equals(kvp.Key, agentCategory, StringComparison.OrdinalIgnoreCase)) {
                     var categoryProfile = FindById(profiles, kvp.Value);
-                    if (categoryProfile is not null)
+                    if (categoryProfile is not null && categoryProfile.IsEnabled)
                         return new ModelProfileResolutionResult(categoryProfile, ModelProfileResolutionReason.CategoryAssignment, perAgentOverrideProfileId, overrideProfile);
                     break;
                 }
             }
         }
 
-        // 3. Default profile
-        return new ModelProfileResolutionResult(profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0], ModelProfileResolutionReason.Default, perAgentOverrideProfileId, overrideProfile);
+        // 3. Default profile (prefer enabled default, then any enabled profile)
+        var fallback = profiles.FirstOrDefault(p => p.IsDefault && p.IsEnabled)
+            ?? profiles.FirstOrDefault(p => p.IsEnabled);
+        return new ModelProfileResolutionResult(fallback ?? profiles[0], ModelProfileResolutionReason.Default, perAgentOverrideProfileId, overrideProfile);
     }
 
     internal static ModelProfileResolutionResult ResolveWithReason(
@@ -98,7 +100,7 @@ internal static class ModelProfileResolver {
                 if (string.Equals(kvp.Key, agentHandle, StringComparison.OrdinalIgnoreCase)) {
                     overrideProfileId = kvp.Value;
                     overrideProfile = FindById(profiles, kvp.Value);
-                    if (overrideProfile is not null)
+                    if (overrideProfile is not null && overrideProfile.IsEnabled)
                         return new ModelProfileResolutionResult(overrideProfile, ModelProfileResolutionReason.Override, overrideProfileId, overrideProfile);
                     break;
                 }
@@ -109,14 +111,17 @@ internal static class ModelProfileResolver {
             foreach (var kvp in categoryAssignments) {
                 if (string.Equals(kvp.Key, agentCategory, StringComparison.OrdinalIgnoreCase)) {
                     var categoryProfile = FindById(profiles, kvp.Value);
-                    if (categoryProfile is not null)
+                    if (categoryProfile is not null && categoryProfile.IsEnabled)
                         return new ModelProfileResolutionResult(categoryProfile, ModelProfileResolutionReason.CategoryAssignment, overrideProfileId, overrideProfile);
                     break;
                 }
             }
         }
 
-        return new ModelProfileResolutionResult(profiles.FirstOrDefault(p => p.IsDefault) ?? profiles[0], ModelProfileResolutionReason.Default, overrideProfileId, overrideProfile);
+        // 3. Default profile (prefer enabled default, then any enabled profile)
+        var fallback = profiles.FirstOrDefault(p => p.IsDefault && p.IsEnabled)
+            ?? profiles.FirstOrDefault(p => p.IsEnabled);
+        return new ModelProfileResolutionResult(fallback ?? profiles[0], ModelProfileResolutionReason.Default, overrideProfileId, overrideProfile);
     }
 
     private static ModelProfile? FindById(IReadOnlyList<ModelProfile> profiles, string id) {

@@ -193,6 +193,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         container.Children.Add(_notSetRadio);
 
         var ordered = _profiles
+            .Where(p => p.IsEnabled)
             .Select(p => (ProfileId: p.Id, Alias: p.Alias))
             .OrderBy(p => p.Alias, StringComparer.OrdinalIgnoreCase)
             .ToArray();
