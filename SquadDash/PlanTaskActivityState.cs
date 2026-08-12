@@ -39,6 +39,10 @@ internal enum PlanTaskActivityState
 
 internal static class PlanTaskActivityPresentation
 {
+    internal static bool KeepsSpinnerContinuouslyActive(
+        PlanTaskActivityState activityState) =>
+        activityState == PlanTaskActivityState.Assessing;
+
     internal static string BuildStepLabel(
         string stepLabel,
         PlanTaskActivityState activityState) => activityState switch

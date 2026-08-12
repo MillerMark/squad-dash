@@ -1785,7 +1785,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Grid.SetColumn(spinner, spinnerOnRight ? 2 : 0);
                 _taskSpinnersById[task.Id] = spinner;
                 titleRow.Children.Add(spinner);
-                if (_isTaskActivityActive?.Invoke(task.Id) ?? true)
+                if (PlanTaskActivityPresentation.KeepsSpinnerContinuouslyActive(activityState))
+                    spinner.SetContinuousActive(true);
+                else if (_isTaskActivityActive?.Invoke(task.Id) ?? true)
                     spinner.Pulse(SpinnerActivityKind.Thinking);
             }
             else if (taskIconKey is not null &&

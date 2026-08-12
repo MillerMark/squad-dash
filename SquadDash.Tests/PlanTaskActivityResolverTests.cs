@@ -312,6 +312,18 @@ internal sealed class PlanTaskActivityResolverTests
         Assert.That(PlanTaskActivityPresentation.BuildStepLabel("2", activityState), Is.EqualTo(expected));
     }
 
+    [TestCase(PlanTaskActivityState.Assessing, true)]
+    [TestCase(PlanTaskActivityState.Verifying, false)]
+    [TestCase(PlanTaskActivityState.Executing, false)]
+    public void KeepsSpinnerContinuouslyActive_IsReservedForRecoveryAssessment(
+        PlanTaskActivityState activityState,
+        bool expected)
+    {
+        Assert.That(
+            PlanTaskActivityPresentation.KeepsSpinnerContinuouslyActive(activityState),
+            Is.EqualTo(expected));
+    }
+
     // ── Plan-level resolution ────────────────────────────────────────────────
 
     [Test]
