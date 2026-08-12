@@ -10,6 +10,15 @@ internal sealed record PlanTaskActivityPulseEvent(
     string TaskId,
     SpinnerActivityKind Kind);
 
+/// <summary>
+/// Live, non-durable state for the coordinator's read-only Assess &amp; Continue review.
+/// This is intentionally separate from task execution and independent verification.
+/// </summary>
+internal sealed record PlanRecoveryAssessmentActivityEvent(
+    string PlanId,
+    string TaskId,
+    bool IsActive);
+
 internal static class PlanTaskActivityPulsePolicy
 {
     internal static bool MatchesLiveTarget(

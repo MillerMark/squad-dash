@@ -691,15 +691,14 @@ internal sealed class ApprovalWorkflowProbeTests
     public void ApproveLabel_SingleGate_CorrectText()
     {
         Assert.That(ApprovalCardNotificationCoordinator.BuildApproveLabel(1),
-            Is.EqualTo("Approve Checkpoint & Continue"));
+            Is.EqualTo("Approve checkpoint and continue"));
     }
 
     [Test]
-    public void ApproveLabel_MultipleGates_IncludesCount()
+    public void ApproveLabel_MultipleGates_UsesAllWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(3);
-        Assert.That(label, Does.Contain("3"));
-        Assert.That(label, Does.Contain("Approve"));
+        Assert.That(label, Is.EqualTo("Approve all checkpoints and continue"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -738,7 +737,7 @@ internal sealed class ApprovalWorkflowProbeTests
         var plan = MakeProbePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-1", "GATE-2"]);
         Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Does.Contain("2 Ready Checkpoints"));
+        Assert.That(actions[0].Label, Is.EqualTo("Approve both checkpoints and continue"));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-1", "GATE-2" }));
     }

@@ -937,16 +937,15 @@ internal sealed class ApprovalIntegrationTests
     public void BuildApproveLabel_SingleGate_UseSingularForm()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
-        Assert.That(label, Does.Contain("Approve Checkpoint"));
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"));
         Assert.That(label, Does.Not.Contain("2"));
     }
 
     [Test]
-    public void BuildApproveLabel_MultipleGates_ShowsCount()
+    public void BuildApproveLabel_MultipleGates_UsesAllWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(3);
-        Assert.That(label, Does.Contain("3"));
-        Assert.That(label, Does.Contain("Checkpoints"));
+        Assert.That(label, Is.EqualTo("Approve all checkpoints and continue"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1293,7 +1292,7 @@ internal sealed class ApprovalIntegrationTests
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B"]);
 
         Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Does.Contain("2 Ready Checkpoints"));
+        Assert.That(actions[0].Label, Is.EqualTo("Approve both checkpoints and continue"));
         Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-A", "GATE-B" }));
@@ -1356,7 +1355,7 @@ internal sealed class ApprovalIntegrationTests
         Assert.That(state.ResolvedCheckpoints[0].GateId, Is.EqualTo("GATE-A"));
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
-        Assert.That(msg!.Read, Is.False, "Message must stay unread while gates remain");
+        Assert.That(msg!.Read, Is.True, "An acted-on approval request should be marked read even while another gate remains");
         Assert.That(msg.Actions, Has.Count.GreaterThan(0), "Actions must remain for active gates");
     }
 

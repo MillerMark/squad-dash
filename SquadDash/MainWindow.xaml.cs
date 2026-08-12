@@ -10111,6 +10111,9 @@ public partial class MainWindow : Window
                 _loopRoundExecutionIdentity?.PlanId,
                 _loopRoundExecutionIdentity?.TaskId,
                 taskId),
+            isRecoveryAssessmentActive: taskId =>
+                string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
             initializeRepository: InitializeRepositoryForPlanAsync,
             onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
             onContinueInterruptedTask: onContinueInterruptedTask,
@@ -12036,6 +12039,12 @@ public partial class MainWindow : Window
         ApprovalReviewSnapshot snapshot,
         ApprovalClickToken clickToken)
     {
+        var activeGates = plan.ApprovalGates
+            .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        if (activeGates.Length > 0)
+            snapshot = BuildLightweightApprovalSnapshot(plan, activeGates);
+
         var cardResult = TranscriptApprovalCardBuilder.Build(
             snapshot,
             plan,
@@ -12101,9 +12110,21 @@ public partial class MainWindow : Window
     /// without requiring async git operations. Used for immediate transcript card rendering.
     /// </summary>
     private static ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(Plan plan, PlanApprovalGate gate)
+        => BuildLightweightApprovalSnapshot(plan, [gate]);
+
+    private static ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(
+        Plan plan,
+        IReadOnlyList<PlanApprovalGate> gates)
     {
-        var afterSet = gate.AfterTaskIds.ToHashSet(StringComparer.Ordinal);
-        var beforeSet = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+        if (gates.Count == 0)
+            throw new ArgumentException("At least one approval gate is required.", nameof(gates));
+
+        var afterSet = gates
+            .SelectMany(candidate => candidate.AfterTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var beforeSet = gates
+            .SelectMany(candidate => candidate.BeforeTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
 
         var completedTasks = plan.Tasks
             .Where(t => afterSet.Contains(t.TaskId) &&
@@ -12136,10 +12157,10 @@ public partial class MainWindow : Window
             CompletedTaskCount: plan.Progress.CompletedCount,
             TotalTaskCount: plan.Progress.TotalCount,
             CurrentStage: null,
-            GateId: gate.GateId,
-            GateReason: gate.Message,
-            AfterTaskIds: gate.AfterTaskIds,
-            BeforeTaskIds: gate.BeforeTaskIds,
+            GateId: gates[0].GateId,
+            GateReason: string.Join("; ", gates.Select(candidate => candidate.Message)),
+            AfterTaskIds: plan.Tasks.Where(task => afterSet.Contains(task.TaskId)).Select(task => task.TaskId).ToArray(),
+            BeforeTaskIds: plan.Tasks.Where(task => beforeSet.Contains(task.TaskId)).Select(task => task.TaskId).ToArray(),
             CompletedTasks: completedTasks,
             DownstreamTasks: downstreamTasks,
             AllChangedFiles: [],
@@ -13782,6 +13803,7 @@ public partial class MainWindow : Window
         _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
             plan, taskId, assessmentId, baseline, head, status,
             RepositoryChangeRetries: repositoryChangeRetries);
+        _broker.Publish(new PlanRecoveryAssessmentActivityEvent(durable.PlanId, taskId, IsActive: true));
         _promptQueue.EnqueueAtFront(
             prompt,
             _promptQueueCoordinator.NextSequenceNumber(),
@@ -13919,6 +13941,8 @@ public partial class MainWindow : Window
             }
 
             _pendingPlanRecoveryAssessment = null;
+            _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
+                context.Plan.Group.GroupId, context.TaskId, IsActive: false));
             ScheduleDecomposeSystemEntry(
                 "SquadDash could not validate the recovery assessment after one automatic repair, so the plan remains stopped. " + error,
                 context.Plan.Group.GroupId,
@@ -13936,6 +13960,14 @@ public partial class MainWindow : Window
             finally
             {
                 _planRecoveryAssessmentApplying = false;
+                // A repository-change retry installs a fresh pending assessment before this
+                // attempt finishes. Keep the shared upper-right coordinator indicator alive
+                // across that handoff; otherwise remove it only after validation/application.
+                if (_pendingPlanRecoveryAssessment is null)
+                {
+                    _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
+                        context.Plan.Group.GroupId, context.TaskId, IsActive: false));
+                }
                 TryCompletePendingRestart(
                     "plan-recovery-assessment-finished",
                     emergencySaveBeforeClose: true);
@@ -41179,7 +41211,12 @@ public partial class MainWindow : Window
         }
 
         var removed = _promptQueue.RemoveByTag(PlanRecoveryAssessmentQueueTag);
+        var abandonedAssessment = _pendingPlanRecoveryAssessment;
         _pendingPlanRecoveryAssessment = null;
+        _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
+            abandonedAssessment.Plan.Group.GroupId,
+            abandonedAssessment.TaskId,
+            IsActive: false));
         SquadDashTrace.Write(
             "Shutdown",
             $"Abandoned non-running plan recovery assessment before restart reason={reason} queuedItems={removed}.");
@@ -45879,6 +45916,7 @@ public partial class MainWindow : Window
             if (existing.WindowState == WindowState.Minimized)
                 existing.WindowState = WindowState.Normal;
             existing.Activate();
+            NativeMethods.TryActivateWindow(new System.Windows.Interop.WindowInteropHelper(existing).Handle);
             return;
         }
         var msg = preparedMessage ?? _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);

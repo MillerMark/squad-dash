@@ -94,7 +94,10 @@ internal static class TranscriptApprovalCardBuilder
     {
         var activeGateCount = plan.ApprovalGates
             .Count(g => g.Status == PlanGateStatus.AwaitingApproval);
-        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        var activeGates = plan.ApprovalGates
+            .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
+            .OrderBy(candidate => GetGateOrder(plan, candidate))
+            .ToArray();
         var commitLinks = new List<Hyperlink>();
         Hyperlink? inboxLink = null;
 
@@ -140,7 +143,7 @@ internal static class TranscriptApprovalCardBuilder
         if (onOpenPlan is not null)
             planTitleLink.Click += (_, _) => onOpenPlan();
         progressBlock.Inlines.Add(planTitleLink);
-        var progressSuffix = $" — {snapshot.CompletedTaskCount}/{snapshot.TotalTaskCount} tasks complete";
+        var progressSuffix = $" — {snapshot.CompletedTaskCount}/{snapshot.TotalTaskCount} steps complete";
         if (snapshot.CurrentStage is not null)
             progressSuffix += $" (stage: {snapshot.CurrentStage})";
         progressBlock.Inlines.Add(new Run(progressSuffix));
@@ -150,7 +153,11 @@ internal static class TranscriptApprovalCardBuilder
         // ── Human verification question ──────────────────────────────────
         TextBlock? questionBlock = null;
         Hyperlink? inspectPlanLink = null;
-        if (!string.IsNullOrWhiteSpace(approvalQuestion))
+        var gatesWithQuestions = activeGates
+            .Select(candidate => (Gate: candidate, Question: PlanProofCapabilityPolicy.ResolveHumanQuestion(candidate)))
+            .Where(item => !string.IsNullOrWhiteSpace(item.Question))
+            .ToArray();
+        if (gatesWithQuestions.Length > 0)
         {
             var questionStack = new StackPanel();
             var questionLabel = CreateStyledTextBlock("What to verify", fontSize - 1, "SubtleText");
@@ -158,12 +165,20 @@ internal static class TranscriptApprovalCardBuilder
             questionLabel.Margin = new Thickness(0, 0, 0, 3);
             questionStack.Children.Add(questionLabel);
 
-            questionBlock = CreateStyledTextBlock(approvalQuestion, fontSize + 1, "ImportantText");
-            questionBlock.FontWeight = FontWeights.SemiBold;
-            questionBlock.TextWrapping = TextWrapping.Wrap;
-            questionBlock.Margin = new Thickness(0, 0, 0, 5);
-            AutomationProperties.SetName(questionBlock, "Approval question");
-            questionStack.Children.Add(questionBlock);
+            foreach (var (questionGate, question) in gatesWithQuestions)
+            {
+                var step = ResolveGateStepLabel(plan, questionGate);
+                var itemBlock = CreateStyledTextBlock(
+                    string.IsNullOrWhiteSpace(step) ? question! : $"Step {step}: {question}",
+                    fontSize + 1,
+                    "ImportantText");
+                itemBlock.FontWeight = FontWeights.SemiBold;
+                itemBlock.TextWrapping = TextWrapping.Wrap;
+                itemBlock.Margin = new Thickness(0, 0, 0, 5);
+                AutomationProperties.SetName(itemBlock, "Approval question");
+                questionBlock ??= itemBlock;
+                questionStack.Children.Add(itemBlock);
+            }
 
             var shortcutBlock = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
             inspectPlanLink = new Hyperlink(new Run("Open plan to inspect →"))
@@ -196,66 +211,44 @@ internal static class TranscriptApprovalCardBuilder
         // ── Completed tasks with commit evidence ─────────────────────────
         if (!includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
-            var commits = snapshot.CompletedTasks
-                .SelectMany(task => task.Commits)
-                .GroupBy(commit => commit.Link.FullSha, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
+            var orderedTasks = snapshot.CompletedTasks
+                .OrderBy(task => GetTaskOrder(plan, task.TaskId))
                 .ToArray();
-            var summary = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
-            summary.Inlines.Add(new Run(
-                $"{snapshot.CompletedTasks.Count} completed task(s) ready for review. Full evidence is "));
-            inboxLink = new Hyperlink(new Run("here"))
+            foreach (var task in orderedTasks)
             {
-                Cursor = onOpenInbox is null ? Cursors.Arrow : Cursors.Hand,
-                IsEnabled = onOpenInbox is not null,
-                ToolTip = onOpenInbox is null
-                    ? null
-                    : ToolTipHelper.MakeThemedToolTip("Open the approval request in Inbox"),
-            };
-            inboxLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            if (onOpenInbox is not null)
-                inboxLink.Click += (_, _) => onOpenInbox();
-            summary.Inlines.Add(inboxLink);
-            summary.Inlines.Add(new Run("."));
-            summary.Margin = new Thickness(0, 0, 0, commits.Length > 0 ? 2 : 6);
-            stack.Children.Add(summary);
-
-            if (commits.Length > 0)
-            {
-                var commitLine = CreateStyledTextBlock("Commits: ", fontSize - 1, "SubtleText");
-                for (var index = 0; index < commits.Length; index++)
+                var durableTask = plan.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, task.TaskId, StringComparison.Ordinal));
+                var stepLabel = durableTask?.DisplayStepLabel;
+                var summary = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
+                summary.Inlines.Add(new Run(
+                    string.IsNullOrWhiteSpace(stepLabel)
+                        ? $"{task.Title} ready for review. Full evidence is "
+                        : $"Step {stepLabel} ready for review. Full evidence is "));
+                var taskInboxLink = new Hyperlink(new Run("here"))
                 {
-                    var commit = commits[index];
-                    if (index > 0)
-                        commitLine.Inlines.Add(new Run(", "));
-                    var shaLink = new Hyperlink(new Run(commit.Link.ShortSha))
-                    {
-                        Cursor = onOpenCommit is null ? Cursors.Arrow : Cursors.Hand,
-                        IsEnabled = onOpenCommit is not null,
-                        FontFamily = new FontFamily("Consolas"),
-                        ToolTip = onOpenCommit is null
-                            ? null
-                            : ToolTipHelper.MakeThemedToolTip("Open this commit on GitHub"),
-                    };
-                    shaLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                    if (onOpenCommit is not null)
-                    {
-                        var capturedSha = commit.Link.FullSha;
-                        shaLink.Click += (_, _) => onOpenCommit(capturedSha);
-                    }
-                    commitLinks.Add(shaLink);
-                    commitLine.Inlines.Add(shaLink);
-                }
-                commitLine.Margin = new Thickness(0, 0, 0, 6);
-                stack.Children.Add(commitLine);
+                    Cursor = onOpenInbox is null ? Cursors.Arrow : Cursors.Hand,
+                    IsEnabled = onOpenInbox is not null,
+                    ToolTip = onOpenInbox is null
+                        ? null
+                        : ToolTipHelper.MakeThemedToolTip($"Open the full evidence for {task.Title} in Inbox"),
+                };
+                taskInboxLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                if (onOpenInbox is not null)
+                    taskInboxLink.Click += (_, _) => onOpenInbox();
+                inboxLink ??= taskInboxLink;
+                summary.Inlines.Add(taskInboxLink);
+                summary.Inlines.Add(new Run("."));
+                summary.Margin = new Thickness(0, 0, 0, 3);
+                stack.Children.Add(summary);
             }
+            stack.Children.Add(new Border { Height = 3 });
         }
 
         // Full handoff, verification, file, and downstream evidence belongs in Inbox.
         if (includeDetailedEvidence && snapshot.CompletedTasks.Count > 0)
         {
             var taskHeader = CreateStyledTextBlock(
-                $"✅ {snapshot.CompletedTasks.Count} completed task(s) under review:",
+                $"✅ {snapshot.CompletedTasks.Count} completed step(s) under review:",
                 fontSize, "LabelText");
             taskHeader.FontWeight = FontWeights.Medium;
             taskHeader.Margin = new Thickness(0, 0, 0, 4);
@@ -352,7 +345,7 @@ internal static class TranscriptApprovalCardBuilder
         if (includeDetailedEvidence && snapshot.DownstreamTasks.Count > 0)
         {
             var downstreamHeader = CreateStyledTextBlock(
-                $"⏭ {snapshot.DownstreamTasks.Count} task(s) unblocked by approval:",
+                $"⏭ {snapshot.DownstreamTasks.Count} step(s) unblocked by approval:",
                 fontSize - 1, "SubtleText");
             downstreamHeader.Margin = new Thickness(0, 4, 0, 2);
             stack.Children.Add(downstreamHeader);
@@ -539,11 +532,12 @@ internal static class TranscriptApprovalCardBuilder
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
         AutomationProperties.SetName(border, $"Approval card for {snapshot.PlanTitle}");
+        var questionSummary = string.Join(" ", gatesWithQuestions.Select(item => item.Question));
         AutomationProperties.SetHelpText(border,
-            $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} tasks complete. " +
-            (string.IsNullOrWhiteSpace(approvalQuestion)
-                ? $"Gate: {snapshot.GateReason}"
-                : $"Question: {approvalQuestion}"));
+            $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} steps complete. " +
+            (string.IsNullOrWhiteSpace(questionSummary)
+                ? $"Checkpoint: {snapshot.GateReason}"
+                : $"Questions: {questionSummary}"));
 
         var tag = new TranscriptApprovalCardTag(
             snapshot.PlanId, gate.GateId, requestVersion);
@@ -779,6 +773,28 @@ internal static class TranscriptApprovalCardBuilder
 
         return expander;
     }
+
+    private static int GetTaskOrder(Plan plan, string taskId)
+    {
+        for (var index = 0; index < plan.Tasks.Count; index++)
+        {
+            if (string.Equals(plan.Tasks[index].TaskId, taskId, StringComparison.Ordinal))
+                return index;
+        }
+        return int.MaxValue;
+    }
+
+    private static int GetGateOrder(Plan plan, PlanApprovalGate gate) =>
+        gate.AfterTaskIds
+            .Select(taskId => GetTaskOrder(plan, taskId))
+            .DefaultIfEmpty(int.MaxValue)
+            .Min();
+
+    private static string? ResolveGateStepLabel(Plan plan, PlanApprovalGate gate) =>
+        gate.AfterTaskIds
+            .Select(taskId => plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.DisplayStepLabel)
+            .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label));
 
     /// <summary>
     /// Builds the semi-transparent spinner overlay displayed over the card during async approval processing.

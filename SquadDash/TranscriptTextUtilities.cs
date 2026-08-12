@@ -384,10 +384,9 @@ internal static class TranscriptTextUtilities
     private static int FindInspectableSentinelIndex(string text, string sentinel)
     {
         var markerIndex = FindTopLevelSentinelIndex(text, sentinel);
-        if (markerIndex >= 0 || !string.Equals(
-                sentinel,
-                DecomposeStepResultParser.Marker,
-                StringComparison.Ordinal)) {
+        if (markerIndex >= 0 ||
+            (!string.Equals(sentinel, DecomposeStepResultParser.Marker, StringComparison.Ordinal) &&
+             !string.Equals(sentinel, PlanRecoveryAssessmentParser.Marker, StringComparison.Ordinal))) {
             return markerIndex;
         }
 

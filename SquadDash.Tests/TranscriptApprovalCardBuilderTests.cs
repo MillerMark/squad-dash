@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using NUnit.Framework;
@@ -88,7 +89,7 @@ public class TranscriptApprovalCardBuilderTests
     public void BuildApproveLabel_SingleGate_ReturnsCheckpointLabel()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
-        Assert.That(label, Does.Contain("Approve Checkpoint"));
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"));
         Assert.That(label, Does.Not.Contain("2"));
         Assert.That(label, Does.Not.Contain("✅"));
     }
@@ -116,11 +117,11 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void Build_PlanAndCommitEvidenceAreActionableLinks()
+    public void Build_PlanAndEvidenceAreActionableLinks()
     {
         var plan = BuildTestPlan();
         var openedPlan = false;
-        string? openedCommit = null;
+        var openedInbox = false;
         var card = TranscriptApprovalCardBuilder.Build(
             BuildTestSnapshot(),
             plan,
@@ -128,16 +129,16 @@ public class TranscriptApprovalCardBuilderTests
             14,
             _ => { },
             onOpenPlan: () => openedPlan = true,
-            onOpenCommit: sha => openedCommit = sha);
+            onOpenInbox: () => openedInbox = true);
 
         card.PlanLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
-        card.CommitLinks[0].RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        card.InboxLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
 
         Assert.Multiple(() =>
         {
             Assert.That(openedPlan, Is.True);
-            Assert.That(openedCommit, Is.EqualTo("abc1234567890"));
-            Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
+            Assert.That(openedInbox, Is.True);
+            Assert.That(card.CommitLinks, Is.Empty);
         });
     }
 
@@ -196,8 +197,49 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(directText, Has.None.Contains("Review completed tasks before continuing"));
             Assert.That(directText, Has.None.Contains("unblocked by approval"));
             Assert.That(card.ContentStack.Children.OfType<Expander>(), Is.Empty);
-            Assert.That(card.CommitLinks, Has.Count.EqualTo(2));
+            Assert.That(card.CommitLinks, Is.Empty);
             Assert.That(openedInbox, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_MultiplePendingCheckpoints_SummarizesQuestionsAndStepsInPlanOrder()
+    {
+        var original = BuildTestPlan();
+        var tasks = original.Tasks.Select((task, index) => task with
+        {
+            DisplayStepLabel = (index + 6).ToString(),
+        }).ToArray();
+        var gate6 = original.ApprovalGates[0] with
+        {
+            AfterTaskIds = ["task-1"],
+            Question = "Does the Step 6 behavior work?",
+        };
+        var gate7 = new PlanApprovalGate(
+            "gate-2",
+            "Review Step 7",
+            ["task-2"],
+            ["task-3"],
+            PlanGateStatus.AwaitingApproval,
+            Question: "Does the Step 7 transcript look correct?");
+        var plan = original with { Tasks = tasks, ApprovalGates = [gate6, gate7] };
+
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, gate6, 14, _ => { }, onOpenInbox: () => { });
+        var directText = card.ContentStack.Children
+            .OfType<TextBlock>()
+            .Select(block => new TextRange(block.ContentStart, block.ContentEnd).Text)
+            .ToArray();
+        var helpText = AutomationProperties.GetHelpText((Border)card.Container.Child);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(helpText, Does.Contain("Does the Step 6 behavior work?"));
+            Assert.That(helpText, Does.Contain("Does the Step 7 transcript look correct?"));
+            Assert.That(directText, Has.Some.Contains("Step 6 ready for review. Full evidence is here."));
+            Assert.That(directText, Has.Some.Contains("Step 7 ready for review. Full evidence is here."));
+            Assert.That(card.ApproveButton.Content?.ToString(),
+                Is.EqualTo("Approve both checkpoints and continue"));
         });
     }
 
@@ -217,11 +259,10 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test]
-    public void BuildApproveLabel_MultipleGates_IncludesCount()
+    public void BuildApproveLabel_MultipleGates_UsesAllWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(3);
-        Assert.That(label, Does.Contain("3"));
-        Assert.That(label, Does.Contain("Ready Checkpoints"));
+        Assert.That(label, Is.EqualTo("Approve all checkpoints and continue"));
     }
 
     [Test]
@@ -292,16 +333,15 @@ public class TranscriptApprovalCardBuilderTests
     public void BuildApproveLabel_ZeroGates_ReturnsCheckpointLabel()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(0);
-        Assert.That(label, Does.Contain("Approve Checkpoint"));
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"));
         Assert.That(label, Does.Not.Contain("0"));
     }
 
     [Test]
-    public void BuildApproveLabel_ExactlyTwoGates_IncludesCount()
+    public void BuildApproveLabel_ExactlyTwoGates_UsesBothWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(2);
-        Assert.That(label, Does.Contain("2"));
-        Assert.That(label, Does.Contain("Ready Checkpoints"));
+        Assert.That(label, Is.EqualTo("Approve both checkpoints and continue"));
     }
 
     [Test]
@@ -309,7 +349,7 @@ public class TranscriptApprovalCardBuilderTests
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
         Assert.That(label, Does.Not.Contain("Ready Checkpoints"));
-        Assert.That(label, Does.Contain("Checkpoint"));
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"));
     }
 
     [Test]

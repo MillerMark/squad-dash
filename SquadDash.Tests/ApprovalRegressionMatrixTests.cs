@@ -486,7 +486,7 @@ internal sealed class ApprovalRegressionMatrixTests
     {
         // Boundary: zero active gates shouldn't happen in practice, but verify behavior
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(0);
-        Assert.That(label, Does.Contain("Approve Checkpoint"),
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"),
             "Zero or one gate should use singular form");
     }
 
@@ -494,23 +494,22 @@ internal sealed class ApprovalRegressionMatrixTests
     public void BuildApproveLabel_ExactlyOne_UsesSingularForm()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(1);
-        Assert.That(label, Does.Contain("Approve Checkpoint"));
+        Assert.That(label, Is.EqualTo("Approve checkpoint and continue"));
         Assert.That(label, Does.Not.Contain("Checkpoints"));
     }
 
     [Test]
-    public void BuildApproveLabel_Two_UsesPluralFormWithCount()
+    public void BuildApproveLabel_Two_UsesBothWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(2);
-        Assert.That(label, Does.Contain("2"));
-        Assert.That(label, Does.Contain("Checkpoints"));
+        Assert.That(label, Is.EqualTo("Approve both checkpoints and continue"));
     }
 
     [Test]
-    public void BuildApproveLabel_LargeNumber_ShowsCount()
+    public void BuildApproveLabel_LargeNumber_UsesAllWording()
     {
         var label = ApprovalCardNotificationCoordinator.BuildApproveLabel(99);
-        Assert.That(label, Does.Contain("99"));
+        Assert.That(label, Is.EqualTo("Approve all checkpoints and continue"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

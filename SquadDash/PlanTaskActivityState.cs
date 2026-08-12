@@ -9,6 +9,9 @@ internal enum PlanTaskActivityState
     /// <summary>Task is actively executing (spinner indicator).</summary>
     Executing,
 
+    /// <summary>Existing repository work is being assessed before interrupted execution continues.</summary>
+    Assessing,
+
     /// <summary>Candidate work is being independently checked before acceptance.</summary>
     Verifying,
 
@@ -42,6 +45,7 @@ internal static class PlanTaskActivityPresentation
     {
         PlanTaskActivityState.VerificationPending => $"Step {stepLabel} - Verification pending",
         PlanTaskActivityState.Verifying => $"Step {stepLabel} - Verifying",
+        PlanTaskActivityState.Assessing => $"Step {stepLabel} - Assessing",
         _ => $"Step {stepLabel}",
     };
 }

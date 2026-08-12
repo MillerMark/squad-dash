@@ -335,6 +335,23 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_InlinePlanRecoveryAssessment_StripsPayloadAndKeepsJsonInspectable()
+    {
+        const string text = "Review complete. PLAN_RECOVERY_ASSESSMENT_JSON:\n" +
+            "{ \"planId\": \"PLAN-1\", \"classification\": \"complete\" }";
+
+        var blocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo("Review complete."));
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(blocks[0].Marker, Is.EqualTo("PLAN_RECOVERY_ASSESSMENT_JSON"));
+            Assert.That(blocks[0].Json, Does.Contain("\"classification\": \"complete\""));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_RecoveryOptionsAndGateApproval_StripsHostPayloads()
     {
         const string recoveryOptions = """

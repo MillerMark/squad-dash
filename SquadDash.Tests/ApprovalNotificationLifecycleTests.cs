@@ -255,7 +255,7 @@ internal sealed class ApprovalNotificationLifecycleTests
 
         var afterActions = _inbox.GetById(messageId)!.Actions;
         Assert.That(afterActions, Has.Count.GreaterThan(0));
-        Assert.That(afterActions[0].Label, Does.Contain("2 Ready Checkpoints"),
+        Assert.That(afterActions[0].Label, Is.EqualTo("Approve both checkpoints and continue"),
             "Actions must be rebuilt to reflect new gate count after replacement");
     }
 
@@ -595,7 +595,7 @@ internal sealed class ApprovalNotificationLifecycleTests
 
         await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], MakeSnapshot());
         var msg1 = _inbox.GetById(MessageIdFor("PLAN-001"))!;
-        Assert.That(msg1.Actions[0].Label, Does.Contain("Approve Checkpoint"),
+        Assert.That(msg1.Actions[0].Label, Is.EqualTo("Approve checkpoint and continue"),
             "Single gate should have singular label");
 
         var gate2 = new PlanApprovalGate("GATE-B", "Second", ["T3"], ["T4"], PlanGateStatus.AwaitingApproval);
@@ -606,7 +606,7 @@ internal sealed class ApprovalNotificationLifecycleTests
             extraGates: [gate2]);
         await _durableManager.AppendCheckpointAsync(expanded, gate2, MakeSnapshot(gateId: "GATE-B"));
         var msg2 = _inbox.GetById(MessageIdFor("PLAN-001"))!;
-        Assert.That(msg2.Actions[0].Label, Does.Contain("2 Ready Checkpoints"),
+        Assert.That(msg2.Actions[0].Label, Is.EqualTo("Approve both checkpoints and continue"),
             "Multiple gates should have plural label with count");
     }
 

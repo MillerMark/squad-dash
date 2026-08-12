@@ -17,6 +17,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double BaseColumnSpacing = 360;
     private const double BaseRowSpacing = 152;
     private const string VerityCrossHandle = "verity-cross";
+    private const string SquadCoordinatorHandle = "Squad";
 
     private double _scaleFactor;
     private double NodeWidth;
@@ -48,10 +49,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan>? _onReplanRemainingWork;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
+    private readonly Func<string, bool>? _isRecoveryAssessmentActive;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
     private Action<PlanValidationActivityPulseEvent>? _validationActivityPulseHandler;
+    private Action<PlanRecoveryAssessmentActivityEvent>? _recoveryAssessmentActivityHandler;
+    private readonly HashSet<string> _recoveryAssessmentTaskIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _validationSpinnersById =
@@ -88,6 +92,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<string>? onOpenCommit = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
+        Func<string, bool>? isRecoveryAssessmentActive = null,
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
         Action<Plan>? onContinueInterruptedTask = null,
@@ -126,6 +131,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onReplanRemainingWork = onReplanRemainingWork;
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
+        _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
 
         Title     = $"Plan — {plan.Group.GroupTitle}";
         Width     = 1200;
@@ -183,6 +189,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             broker.Subscribe(_validationActivityPulseHandler);
             Closed += (_, _) => broker.Unsubscribe(_validationActivityPulseHandler);
+
+            _recoveryAssessmentActivityHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyActivity()
+                {
+                    if (activity.IsActive)
+                        _recoveryAssessmentTaskIds.Add(activity.TaskId);
+                    else
+                        _recoveryAssessmentTaskIds.Remove(activity.TaskId);
+                    if (_plan is not null && _durablePlan is not null)
+                        RebuildPreservingScroll(_plan, _durablePlan);
+                }
+                if (Dispatcher.CheckAccess()) ApplyActivity();
+                else Dispatcher.BeginInvoke(ApplyActivity);
+            };
+            broker.Subscribe(_recoveryAssessmentActivityHandler);
+            Closed += (_, _) => broker.Unsubscribe(_recoveryAssessmentActivityHandler);
         }
     }
 
@@ -1673,7 +1698,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var activityState = taskActivityById.TryGetValue(task.Id, out var resolvedActivityState)
                 ? resolvedActivityState
                 : PlanTaskActivityState.Queued;
+            if (_recoveryAssessmentTaskIds.Contains(task.Id) ||
+                (_isRecoveryAssessmentActive?.Invoke(task.Id) ?? false))
+                activityState = PlanTaskActivityState.Assessing;
             var isTaskExecuting = activityState is PlanTaskActivityState.Executing or
+                PlanTaskActivityState.Assessing or
                 PlanTaskActivityState.Verifying or
                 PlanTaskActivityState.Reworking;
             var prereqLines = task.DependsOn.Count == 0
@@ -1727,7 +1756,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             if (isTaskExecuting)
             {
-                var spinnerOnRight = activityState == PlanTaskActivityState.Verifying;
+                var spinnerOnRight = activityState is PlanTaskActivityState.Verifying or
+                    PlanTaskActivityState.Assessing;
                 var spinner = new ActivitySpinner
                 {
                     VerticalAlignment = VerticalAlignment.Top,
@@ -1741,6 +1771,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         PlanTaskActivityState.Verifying =>
                             "SquadDash is independently checking the candidate work and looking for missing or overstated claims.",
+                        PlanTaskActivityState.Assessing =>
+                            "The Squad coordinator is assessing existing repository work before the interrupted plan continues.",
                         PlanTaskActivityState.Reworking =>
                             "The task is receiving its one bounded automatic correction.",
                         _ => "This task is actively receiving work from one or more agents.",
@@ -2146,6 +2178,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(verityChip, position.Y - chipSize);
                     Panel.SetZIndex(verityChip, 35);
                     canvas.Children.Add(verityChip);
+                }
+            }
+
+            // Assess & Continue is coordinator-owned. Mirror the fact-checker placement so
+            // the upper-right avatar and right-side spinner describe the same active work.
+            if (activityState == PlanTaskActivityState.Assessing && _resolveAgentAvatar is not null)
+            {
+                var coordinatorInfo = _resolveAgentAvatar(SquadCoordinatorHandle);
+                if (coordinatorInfo is not null)
+                {
+                    var chipSize = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
+                    var coordinatorChip = CreateAgentAvatarChip(
+                        coordinatorInfo, chipSize, SquadCoordinatorHandle);
+                    coordinatorChip.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Squad — Coordinator (assessing completed work)");
+                    coordinatorChip.Tag = $"agent:{SquadCoordinatorHandle}";
+                    WireSelectionClick(coordinatorChip);
+                    Canvas.SetLeft(coordinatorChip, position.X + NodeWidth - chipSize - 4 * _scaleFactor);
+                    Canvas.SetTop(coordinatorChip, position.Y - chipSize);
+                    Panel.SetZIndex(coordinatorChip, 35);
+                    canvas.Children.Add(coordinatorChip);
                 }
             }
 
@@ -3346,6 +3399,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 menu.Items.Add(toggleItem);
                 hitTarget.ContextMenu = menu;
             }
+
         }
         return hitTarget;
     }

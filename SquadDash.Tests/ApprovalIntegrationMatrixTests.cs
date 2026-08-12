@@ -121,7 +121,7 @@ internal sealed class ApprovalIntegrationMatrixTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg, Is.Not.Null);
-        Assert.That(msg!.Body, Does.Contain("3/5 tasks"),
+        Assert.That(msg!.Body, Does.Contain("3/5 steps"),
             "Body should reflect updated progress");
     }
 
@@ -347,7 +347,7 @@ internal sealed class ApprovalIntegrationMatrixTests
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B", "GATE-C"]);
 
         Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Does.Contain("3 Ready Checkpoints"));
+        Assert.That(actions[0].Label, Is.EqualTo("Approve all checkpoints and continue"));
         Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-A", "GATE-B", "GATE-C" }));

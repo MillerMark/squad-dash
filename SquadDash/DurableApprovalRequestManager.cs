@@ -277,6 +277,7 @@ internal sealed class DurableApprovalRequestManager
             {
                 var updated = existing with
                 {
+                    Read = true,
                     Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints, reviewSnapshot),
                     Actions = BuildActions(plan, newState),
                     Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
@@ -565,24 +566,27 @@ internal sealed class DurableApprovalRequestManager
         var parts = new List<string>();
 
         parts.Add($"**{plan.Title}**  ");
-        parts.Add($"Progress: {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks");
+        parts.Add($"Progress: {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} steps");
 
         if (activeGateIds.Count > 0)
         {
             parts.Add("");
             parts.Add($"**{activeGateIds.Count} checkpoint(s) awaiting approval:**");
-            foreach (var gateId in activeGateIds)
+            foreach (var gateId in activeGateIds.OrderBy(gateId => GetGateOrder(plan, gateId)))
             {
                 var gate = plan.ApprovalGates.FirstOrDefault(
                     g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
                 var reason = gate?.Message ?? gateId;
-                parts.Add($"- {reason}");
+                var stepLabel = gate is null ? null : ResolveGateStepLabel(plan, gate);
+                parts.Add(string.IsNullOrWhiteSpace(stepLabel)
+                    ? $"- {reason}"
+                    : $"- **Step {stepLabel}:** {reason}");
                 var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
                 if (!string.IsNullOrWhiteSpace(question))
                     parts.Add($"  - **What to verify:** {question}");
             }
 
-            AppendReviewEvidence(parts, snapshot);
+            AppendReviewEvidence(parts, plan, activeGateIds, snapshot);
         }
 
         if (resolvedCheckpoints.Count > 0)
@@ -610,18 +614,44 @@ internal sealed class DurableApprovalRequestManager
         return string.Join("\n", parts);
     }
 
-    private static void AppendReviewEvidence(List<string> parts, ApprovalReviewSnapshot? snapshot)
+    private static void AppendReviewEvidence(
+        List<string> parts,
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        ApprovalReviewSnapshot? snapshot)
     {
         if (snapshot is null)
             return;
 
-        if (snapshot.CompletedTasks.Count > 0)
+        var activeGates = activeGateIds
+            .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)))
+            .Where(gate => gate is not null)
+            .Cast<PlanApprovalGate>()
+            .ToArray();
+        var reviewTaskIds = activeGates
+            .SelectMany(gate => gate.AfterTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var downstreamTaskIds = activeGates
+            .SelectMany(gate => gate.BeforeTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var completedTasks = snapshot.CompletedTasks
+            .Where(task => reviewTaskIds.Contains(task.TaskId))
+            .OrderBy(task => GetTaskOrder(plan, task.TaskId))
+            .ToArray();
+
+        if (completedTasks.Length > 0)
         {
             parts.Add("");
             parts.Add("**Completed work ready for review**");
-            foreach (var task in snapshot.CompletedTasks)
+            foreach (var task in completedTasks)
             {
-                parts.Add($"- **{task.Title}**");
+                var durableTask = plan.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, task.TaskId, StringComparison.Ordinal));
+                var heading = string.IsNullOrWhiteSpace(durableTask?.DisplayStepLabel)
+                    ? task.Title
+                    : $"Step {durableTask.DisplayStepLabel}: {task.Title}";
+                parts.Add($"- **{heading}**");
                 if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
                     parts.Add($"  - Handoff: {task.CompletionSummary}");
                 if (!string.IsNullOrWhiteSpace(task.VerificationSummary))
@@ -639,22 +669,58 @@ internal sealed class DurableApprovalRequestManager
             }
         }
 
-        if (snapshot.AllChangedFiles.Count > 0)
+        var reviewCommitIds = completedTasks
+            .SelectMany(task => task.Commits)
+            .Select(commit => commit.Link.FullSha)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changedFiles = snapshot.AllChangedFiles
+            .Where(file => reviewCommitIds.Contains(file.CommitSha))
+            .ToArray();
+        if (changedFiles.Length > 0)
         {
             parts.Add("");
-            parts.Add($"**Changed files ({snapshot.AllChangedFiles.Count})**");
-            foreach (var file in snapshot.AllChangedFiles)
+            parts.Add($"**Changed files ({changedFiles.Length})**");
+            foreach (var file in changedFiles)
                 parts.Add($"- `{file.FilePath}` · {file.Status} · +{file.Insertions}/-{file.Deletions}");
         }
 
-        if (snapshot.DownstreamTasks.Count > 0)
+        var downstreamTasks = snapshot.DownstreamTasks
+            .Where(task => downstreamTaskIds.Contains(task.TaskId))
+            .OrderBy(task => GetTaskOrder(plan, task.TaskId))
+            .ToArray();
+        if (downstreamTasks.Length > 0)
         {
             parts.Add("");
             parts.Add("**Approval allows this work to continue**");
-            foreach (var task in snapshot.DownstreamTasks)
+            foreach (var task in downstreamTasks)
                 parts.Add($"- {task.Title}");
         }
     }
+
+    private static int GetTaskOrder(Plan plan, string taskId)
+    {
+        for (var index = 0; index < plan.Tasks.Count; index++)
+        {
+            if (string.Equals(plan.Tasks[index].TaskId, taskId, StringComparison.Ordinal))
+                return index;
+        }
+        return int.MaxValue;
+    }
+
+    private static int GetGateOrder(Plan plan, string gateId)
+    {
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        return gate is null
+            ? int.MaxValue
+            : gate.AfterTaskIds.Select(taskId => GetTaskOrder(plan, taskId)).DefaultIfEmpty(int.MaxValue).Min();
+    }
+
+    private static string? ResolveGateStepLabel(Plan plan, PlanApprovalGate gate) =>
+        gate.AfterTaskIds
+            .Select(taskId => plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.DisplayStepLabel)
+            .FirstOrDefault(label => !string.IsNullOrWhiteSpace(label));
 
     internal static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,

@@ -42,7 +42,7 @@ internal sealed class ApprovalCardNotificationCoordinator
         _sound.Play(SoundEvent.ApprovalNeeded);
 
         var title = "Plan Approval Required";
-        var message = $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} tasks complete. Gate: {gate.Message}";
+        var message = $"{plan.Title} — {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} steps complete. Checkpoint: {gate.Message}";
 
         _ = _push.NotifyEventAsync("plan_gate_approval_required", title, message);
 
@@ -52,8 +52,10 @@ internal sealed class ApprovalCardNotificationCoordinator
     /// <summary>
     /// Builds the scope-aware label for the approve button based on active gate count.
     /// </summary>
-    internal static string BuildApproveLabel(int activeGateCount) =>
-        activeGateCount > 1
-            ? $"Approve {activeGateCount} Ready Checkpoints & Continue"
-            : "Approve Checkpoint & Continue";
+    internal static string BuildApproveLabel(int activeGateCount) => activeGateCount switch
+    {
+        2 => "Approve both checkpoints and continue",
+        > 2 => "Approve all checkpoints and continue",
+        _ => "Approve checkpoint and continue",
+    };
 }
