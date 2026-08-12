@@ -61,8 +61,11 @@ internal static class PlanLoopTranscriptPresentation
     internal static string BuildVerifyingCompletedWorkMessage(Plan plan, string? taskId, string? taskTitle)
     {
         var task = ResolveTask(plan, taskId, taskTitle);
-        var identity = BuildProgressIdentity(plan, task);
-        return $"Verifying completed work for {identity}. The implementation will not be run again.";
+        var displayLabel = task?.DisplayStepLabel?.Trim();
+        var subject = string.IsNullOrWhiteSpace(displayLabel)
+            ? "work for the current step"
+            : $"Step {displayLabel}";
+        return $"Reviewing the completed {subject}. No code changes will occur during this review.";
     }
 
     internal static string BuildTaskIdentity(Plan plan, string? taskId, string? taskTitle)

@@ -249,4 +249,27 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Contain("Do not re-run any tools"));
         });
     }
+
+    [Test]
+    public void ProofEvidenceCorrection_ShowsActualResultSchemaWithRequiredSummary()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.BuildProofEvidenceCorrection(
+        [
+            new DecomposedTaskProofRequirement(
+                "modelprof-build-007",
+                "build",
+                "Project builds without errors."),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"requirementId\":\"modelprof-build-007\""));
+            Assert.That(prompt, Does.Contain("\"proofType\":\"build\""));
+            Assert.That(prompt, Does.Contain("\"summary\":"));
+            Assert.That(prompt, Does.Contain("`summary` is required"));
+            Assert.That(prompt, Does.Not.Contain("\"description\":"));
+            Assert.That(prompt, Does.Not.Contain("\"detail\":"));
+            Assert.That(prompt, Does.Not.Contain("\"passed\":"));
+        });
+    }
 }

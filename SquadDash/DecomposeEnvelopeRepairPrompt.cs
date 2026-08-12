@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SquadDash;
 
 internal static class DecomposeEnvelopeRepairPrompt
@@ -35,5 +37,23 @@ internal static class DecomposeEnvelopeRepairPrompt
 
             Preserve every deliberate deferral from the previous handoff. Each deferredWork entry must name the exact requirement, reason, and downstream ownerTaskIds. Do not invent a deferral while repairing the envelope.
             """;
+    }
+
+    internal static string BuildProofEvidenceCorrection(
+        IReadOnlyList<DecomposedTaskProofRequirement> requirements)
+    {
+        var evidenceTemplate = requirements.Select(requirement => new
+        {
+            requirementId = requirement.RequirementId,
+            proofType = requirement.ProofType,
+            summary = $"<what was actually observed for: {requirement.Description}>",
+            artifacts = Array.Empty<string>(),
+        });
+
+        return "The approved task requires `proofEvidence`. Add the following array to the result " +
+               "envelope. Return one object per requirement, preserve each requirementId and proofType " +
+               "exactly, and replace each summary placeholder with the evidence actually observed. " +
+               "`summary` is required; do not substitute `description`, `detail`, or `passed`.\n" +
+               "\"proofEvidence\": " + JsonSerializer.Serialize(evidenceTemplate);
     }
 }

@@ -6428,7 +6428,7 @@ public partial class MainWindow : Window
         {
             var validatingPlan = _planStore?.Load(_activeDecomposeGroupId!);
             ScheduleDecomposeSystemEntry(validatingPlan is null
-                ? "Verifying completed work. The implementation will not be run again."
+                ? "Reviewing completed work. No code changes will occur during this review."
                 : PlanLoopTranscriptPresentation.BuildVerifyingCompletedWorkMessage(
                     validatingPlan,
                     currentTaskId,
@@ -10962,10 +10962,9 @@ public partial class MainWindow : Window
                     var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
                     if (resultRequirements.Count > 0)
                     {
-                        repairPrompt += "\n\nThe approved task also requires this exact worker-owned " +
-                                        "`proofEvidence` contract. Return one evidence object per requirement and " +
-                                        "do not change proofType:\n" +
-                                        JsonSerializer.Serialize(resultRequirements);
+                        repairPrompt += "\n\n" +
+                                        DecomposeEnvelopeRepairPrompt.BuildProofEvidenceCorrection(
+                                            resultRequirements);
                     }
                 }
                 if (assignmentEvidenceError is not null && expectedAssignments is { Count: > 0 })

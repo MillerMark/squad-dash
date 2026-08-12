@@ -71,8 +71,8 @@ internal sealed class PlanLoopTranscriptPresentationTests
 
         var text = PlanLoopTranscriptPresentation.BuildVerifyingCompletedWorkMessage(plan, task.TaskId, task.Title);
 
-        Assert.That(text, Does.StartWith(
-            "Verifying completed work for 4 of 8 complete (Step \"4A\")"));
+        Assert.That(text, Is.EqualTo(
+            "Reviewing the completed Step 4A. No code changes will occur during this review."));
     }
 
     [TestCase(PlanTranscriptPhase.VerifyingWork, "Verifying work · Step 2 of 2 · Second task")]
