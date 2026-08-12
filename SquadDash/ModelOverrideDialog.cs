@@ -151,7 +151,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
     private void BuildProfileRadioButtons(StackPanel container) {
         var notSetLabel = string.IsNullOrWhiteSpace(_effectiveProfileAlias)
             ? "No override"
-            : $"No override (currently using {_effectiveProfileAlias} from the settings)";
+            : $"No override (currently {_effectiveProfileAlias} from settings)";
         _notSetRadio = new RadioButton {
             Content = notSetLabel,
             GroupName = "ProfileOverride",
