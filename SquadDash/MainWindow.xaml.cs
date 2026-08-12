@@ -8967,11 +8967,18 @@ public partial class MainWindow : Window
 
         var planTitle = new TextBlock
         {
-            Text = current.Title,
             FontSize = _transcriptFontSize,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8),
         };
+        var planLink = new Hyperlink(new Run(current.Title))
+        {
+            Cursor = Cursors.Hand,
+            ToolTip = "Open plan",
+        };
+        planLink.Click += (_, _) => OpenPlanFromStore(current);
+        AutomationProperties.SetName(planLink, $"Open plan {current.Title}");
+        planTitle.Inlines.Add(planLink);
         planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         stack.Children.Add(planTitle);
 
@@ -9010,8 +9017,9 @@ public partial class MainWindow : Window
             "Approve revision and continue",
             _transcriptFontSize);
         var revise = TranscriptQuickReplyFactory.CreateButton(
-            "Revise proposal",
+            "✏️ Revise proposal",
             _transcriptFontSize);
+        AutomationProperties.SetName(revise, "Revise proposal");
         var keep = TranscriptQuickReplyFactory.CreateButton(
             "Keep current plan",
             _transcriptFontSize);
