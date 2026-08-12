@@ -395,6 +395,24 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_InlinePlanRevisionMarker_StripsAcceptedPayloadAndKeepsJsonInspectable()
+    {
+        const string text = "Doing this myself. PLAN_REVISION_JSON:\n" +
+            "{ \"planId\": \"PLAN-1\", \"baseRevision\": \"rev-1\", \"summary\": \"Change step 7\", " +
+            "\"operations\": [{ \"op\": \"updatePlan\", \"patch\": { \"summary\": \"Changed\" } }] }";
+
+        var blocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo("Doing this myself."));
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(blocks[0].Marker, Is.EqualTo("PLAN_REVISION_JSON"));
+            Assert.That(blocks[0].Json, Does.Contain("operations"));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_FencedTasksJsonExample_RemainsVisible()
     {
         const string text = """

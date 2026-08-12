@@ -11,7 +11,32 @@ internal sealed record PlanRevisionProposalPayload(
     [property: JsonPropertyName("reopenTaskIds")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<string>? ReopenTaskIds,
-    [property: JsonPropertyName("revisedPlan")] DecomposedTaskGroup RevisedPlan);
+    // Retained only so approval proposals created by older SquadDash builds remain recoverable.
+    // New model responses must use Operations and never regenerate the complete plan.
+    [property: JsonPropertyName("revisedPlan")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposedTaskGroup? RevisedPlan = null,
+    [property: JsonPropertyName("operations")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanRevisionOperation>? Operations = null);
+
+internal sealed record PlanRevisionOperation(
+    [property: JsonPropertyName("op")] string Op,
+    [property: JsonPropertyName("targetId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? TargetId = null,
+    [property: JsonPropertyName("patch")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    JsonElement? Patch = null,
+    [property: JsonPropertyName("task")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposedSubTask? Task = null,
+    [property: JsonPropertyName("approvalGate")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposedGate? ApprovalGate = null,
+    [property: JsonPropertyName("validation")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposedValidationNode? Validation = null);
 
 internal sealed record PendingPlanRevisionProposal(
     [property: JsonPropertyName("proposalId")] string ProposalId,
@@ -45,22 +70,16 @@ internal static class PlanRevisionProposalParser
         }
 
         var payload = extraction.Payload;
-        var reopenIds = payload.ReopenTaskIds?
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
         if (string.IsNullOrWhiteSpace(payload.PlanId) ||
             string.IsNullOrWhiteSpace(payload.BaseRevision) ||
-            string.IsNullOrWhiteSpace(payload.Summary) ||
-            payload.RevisedPlan is null)
+            string.IsNullOrWhiteSpace(payload.Summary))
         {
-            error = "PlanId, baseRevision, summary, and revisedPlan are required.";
+            error = "planId, baseRevision, and summary are required.";
             return false;
         }
-        if (!string.Equals(payload.PlanId, payload.RevisedPlan.GroupId, StringComparison.Ordinal))
+        if (payload.Operations is not { Count: > 0 })
         {
-            error = "planId must match revisedPlan.groupId.";
+            error = "operations must contain at least one delta operation. Do not return revisedPlan.";
             return false;
         }
 
@@ -69,7 +88,13 @@ internal static class PlanRevisionProposalParser
             PlanId = payload.PlanId.Trim(),
             BaseRevision = payload.BaseRevision.Trim(),
             Summary = payload.Summary.Trim(),
-            ReopenTaskIds = reopenIds,
+            ReopenTaskIds = null,
+            RevisedPlan = null,
+            Operations = payload.Operations.Select(operation => operation with
+            {
+                Op = operation.Op?.Trim() ?? string.Empty,
+                TargetId = string.IsNullOrWhiteSpace(operation.TargetId) ? null : operation.TargetId.Trim(),
+            }).ToArray(),
         };
         return true;
     }
@@ -91,6 +116,9 @@ internal static class PlanRevisionProposalParser
         var intent = proposal is null
             ? "Preserve the user's requested plan change."
             : $"Preserve this intended revision: {proposal.Summary}";
+        var identity = proposal is null
+            ? "Use the exact planId and baseRevision from the original revision request."
+            : $"Use planId {proposal.PlanId} and baseRevision {proposal.BaseRevision}.";
         return $$"""
             Your PLAN_REVISION_JSON response did not satisfy SquadDash's required schema.
 
@@ -98,8 +126,14 @@ internal static class PlanRevisionProposalParser
             {{validationError}}
 
             {{intent}}
-            Return exactly one corrected PLAN_REVISION_JSON block. Do not add commentary and do not make source changes.
-            Read `.squad/instructions/decompose-planning.md` and use its complete TASKS_JSON task schema for `revisedPlan`.
+            {{identity}}
+            Return exactly one corrected PLAN_REVISION_JSON block. Do not add commentary, return a complete plan, or make source changes.
+            The object must contain planId, baseRevision, summary, and a non-empty operations array.
+            Use only these delta operations: updatePlan, reopenTask, updateTask, addTask, removeTask,
+            updateApprovalGate, addApprovalGate, removeApprovalGate, updateValidation, addValidation,
+            and removeValidation. Update operations require targetId and a patch containing only changed fields.
+            Add operations require the complete task, approvalGate, or validation being added. Remove and reopen
+            operations require targetId. Keep planId and baseRevision unchanged.
             """;
     }
 }
@@ -195,7 +229,7 @@ internal static class PlanRevisionPromptInjection
         return $$"""
             ## Optional revision of an unfinished plan
 
-            The plan executor is currently at a durable boundary. If, and only if, the user's request asks to change one of the unfinished plans below, do not edit source files in this turn. Read the exact durable plan file and `.squad/instructions/decompose-planning.md`, then propose the complete revised definition with exactly one `PLAN_REVISION_JSON:` object.
+            The plan executor is currently at a durable boundary. If, and only if, the user's request asks to change one of the unfinished plans below, do not edit source files in this turn. Read the exact durable plan file, then propose only the requested changes with exactly one `PLAN_REVISION_JSON:` object.
 
             {{string.Join("\n", lines)}}
 
@@ -205,12 +239,23 @@ internal static class PlanRevisionPromptInjection
               "planId": "exact eligible plan ID",
               "baseRevision": "exact current revision",
               "summary": "short user-facing description of the proposed change",
-              "reopenTaskIds": ["completed or failed task IDs whose accepted specification must change"],
-              "revisedPlan": { "the complete TASKS_JSON group object using the existing groupId": true }
+              "operations": [
+                { "op": "reopenTask", "targetId": "completed task ID whose specification must change" },
+                { "op": "updateTask", "targetId": "task ID", "patch": { "description": "only changed fields" } },
+                { "op": "updateValidation", "targetId": "validation ID", "patch": { "assertions": ["replacement assertions"] } }
+              ]
             }
             ```
 
-            `reopenTaskIds` may be omitted when only pending, unstarted work changes. Preserve completed task definitions unless their IDs are explicitly listed for reopening. Update downstream pending tasks and validations when the new contract affects them. The response creates a proposal only: a human must approve it before SquadDash changes the durable plan or resumes execution. If several plans are listed and the user did not identify one unambiguously, ask one concise question and do not emit PLAN_REVISION_JSON.
+            Allowed operations are updatePlan, reopenTask, updateTask, addTask, removeTask, updateApprovalGate,
+            addApprovalGate, removeApprovalGate, updateValidation, addValidation, and removeValidation. Update operations
+            require `targetId` and `patch`; include only fields that change. Add operations require one complete `task`,
+            `approvalGate`, or `validation`. Remove and reopen operations require `targetId`. Never return `revisedPlan`
+            or copy unaffected definitions. A completed task can change only when preceded by a reopenTask operation;
+            its accepted execution history remains preserved. Update downstream pending tasks and validations when the new
+            contract affects them. The response creates a proposal only: a human must approve it before SquadDash changes
+            the durable plan or resumes execution. If several plans are listed and the user did not identify one
+            unambiguously, ask one concise question and do not emit PLAN_REVISION_JSON.
             """;
     }
 

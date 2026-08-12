@@ -8709,10 +8709,17 @@ public partial class MainWindow : Window
         string? responseSource,
         TranscriptTurnView? ownerView)
     {
-        var reopened = payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal);
+        if (!PlanRevisionDeltaApplier.TryMaterialize(
+                current, payload, out var revisedPlan, out var reopened, out var materializationError) ||
+            revisedPlan is null)
+        {
+            QueuePlanRevisionRepair(materializationError ?? "The plan revision delta was invalid.", payload);
+            return;
+        }
+
         var result = PlanRevisionApplier.Apply(
             current,
-            payload.RevisedPlan,
+            revisedPlan,
             payload.BaseRevision,
             DateTimeOffset.UtcNow,
             reopened);
@@ -8855,10 +8862,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        var reopened = pending.Payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal);
+        if (!PlanRevisionDeltaApplier.TryMaterialize(
+                current, pending.Payload, out var revisedPlan, out var reopened, out var materializationError) ||
+            revisedPlan is null)
+        {
+            status.Text = "The proposal could not be applied: " +
+                          (materializationError ?? "delta validation failed");
+            actions.IsEnabled = true;
+            return;
+        }
+
         var result = PlanRevisionApplier.Apply(
             current,
-            pending.Payload.RevisedPlan,
+            revisedPlan,
             pending.Payload.BaseRevision,
             DateTimeOffset.UtcNow,
             reopened);
@@ -8961,7 +8977,8 @@ public partial class MainWindow : Window
         AddLabel("Proposed change");
         AddBody(pending.Payload.Summary, 8);
         AddLabel("Impact");
-        var reopenIds = pending.Payload.ReopenTaskIds ?? [];
+        PlanRevisionDeltaApplier.TryMaterialize(
+            current, pending.Payload, out _, out var reopenIds, out _);
         if (reopenIds.Count > 0)
         {
             foreach (var taskId in reopenIds)
@@ -9081,12 +9098,21 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            if (!PlanRevisionDeltaApplier.TryMaterialize(
+                    current, pending.Payload, out var revisedPlan, out var reopened, out _) ||
+                revisedPlan is null)
+            {
+                proposalStore.Delete(pending.Payload.PlanId);
+                AppendLine($"A saved plan revision proposal for {pending.Payload.PlanId} was no longer valid and was discarded. The plan was not changed.");
+                continue;
+            }
+
             var preview = PlanRevisionApplier.Apply(
                 current,
-                pending.Payload.RevisedPlan,
+                revisedPlan,
                 pending.Payload.BaseRevision,
                 pending.CreatedAt,
-                pending.Payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal));
+                reopened);
             if (preview.Outcome != PlanRevisionApplyOutcome.Applied)
             {
                 proposalStore.Delete(pending.Payload.PlanId);

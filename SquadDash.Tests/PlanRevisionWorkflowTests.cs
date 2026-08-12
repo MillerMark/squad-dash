@@ -35,8 +35,9 @@ internal sealed class PlanRevisionWorkflowTests
         {
             Assert.That(context!.PlanId, Is.EqualTo(plan.PlanId));
             Assert.That(context.BaseRevision, Is.EqualTo(plan.Revision));
-            Assert.That(attachment, Does.Contain("TASKS_JSON:"));
-            Assert.That(attachment, Does.Contain("same groupId"));
+            Assert.That(attachment, Does.Contain("CURRENT_PLAN_JSON:"));
+            Assert.That(attachment, Does.Contain("delta operations only"));
+            Assert.That(attachment, Does.Contain("reference input only"));
         });
     }
 
@@ -217,7 +218,7 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
-    public void ProposalParser_ParsesWrapperAndNormalizesReopenIds()
+    public void ProposalParser_ParsesDeltaOperations()
     {
         var group = MakeGroup();
         var json = JsonSerializer.Serialize(new
@@ -225,8 +226,10 @@ internal sealed class PlanRevisionWorkflowTests
             planId = group.GroupId,
             baseRevision = "base-1",
             summary = "Move attribution into the completion footer.",
-            reopenTaskIds = new[] { "REVISION-20260806-002", "REVISION-20260806-002" },
-            revisedPlan = group,
+            operations = new[]
+            {
+                new { op = "reopenTask", targetId = "REVISION-20260806-002" },
+            },
         });
 
         var parsed = PlanRevisionProposalParser.TryParse(
@@ -238,18 +241,20 @@ internal sealed class PlanRevisionWorkflowTests
         {
             Assert.That(parsed, Is.True, error);
             Assert.That(proposal!.PlanId, Is.EqualTo(group.GroupId));
-            Assert.That(proposal.ReopenTaskIds, Is.EqualTo(new[] { "REVISION-20260806-002" }));
-            Assert.That(proposal.RevisedPlan.GroupId, Is.EqualTo(group.GroupId));
+            Assert.That(proposal.Operations, Has.Count.EqualTo(1));
+            Assert.That(proposal.Operations![0].Op, Is.EqualTo("reopenTask"));
+            Assert.That(proposal.Operations[0].TargetId, Is.EqualTo("REVISION-20260806-002"));
+            Assert.That(proposal.RevisedPlan, Is.Null);
         });
     }
 
     [Test]
-    public void ProposalParser_RejectsMismatchedPlanIdentity()
+    public void ProposalParser_RejectsLegacyFullPlanResponse()
     {
         var group = MakeGroup();
         var json = JsonSerializer.Serialize(new
         {
-            planId = "OTHER-20260806",
+            planId = group.GroupId,
             baseRevision = "base-1",
             summary = "Change it",
             revisedPlan = group,
@@ -263,7 +268,8 @@ internal sealed class PlanRevisionWorkflowTests
         Assert.Multiple(() =>
         {
             Assert.That(parsed, Is.False);
-            Assert.That(error, Does.Contain("must match"));
+            Assert.That(error, Does.Contain("operations"));
+            Assert.That(error, Does.Contain("Do not return revisedPlan"));
         });
     }
 
@@ -276,7 +282,7 @@ internal sealed class PlanRevisionWorkflowTests
             planId = group.GroupId,
             baseRevision = "base-1",
             summary = "Change it",
-            revisedPlan = group,
+            operations = new[] { new { op = "updatePlan", patch = new { summary = "Changed" } } },
         });
 
         var parsed = PlanRevisionProposalParser.TryParse(
@@ -413,6 +419,106 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(reopened.AttemptHistory, Has.Count.EqualTo(1));
             Assert.That(reopened.AttemptHistory![0].Commit, Is.EqualTo("abc123"));
             Assert.That(reopened.AttemptHistory[0].Disposition, Is.EqualTo("plan-revision"));
+        });
+    }
+
+    [Test]
+    public void DeltaMaterializer_ReopensCompletedTaskAndChangesOnlyTargetedDefinitions()
+    {
+        var original = MakePlan();
+        var completed = original.Tasks[1] with
+        {
+            Status = PlanTaskStatus.Complete,
+            Commit = "abc123",
+            CompletionSummary = "Original implementation",
+        };
+        var plan = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = original.Tasks.Select((task, index) => index == 1 ? completed : task).ToArray(),
+            Progress = new PlanProgress(1, 3),
+        };
+        using var patchDocument = JsonDocument.Parse("""{"description":"Footer attribution"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Revise Step 2",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation("reopenTask", completed.TaskId),
+                new PlanRevisionOperation("updateTask", completed.TaskId, patchDocument.RootElement.Clone()),
+            ]);
+
+        var materialized = PlanRevisionDeltaApplier.TryMaterialize(
+            plan, payload, out var revised, out var reopened, out var error);
+        var result = PlanRevisionApplier.Apply(
+            plan, revised!, plan.Revision, DateTimeOffset.UtcNow, reopened);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(materialized, Is.True, error);
+            Assert.That(reopened, Does.Contain(completed.TaskId));
+            Assert.That(revised!.Tasks[0].Description, Is.EqualTo(original.Tasks[0].Description));
+            Assert.That(revised.Tasks[1].Description, Is.EqualTo("Footer attribution"));
+            Assert.That(revised.Tasks[2].Description, Is.EqualTo(original.Tasks[2].Description));
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied));
+            Assert.That(result.UpdatedPlan!.Tasks[1].AttemptHistory, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void DeltaMaterializer_RejectsCompletedTaskUpdateWithoutReopen()
+    {
+        var original = MakePlan();
+        var completed = original.Tasks[1] with { Status = PlanTaskStatus.Complete };
+        var plan = original with
+        {
+            Tasks = original.Tasks.Select((task, index) => index == 1 ? completed : task).ToArray(),
+        };
+        using var patchDocument = JsonDocument.Parse("""{"description":"Changed"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Invalid revision",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation("updateTask", completed.TaskId, patchDocument.RootElement.Clone()),
+            ]);
+
+        var materialized = PlanRevisionDeltaApplier.TryMaterialize(
+            plan, payload, out _, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(materialized, Is.False);
+            Assert.That(error, Does.Contain("must be reopened"));
+        });
+    }
+
+    [Test]
+    public void DeltaMaterializer_RejectsUnknownPatchField()
+    {
+        var plan = MakePlan();
+        using var patchDocument = JsonDocument.Parse("""{"status":"complete"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Invalid runtime mutation",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation("updateTask", plan.Tasks[2].TaskId, patchDocument.RootElement.Clone()),
+            ]);
+
+        var materialized = PlanRevisionDeltaApplier.TryMaterialize(
+            plan, payload, out _, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(materialized, Is.False);
+            Assert.That(error, Does.Contain("cannot patch 'status'"));
         });
     }
 

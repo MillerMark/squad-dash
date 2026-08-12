@@ -401,6 +401,7 @@
     <Compile Include="..\SquadDash\PlanStore.cs" Link="Source\PlanStore.cs" />
     <Compile Include="..\SquadDash\PendingDecomposePlanAdapter.cs" Link="Source\PendingDecomposePlanAdapter.cs" />
     <Compile Include="..\SquadDash\PlanRevisionApplier.cs" Link="Source\PlanRevisionApplier.cs" />
+    <Compile Include="..\SquadDash\PlanRevisionDeltaApplier.cs" Link="Source\PlanRevisionDeltaApplier.cs" />
     <Compile Include="..\SquadDash\PlanRevisionHistoryStore.cs" Link="Source\PlanRevisionHistoryStore.cs" />
     <Compile Include="..\SquadDash\PlanRevisionPromptContext.cs" Link="Source\PlanRevisionPromptContext.cs" />
     <Compile Include="..\SquadDash\PlanRevisionProposal.cs" Link="Source\PlanRevisionProposal.cs" />

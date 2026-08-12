@@ -385,12 +385,12 @@ internal static class TranscriptTextUtilities
     private static int FindInspectableSentinelIndex(string text, string sentinel)
     {
         var markerIndex = FindTopLevelSentinelIndex(text, sentinel);
-        if (markerIndex >= 0 ||
-            (!string.Equals(sentinel, DecomposeStepResultParser.Marker, StringComparison.Ordinal) &&
-             !string.Equals(sentinel, PlanRecoveryAssessmentParser.Marker, StringComparison.Ordinal))) {
+        if (markerIndex >= 0)
             return markerIndex;
-        }
 
+        // Protocol parsing accepts a marker anywhere outside code. Use the same boundary for
+        // transcript sanitation and the inspectable JSON pill so accepted payloads never leak
+        // merely because a model prefaced the marker with prose on the same line.
         return FindInlineSentinelOutsideCode(text, sentinel);
     }
 

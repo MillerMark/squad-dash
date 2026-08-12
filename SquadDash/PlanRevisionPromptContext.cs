@@ -30,9 +30,10 @@ internal static class PlanRevisionPromptContextParser
             $"{BaseRevisionPrefix}{plan.Revision}\n" +
             $"Display revision: {Math.Max(1, plan.RevisionNumber)}\n" +
             $"Locked completed or active task IDs: {lockedText}\n\n" +
-            "Revise this existing plan. Return the complete revised plan using the same groupId in a TASKS_JSON block. " +
-            "Keep completed or active tasks unchanged; only pending, unstarted work may be revised.\n\n" +
-            "TASKS_JSON:\n" + JsonSerializer.Serialize(group, JsonOptions);
+            "Revise this existing plan by returning PLAN_REVISION_JSON delta operations only. " +
+            "Never regenerate the complete plan. Keep completed or active tasks unchanged unless a completed task is " +
+            "explicitly reopened; its prior execution history will be preserved. The JSON below is reference input only.\n\n" +
+            "CURRENT_PLAN_JSON:\n" + JsonSerializer.Serialize(group, JsonOptions);
         return AttachmentBlockFormatter.BuildTypedAttachmentBlock(AttachmentType, plan.Title, content);
     }
 
