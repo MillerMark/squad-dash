@@ -1450,6 +1450,7 @@ internal static class PlanStoreUpdater
         plan = RepairLegacyAmendmentTopology(plan);
         plan = RepairLegacyAmendmentDisplayLabels(plan);
         plan = RepairContradictoryRecoveryAcceptance(plan);
+        plan = RepairLostPlanRevisionReopen(plan);
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1506,6 +1507,89 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    /// <summary>
+    /// Repairs the short-lived revision bug that rewrote an explicitly reopened task with its
+    /// former completed Markdown marker. The audit entry is an exact host-authored signature:
+    /// the current attempt has no completion evidence while the displaced attempt was retained
+    /// with disposition <c>plan-revision</c>. Stale checkpoints from the preceding definition are
+    /// removed and the checkpoint/validation owned by the current revision is reset with the task.
+    /// </summary>
+    private static Plan RepairLostPlanRevisionReopen(Plan plan)
+    {
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked ||
+            PlanLifecycleStatus.IsTerminal(plan.LifecycleStatus))
+            return plan;
+
+        var reopenedIds = plan.Tasks
+            .Where(task =>
+                task.Status == PlanTaskStatus.Complete &&
+                task.Commit is null &&
+                task.CompletedAt is null &&
+                task.CompletionSummary is null &&
+                task.AttemptHistory?.LastOrDefault()?.Disposition == "plan-revision")
+            .Select(task => task.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (reopenedIds.Count == 0)
+            return plan;
+
+        var tasks = plan.Tasks.Select(task => reopenedIds.Contains(task.TaskId)
+            ? task with { Status = PlanTaskStatus.Pending }
+            : task).ToArray();
+        var gates = plan.ApprovalGates
+            .Where(gate =>
+                !gate.AfterTaskIds.Any(reopenedIds.Contains) ||
+                string.IsNullOrWhiteSpace(gate.PlanRevision) ||
+                string.Equals(gate.PlanRevision, plan.Revision, StringComparison.Ordinal))
+            .Select(gate => gate.AfterTaskIds.Any(reopenedIds.Contains)
+                ? gate with
+                {
+                    Status = PlanGateStatus.Pending,
+                    RequestedAt = null,
+                    ResolvedAt = null,
+                    ResolutionNote = null,
+                    NotifiedAt = null,
+                    ResolvedBy = null,
+                    ProofEvidence = null,
+                }
+                : gate)
+            .ToArray();
+        var validations = (plan.Validations ?? []).Select(validation =>
+            validation.AfterTaskIds.Any(reopenedIds.Contains)
+                ? validation with
+                {
+                    Status = PlanValidationStatus.Pending,
+                    StartedAt = null,
+                    CompletedAt = null,
+                    ValidatedCommit = null,
+                    Summary = null,
+                    Evidence = null,
+                }
+                : validation).ToArray();
+        var firstReopened = plan.Tasks.First(task => reopenedIds.Contains(task.TaskId)).TaskId;
+        var now = DateTimeOffset.UtcNow;
+        var interruption = (plan.InterruptionData ?? new PlanInterruptionData(
+            "An approved plan revision reopened completed work.",
+            "plan-revision-approved",
+            0,
+            firstReopened)) with
+        {
+            Reason = "An approved plan revision reopened completed work and is ready to continue.",
+            RecoveryState = "plan-revision-approved",
+            InterruptedTaskId = firstReopened,
+        };
+
+        return plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = tasks,
+            ApprovalGates = gates,
+            Validations = validations,
+            Progress = BuildProgress(tasks, executingTaskId: null),
+            InterruptionData = interruption,
+            Timestamps = plan.Timestamps with { InterruptedAt = now, LastRunAt = now },
+        };
     }
 
     /// <summary>

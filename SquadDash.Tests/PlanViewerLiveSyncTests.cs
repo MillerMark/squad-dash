@@ -6,7 +6,12 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PlanViewerLiveSyncTests
 {
-    private static Plan MakePlan(string planId, int completedCount, int totalCount = 5, string revision = "rev1") => new(
+    private static Plan MakePlan(
+        string planId,
+        int completedCount,
+        int totalCount = 5,
+        string revision = "rev1",
+        int revisionNumber = 1) => new(
         PlanId:          planId,
         Revision:        revision,
         Source:          PlanSource.DecomposeDecision,
@@ -17,7 +22,8 @@ internal sealed class PlanViewerLiveSyncTests
         Tasks:           [],
         ApprovalGates:   [],
         Progress:        new PlanProgress(CompletedCount: completedCount, TotalCount: totalCount),
-        Timestamps:      new PlanTimestamps(CreatedAt: System.DateTimeOffset.UtcNow));
+        Timestamps:      new PlanTimestamps(CreatedAt: System.DateTimeOffset.UtcNow),
+        RevisionNumber:  revisionNumber);
 
     [Test]
     public void ProgressOrdering_HigherCompletedCount_UpdatesPlan()
@@ -190,6 +196,62 @@ internal sealed class PlanViewerLiveSyncTests
 
         var proposedRevision = MakePlan("PLAN-001", completedCount: 0, revision: "new-revision");
         handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", proposedRevision));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.Null);
+            Assert.That(handler.CurrentPlan, Is.SameAs(initial));
+            Assert.That(handler.RejectedCount, Is.EqualTo(1));
+        });
+        handler.Detach();
+    }
+
+    [Test]
+    public void NewerApprovedRevision_ReopenedStepRefreshesOpenViewerImmediately()
+    {
+        var broker = new WeakEventBroker();
+        var initial = MakePlan(
+            "PLAN-001", completedCount: 7, totalCount: 8,
+            revision: "old-revision", revisionNumber: 1);
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", initial, broker,
+            plan => received = plan);
+
+        var revised = MakePlan(
+            "PLAN-001", completedCount: 6, totalCount: 8,
+            revision: "new-revision", revisionNumber: 2) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+        };
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", revised));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.SameAs(revised));
+            Assert.That(handler.CurrentPlan, Is.SameAs(revised));
+            Assert.That(handler.AppliedCount, Is.EqualTo(1));
+            Assert.That(handler.RejectedCount, Is.Zero);
+        });
+        handler.Detach();
+    }
+
+    [Test]
+    public void OlderRevisionEvent_IsRejectedEvenWhenItsCompletionCountIsHigher()
+    {
+        var broker = new WeakEventBroker();
+        var initial = MakePlan(
+            "PLAN-001", completedCount: 6, totalCount: 8,
+            revision: "new-revision", revisionNumber: 2);
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", initial, broker,
+            plan => received = plan);
+
+        var lateOldRevision = MakePlan(
+            "PLAN-001", completedCount: 7, totalCount: 8,
+            revision: "old-revision", revisionNumber: 1);
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", lateOldRevision));
 
         Assert.Multiple(() =>
         {

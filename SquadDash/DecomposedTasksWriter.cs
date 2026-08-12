@@ -32,7 +32,11 @@ internal sealed class DecomposedTasksWriter
     internal void WriteGroupFailed(string tasksFilePath, DecomposedTaskGroup group) =>
         PrependToTasksFile(tasksFilePath, group.GroupId, BuildGroupBlock(group, failed: true));
 
-    internal bool ReplaceGroup(string tasksFilePath, DecomposedTaskGroup group, string revision)
+    internal bool ReplaceGroup(
+        string tasksFilePath,
+        DecomposedTaskGroup group,
+        string revision,
+        IReadOnlySet<string>? resetTaskIds = null)
     {
         if (!File.Exists(tasksFilePath)) return false;
         var lines = File.ReadAllLines(tasksFilePath).ToList();
@@ -60,6 +64,15 @@ internal sealed class DecomposedTasksWriter
                      .Where(task => !string.IsNullOrWhiteSpace(task.ParentTaskId))
                      .GroupBy(task => task.ParentTaskId!, StringComparer.Ordinal))
             statuses[parent.Key] = '>';
+
+        // An approved plan revision can deliberately reopen completed work. Preserve every
+        // unrelated marker, but make each explicitly reopened task pending in the same atomic
+        // projection write so execution cannot re-import its former completed state.
+        if (resetTaskIds is not null)
+        {
+            foreach (var taskId in resetTaskIds)
+                statuses[taskId] = ' ';
+        }
 
         var replacement = BuildGroupBlock(
                 group with { HostRevision = revision },

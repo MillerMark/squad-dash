@@ -375,6 +375,43 @@ internal sealed class DecomposeRevisionTests
     }
 
     [Test]
+    public void ReplaceGroup_ApprovedRevisionResetsOnlyExplicitlyReopenedTask()
+    {
+        var path = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"tasks_{Guid.NewGuid():N}.md");
+        try
+        {
+            const string firstId = "PLAN-20260725-001";
+            const string secondId = "PLAN-20260725-002";
+            var original = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
+            var writer = new DecomposedTasksWriter();
+            writer.WriteGroup(path, original, "old-revision");
+            writer.MarkTaskComplete(path, firstId, "abc1111", "Preserved completion");
+            writer.MarkTaskComplete(path, secondId, "abc2222", "Completion to reopen");
+
+            var revised = original with
+            {
+                Tasks = original.Tasks.Select(task => task.Id == secondId
+                    ? task with { Description = "Revised second step" }
+                    : task).ToArray(),
+            };
+            Assert.That(writer.ReplaceGroup(
+                path, revised, "new-revision", new HashSet<string>([secondId], StringComparer.Ordinal)), Is.True);
+
+            var text = File.ReadAllText(path);
+            Assert.Multiple(() =>
+            {
+                Assert.That(text, Does.Contain($"- [x] **[{firstId}]**"));
+                Assert.That(text, Does.Contain($"- [ ] **[{secondId}]**"));
+                Assert.That(text, Does.Contain("Revised second step"));
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     public void PartialStatus_DoesNotUnlockDependentTask()
     {
         var path = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"tasks_{Guid.NewGuid():N}.md");

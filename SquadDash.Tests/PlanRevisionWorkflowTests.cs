@@ -423,6 +423,61 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void Apply_ReopenedTaskUsesRevisedCheckpointDefinitionAndResetsItsRuntimeState()
+    {
+        var basePlan = MakePlan();
+        var taskId = basePlan.Tasks[1].TaskId;
+        var oldGate = new PlanApprovalGate(
+            taskId + "-HUMAN-PROOF",
+            "Confirm the old transcript attribution.",
+            [taskId],
+            [basePlan.Tasks[2].TaskId],
+            PlanGateStatus.AwaitingApproval,
+            RequestedAt: DateTimeOffset.UtcNow,
+            PlanRevision: basePlan.Revision,
+            Question: "Is the old attribution visible?");
+        var plan = basePlan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = basePlan.Tasks.Select(task => task.TaskId == taskId
+                ? task with { Status = PlanTaskStatus.Complete, Commit = "abc123" }
+                : task).ToArray(),
+            ApprovalGates = [oldGate],
+            Progress = new PlanProgress(1, 3),
+        };
+        var proposal = PendingDecomposePlanAdapter.FromPlan(plan).Group with
+        {
+            Tasks = PendingDecomposePlanAdapter.FromPlan(plan).Group.Tasks.Select(task => task.Id == taskId
+                ? task with { Description = "Show attribution in the completion footer." }
+                : task).ToArray(),
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    oldGate.GateId,
+                    "Confirm the revised completion footer.",
+                    [taskId],
+                    [basePlan.Tasks[2].TaskId],
+                    null,
+                    "Is the model profile shown in the completion footer?"),
+            ],
+        };
+
+        var result = PlanRevisionApplier.Apply(
+            plan, proposal, plan.Revision, DateTimeOffset.UtcNow,
+            new HashSet<string>([taskId], StringComparer.Ordinal));
+
+        Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+        var gate = result.UpdatedPlan!.ApprovalGates.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(gate.Message, Is.EqualTo("Confirm the revised completion footer."));
+            Assert.That(gate.Question, Is.EqualTo("Is the model profile shown in the completion footer?"));
+            Assert.That(gate.RequestedAt, Is.Null);
+        });
+    }
+
+    [Test]
     public void DeltaMaterializer_ReopensCompletedTaskAndChangesOnlyTargetedDefinitions()
     {
         var original = MakePlan();

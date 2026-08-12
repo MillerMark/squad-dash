@@ -121,6 +121,8 @@ internal sealed class PlansPanelController
             string.Equals(p.PlanId, updatedPlan.PlanId, StringComparison.Ordinal));
         if (idx >= 0)
         {
+            if (updatedPlan.RevisionNumber < _currentPlans[idx].RevisionNumber)
+                return;
             if (!string.Equals(_currentPlans[idx].Revision, updatedPlan.Revision, StringComparison.Ordinal))
                 _updatedPlanIds.Add(updatedPlan.PlanId);
             _currentPlans[idx] = updatedPlan;

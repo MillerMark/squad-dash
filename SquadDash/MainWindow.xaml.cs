@@ -1376,13 +1376,6 @@ public partial class MainWindow : Window
             void ApplyPlanProgress()
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
-                foreach (var (_, window) in _openPlanViewerWindows.Where(entry =>
-                             string.Equals(entry.GroupId, evt.PlanId, StringComparison.Ordinal)).ToArray())
-                {
-                    window.RefreshPlan(
-                        PendingDecomposePlanAdapter.FromPlan(evt.UpdatedPlan),
-                        evt.UpdatedPlan);
-                }
             }
 
             if (Dispatcher.CheckAccess())
@@ -8899,11 +8892,12 @@ public partial class MainWindow : Window
             return;
         }
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var currentGroup = PendingDecomposePlanAdapter.FromPlan(current).Group;
-        var hasProjection = File.Exists(tasksPath) && File.ReadAllText(tasksPath).Contains(
+        var originalTasks = File.Exists(tasksPath) ? File.ReadAllText(tasksPath) : null;
+        var hasProjection = originalTasks?.Contains(
             $"<!-- decompose-group: {current.PlanId} |",
-            StringComparison.Ordinal);
-        if (hasProjection && !new DecomposedTasksWriter().ReplaceGroup(tasksPath, effective, updated.Revision))
+            StringComparison.Ordinal) == true;
+        if (hasProjection && !new DecomposedTasksWriter().ReplaceGroup(
+                tasksPath, effective, updated.Revision, reopened))
         {
             AppendLine("⚠ Plan revision was not applied because SquadDash could not update its task projection.");
             return;
@@ -8911,8 +8905,8 @@ public partial class MainWindow : Window
 
         if (!TryPublishPlanProgress(updated, out var publishError))
         {
-            if (hasProjection)
-                new DecomposedTasksWriter().ReplaceGroup(tasksPath, currentGroup, current.Revision);
+            if (hasProjection && originalTasks is not null)
+                RestoreFileAtomically(tasksPath, originalTasks);
             AppendLine($"⚠ Plan revision was not applied: {publishError}");
             return;
         }
@@ -8977,7 +8971,7 @@ public partial class MainWindow : Window
             ToolTip = "Open plan",
         };
         planLink.Click += (_, _) => OpenPlanFromStore(current);
-        AutomationProperties.SetName(planLink, $"Open plan {current.Title}");
+        System.Windows.Automation.AutomationProperties.SetName(planLink, $"Open plan {current.Title}");
         planTitle.Inlines.Add(planLink);
         planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         stack.Children.Add(planTitle);
@@ -9019,7 +9013,7 @@ public partial class MainWindow : Window
         var revise = TranscriptQuickReplyFactory.CreateButton(
             "✏️ Revise proposal",
             _transcriptFontSize);
-        AutomationProperties.SetName(revise, "Revise proposal");
+        System.Windows.Automation.AutomationProperties.SetName(revise, "Revise proposal");
         var keep = TranscriptQuickReplyFactory.CreateButton(
             "Keep current plan",
             _transcriptFontSize);
@@ -30784,6 +30778,9 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        // Repair durable state only after the workspace-scoped execution envelope is loaded,
+        // but before rebuilding approval/recovery controls from that state.
+        RepairStalePlanExecutingState();
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
         RestoreAwaitingApprovalGateUI();
@@ -30791,10 +30788,6 @@ public partial class MainWindow : Window
         // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
         // Restore after checkpoint cards so the unresolved revision action remains visible.
         RestorePendingPlanRevisionApprovalCards();
-        // Plan repair must run only after the workspace-scoped execution envelope has
-        // loaded. Running it earlier turns a legitimately resumable plan into an
-        // interruption before SquadDash has read the state that owns the restart.
-        RepairStalePlanExecutingState();
         // Interrupted-plan actions are live WPF controls and are not serialized with the
         // narrative. Reconstruct them only after hydration (and stale-state repair), or the
         // document replacement above will silently erase them during every restart.

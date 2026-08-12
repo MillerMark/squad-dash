@@ -214,8 +214,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void ApplyLiveUpdate(Plan updatedPlan)
     {
         if (_plan is null) return;
+        var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
+        _plan = updatedDefinition;
         _durablePlan = updatedPlan;
-        RebuildPreservingScroll(_plan, updatedPlan);
+        RebuildPreservingScroll(updatedDefinition, updatedPlan);
+        Title = $"Plan — {updatedDefinition.Group.GroupTitle}";
     }
 
     internal void NotifyFontSizeChanged()

@@ -173,6 +173,62 @@ internal sealed class PlanCompletionAtomicityTests
     }
 
     [Test]
+    public void RepairInconsistentState_LostRevisionReopen_RestoresPendingTaskAndCurrentCheckpoint()
+    {
+        const string step1 = "PLANS-20260727-001";
+        const string step2 = "PLANS-20260727-002";
+        var displacedAttempt = new PlanTaskAttempt(
+            PlanTaskStatus.Complete,
+            "abc1234",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            "Original implementation",
+            "plan-revision",
+            "Task specification changed in an approved plan revision.");
+        var tasks = new[]
+        {
+            MakePlanTask(step1, PlanTaskStatus.Complete),
+            MakePlanTask(step2, PlanTaskStatus.Complete) with
+            {
+                AttemptHistory = [displacedAttempt],
+            },
+            MakePlanTask("PLANS-20260727-003", PlanTaskStatus.Pending),
+        };
+        var step1Gate = new PlanApprovalGate(
+            "STEP-1-GATE", "Review Step 1", [step1], [], PlanGateStatus.AwaitingApproval,
+            PlanRevision: "rev1");
+        var staleStep2Gate = new PlanApprovalGate(
+            "STEP-2-OLD", "Old Step 2 review", [step2], [], PlanGateStatus.AwaitingApproval,
+            PlanRevision: "old-revision");
+        var currentStep2Gate = new PlanApprovalGate(
+            "STEP-2-CURRENT", "Current Step 2 review", [step2], [], PlanGateStatus.AwaitingApproval,
+            RequestedAt: DateTimeOffset.UtcNow,
+            PlanRevision: "rev1");
+        var plan = MakePlan(
+            PlanLifecycleStatus.AwaitingApproval, tasks, completedCountOverride: 2) with
+        {
+            ApprovalGates = [step1Gate, staleStep2Gate, currentStep2Gate],
+            RevisionNumber = 2,
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+            Assert.That(repaired.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(repaired.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(repaired.Tasks[1].AttemptHistory, Has.Count.EqualTo(1));
+            Assert.That(repaired.Progress.CompletedCount, Is.EqualTo(1));
+            Assert.That(repaired.ApprovalGates.Select(gate => gate.GateId),
+                Is.EqualTo(new[] { "STEP-1-GATE", "STEP-2-CURRENT" }));
+            Assert.That(repaired.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(repaired.ApprovalGates[1].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(repaired.ApprovalGates[1].RequestedAt, Is.Null);
+            Assert.That(repaired.InterruptionData!.RecoveryState, Is.EqualTo("plan-revision-approved"));
+        });
+    }
+
+    [Test]
     public void RepairInconsistentState_StaleExecutingTaskId_ClearsPointer()
     {
         // Case D: ExecutingTaskId still points to task-2 which is already Complete.

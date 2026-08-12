@@ -128,8 +128,8 @@ internal static class PlanRevisionApplier
             };
         }).ToArray();
 
-        var mergedGates = MergeGates(current.ApprovalGates, projected.ApprovalGates);
-        var mergedValidations = MergeValidations(current.Validations ?? [], projected.Validations ?? []);
+        var mergedGates = MergeGates(current.ApprovalGates, projected.ApprovalGates, reopenedIds);
+        var mergedValidations = MergeValidations(current.Validations ?? [], projected.Validations ?? [], reopenedIds);
         if (reopenedIds.Count > 0)
         {
             mergedGates = mergedGates.Select(gate => gate.AfterTaskIds.Any(reopenedIds.Contains)
@@ -233,29 +233,41 @@ internal static class PlanRevisionApplier
 
     private static IReadOnlyList<PlanApprovalGate> MergeGates(
         IReadOnlyList<PlanApprovalGate> existing,
-        IReadOnlyList<PlanApprovalGate> projected)
+        IReadOnlyList<PlanApprovalGate> projected,
+        IReadOnlySet<string> reopenedTaskIds)
     {
         var projectedIds = projected.Select(gate => gate.GateId).ToHashSet(StringComparer.Ordinal);
         var merged = projected.Select(gate =>
         {
             var current = existing.FirstOrDefault(candidate => string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal));
+            if (gate.AfterTaskIds.Any(reopenedTaskIds.Contains))
+                return gate;
             return current is not null && current.Status != PlanGateStatus.Pending ? current : gate;
         }).ToList();
-        merged.AddRange(existing.Where(gate => gate.Status != PlanGateStatus.Pending && !projectedIds.Contains(gate.GateId)));
+        merged.AddRange(existing.Where(gate =>
+            gate.Status != PlanGateStatus.Pending &&
+            !projectedIds.Contains(gate.GateId) &&
+            !gate.AfterTaskIds.Any(reopenedTaskIds.Contains)));
         return merged;
     }
 
     private static IReadOnlyList<PlanValidationNode> MergeValidations(
         IReadOnlyList<PlanValidationNode> existing,
-        IReadOnlyList<PlanValidationNode> projected)
+        IReadOnlyList<PlanValidationNode> projected,
+        IReadOnlySet<string> reopenedTaskIds)
     {
         var projectedIds = projected.Select(node => node.ValidationId).ToHashSet(StringComparer.Ordinal);
         var merged = projected.Select(node =>
         {
             var current = existing.FirstOrDefault(candidate => string.Equals(candidate.ValidationId, node.ValidationId, StringComparison.Ordinal));
+            if (node.AfterTaskIds.Any(reopenedTaskIds.Contains))
+                return node;
             return current is not null && current.Status != PlanValidationStatus.Pending ? current : node;
         }).ToList();
-        merged.AddRange(existing.Where(node => node.Status != PlanValidationStatus.Pending && !projectedIds.Contains(node.ValidationId)));
+        merged.AddRange(existing.Where(node =>
+            node.Status != PlanValidationStatus.Pending &&
+            !projectedIds.Contains(node.ValidationId) &&
+            !node.AfterTaskIds.Any(reopenedTaskIds.Contains)));
         return merged;
     }
 

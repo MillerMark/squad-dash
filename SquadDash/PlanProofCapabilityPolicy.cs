@@ -110,6 +110,20 @@ internal static class PlanProofCapabilityPolicy
                 .ToArray();
             tasks.Add(task with { ProofRequirements = workerProofs.Length == 0 ? null : workerProofs });
 
+            // A plan revision may update both a task's human proof contract and its explicit
+            // checkpoint. That proof is already routed; creating another generated checkpoint
+            // would leave two approval requests for the same step.
+            var alreadyRoutedIds = gates
+                .Where(gate => (gate.AfterTaskIds ?? []).Contains(task.Id, StringComparer.Ordinal))
+                .SelectMany(gate => gate.ProofRequirements ?? [])
+                .Select(requirement => requirement.RequirementId)
+                .ToHashSet(StringComparer.Ordinal);
+            var unroutedHumanProofs = humanProofs
+                .Where(requirement => !alreadyRoutedIds.Contains(requirement.RequirementId))
+                .ToArray();
+            if (unroutedHumanProofs.Length == 0)
+                continue;
+
             var directDependents = group.Tasks
                 .Where(candidate => candidate.DependsOn.Contains(task.Id, StringComparer.Ordinal))
                 .Select(candidate => candidate.Id)
@@ -119,15 +133,15 @@ internal static class PlanProofCapabilityPolicy
             for (var suffix = 2; !existingGateIds.Add(gateId); suffix++)
                 gateId = $"{baseGateId}-{suffix}";
 
-            var requirementSummary = string.Join("; ", humanProofs.Select(requirement =>
+            var requirementSummary = string.Join("; ", unroutedHumanProofs.Select(requirement =>
                 $"{requirement.Description} [{requirement.ProofType}]"));
-            var question = BuildHumanQuestion(humanProofs);
+            var question = BuildHumanQuestion(unroutedHumanProofs);
             gates.Add(new DecomposedGate(
                 gateId,
                 $"Confirm the human-observed proof for “{task.Title ?? task.Id}”: {requirementSummary}",
                 [task.Id],
                 directDependents,
-                humanProofs,
+                unroutedHumanProofs,
                 question));
         }
 

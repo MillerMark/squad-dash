@@ -155,6 +155,63 @@ internal sealed class PlansPanelControllerTests
         });
 
     [Test]
+    public void OnPlanChanged_NewerRevisionWithReopenedStep_UpdatesVisibleProgressBackward() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController();
+            var plan = MakePlan() with
+            {
+                Progress = new PlanProgress(7, 8),
+                RevisionNumber = 1,
+            };
+            ctrl.Show();
+            ctrl.Refresh([plan]);
+
+            ctrl.OnPlanChanged(plan with
+            {
+                Revision = "rev2",
+                RevisionNumber = 2,
+                LifecycleStatus = PlanLifecycleStatus.Interrupted,
+                Progress = new PlanProgress(6, 8),
+            });
+
+            var row = activePanel.Children.OfType<Border>().Single();
+            var rowStack = (StackPanel)row.Child;
+            var progressRow = rowStack.Children.OfType<StackPanel>()
+                .Single(panel => panel.Children.OfType<ProgressBar>().Any());
+            Assert.Multiple(() =>
+            {
+                Assert.That(progressRow.Children.OfType<ProgressBar>().Single().Value, Is.EqualTo(6));
+                Assert.That(progressRow.Children.OfType<TextBlock>().Single().Text, Is.EqualTo("6/8 complete"));
+            });
+        });
+
+    [Test]
+    public void OnPlanChanged_OlderRevisionCannotOverwriteReopenedProgress() =>
+        WpfTestContext.Run(() =>
+        {
+            var (ctrl, activePanel, _, _) = BuildController();
+            var current = MakePlan(revision: "rev2") with
+            {
+                RevisionNumber = 2,
+                Progress = new PlanProgress(6, 8),
+            };
+            ctrl.Refresh([current]);
+
+            ctrl.OnPlanChanged(current with
+            {
+                Revision = "rev1",
+                RevisionNumber = 1,
+                Progress = new PlanProgress(7, 8),
+            });
+
+            var rowStack = (StackPanel)activePanel.Children.OfType<Border>().Single().Child;
+            var progressRow = rowStack.Children.OfType<StackPanel>()
+                .Single(panel => panel.Children.OfType<ProgressBar>().Any());
+            Assert.That(progressRow.Children.OfType<TextBlock>().Single().Text, Is.EqualTo("6/8 complete"));
+        });
+
+    [Test]
     public void ContextMenu_Revise_InvokesRevisionDraftCallback() =>
         WpfTestContext.Run(() =>
         {

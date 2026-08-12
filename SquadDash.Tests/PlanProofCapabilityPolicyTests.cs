@@ -71,6 +71,38 @@ internal sealed class PlanProofCapabilityPolicyTests
     }
 
     [Test]
+    public void HumanTaskProof_AlreadyOwnedByExplicitCheckpoint_DoesNotCreateDuplicate()
+    {
+        var proof = new DecomposedTaskProofRequirement(
+            "visible", "live-ui-observation", "Observe the revised footer.",
+            "Does the revised footer appear?");
+        var task = Task("CAPABILITY-20260804-001", proofRequirements: [proof]);
+        var group = Group([task]) with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    task.Id + "-HUMAN-PROOF",
+                    "Confirm the revised footer.",
+                    [task.Id],
+                    [],
+                    [proof],
+                    proof.Question),
+            ],
+        };
+
+        var routed = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(group);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(routed.Tasks[0].ProofRequirements, Is.Null);
+            Assert.That(routed.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(routed.ApprovalGates![0].GateId, Is.EqualTo(task.Id + "-HUMAN-PROOF"));
+            Assert.That(routed.ApprovalGates[0].Question, Is.EqualTo("Does the revised footer appear?"));
+        });
+    }
+
+    [Test]
     public void FinalHumanProofCheckpoint_StopsCompletionAndRecordsDurableAttestation()
     {
         var task = Task(
