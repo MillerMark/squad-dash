@@ -8763,6 +8763,7 @@ public partial class MainWindow : Window
         }
 
         var pending = new PendingPlanRevisionProposalStore(_currentWorkspace!.SquadFolderPath).Save(payload);
+        SuppressCheckpointApprovalCardsForPendingRevision(current.PlanId);
         AppendPlanRevisionApprovalCard(current, pending, result, ownerView);
         _renderedPlanRevisionProposalIds.Add(pending.ProposalId);
         _planRevisionRepairPending = false;
@@ -9052,6 +9053,7 @@ public partial class MainWindow : Window
                 .Delete(pending.Payload.PlanId);
             actions.Visibility = Visibility.Collapsed;
             status.Text = "Current plan kept. No plan content changed.";
+            RestoreAwaitingApprovalGateUI(pending.Payload.PlanId);
         };
         ScrollToEndIfAtBottom(CoordinatorThread);
 
@@ -12366,13 +12368,20 @@ public partial class MainWindow : Window
     /// that was persisted with <see cref="PlanLifecycleStatus.AwaitingApproval"/>.
     /// Does not re-fire sound or push notifications (gate.NotifiedAt is already set).
     /// </summary>
-    private void RestoreAwaitingApprovalGateUI()
+    private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null)
     {
         if (_planStore is null || _planApprovalRuntime is null) return;
         (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
         foreach (var plan in _planStore.LoadAll())
         {
+            if (onlyPlanId is not null &&
+                !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
+                continue;
             if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
+            // A proposed plan revision is the higher-priority decision. Approving a checkpoint
+            // from the currently authoritative definition while that proposal is unresolved is
+            // both confusing and potentially stale. "Keep current plan" restores this surface.
+            if (HasPendingPlanRevision(plan.PlanId)) continue;
             var awaitingGate = plan.ApprovalGates
                 .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
             if (awaitingGate is null) continue;
@@ -12395,6 +12404,22 @@ public partial class MainWindow : Window
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
         SyncLoopPanel();
+    }
+
+    private void SuppressCheckpointApprovalCardsForPendingRevision(string planId)
+    {
+        if (!_approvalTranscriptCards.Remove(planId, out var cards)) return;
+
+        foreach (var card in cards)
+        {
+            if (card.Container.Parent is FlowDocument document)
+                document.Blocks.Remove(card.Container);
+        }
+
+        _approvalAttentionCallout?.Close();
+        _approvalAttentionCallout = null;
+        SquadDashTrace.Write("PlanRevision",
+            $"Suppressed checkpoint approval card while plan revision is pending plan={planId}.");
     }
 
     /// <summary>
