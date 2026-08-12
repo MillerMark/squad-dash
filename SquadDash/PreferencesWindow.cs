@@ -2701,6 +2701,7 @@ internal sealed class PreferencesWindow : Window {
                     Padding = new Thickness(6, 4, 6, 4)
                 };
                 item.SetResourceReference(ListBoxItem.ForegroundProperty, "LabelText");
+                if (!p.IsEnabled) item.Opacity = 0.5;
                 _profileListBox.Items.Add(item);
             }
             // Restore selection
@@ -2794,7 +2795,10 @@ internal sealed class PreferencesWindow : Window {
         var profile = GetSelectedProfile();
         _removeProfileButton.IsEnabled = _profiles.Count > 1 && profile is not null && !profile.IsDefault;
         _setDefaultButton.IsEnabled = profile is not null && !profile.IsDefault;
-        _toggleEnabledButton.IsEnabled = profile is not null;
+        _toggleEnabledButton.IsEnabled = profile is not null &&
+            (profile.IsEnabled
+                ? _profiles.Count(p => p.IsEnabled) >= 2
+                : true);
         _toggleEnabledButton.Content = profile is { IsEnabled: false } ? "Enable" : "Disable";
     }
 
@@ -2863,6 +2867,15 @@ internal sealed class PreferencesWindow : Window {
         if (idx < 0) return;
 
         _profiles[idx] = _profiles[idx] with { IsEnabled = !_profiles[idx].IsEnabled };
+        var toggled = _profiles[idx];
+        if (!toggled.IsEnabled && toggled.IsDefault) {
+            var nextEnabled = _profiles.FirstOrDefault(p => p.IsEnabled && !string.Equals(p.Id, toggled.Id, StringComparison.OrdinalIgnoreCase));
+            if (nextEnabled is not null) {
+                var nextIdx = _profiles.FindIndex(p => string.Equals(p.Id, nextEnabled.Id, StringComparison.OrdinalIgnoreCase));
+                _profiles[nextIdx] = _profiles[nextIdx] with { IsDefault = true };
+                _profiles[idx] = _profiles[idx] with { IsDefault = false };
+            }
+        }
         _profilesDirty = true;
         RefreshProfileListBox();
         UpdateProfileButtons();
