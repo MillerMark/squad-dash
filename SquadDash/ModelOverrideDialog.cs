@@ -3,17 +3,19 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace SquadDash;
 
 internal sealed class ModelOverrideDialog : ChromedWindow {
     private readonly ModelProfileStore _profileStore;
     private readonly string _agentHandle;
-    private readonly ComboBox _profileComboBox;
-    private readonly Button _clearButton;
     private readonly IReadOnlyList<ModelProfile> _profiles;
     private readonly string? _currentOverrideProfileId;
+
+    // "Not set" sentinel — null means clear the override
+    private RadioButton _notSetRadio = null!;
+    // One entry per profile, parallel to _orderedProfiles
+    private IReadOnlyList<(RadioButton Radio, string ProfileId)> _profileRadios = [];
 
     public ModelOverrideDialog(ModelProfileStore profileStore, string agentHandle)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize) {
@@ -43,12 +45,14 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         var outerBorder = ApplyOuterBorder();
         outerBorder.Child = root;
 
+        // Issue 1: use FontSizeSubtitle (one step below FontSizeTitle) and enable wrapping
         var titleBlock = new TextBlock {
             Text = "Choose a profile override for this agent",
-            FontSize = (double)Application.Current.Resources["FontSizeTitle"],
+            TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 12)
         };
+        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         root.Children.Add(titleBlock);
 
@@ -81,7 +85,8 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
 
         var profileLabel = new TextBlock {
             Text = "Override profile",
-            FontWeight = FontWeights.SemiBold
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8)
         };
         profileLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         profileRow.Children.Add(profileLabel);
@@ -89,16 +94,8 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         _profiles = _profileStore.GetProfiles();
         _currentOverrideProfileId = FindCurrentOverrideProfileId();
 
-        _profileComboBox = new ComboBox {
-            Margin = new Thickness(0, 6, 0, 0),
-            MinWidth = 320,
-            DisplayMemberPath = nameof(ProfileSelectionItem.DisplayText),
-            SelectedValuePath = nameof(ProfileSelectionItem.ProfileId),
-            ItemsSource = BuildSelectionItems()
-        };
-        _profileComboBox.SelectionChanged += ProfileComboBox_SelectionChanged;
-        _profileComboBox.SetResourceReference(Control.StyleProperty, "ThemedComboBoxStyle");
-        profileRow.Children.Add(_profileComboBox);
+        // Issue 3: replace ComboBox with radio buttons; first option is "Not set"
+        BuildProfileRadioButtons(profileRow);
 
         var hintText = new TextBlock {
             Text = "Choose a profile to use for future prompts from this agent.",
@@ -115,17 +112,6 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         };
         Grid.SetRow(buttonRow, 3);
         root.Children.Add(buttonRow);
-
-        _clearButton = new Button {
-            Content = "Clear override",
-            Width = 120,
-            Height = 32,
-            Margin = new Thickness(0, 0, 10, 0),
-            IsEnabled = !string.IsNullOrWhiteSpace(_currentOverrideProfileId)
-        };
-        _clearButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        _clearButton.Click += ClearButton_Click;
-        buttonRow.Children.Add(_clearButton);
 
         var cancelButton = new Button {
             Content = "Cancel",
@@ -154,20 +140,40 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             DialogResult = false;
             Close();
         };
-
-        if (!string.IsNullOrWhiteSpace(_currentOverrideProfileId)) {
-            _profileComboBox.SelectedValue = _currentOverrideProfileId;
-        }
-        else if (_profiles.Count > 0) {
-            _profileComboBox.SelectedIndex = 0;
-        }
     }
 
-    private IReadOnlyList<ProfileSelectionItem> BuildSelectionItems() {
-        return _profiles
-            .Select(profile => new ProfileSelectionItem(profile.Id, profile.Alias))
-            .OrderBy(item => item.DisplayText, StringComparer.OrdinalIgnoreCase)
+    private void BuildProfileRadioButtons(StackPanel container) {
+        // "Not set" is first and selected when no override is active
+        _notSetRadio = new RadioButton {
+            Content = "Not set",
+            GroupName = "ProfileOverride",
+            IsChecked = string.IsNullOrWhiteSpace(_currentOverrideProfileId),
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        _notSetRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+        _notSetRadio.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeBody");
+        container.Children.Add(_notSetRadio);
+
+        var ordered = _profiles
+            .Select(p => (ProfileId: p.Id, Alias: p.Alias))
+            .OrderBy(p => p.Alias, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        var radios = new List<(RadioButton, string)>(ordered.Length);
+        foreach (var (profileId, alias) in ordered) {
+            var rb = new RadioButton {
+                Content = alias,
+                GroupName = "ProfileOverride",
+                IsChecked = string.Equals(profileId, _currentOverrideProfileId, StringComparison.OrdinalIgnoreCase),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
+            rb.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeBody");
+            container.Children.Add(rb);
+            radios.Add((rb, profileId));
+        }
+
+        _profileRadios = radios;
     }
 
     private string? FindCurrentOverrideProfileId() {
@@ -179,24 +185,21 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         return null;
     }
 
-    private void ProfileComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
-        _clearButton.IsEnabled = _profileComboBox.SelectedItem is not null;
-    }
-
-    private void ClearButton_Click(object sender, RoutedEventArgs e) {
-        _profileStore.ClearAgentOverride(_agentHandle);
-        DialogResult = true;
-        Close();
-    }
-
     private void OkButton_Click(object sender, RoutedEventArgs e) {
-        if (_profileComboBox.SelectedValue is not string profileId || string.IsNullOrWhiteSpace(profileId))
+        if (_notSetRadio.IsChecked == true) {
+            _profileStore.ClearAgentOverride(_agentHandle);
+            DialogResult = true;
+            Close();
             return;
+        }
 
-        _profileStore.SaveAgentOverride(_agentHandle, profileId);
-        DialogResult = true;
-        Close();
+        foreach (var (radio, profileId) in _profileRadios) {
+            if (radio.IsChecked == true) {
+                _profileStore.SaveAgentOverride(_agentHandle, profileId);
+                DialogResult = true;
+                Close();
+                return;
+            }
+        }
     }
-
-    private sealed record ProfileSelectionItem(string ProfileId, string DisplayText);
 }
