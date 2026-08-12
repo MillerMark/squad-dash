@@ -48,15 +48,27 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var outerBorder = ApplyOuterBorder();
         outerBorder.Child = root;
+
+        var titleBlock = new TextBlock {
+            Text = "Agent model override",
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLargePlus");
+        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        Grid.SetRow(titleBlock, 0);
+        root.Children.Add(titleBlock);
 
         var identityPanel = new StackPanel {
             Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 0, 0, 14)
         };
-        Grid.SetRow(identityPanel, 0);
+        Grid.SetRow(identityPanel, 1);
         root.Children.Add(identityPanel);
 
         if (_agentImageSource is not null) {
@@ -111,7 +123,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         var profileRow = new StackPanel {
             Margin = new Thickness(0, 0, 0, 14)
         };
-        Grid.SetRow(profileRow, 1);
+        Grid.SetRow(profileRow, 2);
         root.Children.Add(profileRow);
 
         _profiles = _profileStore.GetProfiles();
@@ -134,7 +146,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 8, 0, 0)
         };
-        Grid.SetRow(buttonRow, 2);
+        Grid.SetRow(buttonRow, 3);
         root.Children.Add(buttonRow);
 
         var cancelButton = new Button {
