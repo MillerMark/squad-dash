@@ -132,7 +132,7 @@ public class TranscriptApprovalCardBuilderTests
             onOpenInbox: () => openedInbox = true);
 
         card.PlanLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
-        card.InboxLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        card.InboxMessageLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
 
         Assert.Multiple(() =>
         {
@@ -143,7 +143,7 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void Build_WithQuestion_FeaturesQuestionAndInspectionShortcut()
+    public void Build_WithQuestion_UsesPlanTitleLinkWithoutRedundantInspectionShortcut()
     {
         var original = BuildTestPlan();
         var plan = original with
@@ -161,15 +161,34 @@ public class TranscriptApprovalCardBuilderTests
             BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { },
             onOpenPlan: () => openedPlan = true);
 
-        card.InspectPlanLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        card.PlanLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
 
         Assert.Multiple(() =>
         {
             Assert.That(card.QuestionBlock, Is.Not.Null);
             Assert.That(card.QuestionBlock!.Text, Does.StartWith("Does clicking an item"));
             Assert.That(card.QuestionBlock.FontWeight, Is.EqualTo(FontWeights.SemiBold));
+            Assert.That(card.InspectPlanLink, Is.Null);
             Assert.That(openedPlan, Is.True);
         });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_FullEvidenceLink_OpensTheSelectedStepEvidence()
+    {
+        var plan = BuildTestPlan();
+        ReviewTaskEntry? openedTask = null;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onOpenEvidence: task => openedTask = task);
+
+        card.InboxLink!.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+
+        Assert.That(openedTask?.TaskId, Is.EqualTo("task-1"));
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -193,6 +212,7 @@ public class TranscriptApprovalCardBuilderTests
         Assert.Multiple(() =>
         {
             Assert.That(directText, Has.Some.Contains("Full evidence is here."));
+            Assert.That(directText, Has.Some.Contains("See your inbox message for more detail."));
             Assert.That(directText, Has.None.Contains("Gate:"));
             Assert.That(directText, Has.None.Contains("Review completed tasks before continuing"));
             Assert.That(directText, Has.None.Contains("unblocked by approval"));
@@ -238,6 +258,11 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(helpText, Does.Contain("Does the Step 7 transcript look correct?"));
             Assert.That(directText, Has.Some.Contains("Step 6 ready for review. Full evidence is here."));
             Assert.That(directText, Has.Some.Contains("Step 7 ready for review. Full evidence is here."));
+            var step7Index = Array.FindIndex(directText,
+                text => text.Contains("Step 7 ready for review.", StringComparison.Ordinal));
+            var inboxIndex = Array.FindIndex(directText,
+                text => text.Contains("See your inbox message for more detail.", StringComparison.Ordinal));
+            Assert.That(inboxIndex, Is.GreaterThan(step7Index));
             Assert.That(card.ApproveButton.Content?.ToString(),
                 Is.EqualTo("Approve both checkpoints and continue"));
         });

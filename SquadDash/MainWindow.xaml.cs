@@ -12056,7 +12056,8 @@ public partial class MainWindow : Window
             onOpenPlan: () => OpenPlanFromStore(plan),
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             onOpenInbox: () => OpenOrFocusInboxMessage(
-                DurableApprovalRequestManager.BuildMessageId(plan.PlanId)));
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId)),
+            onOpenEvidence: task => OpenApprovalStepEvidence(plan, task));
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
         {
@@ -13387,6 +13388,35 @@ public partial class MainWindow : Window
             ManualLoopResumeSurfaceTag));
         CoordinatorThread.Document.Blocks.Add(surface);
         ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private void OpenApprovalStepEvidence(Plan plan, ReviewTaskEntry reviewTask)
+    {
+        var durableTask = plan.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, reviewTask.TaskId, StringComparison.Ordinal));
+        var commits = durableTask is null
+            ? Array.Empty<PlanEvidenceCommit>()
+            : PlanRecoveryPresentationBuilder.ResolveTaskEvidence(plan, durableTask).ToArray();
+        if (commits.Length == 0)
+        {
+            commits = reviewTask.Commits
+                .Where(commit => !string.IsNullOrWhiteSpace(commit.Link.FullSha))
+                .Select(commit => new PlanEvidenceCommit(
+                    commit.Link.FullSha,
+                    PlanRecoveryCommitRelation.Task,
+                    commit.Link.Subject))
+                .ToArray();
+        }
+
+        if (commits.Length == 0)
+        {
+            UIErrorHelper.ShowWarning(
+                "Open Evidence",
+                $"SquadDash does not have commit evidence recorded for {reviewTask.Title}.");
+            return;
+        }
+
+        _ = OpenEvidenceViewerAsync(commits);
     }
 
     private void AppendDecomposeRecoveryActions(
@@ -45917,6 +45947,7 @@ public partial class MainWindow : Window
                 existing.WindowState = WindowState.Normal;
             existing.Activate();
             NativeMethods.TryActivateWindow(new System.Windows.Interop.WindowInteropHelper(existing).Handle);
+            existing.PulseAttention();
             return;
         }
         var msg = preparedMessage ?? _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);

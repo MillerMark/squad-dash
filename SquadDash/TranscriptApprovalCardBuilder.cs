@@ -65,11 +65,14 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Prominent human-facing question describing the observation required for approval.</summary>
         internal TextBlock? QuestionBlock { get; init; }
 
-        /// <summary>Shortcut beside the approval question that opens the plan for inspection.</summary>
+        /// <summary>Legacy handle for the removed redundant inspection shortcut.</summary>
         internal Hyperlink? InspectPlanLink { get; init; }
 
-        /// <summary>Link that opens the durable Inbox request containing full review evidence.</summary>
+        /// <summary>First link that opens step-specific review evidence.</summary>
         internal Hyperlink? InboxLink { get; init; }
+
+        /// <summary>Link in the follow-up sentence that opens the durable approval Inbox message.</summary>
+        internal Hyperlink? InboxMessageLink { get; init; }
 
         /// <summary>Commit-evidence links rendered in the card.</summary>
         internal IReadOnlyList<Hyperlink> CommitLinks { get; init; } = [];
@@ -90,6 +93,7 @@ internal static class TranscriptApprovalCardBuilder
         Action? onOpenPlan = null,
         Action<string>? onOpenCommit = null,
         Action? onOpenInbox = null,
+        Action<ReviewTaskEntry>? onOpenEvidence = null,
         bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
@@ -100,6 +104,7 @@ internal static class TranscriptApprovalCardBuilder
             .ToArray();
         var commitLinks = new List<Hyperlink>();
         Hyperlink? inboxLink = null;
+        Hyperlink? inboxMessageLink = null;
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -180,21 +185,6 @@ internal static class TranscriptApprovalCardBuilder
                 questionStack.Children.Add(itemBlock);
             }
 
-            var shortcutBlock = CreateStyledTextBlock(string.Empty, fontSize - 1, "SubtleText");
-            inspectPlanLink = new Hyperlink(new Run("Open plan to inspect →"))
-            {
-                Cursor = onOpenPlan is null ? Cursors.Arrow : Cursors.Hand,
-                IsEnabled = onOpenPlan is not null,
-                ToolTip = onOpenPlan is null
-                    ? null
-                    : ToolTipHelper.MakeThemedToolTip("Open the plan at this approval checkpoint"),
-            };
-            inspectPlanLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            if (onOpenPlan is not null)
-                inspectPlanLink.Click += (_, _) => onOpenPlan();
-            shortcutBlock.Inlines.Add(inspectPlanLink);
-            questionStack.Children.Add(shortcutBlock);
-
             var questionBorder = new Border
             {
                 Child = questionStack,
@@ -224,22 +214,52 @@ internal static class TranscriptApprovalCardBuilder
                     string.IsNullOrWhiteSpace(stepLabel)
                         ? $"{task.Title} ready for review. Full evidence is "
                         : $"Step {stepLabel} ready for review. Full evidence is "));
-                var taskInboxLink = new Hyperlink(new Run("here"))
+                var canOpenEvidence = onOpenEvidence is not null || onOpenInbox is not null;
+                var taskEvidenceLink = new Hyperlink(new Run("here"))
                 {
-                    Cursor = onOpenInbox is null ? Cursors.Arrow : Cursors.Hand,
-                    IsEnabled = onOpenInbox is not null,
-                    ToolTip = onOpenInbox is null
+                    Cursor = canOpenEvidence ? Cursors.Hand : Cursors.Arrow,
+                    IsEnabled = canOpenEvidence,
+                    ToolTip = !canOpenEvidence
                         ? null
-                        : ToolTipHelper.MakeThemedToolTip($"Open the full evidence for {task.Title} in Inbox"),
+                        : ToolTipHelper.MakeThemedToolTip($"Open the full evidence and commits for {task.Title}"),
                 };
-                taskInboxLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                if (onOpenInbox is not null)
-                    taskInboxLink.Click += (_, _) => onOpenInbox();
-                inboxLink ??= taskInboxLink;
-                summary.Inlines.Add(taskInboxLink);
+                taskEvidenceLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                if (canOpenEvidence)
+                {
+                    var capturedTask = task;
+                    taskEvidenceLink.Click += (_, _) =>
+                    {
+                        SquadDashTrace.Write(
+                            "Approval",
+                            $"Transcript full-evidence link clicked plan={plan.PlanId} task={capturedTask.TaskId}.");
+                        if (onOpenEvidence is not null)
+                            onOpenEvidence(capturedTask);
+                        else
+                            onOpenInbox?.Invoke();
+                    };
+                }
+                inboxLink ??= taskEvidenceLink;
+                summary.Inlines.Add(taskEvidenceLink);
                 summary.Inlines.Add(new Run("."));
                 summary.Margin = new Thickness(0, 0, 0, 3);
                 stack.Children.Add(summary);
+            }
+
+            if (onOpenInbox is not null)
+            {
+                var inboxPrompt = CreateStyledTextBlock("See your ", fontSize - 1, "SubtleText");
+                inboxMessageLink = new Hyperlink(new Run("inbox message"))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Open the approval request with additional details"),
+                };
+                inboxMessageLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                inboxMessageLink.Click += (_, _) => onOpenInbox();
+                inboxPrompt.Inlines.Add(inboxMessageLink);
+                inboxPrompt.Inlines.Add(new Run(" for more detail."));
+                inboxPrompt.Margin = new Thickness(0, 3, 0, 3);
+                stack.Children.Add(inboxPrompt);
             }
             stack.Children.Add(new Border { Height = 3 });
         }
@@ -565,6 +585,7 @@ internal static class TranscriptApprovalCardBuilder
             QuestionBlock = questionBlock,
             InspectPlanLink = inspectPlanLink,
             InboxLink = inboxLink,
+            InboxMessageLink = inboxMessageLink,
             CommitLinks = commitLinks,
         };
     }
