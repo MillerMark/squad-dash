@@ -9,6 +9,25 @@ internal sealed record InboxMessageFileReferenceExtraction(
 
 internal static class InboxMessageFileReferenceParser
 {
+    internal static IReadOnlyList<InboxMessageFileReferenceExtraction> ExtractAll(
+        string? text,
+        out string visibleText)
+    {
+        visibleText = text ?? string.Empty;
+        var reversed = new List<InboxMessageFileReferenceExtraction>();
+
+        while (TryExtract(visibleText, out var extraction) && extraction is not null)
+        {
+            reversed.Add(extraction);
+            if (string.Equals(visibleText, extraction.VisibleText, StringComparison.Ordinal))
+                break;
+            visibleText = extraction.VisibleText;
+        }
+
+        reversed.Reverse();
+        return reversed;
+    }
+
     internal static bool TryExtract(string? text, out InboxMessageFileReferenceExtraction? extraction)
     {
         extraction = null;

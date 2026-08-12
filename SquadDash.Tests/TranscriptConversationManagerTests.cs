@@ -570,6 +570,48 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void EnsureAgentThreadRenderedAsync_ConcurrentCallersAwaitOneLazyRender()
+    {
+        var renderedTurns = 0;
+        var manager = MakeManager(renderPersistedTurn: (_, _, _) => renderedTurns++);
+        var thread = new TranscriptThreadState(
+            "agent-thread",
+            TranscriptThreadKind.Agent,
+            "Lyra Morn",
+            DateTimeOffset.UtcNow);
+        var turn = new TranscriptTurnRecord(
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            "prompt",
+            string.Empty,
+            "Model: Profile 2",
+            false,
+            Array.Empty<TranscriptToolRecord>());
+        var pendingField = typeof(TranscriptConversationManager).GetField(
+            "_pendingAgentRenders",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var pending = (Dictionary<string, IReadOnlyList<TranscriptTurnRecord>>)pendingField.GetValue(manager)!;
+        pending[thread.ThreadId] = new[] { turn };
+
+        var first = manager.EnsureAgentThreadRenderedAsync(thread);
+        var second = manager.EnsureAgentThreadRenderedAsync(thread);
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var frame = new DispatcherFrame();
+        _ = first.ContinueWith(
+            _ => dispatcher.BeginInvoke(DispatcherPriority.Send, () => frame.Continue = false),
+            TaskScheduler.Default);
+        Dispatcher.PushFrame(frame);
+        first.GetAwaiter().GetResult();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second, Is.SameAs(first));
+            Assert.That(first.IsCompletedSuccessfully, Is.True);
+            Assert.That(renderedTurns, Is.EqualTo(1));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void WorkspaceTransitionSave_SealsQueueAndEditorStateBeforeWorkspaceChanges() {
         using var workspace = new TestWorkspace();
         var workspacePath = workspace.GetPath("workspace-transition");
@@ -860,7 +902,8 @@ internal sealed class TranscriptConversationManagerTests {
         Action<string, int, int, int>? setPromptText = null,
         SessionWorkspace? workspace = null,
         TranscriptThreadState? coordinatorThread = null,
-        TranscriptTurnView? currentTurn = null) {
+        TranscriptTurnView? currentTurn = null,
+        Action<TranscriptThreadState, TranscriptTurnRecord, bool>? renderPersistedTurn = null) {
         var promptText = string.Empty;
         getPromptText ??= () => promptText;
         setPromptText ??= (t, _, _, _) => promptText = t;
@@ -876,7 +919,7 @@ internal sealed class TranscriptConversationManagerTests {
             setPromptText:            setPromptText,
             getPromptCaretState:      () => (0, 0, 0),
             isClosing:                () => false,
-            renderPersistedTurn:      (_, _, _) => { },
+            renderPersistedTurn:      renderPersistedTurn ?? ((_, _, _) => { }),
             coordinatorThread:        () => coordinatorThread,
             selectedThread:           () => null,
             maybePublishRoutingIssue: _ => { },

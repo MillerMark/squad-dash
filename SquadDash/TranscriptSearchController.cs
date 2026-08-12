@@ -558,6 +558,8 @@ internal sealed class TranscriptSearchController
             {
                 _selectTranscriptThread(targetThread);
                 _cachedSearchPointers = null;
+                if (targetThread.Kind == TranscriptThreadKind.Agent)
+                    await _conversationManager.EnsureAgentThreadRenderedAsync(targetThread);
                 await _dispatcher.BeginInvoke(DispatcherPriority.Loaded, static () => { }).Task;
             }
             finally
@@ -567,6 +569,11 @@ internal sealed class TranscriptSearchController
             activeThread = targetThread;
 
             _flashGlowHighlightForThread(targetThread);
+        }
+        else if (targetThread.Kind == TranscriptThreadKind.Agent)
+        {
+            await _conversationManager.EnsureAgentThreadRenderedAsync(targetThread);
+            await _dispatcher.BeginInvoke(DispatcherPriority.Loaded, static () => { }).Task;
         }
 
         if (_cachedSearchPointers is not null

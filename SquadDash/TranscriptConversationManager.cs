@@ -48,6 +48,10 @@ internal sealed class TranscriptConversationManager {
     // selects that thread.  Keyed by ThreadId (case-insensitive).
     private readonly Dictionary<string, IReadOnlyList<TranscriptTurnRecord>> _pendingAgentRenders
         = new(StringComparer.OrdinalIgnoreCase);
+    // Keep the render task after it starts so search navigation can await the same
+    // lazy render that a transcript selection already initiated.
+    private readonly Dictionary<string, Task> _agentRenderTasks
+        = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Virtual window — coordinator transcript ─────────────────────────────────
     // At startup only the last InitialTurnWindow turns are rendered.  Older turns
@@ -231,6 +235,7 @@ internal sealed class TranscriptConversationManager {
         CancelScheduledAgentThreadSnapshotPersist();
         // Clear any pending renders left over from a previous workspace.
         _pendingAgentRenders.Clear();
+        _agentRenderTasks.Clear();
         var workspace = _getWorkspace();
         if (workspace is null) {
             _conversationState = WorkspaceConversationState.Empty;
@@ -444,16 +449,27 @@ internal sealed class TranscriptConversationManager {
     /// already be assigned to a transcript viewer before calling this so that
     /// <c>BeginChange</c>/<c>EndChange</c> suppress intermediate layout passes.
     /// </summary>
-    internal async Task EnsureAgentThreadRenderedAsync(TranscriptThreadState thread) {
+    internal Task EnsureAgentThreadRenderedAsync(TranscriptThreadState thread) {
         if (thread.Kind != TranscriptThreadKind.Agent)
-            return;
+            return Task.CompletedTask;
+        if (_agentRenderTasks.TryGetValue(thread.ThreadId, out var activeRender))
+            return activeRender;
         if (!_pendingAgentRenders.TryGetValue(thread.ThreadId, out var turns))
-            return;
+            return Task.CompletedTask;
 
         // Remove immediately so a second rapid selection of the same thread does not
         // queue a second render while the first is still running.
         _pendingAgentRenders.Remove(thread.ThreadId);
 
+        var renderTask = RenderAgentThreadHistoryAsync(thread, turns);
+        _agentRenderTasks[thread.ThreadId] = renderTask;
+        return renderTask;
+    }
+
+    private async Task RenderAgentThreadHistoryAsync(
+        TranscriptThreadState thread,
+        IReadOnlyList<TranscriptTurnRecord> turns)
+    {
         SquadDashTrace.Write(TraceCategory.Performance,
             $"LAZY_RENDER_START: thread={thread.ThreadId} turns={turns.Count}");
         await RenderConversationHistoryAsync(thread, turns, 0);
@@ -1581,6 +1597,7 @@ internal sealed class TranscriptConversationManager {
         _allCoordinatorTurns          = [];
         _coordinatorRenderedFromIndex = 0;
         _pendingAgentRenders.Clear();
+        _agentRenderTasks.Clear();
     }
 
     internal void ApplyPromptText(string text, int? caretIndex = null, int selectionStart = 0, int selectionLength = 0) {

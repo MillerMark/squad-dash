@@ -48255,9 +48255,20 @@ public partial class MainWindow : Window
             responseForParsing = withoutHostCommands;
         }
 
-        if (InboxMessageFileReferenceParser.TryExtract(responseForParsing, out var fileExtraction) &&
-            fileExtraction is not null)
-            return TrySaveInboxMessageFromFileReference(fileExtraction, responseForParsing);
+        var fileExtractions = InboxMessageFileReferenceParser.ExtractAll(responseForParsing, out _);
+        if (fileExtractions.Count > 0)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"INBOX_SAVE: processing {fileExtractions.Count} inbox file reference(s)");
+            string? lastSavedMessageId = null;
+            foreach (var fileExtraction in fileExtractions)
+            {
+                lastSavedMessageId =
+                    TrySaveInboxMessageFromFileReference(fileExtraction, responseForParsing) ??
+                    lastSavedMessageId;
+            }
+            return lastSavedMessageId;
+        }
 
         if (!InboxMessageParser.TryExtract(responseForParsing, out var extraction) ||
             extraction is null ||

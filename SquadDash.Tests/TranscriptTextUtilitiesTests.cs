@@ -404,6 +404,24 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_MultipleInboxMessageJsonFileBlocks_StripsEveryPayload()
+    {
+        const string text = """
+            Reports ready.
+
+            INBOX_MESSAGE_JSON_FILE:
+            { "path": ".squad/tmp/agent-artifacts/lyra.json" }
+
+            INBOX_MESSAGE_JSON_FILE:
+            { "path": ".squad/tmp/agent-artifacts/vesper.json" }
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.That(sanitized, Is.EqualTo("Reports ready."));
+    }
+
+    [Test]
     public void SanitizeResponseText_TopLevelApprovalGroupBlock_StripsFromDisplay() {
         const string text = """
             Committed: abc1234

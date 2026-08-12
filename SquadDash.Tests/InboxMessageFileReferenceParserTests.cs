@@ -30,4 +30,30 @@ internal sealed class InboxMessageFileReferenceParserTests
                 """));
         });
     }
+
+    [Test]
+    public void ExtractAll_TwoReferences_ReturnsBothInSourceOrderAndStripsBoth()
+    {
+        const string text = """
+            Reports stored in inbox.
+
+            INBOX_MESSAGE_JSON_FILE:
+            { "path": ".squad/tmp/agent-artifacts/lyra.json" }
+
+            INBOX_MESSAGE_JSON_FILE:
+            { "path": ".squad/tmp/agent-artifacts/vesper.json" }
+            """;
+
+        var extractions = InboxMessageFileReferenceParser.ExtractAll(text, out var visibleText);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(extractions.Select(item => item.Reference.Path), Is.EqualTo(new[]
+            {
+                ".squad/tmp/agent-artifacts/lyra.json",
+                ".squad/tmp/agent-artifacts/vesper.json"
+            }));
+            Assert.That(visibleText, Is.EqualTo("Reports stored in inbox."));
+        });
+    }
 }

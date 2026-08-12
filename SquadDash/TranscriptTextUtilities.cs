@@ -314,9 +314,9 @@ internal static class TranscriptTextUtilities
     {
         const string sentinel = AgentArtifactStore.InboxMessageFileMarker;
 
-        if (InboxMessageFileReferenceParser.TryExtract(text, out var extraction) &&
-            extraction is not null)
-            return extraction.VisibleText;
+        var extractions = InboxMessageFileReferenceParser.ExtractAll(text, out var visibleText);
+        if (extractions.Count > 0)
+            return visibleText;
 
         var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
         if (sentinelIdx >= 0)
