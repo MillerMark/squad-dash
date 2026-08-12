@@ -8956,7 +8956,7 @@ public partial class MainWindow : Window
 
         var header = new TextBlock
         {
-            Text = "Plan Change Approval Required",
+            Text = "Plan Revision - Approval Required",
             FontSize = _transcriptFontSize + 2,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 6),
@@ -30640,7 +30640,6 @@ public partial class MainWindow : Window
         _renderedPlanRevisionProposalIds.Clear();
         RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
-        RestorePendingPlanRevisionApprovalCards();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
         // Load persisted panel layout for this workspace and apply any non-default placements.
@@ -30755,6 +30754,10 @@ public partial class MainWindow : Window
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
         RestoreAwaitingApprovalGateUI();
+        // Pending plan-revision cards are also live WPF controls. Restoring them before
+        // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
+        // Restore after checkpoint cards so the unresolved revision action remains visible.
+        RestorePendingPlanRevisionApprovalCards();
         // Plan repair must run only after the workspace-scoped execution envelope has
         // loaded. Running it earlier turns a legitimately resumable plan into an
         // interruption before SquadDash has read the state that owns the restart.
