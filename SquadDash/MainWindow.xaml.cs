@@ -33248,7 +33248,8 @@ public partial class MainWindow : Window
 
     private void OpenAgentModelOverrideDialog(TranscriptThreadState? thread, string agentHandle)
     {
-        var dialog = new ModelOverrideDialog(_modelProfileStore, agentHandle)
+        string? effectiveProfileAlias = ResolveEffectiveProfileAliasWithoutOverride(agentHandle);
+        var dialog = new ModelOverrideDialog(_modelProfileStore, agentHandle, effectiveProfileAlias)
         {
             Owner = this
         };
@@ -33259,6 +33260,15 @@ public partial class MainWindow : Window
             if (thread is not null)
                 RefreshSecondaryTranscriptTitle(thread);
         }
+    }
+
+    private string? ResolveEffectiveProfileAliasWithoutOverride(string agentHandle)
+    {
+        var profiles = _modelProfileStore.GetProfiles();
+        var assignments = _modelProfileStore.GetCategoryAssignments();
+        var category = ResolveNamedAgentProfileCategory(agentHandle);
+        var result = ModelProfileResolver.ResolveWithReason(profiles, assignments, null, category);
+        return result.Profile?.Alias;
     }
 
     private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard agent)

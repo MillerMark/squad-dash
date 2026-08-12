@@ -11,13 +11,14 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
     private readonly string _agentHandle;
     private readonly IReadOnlyList<ModelProfile> _profiles;
     private readonly string? _currentOverrideProfileId;
+    private readonly string? _effectiveProfileAlias;
 
     // "Not set" sentinel — null means clear the override
     private RadioButton _notSetRadio = null!;
     // One entry per profile, parallel to _orderedProfiles
     private IReadOnlyList<(RadioButton Radio, string ProfileId)> _profileRadios = [];
 
-    public ModelOverrideDialog(ModelProfileStore profileStore, string agentHandle)
+    public ModelOverrideDialog(ModelProfileStore profileStore, string agentHandle, string? effectiveProfileAlias = null)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize) {
         ArgumentNullException.ThrowIfNull(profileStore);
         if (string.IsNullOrWhiteSpace(agentHandle))
@@ -25,6 +26,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
 
         _profileStore = profileStore;
         _agentHandle = agentHandle.Trim();
+        _effectiveProfileAlias = effectiveProfileAlias;
 
         Title = "Model override";
         Width = 440;
@@ -67,6 +69,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             FontWeight = FontWeights.SemiBold
         };
         handleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        handleLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         handleRow.Children.Add(handleLabel);
 
         var handleValue = new TextBlock {
@@ -75,6 +78,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             Margin = new Thickness(0, 4, 0, 0)
         };
         handleValue.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        handleValue.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         handleRow.Children.Add(handleValue);
 
         var profileRow = new StackPanel {
@@ -89,6 +93,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             Margin = new Thickness(0, 0, 0, 8)
         };
         profileLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        profileLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         profileRow.Children.Add(profileLabel);
 
         _profiles = _profileStore.GetProfiles();
@@ -103,6 +108,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
             Margin = new Thickness(0, 8, 0, 0)
         };
         hintText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        hintText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
         profileRow.Children.Add(hintText);
 
         var buttonRow = new StackPanel {
@@ -143,15 +149,17 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
     }
 
     private void BuildProfileRadioButtons(StackPanel container) {
-        // "Not set" is first and selected when no override is active
+        var notSetLabel = string.IsNullOrWhiteSpace(_effectiveProfileAlias)
+            ? "No override"
+            : $"No override (currently using {_effectiveProfileAlias} from the settings)";
         _notSetRadio = new RadioButton {
-            Content = "Not set",
+            Content = notSetLabel,
             GroupName = "ProfileOverride",
             IsChecked = string.IsNullOrWhiteSpace(_currentOverrideProfileId),
             Margin = new Thickness(0, 0, 0, 4)
         };
         _notSetRadio.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
-        _notSetRadio.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeBody");
+        _notSetRadio.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeNormal");
         container.Children.Add(_notSetRadio);
 
         var ordered = _profiles
@@ -168,7 +176,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
                 Margin = new Thickness(0, 0, 0, 4)
             };
             rb.SetResourceReference(RadioButton.ForegroundProperty, "LabelText");
-            rb.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeBody");
+            rb.SetResourceReference(RadioButton.FontSizeProperty, "FontSizeNormal");
             container.Children.Add(rb);
             radios.Add((rb, profileId));
         }
