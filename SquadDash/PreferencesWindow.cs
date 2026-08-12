@@ -2851,8 +2851,13 @@ internal sealed class PreferencesWindow : Window {
 
         PushUndoSnapshot();
 
-        for (int i = 0; i < _profiles.Count; i++)
-            _profiles[i] = _profiles[i] with { IsDefault = string.Equals(_profiles[i].Id, profile.Id, StringComparison.OrdinalIgnoreCase) };
+        for (int i = 0; i < _profiles.Count; i++) {
+            var isThis = string.Equals(_profiles[i].Id, profile.Id, StringComparison.OrdinalIgnoreCase);
+            _profiles[i] = _profiles[i] with {
+                IsDefault = isThis,
+                IsEnabled = isThis ? true : _profiles[i].IsEnabled
+            };
+        }
 
         _profilesDirty = true;
         RefreshProfileListBox();
