@@ -54,7 +54,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         outerBorder.Child = root;
 
         var titleBlock = new TextBlock {
-            Text = "Agent model override",
+            Text = "Agent Model Override",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 12)

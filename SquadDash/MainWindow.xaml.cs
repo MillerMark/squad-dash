@@ -21601,6 +21601,17 @@ public partial class MainWindow : Window
         if (hasCharter)
             menu.Items.Add(openCharterItem);
 
+        // Model Override — immediately after Open Charter, before the section separator
+        var overrideHandle = primaryThread is not null
+            ? GetThreadModelOverrideHandle(primaryThread, agentCard)
+            : NormalizeQuickReplyAgentHandle(agentCard.AccentStorageKey);
+        if (!string.IsNullOrWhiteSpace(overrideHandle))
+        {
+            var modelOverrideItem = MakeItem("Model Override\u2026");
+            modelOverrideItem.Click += (_, _) => OpenAgentModelOverrideDialog(primaryThread, overrideHandle, agentCard);
+            menu.Items.Add(modelOverrideItem);
+        }
+
         if (primaryThread is not null && _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now))
         {
             var abortTarget = _backgroundTaskPresenter.TryResolveAbortTarget(primaryThread, allowSingleFallback: false);
@@ -21676,18 +21687,6 @@ public partial class MainWindow : Window
             removeImageItem.Tag = agentCard;
             removeImageItem.Click += AgentRemoveImageMenuItem_Click;
             menu.Items.Add(removeImageItem);
-        }
-
-        // Model override
-        var overrideHandle = primaryThread is not null
-            ? GetThreadModelOverrideHandle(primaryThread, agentCard)
-            : NormalizeQuickReplyAgentHandle(agentCard.AccentStorageKey);
-        if (!string.IsNullOrWhiteSpace(overrideHandle))
-        {
-            menu.Items.Add(MakeSep());
-            var modelOverrideItem = MakeItem("Model override\u2026");
-            modelOverrideItem.Click += (_, _) => OpenAgentModelOverrideDialog(primaryThread, overrideHandle, agentCard);
-            menu.Items.Add(modelOverrideItem);
         }
 
         return menu;
@@ -33240,7 +33239,7 @@ public partial class MainWindow : Window
             return null;
 
         var menu = MakeMenu();
-        var item = MakeItem("Model override...");
+        var item = MakeItem("Model Override\u2026");
         item.Click += (_, _) => OpenAgentModelOverrideDialog(thread, handle, agent);
         menu.Items.Add(item);
         return menu;
