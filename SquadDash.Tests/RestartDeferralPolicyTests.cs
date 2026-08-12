@@ -2,17 +2,20 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class RestartDeferralPolicyTests {
-    [TestCase(false, false, true)]
-    [TestCase(true, false, false)]
-    [TestCase(false, true, false)]
+    [TestCase(false, false, false, true)]
+    [TestCase(true, false, false, false)]
+    [TestCase(false, true, false, false)]
+    [TestCase(false, false, true, false)]
     public void CanAbandonQueuedPlanRecoveryAssessment_OnlyWhenNoTurnOrApplyIsActive(
         bool isPromptRunning,
         bool isApplying,
+        bool hasStructuredRepairPending,
         bool expected) {
         Assert.That(
             RestartDeferralPolicy.CanAbandonQueuedPlanRecoveryAssessment(
                 isPromptRunning,
-                isApplying),
+                isApplying,
+                hasStructuredRepairPending),
             Is.EqualTo(expected));
     }
 

@@ -146,6 +146,9 @@ internal static class PlanRecoveryAssessmentParser
 
 internal static class PlanRecoveryAssessmentValidator
 {
+    internal static bool IsSafeGitCommitIdentifier(string? value) =>
+        value is { Length: >= 7 and <= 40 } && value.All(Uri.IsHexDigit);
+
     internal static bool TryValidateAgainstPlanEvidence(
         Plan plan,
         PlanRecoveryAssessmentResponse response,
@@ -204,17 +207,27 @@ internal static class PlanRecoveryAssessmentValidator
         error = null;
         var actualSet = new HashSet<string>(actualCommits, StringComparer.OrdinalIgnoreCase);
         var assessed = new Dictionary<string, PlanRecoveryCommitAssessment>(StringComparer.OrdinalIgnoreCase);
+        var duplicates = new List<string>();
+        var unexpected = new List<string>();
         foreach (var commit in response.Commits)
         {
-            if (!actualSet.Contains(commit.Commit) || !assessed.TryAdd(commit.Commit, commit))
-            {
-                error = "The assessment omitted, duplicated, or referenced a commit outside the captured task range.";
-                return false;
-            }
+            if (!actualSet.Contains(commit.Commit))
+                unexpected.Add(commit.Commit);
+            else if (!assessed.TryAdd(commit.Commit, commit))
+                duplicates.Add(commit.Commit);
         }
-        if (assessed.Count != actualCommits.Count)
+        var missing = actualCommits.Where(commit => !assessed.ContainsKey(commit)).ToArray();
+        if (missing.Length > 0 || unexpected.Count > 0 || duplicates.Count > 0)
         {
-            error = "The assessment did not classify every commit after the task baseline.";
+            var details = new List<string>();
+            if (missing.Length > 0)
+                details.Add("Missing: " + string.Join(", ", missing));
+            if (unexpected.Count > 0)
+                details.Add("Not in the captured range: " + string.Join(", ", unexpected.Distinct(StringComparer.OrdinalIgnoreCase)));
+            if (duplicates.Count > 0)
+                details.Add("Duplicated: " + string.Join(", ", duplicates.Distinct(StringComparer.OrdinalIgnoreCase)));
+            error = "The assessment did not classify every commit after the task baseline exactly once. " +
+                    string.Join(". ", details) + ".";
             return false;
         }
 

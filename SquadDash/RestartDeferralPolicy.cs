@@ -15,8 +15,11 @@ internal enum RestartDeferralReason {
 internal static class RestartDeferralPolicy {
     internal static bool CanAbandonQueuedPlanRecoveryAssessment(
         bool isPromptRunning,
-        bool isPlanRecoveryAssessmentApplying) =>
-        !isPromptRunning && !isPlanRecoveryAssessmentApplying;
+        bool isPlanRecoveryAssessmentApplying,
+        bool hasStructuredRepairPending = false) =>
+        !isPromptRunning &&
+        !isPlanRecoveryAssessmentApplying &&
+        !hasStructuredRepairPending;
 
     internal static RestartDeferralReason GetDeferralReason(
         bool isPromptRunning,

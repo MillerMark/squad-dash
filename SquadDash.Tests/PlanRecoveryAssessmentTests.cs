@@ -165,6 +165,36 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void CommitCoverage_ReportsMistypedAndMissingCommitIdsBeforeGitResolution()
+    {
+        var response = Response(
+            PlanRecoveryClassification.NotStarted,
+            [Commit("dddddddd", PlanRecoveryCommitRelation.Unrelated)]);
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, ["bbbbbbbb", "cccccccc"], out _, out var error), Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Does.Contain("Missing: bbbbbbbb, cccccccc"));
+            Assert.That(error, Does.Contain("Not in the captured range: dddddddd"));
+        });
+    }
+
+    [TestCase("0123456789abcdef0123456789abcdef01234567", true)]
+    [TestCase("0123456", true)]
+    [TestCase("012345", false)]
+    [TestCase("not-a-commit", false)]
+    [TestCase("0123456\" --help", false)]
+    public void SafeGitCommitIdentifier_AllowsOnlyBoundedHexadecimalIds(
+        string value,
+        bool expected)
+    {
+        Assert.That(
+            PlanRecoveryAssessmentValidator.IsSafeGitCommitIdentifier(value),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
     public void CommitCoverage_RejectsCompleteWithoutAttributedCommit()
     {
         var response = Response(

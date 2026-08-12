@@ -14362,23 +14362,8 @@ public partial class MainWindow : Window
 
         if (!PlanRecoveryAssessmentParser.TryParse(rawResponse, out var response, out var error) || response is null)
         {
-            if (context.RepairAttempts == 0)
-            {
-                _pendingPlanRecoveryAssessment = context with { RepairAttempts = 1 };
-                _promptQueue.EnqueueAtFront(
-                    BuildPlanRecoveryAssessmentRepairPrompt(context, error, rawResponse),
-                    _promptQueueCoordinator.NextSequenceNumber(),
-                    sourceTag: PlanRecoveryAssessmentQueueTag,
-                    isSystemInjected: true);
-                SyncQueuePanel();
-                SyncSendButton();
-                ShowSystemTranscriptEntry(
-                    "SquadDash could not parse the recovery assessment. It asked AI once for a corrected structured response; the plan remains unchanged.");
-                _ = Dispatcher.BeginInvoke(
-                    new Action(() => _ = DrainQueueIfNeededAsync()),
-                    System.Windows.Threading.DispatcherPriority.ContextIdle);
+            if (TryQueuePlanRecoveryAssessmentRepair(context, error, rawResponse))
                 return;
-            }
 
             _pendingPlanRecoveryAssessment = null;
             _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
@@ -14396,7 +14381,13 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(async () =>
         {
             try { await ValidateAndApplyPlanRecoveryAssessmentAsync(response, context); }
-            catch (Exception ex) { HandleUiCallbackException("Plan recovery assessment", ex); }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Plan", $"Plan recovery assessment validation failed safely: {ex}");
+                KeepPlanStoppedAfterAssessment(
+                    context,
+                    "SquadDash could not safely validate the recovery assessment. " + ex.Message);
+            }
             finally
             {
                 _planRecoveryAssessmentApplying = false;
@@ -14408,6 +14399,12 @@ public partial class MainWindow : Window
                     _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
                         context.Plan.Group.GroupId, context.TaskId, IsActive: false));
                 }
+                else
+                {
+                    // A structured-data repair queued during host validation must start before
+                    // a deferred build restart is released, just like a parser-level repair.
+                    _ = DrainQueueIfNeededAsync();
+                }
                 TryCompletePendingRestart(
                     "plan-recovery-assessment-finished",
                     emergencySaveBeforeClose: true);
@@ -14415,15 +14412,75 @@ public partial class MainWindow : Window
         }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
+    private bool TryQueuePlanRecoveryAssessmentRepair(
+        PendingPlanRecoveryAssessment context,
+        string? error,
+        string? invalidResponse,
+        IReadOnlyList<string>? expectedCommits = null)
+    {
+        if (context.RepairAttempts != 0)
+            return false;
+
+        _pendingPlanRecoveryAssessment = context with { RepairAttempts = 1 };
+        _promptQueue.EnqueueAtFront(
+            BuildPlanRecoveryAssessmentRepairPrompt(
+                context,
+                error,
+                invalidResponse,
+                expectedCommits),
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: PlanRecoveryAssessmentQueueTag,
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+        ShowSystemTranscriptEntry(
+            "The recovery assessment data was invalid. SquadDash is asking AI once for a corrected response; the plan remains stopped while it is checked.");
+        _ = Dispatcher.BeginInvoke(
+            new Action(() => _ = DrainQueueIfNeededAsync()),
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
+        return true;
+    }
+
+    private void RepairOrStopInvalidPlanRecoveryAssessment(
+        PendingPlanRecoveryAssessment context,
+        PlanRecoveryAssessmentResponse response,
+        string error,
+        IReadOnlyList<string>? expectedCommits = null)
+    {
+        var invalidResponse = PlanRecoveryAssessmentParser.Marker + "\n" +
+                              JsonSerializer.Serialize(response);
+        if (TryQueuePlanRecoveryAssessmentRepair(
+                context,
+                error,
+                invalidResponse,
+                expectedCommits))
+        {
+            return;
+        }
+
+        KeepPlanStoppedAfterAssessment(
+            context,
+            "SquadDash could not validate the recovery assessment after one automatic repair. " + error);
+    }
+
     private static string BuildPlanRecoveryAssessmentRepairPrompt(
         PendingPlanRecoveryAssessment context,
         string? error,
-        string? invalidResponse)
+        string? invalidResponse,
+        IReadOnlyList<string>? expectedCommits = null)
     {
         var response = invalidResponse ?? string.Empty;
         if (response.Length > 16000) response = response[^16000..];
+        var expectedCommitInstructions = expectedCommits is { Count: > 0 }
+            ? $$"""
+
+                The commits array must contain each of these captured baseline-to-HEAD commits exactly once, using
+                the full SHA shown here and no other commit:
+                {{string.Join("\n", expectedCommits.Select(commit => "- " + commit))}}
+                """
+            : string.Empty;
         return $$"""
-            Your previous recovery assessment could not be parsed: {{error ?? "invalid structured response"}}.
+            Your previous recovery assessment was invalid: {{error ?? "invalid structured response"}}.
             Make no repository changes and do not repeat the assessment. Return only one corrected
             {{PlanRecoveryAssessmentParser.Marker}} JSON object using the evidence and conclusions already obtained.
             Copy these identity fields exactly:
@@ -14436,6 +14493,7 @@ public partial class MainWindow : Window
             Use classification complete, partial, not_started, or inconclusive. Include summary, remainingWork (an
             empty array unless partial), verification, and a commits array classifying every commit as task, mixed,
             unrelated, or unknown. Output strict JSON with double-quoted property names and no prose after the object.
+            {{expectedCommitInstructions}}
 
             Previous response:
             {{response}}
@@ -14457,8 +14515,9 @@ public partial class MainWindow : Window
                 context.BaselineCommit,
                 context.AssessedHead))
         {
-            KeepPlanStoppedAfterAssessment(
+            RepairOrStopInvalidPlanRecoveryAssessment(
                 context,
+                response,
                 "The AI response did not match the exact plan, task, revision, or repository snapshot requested.");
             return;
         }
@@ -14475,7 +14534,7 @@ public partial class MainWindow : Window
         if (!PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
                 durable, response, out var planEvidenceError))
         {
-            KeepPlanStoppedAfterAssessment(context, planEvidenceError!);
+            RepairOrStopInvalidPlanRecoveryAssessment(context, response, planEvidenceError!);
             return;
         }
 
@@ -14524,37 +14583,61 @@ public partial class MainWindow : Window
                 workspace,
                 $"rev-list --reverse \"{context.BaselineCommit}..{context.AssessedHead}\""))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var normalizedAssessments = new List<PlanRecoveryCommitAssessment>();
-        var resolvedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var assessment in response.Commits)
+        if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+                response, actualCommits, out var attributed, out var coverageError))
         {
-            var resolved = (await RunGitAsync(
-                workspace,
-                $"rev-parse --verify \"{assessment.Commit}^{{commit}}\"")).Trim();
-            if (!resolvedSet.Add(resolved))
-            {
-                KeepPlanStoppedAfterAssessment(
-                    context,
-                    "The assessment referenced the same commit more than once.");
-                return;
-            }
-            normalizedAssessments.Add(assessment with { Commit = resolved });
+            RepairOrStopInvalidPlanRecoveryAssessment(
+                context,
+                response,
+                coverageError!,
+                actualCommits);
+            return;
         }
-        var normalizedResponse = response with { Commits = normalizedAssessments };
+
+        var actualCommitById = actualCommits.ToDictionary(
+            commit => commit,
+            commit => commit,
+            StringComparer.OrdinalIgnoreCase);
+        var normalizedResponse = response with
+        {
+            Commits = response.Commits
+                .Select(assessment => assessment with
+                {
+                    Commit = actualCommitById[assessment.Commit],
+                })
+                .ToArray(),
+        };
         var normalizedSupporting = new List<PlanRecoveryCommitAssessment>();
         foreach (var assessment in response.SupportingCommits ?? [])
         {
-            var resolved = (await RunGitAsync(
-                workspace, $"rev-parse --verify \"{assessment.Commit}^{{commit}}\"")).Trim();
+            if (!PlanRecoveryAssessmentValidator.IsSafeGitCommitIdentifier(assessment.Commit))
+            {
+                RepairOrStopInvalidPlanRecoveryAssessment(
+                    context,
+                    response,
+                    $"Supporting commit '{assessment.Commit}' is not a valid Git commit identifier.",
+                    actualCommits);
+                return;
+            }
+
+            string resolved;
+            try
+            {
+                resolved = (await RunGitAsync(
+                    workspace, $"rev-parse --verify \"{assessment.Commit}^{{commit}}\"")).Trim();
+            }
+            catch (Exception)
+            {
+                RepairOrStopInvalidPlanRecoveryAssessment(
+                    context,
+                    response,
+                    $"Supporting commit '{assessment.Commit}' does not resolve to a commit in this repository.",
+                    actualCommits);
+                return;
+            }
             normalizedSupporting.Add(assessment with { Commit = resolved });
         }
         normalizedResponse = normalizedResponse with { SupportingCommits = normalizedSupporting };
-        if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-                normalizedResponse, actualCommits, out var attributed, out var coverageError))
-        {
-            KeepPlanStoppedAfterAssessment(context, coverageError!);
-            return;
-        }
         switch (response.Classification)
         {
             case PlanRecoveryClassification.Complete:
@@ -41669,14 +41752,16 @@ public partial class MainWindow : Window
             hasDocRevisionInFlight:          MarkdownDocumentWindow.AnyRevisionInFlight,
             promptAppearsStalled:            _pec.PromptAppearsDeadShown,
             isCommitHistoryCategorizationInFlight: _commitActivityGraphWindow?.IsCategorizationInFlight == true,
-            isPlanRecoveryAssessmentInFlight: _planRecoveryAssessmentApplying);
+            isPlanRecoveryAssessmentInFlight: _planRecoveryAssessmentApplying ||
+                _pendingPlanRecoveryAssessment is { RepairAttempts: > 0 });
 
     private void AbandonIdlePlanRecoveryAssessmentForRestart(string reason)
     {
         if (_pendingPlanRecoveryAssessment is null ||
             !RestartDeferralPolicy.CanAbandonQueuedPlanRecoveryAssessment(
                 _isPromptRunning,
-                _planRecoveryAssessmentApplying))
+                _planRecoveryAssessmentApplying,
+                _pendingPlanRecoveryAssessment.RepairAttempts > 0))
         {
             return;
         }
