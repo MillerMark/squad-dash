@@ -346,12 +346,18 @@ internal static class DecomposePlanningInstructions
 
     internal static string BuildOrdinaryPromptContext(
         string squadFolderPath,
-        string agentRoutingPolicy = PlanAgentRoutingPolicy.PlanExecutionOnly)
+        string agentRoutingPolicy = PlanAgentRoutingPolicy.PlanExecutionOnly,
+        bool allowExecutingPlanRevision = false)
     {
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
             var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath);
+            var revisionContext = PlanRevisionPromptInjection.Build(
+                squadFolderPath,
+                includeExecutingPlan: allowExecutingPlanRevision);
+            if (!string.IsNullOrWhiteSpace(revisionContext))
+                context += "\n\n" + revisionContext;
             if (PlanAgentRoutingPolicy.Normalize(agentRoutingPolicy) == PlanAgentRoutingPolicy.Always)
             {
                 context += "\n\n## Requested roster routing for ordinary prompts\n" +

@@ -27,7 +27,8 @@ internal static class PlanRevisionApplier
         Plan current,
         DecomposedTaskGroup proposal,
         string baseRevision,
-        DateTimeOffset revisedAt)
+        DateTimeOffset revisedAt,
+        IReadOnlySet<string>? reopenTaskIds = null)
     {
         if (!string.Equals(current.PlanId, proposal.GroupId, StringComparison.Ordinal))
             return Invalid($"Revision returned plan ID '{proposal.GroupId}', expected '{current.PlanId}'.");
@@ -39,9 +40,21 @@ internal static class PlanRevisionApplier
         var currentGroup = Canonicalize(PendingDecomposePlanAdapter.FromPlan(current).Group);
         proposal = Canonicalize(proposal);
         var currentDefinitions = currentGroup.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var reopenedIds = reopenTaskIds is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(reopenTaskIds, StringComparer.Ordinal);
+        var invalidReopenIds = reopenedIds.Where(id =>
+            !current.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial or
+                    PlanTaskStatus.Failed or PlanTaskStatus.HumanReviewRequired)).ToArray();
+        if (invalidReopenIds.Length > 0)
+            return Invalid("The revision cannot reopen these tasks at the current boundary: " +
+                           string.Join(", ", invalidReopenIds));
         var lockedIds = current.Tasks
-            .Where(task => task.Status != PlanTaskStatus.Pending ||
+            .Where(task => !reopenedIds.Contains(task.TaskId) &&
+                           (task.Status != PlanTaskStatus.Pending ||
                            string.Equals(task.TaskId, current.Progress.ExecutingTaskId, StringComparison.Ordinal))
+            )
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -85,6 +98,25 @@ internal static class PlanRevisionApplier
         {
             if (!existingTasks.TryGetValue(task.TaskId, out var existing)) return task;
             if (lockedIds.Contains(task.TaskId)) return existing;
+            if (reopenedIds.Contains(task.TaskId))
+            {
+                var priorAttempts = existing.AttemptHistory ?? [];
+                if (existing.Status != PlanTaskStatus.Pending)
+                {
+                    priorAttempts = priorAttempts.Append(new PlanTaskAttempt(
+                        existing.Status,
+                        existing.Commit,
+                        existing.CompletedAt,
+                        existing.CompletionSummary,
+                        "plan-revision",
+                        "Task specification changed in an approved plan revision.")).ToArray();
+                }
+                return task with
+                {
+                    Status = PlanTaskStatus.Pending,
+                    AttemptHistory = priorAttempts,
+                };
+            }
             return task with
             {
                 Status = existing.Status,
@@ -98,6 +130,33 @@ internal static class PlanRevisionApplier
 
         var mergedGates = MergeGates(current.ApprovalGates, projected.ApprovalGates);
         var mergedValidations = MergeValidations(current.Validations ?? [], projected.Validations ?? []);
+        if (reopenedIds.Count > 0)
+        {
+            mergedGates = mergedGates.Select(gate => gate.AfterTaskIds.Any(reopenedIds.Contains)
+                ? gate with
+                {
+                    Status = PlanGateStatus.Pending,
+                    RequestedAt = null,
+                    ResolvedAt = null,
+                    ResolutionNote = null,
+                    NotifiedAt = null,
+                    ResolvedBy = null,
+                    ProofEvidence = null,
+                }
+                : gate).ToArray();
+            mergedValidations = mergedValidations.Select(validation =>
+                validation.AfterTaskIds.Any(reopenedIds.Contains)
+                    ? validation with
+                    {
+                        Status = PlanValidationStatus.Pending,
+                        StartedAt = null,
+                        CompletedAt = null,
+                        ValidatedCommit = null,
+                        Summary = null,
+                        Evidence = null,
+                    }
+                    : validation).ToArray();
+        }
         var reactivateArchivedPlan = current.LifecycleStatus == PlanLifecycleStatus.Archived &&
                                     mergedTasks.Any(task => task.Status == PlanTaskStatus.Pending);
         var updated = current with
@@ -113,11 +172,30 @@ internal static class PlanRevisionApplier
             {
                 CompletedCount = mergedTasks.Count(task => task.Status == PlanTaskStatus.Complete),
                 TotalCount = mergedTasks.Count(task => task.Status != PlanTaskStatus.Superseded),
+                ExecutingTaskId = reopenedIds.Count > 0 ? null : current.Progress.ExecutingTaskId,
             },
             HostRevision = effectiveRevision,
             RevisionNumber = Math.Max(1, current.RevisionNumber) + 1,
             RevisedAt = revisedAt,
-            LifecycleStatus = reactivateArchivedPlan ? PlanLifecycleStatus.Staged : current.LifecycleStatus,
+            LifecycleStatus = reactivateArchivedPlan
+                ? PlanLifecycleStatus.Staged
+                : reopenedIds.Count > 0
+                    ? PlanLifecycleStatus.Interrupted
+                    : current.LifecycleStatus,
+            InterruptionData = reopenedIds.Count > 0
+                ? current.InterruptionData is { } interruption
+                    ? interruption with
+                    {
+                        Reason = "Plan content revision approved; revised work is ready to continue.",
+                        RecoveryState = "plan-revision-approved",
+                        InterruptedTaskId = reopenedIds.First(),
+                    }
+                    : new PlanInterruptionData(
+                        "Plan content revision approved; revised work is ready to continue.",
+                        "plan-revision-approved",
+                        0,
+                        reopenedIds.First())
+                : current.InterruptionData,
             Timestamps = reactivateArchivedPlan
                 ? current.Timestamps with { ArchivedAt = null }
                 : current.Timestamps,

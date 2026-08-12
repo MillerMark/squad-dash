@@ -216,6 +216,206 @@ internal sealed class PlanRevisionWorkflowTests
         });
     }
 
+    [Test]
+    public void ProposalParser_ParsesWrapperAndNormalizesReopenIds()
+    {
+        var group = MakeGroup();
+        var json = JsonSerializer.Serialize(new
+        {
+            planId = group.GroupId,
+            baseRevision = "base-1",
+            summary = "Move attribution into the completion footer.",
+            reopenTaskIds = new[] { "REVISION-20260806-002", "REVISION-20260806-002" },
+            revisedPlan = group,
+        });
+
+        var parsed = PlanRevisionProposalParser.TryParse(
+            PlanRevisionProposalParser.Marker + "\n" + json,
+            out var proposal,
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(proposal!.PlanId, Is.EqualTo(group.GroupId));
+            Assert.That(proposal.ReopenTaskIds, Is.EqualTo(new[] { "REVISION-20260806-002" }));
+            Assert.That(proposal.RevisedPlan.GroupId, Is.EqualTo(group.GroupId));
+        });
+    }
+
+    [Test]
+    public void ProposalParser_RejectsMismatchedPlanIdentity()
+    {
+        var group = MakeGroup();
+        var json = JsonSerializer.Serialize(new
+        {
+            planId = "OTHER-20260806",
+            baseRevision = "base-1",
+            summary = "Change it",
+            revisedPlan = group,
+        });
+
+        var parsed = PlanRevisionProposalParser.TryParse(
+            PlanRevisionProposalParser.Marker + "\n" + json,
+            out _,
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("must match"));
+        });
+    }
+
+    [Test]
+    public void ProposalParser_RejectsMultipleRevisionObjects()
+    {
+        var group = MakeGroup();
+        var json = JsonSerializer.Serialize(new
+        {
+            planId = group.GroupId,
+            baseRevision = "base-1",
+            summary = "Change it",
+            revisedPlan = group,
+        });
+
+        var parsed = PlanRevisionProposalParser.TryParse(
+            $"{PlanRevisionProposalParser.Marker}\n{json}\n{PlanRevisionProposalParser.Marker}\n{json}",
+            out _,
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("exactly one"));
+        });
+    }
+
+    [Test]
+    public void ProposalStore_RoundTripsAndReplacesPriorProposalForPlan()
+    {
+        using var workspace = new TestWorkspace();
+        var group = MakeGroup();
+        var payload = new PlanRevisionProposalPayload(
+            group.GroupId, "base-1", "First proposal", null, group);
+        var store = new PendingPlanRevisionProposalStore(workspace.GetPath(".squad"));
+
+        var first = store.Save(payload);
+        var second = store.Save(payload with { Summary = "Replacement proposal" });
+        var loaded = store.Load(group.GroupId);
+        var all = store.LoadAll();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.ProposalId, Is.Not.EqualTo(first.ProposalId));
+            Assert.That(loaded!.ProposalId, Is.EqualTo(second.ProposalId));
+            Assert.That(loaded.Payload.Summary, Is.EqualTo("Replacement proposal"));
+            Assert.That(all.Select(item => item.ProposalId), Is.EqualTo(new[] { second.ProposalId }));
+        });
+    }
+
+    [Test]
+    public void PromptInjection_IncludesExecutingPlanOnlyAfterLoopYields()
+    {
+        using var workspace = new TestWorkspace();
+        var squadFolder = workspace.GetPath(".squad");
+        Directory.CreateDirectory(squadFolder);
+        var plan = MakePlan() with { LifecycleStatus = PlanLifecycleStatus.Executing };
+        new PlanStore(squadFolder).Save(plan);
+
+        var whileLoopRuns = PlanRevisionPromptInjection.Build(squadFolder, includeExecutingPlan: false);
+        var afterLoopYields = PlanRevisionPromptInjection.Build(squadFolder, includeExecutingPlan: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(whileLoopRuns, Is.Empty);
+            Assert.That(afterLoopYields, Does.Contain(plan.PlanId));
+            Assert.That(afterLoopYields, Does.Contain(PlanRevisionProposalParser.Marker));
+            Assert.That(afterLoopYields, Does.Contain("human must approve"));
+        });
+    }
+
+    [Test]
+    public void PromptInjection_IncludesAwaitingApprovalWithoutExecutingOverride()
+    {
+        using var workspace = new TestWorkspace();
+        var squadFolder = workspace.GetPath(".squad");
+        Directory.CreateDirectory(squadFolder);
+        var plan = MakePlan() with { LifecycleStatus = PlanLifecycleStatus.AwaitingApproval };
+        new PlanStore(squadFolder).Save(plan);
+
+        var injection = PlanRevisionPromptInjection.Build(squadFolder, includeExecutingPlan: false);
+
+        Assert.That(injection, Does.Contain(plan.PlanId));
+    }
+
+    [Test]
+    public void DispatchPolicy_AllowsUserQueueItemAtRunningLoopBoundaryButNotPlanTurn()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PromptExecutionController.ShouldAllowExecutingPlanRevision(true, dispatchedItem: null),
+                Is.False);
+            Assert.That(
+                PromptExecutionController.ShouldAllowExecutingPlanRevision(
+                    true,
+                    new PromptQueueItem { Text = "Revise step 7", IsSystemInjected = false }),
+                Is.True);
+            Assert.That(
+                PromptExecutionController.ShouldAllowExecutingPlanRevision(
+                    true,
+                    new PromptQueueItem { Text = "Continue plan", IsSystemInjected = true }),
+                Is.False);
+        });
+    }
+
+    [Test]
+    public void Apply_ApprovedRevisionReopensChangedCompletedTaskAndPreservesPriorAttempt()
+    {
+        var original = MakePlan();
+        var completedTask = original.Tasks[1] with
+        {
+            Status = PlanTaskStatus.Complete,
+            Commit = "abc123",
+            CompletedAt = DateTimeOffset.UtcNow,
+            CompletionSummary = "Original implementation",
+        };
+        var plan = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = original.Tasks.Select((task, index) => index == 1 ? completedTask : task).ToArray(),
+            Progress = new PlanProgress(1, 3),
+        };
+        var proposal = PendingDecomposePlanAdapter.FromPlan(plan).Group with
+        {
+            Tasks = PendingDecomposePlanAdapter.FromPlan(plan).Group.Tasks.Select(task =>
+                task.Id == completedTask.TaskId
+                    ? task with { Description = "Revised completion-footer attribution" }
+                    : task).ToArray(),
+        };
+
+        var result = PlanRevisionApplier.Apply(
+            plan,
+            proposal,
+            plan.Revision,
+            DateTimeOffset.UtcNow,
+            new HashSet<string>(StringComparer.Ordinal) { completedTask.TaskId });
+
+        var reopened = result.UpdatedPlan!.Tasks[1];
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied));
+            Assert.That(result.UpdatedPlan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+            Assert.That(reopened.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(reopened.Description, Is.EqualTo("Revised completion-footer attribution"));
+            Assert.That(reopened.Commit, Is.Null);
+            Assert.That(reopened.AttemptHistory, Has.Count.EqualTo(1));
+            Assert.That(reopened.AttemptHistory![0].Commit, Is.EqualTo("abc123"));
+            Assert.That(reopened.AttemptHistory[0].Disposition, Is.EqualTo("plan-revision"));
+        });
+    }
+
     private static Plan MakePlan()
     {
         var group = MakeGroup();

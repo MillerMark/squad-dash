@@ -9,6 +9,7 @@ internal static class TranscriptTextUtilities
     private static readonly string[] InspectableProtocolMarkers =
     [
         "TASKS_JSON:",
+        PlanRevisionProposalParser.Marker,
         DecomposeStepResultParser.Marker,
         DecomposeRecoveryDecisionParser.Marker,
         DecomposeDecisionParser.Marker,

@@ -403,6 +403,7 @@
     <Compile Include="..\SquadDash\PlanRevisionApplier.cs" Link="Source\PlanRevisionApplier.cs" />
     <Compile Include="..\SquadDash\PlanRevisionHistoryStore.cs" Link="Source\PlanRevisionHistoryStore.cs" />
     <Compile Include="..\SquadDash\PlanRevisionPromptContext.cs" Link="Source\PlanRevisionPromptContext.cs" />
+    <Compile Include="..\SquadDash\PlanRevisionProposal.cs" Link="Source\PlanRevisionProposal.cs" />
     <Compile Include="..\SquadDash\PlanRevisionTranscriptPresentation.cs" Link="Source\PlanRevisionTranscriptPresentation.cs" />
     <Compile Include="..\SquadDash\TaskPlanResponseResolver.cs" Link="Source\TaskPlanResponseResolver.cs" />
     <Compile Include="..\SquadDash\PlanGateManager.cs" Link="Source\PlanGateManager.cs" />

@@ -2324,7 +2324,10 @@ internal sealed class PromptExecutionController {
             ? null
             : DecomposePlanningInstructions.BuildOrdinaryPromptContext(
                 currentWorkspace.SquadFolderPath,
-                _workspaceContext.GetSettingsSnapshot().PlanAgentRoutingPolicy);
+                _workspaceContext.GetSettingsSnapshot().PlanAgentRoutingPolicy,
+                allowExecutingPlanRevision: ShouldAllowExecutingPlanRevision(
+                    IsLoopRunning,
+                    CurrentDispatchedItem));
         var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, artifactCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, decomposePlanningCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(
@@ -2338,6 +2341,11 @@ internal sealed class PromptExecutionController {
         SquadDashTrace.Write("Routing", $"Bridge prompt context: {buildResult.RoutingSummary} accountability=included");
         return buildResult.PromptText;
     }
+
+    internal static bool ShouldAllowExecutingPlanRevision(
+        bool isLoopRunning,
+        PromptQueueItem? dispatchedItem) =>
+        !isLoopRunning || dispatchedItem is { IsSystemInjected: false };
 
     private static void SavePromptDispatchDiagnostic(
         SessionWorkspace workspace,

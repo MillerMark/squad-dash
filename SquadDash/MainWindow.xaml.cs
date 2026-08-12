@@ -383,6 +383,9 @@ public partial class MainWindow : Window
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
+    private bool                     _planRevisionRepairPending;
+    private PlanRevisionProposalPayload? _planRevisionRepairProposal;
+    private readonly HashSet<string> _renderedPlanRevisionProposalIds = new(StringComparer.Ordinal);
     private PlanExecutionLog?        _planExecutionLog;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
@@ -5512,10 +5515,19 @@ public partial class MainWindow : Window
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
                     {
-                        TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
+                        var hasRevisionPayload = TryStagePlanRevisionProposalFromResponse(
+                            rawResponse,
+                            doneCurrentTurn);
+                        if (!hasRevisionPayload)
+                            TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
                         var hasTasksPayload = _lastResponseContainedTaskPlan;
                         var hasDecisionPayload = rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true;
-                        if (hasTasksPayload && hasDecisionPayload)
+                        if (hasRevisionPayload)
+                        {
+                            SquadDashTrace.Write("PlanRevision",
+                                "Plan revision protocol response was handled before ordinary plan protocols.");
+                        }
+                        else if (hasTasksPayload && hasDecisionPayload)
                         {
                             AppendLine("⚠ The response contained both a task proposal and an execution decision. " +
                                        "SquadDash staged the proposal but ignored the decision; approval must come in a later turn.");
@@ -5537,6 +5549,13 @@ public partial class MainWindow : Window
                             _decomposeRepairPending = false;
                             AppendLine("⚠ The automatic task-plan repair response did not contain TASKS_JSON. " +
                                        "The plan was not staged; please ask the AI to try again.");
+                        }
+                        if (_planRevisionRepairPending && !hasRevisionPayload)
+                        {
+                            _planRevisionRepairPending = false;
+                            _planRevisionRepairProposal = null;
+                            AppendLine("⚠ The automatic plan-revision repair response did not contain PLAN_REVISION_JSON. " +
+                                       "The plan remains unchanged.");
                         }
                     }
 
@@ -8602,7 +8621,7 @@ public partial class MainWindow : Window
         if (PlanRevisionPromptContextParser.TryParse(ownerView?.Prompt, out var revisionContext) &&
             revisionContext is not null)
         {
-            ApplyPlanRevisionResponse(group, revisionContext, planResponseSource);
+            StageLegacyPlanRevisionResponse(group, revisionContext, planResponseSource, ownerView);
             return;
         }
 
@@ -8661,10 +8680,11 @@ public partial class MainWindow : Window
         StageValidatedDecomposeGroup(group, ownerView);
     }
 
-    private void ApplyPlanRevisionResponse(
+    private void StageLegacyPlanRevisionResponse(
         DecomposedTaskGroup proposal,
         PlanRevisionPromptContext context,
-        string? responseSource)
+        string? responseSource,
+        TranscriptTurnView? ownerView)
     {
         _planStore ??= _currentWorkspace is null ? null : new PlanStore(_currentWorkspace.SquadFolderPath);
         var current = _planStore?.Load(context.PlanId);
@@ -8674,13 +8694,34 @@ public partial class MainWindow : Window
             return;
         }
 
-        var result = PlanRevisionApplier.Apply(current, proposal, context.BaseRevision, DateTimeOffset.UtcNow);
+        var payload = new PlanRevisionProposalPayload(
+            context.PlanId,
+            context.BaseRevision,
+            $"Revise the plan definition for {current.Title}.",
+            null,
+            proposal);
+        StageValidatedPlanRevisionProposal(current, payload, responseSource, ownerView);
+    }
+
+    private void StageValidatedPlanRevisionProposal(
+        Plan current,
+        PlanRevisionProposalPayload payload,
+        string? responseSource,
+        TranscriptTurnView? ownerView)
+    {
+        var reopened = payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal);
+        var result = PlanRevisionApplier.Apply(
+            current,
+            payload.RevisedPlan,
+            payload.BaseRevision,
+            DateTimeOffset.UtcNow,
+            reopened);
         switch (result.Outcome)
         {
             case PlanRevisionApplyOutcome.NoChanges:
                 AppendLine(PlanRevisionTranscriptPresentation.BuildNoChanges(result.PreservedLockedTaskCount));
                 SquadDashTrace.Write("PlanRevision",
-                    $"No changes plan={context.PlanId} base={context.BaseRevision} source={responseSource ?? "inline"}.");
+                    $"No changes plan={payload.PlanId} base={payload.BaseRevision} source={responseSource ?? "inline"}.");
                 return;
 
             case PlanRevisionApplyOutcome.Stale:
@@ -8688,16 +8729,16 @@ public partial class MainWindow : Window
                 return;
 
             case PlanRevisionApplyOutcome.Invalid:
-                AppendLine($"⚠ Plan revision was not applied: {result.Error}");
+                QueuePlanRevisionRepair(result.Error ?? "The revised plan failed validation.", payload);
                 return;
 
             case PlanRevisionApplyOutcome.Applied:
                 break;
         }
 
-        if (result.UpdatedPlan is not { } updated || result.EffectiveGroup is not { } effective)
+        if (result.UpdatedPlan is not { } || result.EffectiveGroup is not { } effective)
         {
-            AppendLine("⚠ Plan revision was not applied because the revised definition was incomplete.");
+            QueuePlanRevisionRepair("The revised definition was incomplete.", payload);
             return;
         }
 
@@ -8710,7 +8751,124 @@ public partial class MainWindow : Window
                 enforceAssignments:
                     PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
         {
-            AppendLine($"⚠ Plan revision was not applied: {assignmentCatalogError}");
+            QueuePlanRevisionRepair(assignmentCatalogError ?? "Agent assignments were invalid.", payload);
+            return;
+        }
+
+        var pending = new PendingPlanRevisionProposalStore(_currentWorkspace!.SquadFolderPath).Save(payload);
+        AppendPlanRevisionApprovalCard(current, pending, result, ownerView);
+        _renderedPlanRevisionProposalIds.Add(pending.ProposalId);
+        _planRevisionRepairPending = false;
+        _planRevisionRepairProposal = null;
+        SquadDashTrace.Write("PlanRevision",
+            $"Staged proposal={pending.ProposalId} plan={payload.PlanId} base={payload.BaseRevision} " +
+            $"changes={result.AppliedChangeCount} source={responseSource ?? "inline"}.");
+        if (current.LifecycleStatus == PlanLifecycleStatus.Executing && IsLoopRunning)
+        {
+            SuppressLoopResume("plan-revision-awaiting-approval");
+            _loopController.RequestStop();
+            SquadDashTrace.Write("PlanRevision",
+                $"Requested safe loop stop for proposal={pending.ProposalId} plan={payload.PlanId}.");
+        }
+    }
+
+    private bool TryStagePlanRevisionProposalFromResponse(
+        string? rawResponse,
+        TranscriptTurnView? ownerView)
+    {
+        if (rawResponse?.Contains(PlanRevisionProposalParser.Marker, StringComparison.Ordinal) != true)
+            return false;
+
+        if (!PlanRevisionProposalParser.TryParse(rawResponse, out var payload, out var error) || payload is null)
+        {
+            QueuePlanRevisionRepair(error ?? "The plan revision response was invalid.", null);
+            return true;
+        }
+
+        _planStore ??= _currentWorkspace is null ? null : new PlanStore(_currentWorkspace.SquadFolderPath);
+        var current = _planStore?.Load(payload.PlanId);
+        if (current is null)
+        {
+            QueuePlanRevisionRepair($"Plan {payload.PlanId} is not available in this workspace.", payload);
+            return true;
+        }
+        if (!PlanRevisionPromptInjectionIsLegal(current))
+        {
+            AppendLine("⚠ The plan revision was not staged because the plan is not at a safe revision boundary. No plan state changed.");
+            return true;
+        }
+
+        StageValidatedPlanRevisionProposal(current, payload, "PLAN_REVISION_JSON", ownerView);
+        return true;
+    }
+
+    private static bool PlanRevisionPromptInjectionIsLegal(Plan plan) =>
+        plan.Tasks.Any(task => task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
+        plan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or
+            PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked or PlanLifecycleStatus.Executing;
+
+    private void QueuePlanRevisionRepair(string error, PlanRevisionProposalPayload? payload)
+    {
+        if (_planRevisionRepairPending)
+        {
+            _planRevisionRepairPending = false;
+            _planRevisionRepairProposal = null;
+            AppendLine("⚠ The plan revision response was still invalid after one repair attempt. The plan remains unchanged. " +
+                       "Reason: " + error);
+            return;
+        }
+
+        _planRevisionRepairPending = true;
+        _planRevisionRepairProposal = payload;
+        _promptQueue.EnqueueAtFront(
+            PlanRevisionProposalParser.BuildRepairPrompt(error, payload),
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "plan-revision-repair",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+        AppendLine("The plan revision response was invalid. SquadDash is asking the coordinator to correct it; the plan remains unchanged.");
+    }
+
+    private async Task ApplyPendingPlanRevisionAsync(
+        PendingPlanRevisionProposal pending,
+        TextBlock status,
+        FrameworkElement actions)
+    {
+        if (_currentWorkspace is null) return;
+        _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+        var current = _planStore.Load(pending.Payload.PlanId);
+        if (current is null ||
+            !string.Equals(current.Revision, pending.Payload.BaseRevision, StringComparison.Ordinal))
+        {
+            status.Text = "This proposal is stale. The plan was not changed.";
+            actions.IsEnabled = false;
+            return;
+        }
+
+        var store = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath);
+        var latest = store.Load(current.PlanId);
+        if (latest is null || !string.Equals(latest.ProposalId, pending.ProposalId, StringComparison.Ordinal))
+        {
+            status.Text = "A newer proposal replaced this one. The plan was not changed.";
+            actions.IsEnabled = false;
+            return;
+        }
+
+        var reopened = pending.Payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal);
+        var result = PlanRevisionApplier.Apply(
+            current,
+            pending.Payload.RevisedPlan,
+            pending.Payload.BaseRevision,
+            DateTimeOffset.UtcNow,
+            reopened);
+        if (result.Outcome != PlanRevisionApplyOutcome.Applied ||
+            result.UpdatedPlan is not { } updated || result.EffectiveGroup is not { } effective)
+        {
+            status.Text = result.Outcome == PlanRevisionApplyOutcome.NoChanges
+                ? "The proposal no longer contains any changes."
+                : "The proposal could not be applied: " + (result.Error ?? "validation failed");
+            actions.IsEnabled = true;
             return;
         }
 
@@ -8744,6 +8902,9 @@ public partial class MainWindow : Window
 
         TrackAcceptedPlanRevisionForActiveExecution(current, updated);
         _CodeHealthGroupRunner?.RefreshTaskDefinitions(effective);
+        store.Delete(current.PlanId);
+        status.Text = "✓ Revision approved.";
+        actions.Visibility = Visibility.Collapsed;
         AppendLine(PlanRevisionTranscriptPresentation.BuildApplied(
             updated.RevisionNumber,
             result.AppliedChangeCount,
@@ -8751,7 +8912,189 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("PlanRevision",
             $"Applied plan={updated.PlanId} displayRevision={updated.RevisionNumber} " +
             $"changes={result.AppliedChangeCount} locked={result.PreservedLockedTaskCount} " +
-            $"source={responseSource ?? "inline"}.");
+            $"source=approved-proposal.");
+        LoadTasksPanel();
+        SyncPlansPanel();
+
+        if (updated.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+        {
+            try
+            {
+                await StartOrResumeDurablePlanAsync(updated);
+            }
+            catch (PlanPreflightBlockedException blocked)
+            {
+                ScheduleApprovalResumeRetry(updated.PlanId, blocked);
+            }
+        }
+    }
+
+    private void AppendPlanRevisionApprovalCard(
+        Plan current,
+        PendingPlanRevisionProposal pending,
+        PlanRevisionApplyResult preview,
+        TranscriptTurnView? ownerView)
+    {
+        var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        var stack = new StackPanel { Margin = new Thickness(4) };
+
+        var header = new TextBlock
+        {
+            Text = "Plan Change Approval Required",
+            FontSize = _transcriptFontSize + 2,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        header.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        stack.Children.Add(header);
+
+        var planTitle = new TextBlock
+        {
+            Text = current.Title,
+            FontSize = _transcriptFontSize,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        stack.Children.Add(planTitle);
+
+        AddLabel("Proposed change");
+        AddBody(pending.Payload.Summary, 8);
+        AddLabel("Impact");
+        var reopenIds = pending.Payload.ReopenTaskIds ?? [];
+        if (reopenIds.Count > 0)
+        {
+            foreach (var taskId in reopenIds)
+            {
+                var task = current.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+                AddBody($"• Step {task?.DisplayStepLabel ?? taskId} will reopen with its revised specification.", 2);
+            }
+        }
+        var futureChangeCount = Math.Max(0, preview.AppliedChangeCount - reopenIds.Count);
+        if (futureChangeCount > 0)
+            AddBody($"• {futureChangeCount} pending plan definition change(s) will be applied.", 2);
+        if (preview.PreservedLockedTaskCount > 0)
+            AddBody($"• {preview.PreservedLockedTaskCount} unaffected completed or active step(s) will remain unchanged.", 2);
+
+        var status = new TextBlock
+        {
+            Text = "The current plan remains authoritative until you approve this revision.",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = _transcriptFontSize - 1,
+            Margin = new Thickness(0, 6, 0, 8),
+        };
+        status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        stack.Children.Add(status);
+
+        var actions = new WrapPanel { Orientation = Orientation.Horizontal };
+        var approve = TranscriptQuickReplyFactory.CreateButton(
+            "Approve revision and continue",
+            _transcriptFontSize);
+        var revise = TranscriptQuickReplyFactory.CreateButton(
+            "Revise proposal",
+            _transcriptFontSize);
+        var keep = TranscriptQuickReplyFactory.CreateButton(
+            "Keep current plan",
+            _transcriptFontSize);
+        actions.Children.Add(approve);
+        actions.Children.Add(revise);
+        actions.Children.Add(keep);
+        stack.Children.Add(actions);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        blocks.Add(TranscriptQuickReplyFactory.CreateContainer(card));
+
+        approve.Click += async (_, _) =>
+        {
+            actions.IsEnabled = false;
+            status.Text = "Applying the approved revision…";
+            await ApplyPendingPlanRevisionAsync(pending, status, actions);
+        };
+        revise.Click += (_, _) =>
+        {
+            new PendingPlanRevisionProposalStore(_currentWorkspace!.SquadFolderPath)
+                .Delete(pending.Payload.PlanId);
+            actions.Visibility = Visibility.Collapsed;
+            status.Text = "This proposal was withdrawn. Describe the revised proposal in the prompt box.";
+            BeginPlanRevision(current);
+        };
+        keep.Click += (_, _) =>
+        {
+            new PendingPlanRevisionProposalStore(_currentWorkspace!.SquadFolderPath)
+                .Delete(pending.Payload.PlanId);
+            actions.Visibility = Visibility.Collapsed;
+            status.Text = "Current plan kept. No plan content changed.";
+        };
+        ScrollToEndIfAtBottom(CoordinatorThread);
+
+        void AddLabel(string text)
+        {
+            var label = new TextBlock
+            {
+                Text = text,
+                FontSize = _transcriptFontSize - 1,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            stack.Children.Add(label);
+        }
+
+        void AddBody(string text, double bottom)
+        {
+            var body = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = _transcriptFontSize,
+                Margin = new Thickness(0, 0, 0, bottom),
+            };
+            body.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            stack.Children.Add(body);
+        }
+    }
+
+    private void RestorePendingPlanRevisionApprovalCards()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        var proposalStore = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath);
+        foreach (var pending in proposalStore.LoadAll())
+        {
+            if (!_renderedPlanRevisionProposalIds.Add(pending.ProposalId)) continue;
+            var current = _planStore.Load(pending.Payload.PlanId);
+            if (current is null ||
+                !string.Equals(current.Revision, pending.Payload.BaseRevision, StringComparison.Ordinal))
+            {
+                proposalStore.Delete(pending.Payload.PlanId);
+                AppendLine($"A saved plan revision proposal for {pending.Payload.PlanId} became stale and was discarded. The plan was not changed.");
+                continue;
+            }
+
+            var preview = PlanRevisionApplier.Apply(
+                current,
+                pending.Payload.RevisedPlan,
+                pending.Payload.BaseRevision,
+                pending.CreatedAt,
+                pending.Payload.ReopenTaskIds?.ToHashSet(StringComparer.Ordinal));
+            if (preview.Outcome != PlanRevisionApplyOutcome.Applied)
+            {
+                proposalStore.Delete(pending.Payload.PlanId);
+                AppendLine($"A saved plan revision proposal for {pending.Payload.PlanId} was no longer valid and was discarded. The plan was not changed.");
+                continue;
+            }
+            AppendPlanRevisionApprovalCard(current, pending, preview, ownerView: null);
+        }
     }
 
     private void TrackAcceptedPlanRevisionForActiveExecution(Plan previous, Plan updated)
@@ -12076,6 +12419,11 @@ public partial class MainWindow : Window
         string gateId,
         ApprovalClickToken clickToken)
     {
+        if (HasPendingPlanRevision(planId))
+        {
+            AppendLine("Resolve the pending plan revision proposal before changing this approval checkpoint.");
+            return;
+        }
         if (_planStore?.Load(planId) is not { } plan ||
             !string.Equals(plan.Revision, clickToken.PlanRevision, StringComparison.Ordinal))
         {
@@ -12449,6 +12797,11 @@ public partial class MainWindow : Window
         if (await TryHandleDeveloperApprovalSimulationClickAsync(clickToken, note))
             return;
         if (_planStore is null || _planApprovalRuntime is null) return;
+        if (HasPendingPlanRevision(clickToken.PlanId))
+        {
+            AppendLine("Resolve the pending plan revision proposal before approving this checkpoint. No approval state changed.");
+            return;
+        }
         if (_approvalPlansUpdating.Contains(clickToken.PlanId))
         {
             AppendLine("Approval details are being updated. Please use the refreshed approval button in a moment.");
@@ -13329,6 +13682,10 @@ public partial class MainWindow : Window
             plan.Revision,
             taskId);
     }
+
+    private bool HasPendingPlanRevision(string planId) =>
+        _currentWorkspace is not null &&
+        new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath).Load(planId) is not null;
 
     private void RestorePendingManualLoopResumeSurface()
     {
@@ -30254,8 +30611,10 @@ public partial class MainWindow : Window
         _planRecoveryDecision = new PlanRecoveryDecisionHandler(
             _planRecoveryProvenance,
             _inboxStore);
+        _renderedPlanRevisionProposalIds.Clear();
         RepairActivePlanTaskProjections();
         await InitializeApprovalRuntimeAsync();
+        RestorePendingPlanRevisionApprovalCards();
         if (_plansPanelVisible && _plansPanelController is not null)
             _plansPanelController.Refresh(_planStore.LoadAll());
         // Load persisted panel layout for this workspace and apply any non-default placements.
