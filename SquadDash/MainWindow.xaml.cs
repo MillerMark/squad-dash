@@ -21678,6 +21678,18 @@ public partial class MainWindow : Window
             menu.Items.Add(removeImageItem);
         }
 
+        // Model override
+        var overrideHandle = primaryThread is not null
+            ? GetThreadModelOverrideHandle(primaryThread, agentCard)
+            : NormalizeQuickReplyAgentHandle(agentCard.AccentStorageKey);
+        if (!string.IsNullOrWhiteSpace(overrideHandle))
+        {
+            menu.Items.Add(MakeSep());
+            var modelOverrideItem = MakeItem("Model override\u2026");
+            modelOverrideItem.Click += (_, _) => OpenAgentModelOverrideDialog(primaryThread, overrideHandle);
+            menu.Items.Add(modelOverrideItem);
+        }
+
         return menu;
     }
 
@@ -33234,7 +33246,7 @@ public partial class MainWindow : Window
         return menu;
     }
 
-    private void OpenAgentModelOverrideDialog(TranscriptThreadState thread, string agentHandle)
+    private void OpenAgentModelOverrideDialog(TranscriptThreadState? thread, string agentHandle)
     {
         var dialog = new ModelOverrideDialog(_modelProfileStore, agentHandle)
         {
@@ -33244,7 +33256,8 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() == true)
         {
             RefreshBridgeNamedAgentRoutes();
-            RefreshSecondaryTranscriptTitle(thread);
+            if (thread is not null)
+                RefreshSecondaryTranscriptTitle(thread);
         }
     }
 
