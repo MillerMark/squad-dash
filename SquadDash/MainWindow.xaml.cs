@@ -21686,7 +21686,7 @@ public partial class MainWindow : Window
         {
             menu.Items.Add(MakeSep());
             var modelOverrideItem = MakeItem("Model override\u2026");
-            modelOverrideItem.Click += (_, _) => OpenAgentModelOverrideDialog(primaryThread, overrideHandle);
+            modelOverrideItem.Click += (_, _) => OpenAgentModelOverrideDialog(primaryThread, overrideHandle, agentCard);
             menu.Items.Add(modelOverrideItem);
         }
 
@@ -33241,15 +33241,20 @@ public partial class MainWindow : Window
 
         var menu = MakeMenu();
         var item = MakeItem("Model override...");
-        item.Click += (_, _) => OpenAgentModelOverrideDialog(thread, handle);
+        item.Click += (_, _) => OpenAgentModelOverrideDialog(thread, handle, agent);
         menu.Items.Add(item);
         return menu;
     }
 
-    private void OpenAgentModelOverrideDialog(TranscriptThreadState? thread, string agentHandle)
+    private void OpenAgentModelOverrideDialog(TranscriptThreadState? thread, string agentHandle, AgentStatusCard? agentCard = null)
     {
         string? effectiveProfileAlias = ResolveEffectiveProfileAliasWithoutOverride(agentHandle);
-        var dialog = new ModelOverrideDialog(_modelProfileStore, agentHandle, effectiveProfileAlias)
+        var dialog = new ModelOverrideDialog(
+            _modelProfileStore,
+            agentHandle,
+            effectiveProfileAlias,
+            agentCard?.DisplayName,
+            agentCard?.AgentImageSource)
         {
             Owner = this
         };

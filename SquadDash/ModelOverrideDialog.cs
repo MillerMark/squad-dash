@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace SquadDash;
 
@@ -12,13 +13,16 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
     private readonly IReadOnlyList<ModelProfile> _profiles;
     private readonly string? _currentOverrideProfileId;
     private readonly string? _effectiveProfileAlias;
+    private readonly string? _agentDisplayName;
+    private readonly ImageSource? _agentImageSource;
 
     // "Not set" sentinel — null means clear the override
     private RadioButton _notSetRadio = null!;
     // One entry per profile, parallel to _orderedProfiles
     private IReadOnlyList<(RadioButton Radio, string ProfileId)> _profileRadios = [];
 
-    public ModelOverrideDialog(ModelProfileStore profileStore, string agentHandle, string? effectiveProfileAlias = null)
+    public ModelOverrideDialog(ModelProfileStore profileStore, string agentHandle, string? effectiveProfileAlias = null,
+        string? agentDisplayName = null, ImageSource? agentImageSource = null)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize) {
         ArgumentNullException.ThrowIfNull(profileStore);
         if (string.IsNullOrWhiteSpace(agentHandle))
@@ -27,6 +31,8 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         _profileStore = profileStore;
         _agentHandle = agentHandle.Trim();
         _effectiveProfileAlias = effectiveProfileAlias;
+        _agentDisplayName = agentDisplayName;
+        _agentImageSource = agentImageSource;
 
         Title = "Model override";
         Width = 440;
@@ -49,7 +55,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
 
         // Issue 1: use FontSizeSubtitle (one step below FontSizeTitle) and enable wrapping
         var titleBlock = new TextBlock {
-            Text = "Choose a profile override for this agent",
+            Text = $"Choose a profile override for {_agentDisplayName ?? _agentHandle}",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 12)
@@ -58,43 +64,65 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         root.Children.Add(titleBlock);
 
-        var handleRow = new StackPanel {
+        var identityPanel = new StackPanel {
+            Orientation = Orientation.Horizontal,
             Margin = new Thickness(0, 0, 0, 14)
         };
-        Grid.SetRow(handleRow, 1);
-        root.Children.Add(handleRow);
+        Grid.SetRow(identityPanel, 1);
+        root.Children.Add(identityPanel);
 
-        var handleLabel = new TextBlock {
-            Text = "Agent handle",
+        if (_agentImageSource is not null) {
+            var avatarBorder = new Border {
+                Width = 29,
+                Height = 29,
+                CornerRadius = new CornerRadius(14.5),
+                ClipToBounds = true
+            };
+            avatarBorder.Child = new System.Windows.Controls.Image {
+                Source = _agentImageSource,
+                Stretch = Stretch.UniformToFill
+            };
+            identityPanel.Children.Add(avatarBorder);
+        } else {
+            var displayName = _agentDisplayName ?? _agentHandle;
+            var initial = displayName.Length > 0 ? displayName[0].ToString() : "?";
+            var placeholderBorder = new Border {
+                Width = 29,
+                Height = 29,
+                CornerRadius = new CornerRadius(14.5),
+                ClipToBounds = true
+            };
+            placeholderBorder.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
+            var initialText = new TextBlock {
+                Text = initial,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            initialText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            placeholderBorder.Child = initialText;
+            identityPanel.Children.Add(placeholderBorder);
+        }
+
+        var nameStack = new StackPanel {
+            Orientation = Orientation.Vertical,
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        identityPanel.Children.Add(nameStack);
+
+        var nameBlock = new TextBlock {
+            Text = _agentDisplayName ?? _agentHandle,
             FontWeight = FontWeights.SemiBold
         };
-        handleLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        handleLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
-        handleRow.Children.Add(handleLabel);
-
-        var handleValue = new TextBlock {
-            Text = _agentHandle,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0)
-        };
-        handleValue.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-        handleValue.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
-        handleRow.Children.Add(handleValue);
+        nameBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        nameBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        nameStack.Children.Add(nameBlock);
 
         var profileRow = new StackPanel {
             Margin = new Thickness(0, 0, 0, 14)
         };
         Grid.SetRow(profileRow, 2);
         root.Children.Add(profileRow);
-
-        var profileLabel = new TextBlock {
-            Text = "Override profile",
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 8)
-        };
-        profileLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        profileLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
-        profileRow.Children.Add(profileLabel);
 
         _profiles = _profileStore.GetProfiles();
         _currentOverrideProfileId = FindCurrentOverrideProfileId();
@@ -103,7 +131,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         BuildProfileRadioButtons(profileRow);
 
         var hintText = new TextBlock {
-            Text = "Choose a profile to use for future prompts from this agent.",
+            Text = "This profile will be used in future prompts to this agent.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 8, 0, 0)
         };
