@@ -14310,9 +14310,12 @@ public partial class MainWindow : Window
         return $$"""
             Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
             Do not edit files, create commits, revert work, or start the task. Inspect the repository and, when useful,
-            run non-mutating verification commands. Determine whether the task is complete, partially complete, not
+            run non-mutating verification commands. Do not build SquadDash itself because this live application treats
+            a self-build as a restart request. Determine whether the task is complete, partially complete, not
             started, or inconclusive. Classify every commit in the supplied baseline-to-HEAD range as task, mixed,
-            unrelated, or unknown. A mixed commit contains both task and unrelated work. Do not infer ownership from
+            unrelated, unknown, or superseded. A mixed commit contains both task and unrelated work. Superseded means
+            the commit implements an older task specification that the current plan revision replaced; it does not
+            count as work satisfying the current task revision. Do not infer ownership from
             time, author, or commit position alone; compare actual changes with the task specification.
 
             Host-bound identity (copy exactly):
@@ -14340,15 +14343,16 @@ public partial class MainWindow : Window
               "remainingWork": ["required only for partial"],
               "verification": { "status": "passed|failed|not_run", "command": "...", "summary": "..." },
               "commits": [
-                { "commit": "full SHA", "relation": "task|mixed|unrelated|unknown", "reason": "..." }
+                { "commit": "full SHA", "relation": "task|mixed|unrelated|unknown|superseded", "reason": "..." }
               ],
               "supportingCommits": [
-                { "commit": "full SHA", "relation": "task|mixed|unknown", "reason": "why older evidence is relevant" }
+                { "commit": "full SHA", "relation": "task|mixed|unknown|superseded", "reason": "why older evidence is relevant" }
               ]
             }
 
             Complete requires passed verification and at least one task or mixed commit. Use inconclusive whenever the
-            evidence cannot safely distinguish task work from unrelated work. Do not include recovery choices or execute
+            evidence cannot safely distinguish task work from unrelated work. Not_started requires no task or mixed
+            commits against the current revision; use superseded for replaced older-spec work. Do not include recovery choices or execute
             a recovery action; SquadDash owns that decision.
             When relevant implementation commits predate the captured baseline, include them chronologically in
             supportingCommits and explain why each is included. Use relation unknown when attribution is uncertain.
@@ -14492,7 +14496,9 @@ public partial class MainWindow : Window
             - assessedHead: {{context.AssessedHead}}
             Use classification complete, partial, not_started, or inconclusive. Include summary, remainingWork (an
             empty array unless partial), verification, and a commits array classifying every commit as task, mixed,
-            unrelated, or unknown. Output strict JSON with double-quoted property names and no prose after the object.
+            unrelated, unknown, or superseded. Not_started must not mark any commit task or mixed; use superseded when
+            an older implementation was replaced by the current plan revision. Output strict JSON with double-quoted
+            property names and no prose after the object.
             {{expectedCommitInstructions}}
 
             Previous response:

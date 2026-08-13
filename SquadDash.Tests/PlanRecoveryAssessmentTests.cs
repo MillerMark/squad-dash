@@ -136,6 +136,21 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void SupersededCommitRelation_ParsesForRevisedTaskEvidence()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
+             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
+             "classification":"not_started","summary":"Only replaced work exists.","remainingWork":[],
+             "verification":null,
+             "commits":[{"commit":"bbbbbbbb","relation":"superseded","reason":"Implements the old specification."}]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
+        Assert.That(response!.Commits.Single().Relation, Is.EqualTo(PlanRecoveryCommitRelation.Superseded));
+    }
+
+    [Test]
     public void MatchesRequest_RejectsStaleHead()
     {
         var response = Response(
@@ -178,6 +193,39 @@ internal sealed class PlanRecoveryAssessmentTests
             Assert.That(error, Does.Contain("Missing: bbbbbbbb, cccccccc"));
             Assert.That(error, Does.Contain("Not in the captured range: dddddddd"));
         });
+    }
+
+    [Test]
+    public void CommitCoverage_AggregatesListAndClassificationErrorsForSingleRepair()
+    {
+        var response = Response(
+            PlanRecoveryClassification.NotStarted,
+            [
+                Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task),
+                Commit("dddddddd", PlanRecoveryCommitRelation.Unrelated),
+            ]);
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, ["bbbbbbbb", "cccccccc"], out _, out var error), Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Does.Contain("Missing: cccccccc"));
+            Assert.That(error, Does.Contain("Not in the captured range: dddddddd"));
+            Assert.That(error, Does.Contain("not started"));
+            Assert.That(error, Does.Contain("superseded"));
+        });
+    }
+
+    [Test]
+    public void CommitCoverage_NotStartedAllowsSupersededOlderSpecification()
+    {
+        var response = Response(
+            PlanRecoveryClassification.NotStarted,
+            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Superseded)]);
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, ["bbbbbbbb"], out var attributed, out var error), Is.True, error);
+        Assert.That(attributed, Is.Empty);
     }
 
     [TestCase("0123456789abcdef0123456789abcdef01234567", true)]

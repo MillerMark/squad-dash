@@ -19,9 +19,10 @@ internal static class PlanRecoveryCommitRelation
     internal const string Mixed = "mixed";
     internal const string Unrelated = "unrelated";
     internal const string Unknown = "unknown";
+    internal const string Superseded = "superseded";
 
     internal static bool IsValid(string value) =>
-        value is Task or Mixed or Unrelated or Unknown;
+        value is Task or Mixed or Unrelated or Unknown or Superseded;
 }
 
 internal sealed record PlanRecoveryCommitAssessment(
@@ -217,6 +218,7 @@ internal static class PlanRecoveryAssessmentValidator
                 duplicates.Add(commit.Commit);
         }
         var missing = actualCommits.Where(commit => !assessed.ContainsKey(commit)).ToArray();
+        var validationErrors = new List<string>();
         if (missing.Length > 0 || unexpected.Count > 0 || duplicates.Count > 0)
         {
             var details = new List<string>();
@@ -226,25 +228,34 @@ internal static class PlanRecoveryAssessmentValidator
                 details.Add("Not in the captured range: " + string.Join(", ", unexpected.Distinct(StringComparer.OrdinalIgnoreCase)));
             if (duplicates.Count > 0)
                 details.Add("Duplicated: " + string.Join(", ", duplicates.Distinct(StringComparer.OrdinalIgnoreCase)));
-            error = "The assessment did not classify every commit after the task baseline exactly once. " +
-                    string.Join(". ", details) + ".";
-            return false;
+            validationErrors.Add(
+                "The assessment did not classify every commit after the task baseline exactly once. " +
+                string.Join(". ", details) + ".");
         }
 
-        var attributed = actualCommits.Where(commit => assessed[commit].Relation is
-            PlanRecoveryCommitRelation.Task or PlanRecoveryCommitRelation.Mixed).ToArray();
+        var attributed = actualCommits.Where(commit =>
+            assessed.TryGetValue(commit, out var assessment) &&
+            assessment.Relation is PlanRecoveryCommitRelation.Task or PlanRecoveryCommitRelation.Mixed).ToArray();
         if (response.Classification == PlanRecoveryClassification.Complete && attributed.Length == 0)
         {
-            error = "AI classified the task as complete without identifying any commit that contains its work.";
-            return false;
+            validationErrors.Add(
+                "AI classified the task as complete without identifying any commit that contains its current work.");
         }
         if (response.Classification == PlanRecoveryClassification.NotStarted && attributed.Length > 0)
         {
-            error = "The assessment called the task not started while also attributing commits to it.";
-            return false;
+            validationErrors.Add(
+                "The assessment called the current task revision not started while also marking these commits as " +
+                $"task or mixed: {string.Join(", ", attributed)}. Use relation superseded for an older implementation " +
+                "that the current task revision replaced.");
         }
 
         attributedCommits = attributed;
+        if (validationErrors.Count > 0)
+        {
+            error = string.Join(" ", validationErrors);
+            return false;
+        }
+
         return true;
     }
 }
