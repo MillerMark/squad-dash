@@ -13947,6 +13947,43 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
         };
+        cardViewer.PreviewMouseWheel += (_, e) =>
+        {
+            // This viewer exists only to provide selectable rich text inside the card; its own
+            // scrollbars are intentionally disabled. Route wheel input to the transcript behind
+            // it so hovering the card does not create a dead scrolling region.
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                OutputTextBox_PreviewMouseWheel(OutputTextBox, e);
+                return;
+            }
+
+            FocusTranscriptForInactiveSelectionScroll(OutputTextBox);
+            if (OutputTextBox.Template?.FindName("PART_ContentHost", OutputTextBox) is not ScrollViewer transcriptScroll)
+                return;
+
+            var detents = Math.Max(1, Math.Abs(e.Delta) / Mouse.MouseWheelDeltaForOneLine);
+            var configuredLines = SystemParameters.WheelScrollLines;
+            if (configuredLines < 0)
+            {
+                for (var index = 0; index < detents; index++)
+                {
+                    if (e.Delta > 0) transcriptScroll.PageUp();
+                    else transcriptScroll.PageDown();
+                }
+            }
+            else
+            {
+                var lineCount = Math.Max(1, configuredLines) * detents;
+                for (var index = 0; index < lineCount; index++)
+                {
+                    if (e.Delta > 0) transcriptScroll.LineUp();
+                    else transcriptScroll.LineDown();
+                }
+            }
+
+            e.Handled = true;
+        };
         var card = new Border
         {
             Child = cardViewer,
