@@ -46,6 +46,26 @@ internal sealed class PlanViewerAutoScrollPolicyTests
     }
 
     [Test]
+    public void CalculateRightAlignedOffset_CompletedPlan_AlignsFinalContentEdge()
+    {
+        var result = PlanViewerAutoScrollPolicy.CalculateRightAlignedOffset(
+            currentOffset: 240, viewportWidth: 800,
+            targetRight: 1940, extentWidth: 1980);
+
+        Assert.That(result, Is.EqualTo(1140));
+    }
+
+    [Test]
+    public void CalculateRightAlignedOffset_CompletedPlanFits_PreservesLeftEdge()
+    {
+        var result = PlanViewerAutoScrollPolicy.CalculateRightAlignedOffset(
+            currentOffset: 0, viewportWidth: 1800,
+            targetRight: 1540, extentWidth: 1600);
+
+        Assert.That(result, Is.Zero);
+    }
+
+    [Test]
     public void IsInteractionQuiet_RequiresThirtySecondsWithoutInput()
     {
         var now = new DateTime(2026, 8, 13, 12, 0, 30, DateTimeKind.Utc);

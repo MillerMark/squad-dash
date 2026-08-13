@@ -33,4 +33,17 @@ internal static class PlanViewerAutoScrollPolicy
         var maximumOffset = Math.Max(0, extentWidth - viewportWidth);
         return Math.Clamp(requestedOffset, 0, maximumOffset);
     }
+
+    internal static double CalculateRightAlignedOffset(
+        double currentOffset,
+        double viewportWidth,
+        double targetRight,
+        double extentWidth)
+    {
+        if (viewportWidth <= 0 || targetRight <= 0 || extentWidth <= viewportWidth)
+            return currentOffset;
+
+        var maximumOffset = Math.Max(0, extentWidth - viewportWidth);
+        return Math.Clamp(targetRight - viewportWidth, 0, maximumOffset);
+    }
 }

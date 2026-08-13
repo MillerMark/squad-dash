@@ -72,9 +72,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _canvasContentHeight;
     private double _activeVisibilityStart = double.NaN;
     private double _activeVisibilityEnd = double.NaN;
+    private AutomaticScrollTarget _automaticScrollTarget;
     private double _allocatedApprovalHeight;
     private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
     private bool _initialLayoutApplied;
+
+    private enum AutomaticScrollTarget
+    {
+        None,
+        PlanStart,
+        ActiveRange,
+        PlanEnd,
+    }
 
     private record SelectedElementIdentity(string Kind, string Id);
     private SelectedElementIdentity? _selectedElement;
@@ -240,11 +249,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void ApplyLiveUpdate(Plan updatedPlan)
     {
         if (_plan is null) return;
-        var autoScrollForNewActiveTask = HasNewActiveTask(_durablePlan, updatedPlan);
+        var autoScrollForPlanProgress = HasNewActiveTask(_durablePlan, updatedPlan) ||
+                                        HasJustCompleted(_durablePlan, updatedPlan);
         var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
         _plan = updatedDefinition;
         _durablePlan = updatedPlan;
-        RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForNewActiveTask);
+        RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForPlanProgress);
         Title = $"Plan — {updatedDefinition.Group.GroupTitle}";
     }
 
@@ -2621,7 +2631,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 allClusterFootprints.Select(footprint => footprint.Bottom).DefaultIfEmpty(0).Max()));
         _canvasContentWidth = canvas.Width;
         _canvasContentHeight = canvas.Height;
-        ResolveActiveVisibilityRange(durablePlan, levels, positions, canvas.Margin.Left);
+        ResolveAutomaticScrollTarget(durablePlan, levels, positions, canvas.Margin.Left);
 
         if (durablePlan is not null)
         {
@@ -2829,12 +2839,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
     /// every interaction handler targets the visible viewer and does not create a hidden WPF window.
     /// </summary>
     private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan) =>
-        RebuildPreservingScroll(plan, durablePlan, autoScrollForNewActiveTask: false);
+        RebuildPreservingScroll(plan, durablePlan, autoScrollForPlanProgress: false);
 
     private void RebuildPreservingScroll(
         PendingDecomposePlan plan,
         Plan? durablePlan,
-        bool autoScrollForNewActiveTask)
+        bool autoScrollForPlanProgress)
     {
         var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
         var verticalOffset   = _graphScroll?.VerticalOffset  ?? 0;
@@ -2850,11 +2860,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
                 _graphScroll?.ScrollToVerticalOffset(verticalOffset);
-                if (autoScrollForNewActiveTask &&
+                if (autoScrollForPlanProgress &&
                     PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
                 {
                     Dispatcher.BeginInvoke(
-                        EnsureActiveRangeVisible,
+                        EnsureAutomaticScrollTargetVisible,
                         System.Windows.Threading.DispatcherPriority.Render);
                 }
             }, System.Windows.Threading.DispatcherPriority.Loaded);
@@ -3020,7 +3030,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         ContentRendered -= OnInitialContentRendered;
         ApplyInitialWindowLayout();
         _initialLayoutApplied = true;
-        Dispatcher.BeginInvoke(EnsureActiveRangeVisible,
+        Dispatcher.BeginInvoke(EnsureAutomaticScrollTargetVisible,
             System.Windows.Threading.DispatcherPriority.Render);
     }
 
@@ -3130,16 +3140,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
             : Math.Clamp(Top, workArea.Top, workArea.Bottom - Height);
     }
 
-    private void ResolveActiveVisibilityRange(
+    private void ResolveAutomaticScrollTarget(
         Plan? durablePlan,
         IReadOnlyDictionary<string, int> levels,
         IReadOnlyDictionary<string, Point> positions,
         double canvasLeftMargin)
     {
+        _automaticScrollTarget = AutomaticScrollTarget.None;
         _activeVisibilityStart = double.NaN;
         _activeVisibilityEnd = double.NaN;
         if (durablePlan is null)
+        {
+            _automaticScrollTarget = AutomaticScrollTarget.PlanStart;
             return;
+        }
 
         var activity = PlanTaskActivityResolver.Resolve(durablePlan);
         var activeTaskIds = activity
@@ -3149,36 +3163,58 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .Where(id => levels.ContainsKey(id) && positions.ContainsKey(id))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (activeTaskIds.Length == 0)
+        if (activeTaskIds.Length > 0)
+        {
+            var activeLevel = activeTaskIds.Max(id => levels[id]);
+            var targetLevel = levels.Values
+                .Where(level => level > activeLevel)
+                .DefaultIfEmpty(activeLevel)
+                .Min();
+            _activeVisibilityStart = positions
+                .Where(item => levels[item.Key] == activeLevel)
+                .Min(item => item.Value.X) + canvasLeftMargin;
+            _activeVisibilityEnd = positions
+                .Where(item => levels[item.Key] == targetLevel)
+                .Max(item => item.Value.X + NodeWidth) + canvasLeftMargin;
+            _automaticScrollTarget = AutomaticScrollTarget.ActiveRange;
             return;
+        }
 
-        var activeLevel = activeTaskIds.Max(id => levels[id]);
-        var targetLevel = levels.Values
-            .Where(level => level > activeLevel)
-            .DefaultIfEmpty(activeLevel)
-            .Min();
-        _activeVisibilityStart = positions
-            .Where(item => levels[item.Key] == activeLevel)
-            .Min(item => item.Value.X) + canvasLeftMargin;
-        _activeVisibilityEnd = positions
-            .Where(item => levels[item.Key] == targetLevel)
-            .Max(item => item.Value.X + NodeWidth) + canvasLeftMargin;
+        if (IsPlanComplete(durablePlan))
+        {
+            _activeVisibilityEnd = _canvasContentWidth + canvasLeftMargin;
+            _automaticScrollTarget = AutomaticScrollTarget.PlanEnd;
+            return;
+        }
+
+        if (durablePlan.Tasks.All(task => task.Status == PlanTaskStatus.Pending))
+            _automaticScrollTarget = AutomaticScrollTarget.PlanStart;
     }
 
-    private void EnsureActiveRangeVisible()
+    private void EnsureAutomaticScrollTargetVisible()
     {
-        if (_graphScroll is null ||
-            double.IsNaN(_activeVisibilityStart) ||
-            double.IsNaN(_activeVisibilityEnd))
+        if (_graphScroll is null || _automaticScrollTarget == AutomaticScrollTarget.None)
             return;
 
         _graphScroll.UpdateLayout();
-        var requestedOffset = PlanViewerAutoScrollPolicy.CalculateHorizontalOffset(
-            _graphScroll.HorizontalOffset,
-            _graphScroll.ViewportWidth,
-            _activeVisibilityStart,
-            _activeVisibilityEnd,
-            _graphScroll.ExtentWidth);
+        var requestedOffset = _automaticScrollTarget switch
+        {
+            AutomaticScrollTarget.PlanStart => 0,
+            AutomaticScrollTarget.PlanEnd => PlanViewerAutoScrollPolicy.CalculateRightAlignedOffset(
+                _graphScroll.HorizontalOffset,
+                _graphScroll.ViewportWidth,
+                _activeVisibilityEnd,
+                _graphScroll.ExtentWidth),
+            AutomaticScrollTarget.ActiveRange when !double.IsNaN(_activeVisibilityStart) &&
+                                                   !double.IsNaN(_activeVisibilityEnd) =>
+                PlanViewerAutoScrollPolicy.CalculateHorizontalOffset(
+                    _graphScroll.HorizontalOffset,
+                    _graphScroll.ViewportWidth,
+                    _activeVisibilityStart,
+                    _activeVisibilityEnd,
+                    _graphScroll.ExtentWidth),
+            _ => _graphScroll.HorizontalOffset,
+        };
         if (Math.Abs(requestedOffset - _graphScroll.HorizontalOffset) > 0.5)
             _graphScroll.ScrollToHorizontalOffset(requestedOffset);
     }
@@ -3195,6 +3231,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return PlanTaskActivityResolver.Resolve(currentPlan)
             .Any(item => IsActivelyWorking(item.Value) && !previousActive.Contains(item.Key));
     }
+
+    private static bool HasJustCompleted(Plan? previousPlan, Plan currentPlan) =>
+        previousPlan is not null && !IsPlanComplete(previousPlan) && IsPlanComplete(currentPlan);
+
+    private static bool IsPlanComplete(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Completed ||
+        plan.Tasks.Count > 0 && plan.Tasks.All(task =>
+            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
 
     private static bool IsActivelyWorking(PlanTaskActivityState state) => state is
         PlanTaskActivityState.Executing or
