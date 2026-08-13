@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace SquadDash;
@@ -266,4 +267,68 @@ internal static class PlanRecoveryAssessmentRetryPolicy
 
     internal static bool CanRetryRepositoryChange(int completedRetries) =>
         completedRetries < MaximumRepositoryChangeRetries;
+}
+
+internal static class PlanRecoveryAssessmentErrorReport
+{
+    internal const string LinkPrefix = "app://plan-recovery-assessment-error/";
+
+    internal static string Build(
+        string planId,
+        string taskId,
+        string assessmentId,
+        string? error) => $"""
+        Recovery assessment validation report
+
+        Plan: {planId}
+        Task: {taskId}
+        Assessment: {assessmentId}
+        Response attempt: Initial assessment response
+
+        Validation findings
+        {error?.Trim() ?? "The response did not satisfy the recovery assessment contract."}
+
+        Result
+        SquadDash left the plan unchanged and requested one corrected structured response from AI.
+        """;
+
+    internal static string CreateLinkTarget(string report)
+    {
+        var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(report))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+        return LinkPrefix + encoded;
+    }
+
+    internal static bool TryDecodeLinkTarget(string? target, out string report)
+    {
+        report = string.Empty;
+        if (string.IsNullOrWhiteSpace(target) ||
+            !target.StartsWith(LinkPrefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var encoded = target[LinkPrefix.Length..];
+        if (encoded.Length is 0 or > 32768)
+            return false;
+
+        encoded = encoded.Replace('-', '+').Replace('_', '/');
+        encoded += (encoded.Length % 4) switch
+        {
+            2 => "==",
+            3 => "=",
+            _ => string.Empty,
+        };
+        try
+        {
+            report = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+            return !string.IsNullOrWhiteSpace(report);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
 }

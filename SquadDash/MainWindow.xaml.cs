@@ -14437,8 +14437,14 @@ public partial class MainWindow : Window
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
+        var validationReport = PlanRecoveryAssessmentErrorReport.Build(
+            context.Plan.Group.GroupId,
+            context.TaskId,
+            context.AssessmentId,
+            error);
+        var validationReportTarget = PlanRecoveryAssessmentErrorReport.CreateLinkTarget(validationReport);
         ShowSystemTranscriptEntry(
-            "The recovery assessment data was invalid. SquadDash is asking AI once for a corrected response; the plan remains stopped while it is checked.");
+            $"The recovery assessment data was [invalid]({validationReportTarget}). SquadDash is asking AI once for a corrected response; the plan remains stopped while it is checked.");
         _ = Dispatcher.BeginInvoke(
             new Action(() => _ = DrainQueueIfNeededAsync()),
             System.Windows.Threading.DispatcherPriority.ContextIdle);
@@ -34831,6 +34837,19 @@ public partial class MainWindow : Window
     /// </summary>
     private void HandleTranscriptLinkClick(string target)
     {
+        if (PlanRecoveryAssessmentErrorReport.TryDecodeLinkTarget(target, out var validationReport))
+        {
+            var viewer = new RecoveryAssessmentErrorReportWindow(validationReport)
+            {
+                Owner = CanShowOwnedWindow() ? this : null,
+                WindowStartupLocation = CanShowOwnedWindow()
+                    ? WindowStartupLocation.CenterOwner
+                    : WindowStartupLocation.CenterScreen,
+            };
+            viewer.Show();
+            return;
+        }
+
         if (target.StartsWith("app://open-plan:", StringComparison.OrdinalIgnoreCase))
         {
             var encodedPlanId = target["app://open-plan:".Length..];

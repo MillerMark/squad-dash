@@ -243,6 +243,39 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void ErrorReportLink_RoundTripsDetailedValidationFindings()
+    {
+        var report = PlanRecoveryAssessmentErrorReport.Build(
+            "PLAN-1",
+            "TASK-2",
+            "assessment-3",
+            "Missing commit abc. Classification contradicted relation task.");
+
+        var target = PlanRecoveryAssessmentErrorReport.CreateLinkTarget(report);
+        var decoded = PlanRecoveryAssessmentErrorReport.TryDecodeLinkTarget(target, out var restored);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decoded, Is.True);
+            Assert.That(target, Does.StartWith(PlanRecoveryAssessmentErrorReport.LinkPrefix));
+            Assert.That(restored, Is.EqualTo(report));
+            Assert.That(restored, Does.Contain("Plan: PLAN-1"));
+            Assert.That(restored, Does.Contain("Task: TASK-2"));
+            Assert.That(restored, Does.Contain("Missing commit abc"));
+            Assert.That(restored, Does.Contain("requested one corrected structured response"));
+        });
+    }
+
+    [TestCase("https://example.com")]
+    [TestCase("app://plan-recovery-assessment-error/not-base64!")]
+    public void ErrorReportLink_RejectsUnrelatedOrMalformedTargets(string target)
+    {
+        Assert.That(
+            PlanRecoveryAssessmentErrorReport.TryDecodeLinkTarget(target, out _),
+            Is.False);
+    }
+
+    [Test]
     public void CommitCoverage_RejectsCompleteWithoutAttributedCommit()
     {
         var response = Response(
