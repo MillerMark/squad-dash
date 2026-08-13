@@ -5979,12 +5979,16 @@ public partial class MainWindow : Window
 
         // Set or clear the completion-footer alias annotation (visual-only; does NOT write to
         // ResponseTextBuilder and is NOT part of the transcript search index).
-        if (!string.IsNullOrEmpty(evt.ProfileAlias) && _modelProfileStore.GetProfiles().Count > 1)
+        // Prefer the SDK event value; fall back to the named-agent route we sent at launch time.
+        var subagentMsgAlias = evt.ProfileAlias;
+        if (string.IsNullOrEmpty(subagentMsgAlias))
+            subagentMsgAlias = ResolveRouteProfileAlias(thread);
+        if (!string.IsNullOrEmpty(subagentMsgAlias) && _modelProfileStore.GetProfiles().Count > 1)
         {
             var defaultProfile = _modelProfileStore.GetDefaultProfile();
             bool isDefault = defaultProfile is not null &&
-                             string.Equals(evt.ProfileAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
-            thread.CompletionFooterProfileAlias = isDefault ? null : evt.ProfileAlias;
+                             string.Equals(subagentMsgAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
+            thread.CompletionFooterProfileAlias = isDefault ? null : subagentMsgAlias;
         }
         else
         {
@@ -6131,16 +6135,21 @@ public partial class MainWindow : Window
         _agentThreadRegistry.FinalizeAgentThread(thread, rawResponse: evt.LatestResponse);
         // Set or clear the completion-footer alias from the completion event. This mirrors the
         // same logic in HandleSubagentMessage and ensures the alias is always current when
-        // UpdateCompletedTimeFooters creates the footer paragraph. If the completion event
-        // carries no ProfileAlias, preserve whatever HandleSubagentMessage may have set.
-        if (!string.IsNullOrEmpty(evt.ProfileAlias) && _modelProfileStore.GetProfiles().Count > 1)
+        // UpdateCompletedTimeFooters creates the footer paragraph. Prefer the SDK event value;
+        // fall back to the named-agent route we sent at launch time. If neither is available,
+        // preserve whatever HandleSubagentMessage may have set.
+        var subagentCompletedAlias = evt.ProfileAlias;
+        if (string.IsNullOrEmpty(subagentCompletedAlias))
+            subagentCompletedAlias = ResolveRouteProfileAlias(thread);
+        if (!string.IsNullOrEmpty(subagentCompletedAlias) && _modelProfileStore.GetProfiles().Count > 1)
         {
             var defaultProfile = _modelProfileStore.GetDefaultProfile();
             bool isDefault = defaultProfile is not null &&
-                             string.Equals(evt.ProfileAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
-            thread.CompletionFooterProfileAlias = isDefault ? null : evt.ProfileAlias;
+                             string.Equals(subagentCompletedAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
+            thread.CompletionFooterProfileAlias = isDefault ? null : subagentCompletedAlias;
         }
-        // If evt.ProfileAlias is empty here, trust whatever HandleSubagentMessage already set.
+        // If subagentCompletedAlias is still empty here, trust whatever HandleSubagentMessage already set.
+        SquadDashTrace.Write("UI", $"HandleSubagentCompleted alias resolution: evtAlias={evt.ProfileAlias ?? "(null)"} resolvedAlias={subagentCompletedAlias ?? "(null)"} handle={thread.AgentId ?? thread.RequestedAgentHandle ?? "(unknown)"} footerAlias={thread.CompletionFooterProfileAlias ?? "(null)"}");
         UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
@@ -34060,6 +34069,22 @@ public partial class MainWindow : Window
         var category = ResolveNamedAgentProfileCategory(agentHandle);
         var result = ModelProfileResolver.ResolveWithReason(profiles, assignments, null, category);
         return result.Profile?.Alias;
+    }
+
+    /// <summary>
+    /// Looks up the profile alias for <paramref name="thread"/> in the current
+    /// <c>_bridge.NamedAgentRoutes</c> list.  Returns <c>null</c> when no matching
+    /// route is found or when the matching route has no <c>ProfileAlias</c>.
+    /// </summary>
+    private string? ResolveRouteProfileAlias(TranscriptThreadState thread)
+    {
+        var handle = (thread.AgentId ?? thread.RequestedAgentHandle ?? thread.AgentName)
+                     ?.Trim().TrimStart('@').ToLowerInvariant();
+        if (string.IsNullOrEmpty(handle))
+            return null;
+        return _bridge.NamedAgentRoutes
+            .FirstOrDefault(r => string.Equals(r.Handle, handle, StringComparison.OrdinalIgnoreCase))
+            ?.ProfileAlias;
     }
 
     private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard agent)
