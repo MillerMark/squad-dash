@@ -58,6 +58,12 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public TranscriptTurnView? CurrentTurn { get; set; }
     public Paragraph? TransientFooterParagraph { get; set; }
     public Paragraph? CompletedTimeParagraph { get; set; }
+    /// <summary>
+    /// When non-null, the completion-time footer appends " under [alias]" to indicate
+    /// a non-default model profile was used for the most recent turn.
+    /// Set by HandleSubagentMessage; cleared on reactivation.
+    /// </summary>
+    public string? CompletionFooterProfileAlias { get; set; }
     public string? AgentId { get; set; }
     public string? BackgroundTaskId { get; set; }
     public string? ToolCallId { get; set; }

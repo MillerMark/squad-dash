@@ -5971,7 +5971,21 @@ public partial class MainWindow : Window
             thread.CurrentTurn.ResponseEntries[^1].InboxMessageId = messageId;
 
         FinalizeCurrentTurnResponse(thread);
-        AppendModelAttributionLine(thread, evt);
+
+        // Set or clear the completion-footer alias annotation (visual-only; does NOT write to
+        // ResponseTextBuilder and is NOT part of the transcript search index).
+        if (!string.IsNullOrEmpty(evt.ProfileAlias) && _modelProfileStore.GetProfiles().Count > 1)
+        {
+            var defaultProfile = _modelProfileStore.GetDefaultProfile();
+            bool isDefault = defaultProfile is not null &&
+                             string.Equals(evt.ProfileAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
+            thread.CompletionFooterProfileAlias = isDefault ? null : evt.ProfileAlias;
+        }
+        else
+        {
+            thread.CompletionFooterProfileAlias = null;
+        }
+
         thread.ResponseStreamed = false;
         FindAgentCardForThread(thread)?.NotifyTurnEnded();
 
@@ -5979,45 +5993,6 @@ public partial class MainWindow : Window
         UpdateAgentCardFromThread(thread);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_message");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
-    }
-
-    /// <summary>
-    /// Appends a visually subordinate model attribution line (e.g. "Model: alias · provider · model")
-    /// to the agent thread's transcript when more than one model profile is configured and the event
-    /// carries a non-empty <see cref="SquadSdkEvent.ProfileAlias"/>.  The text is also appended to
-    /// the turn's <see cref="TranscriptTurnView.ResponseTextBuilder"/> so it participates in
-    /// transcript search and highlight geometry aligns with the smaller font size.
-    /// </summary>
-    private void AppendModelAttributionLine(TranscriptThreadState thread, SquadSdkEvent evt)
-    {
-        if (string.IsNullOrEmpty(evt.ProfileAlias))
-            return;
-        if (_modelProfileStore.GetProfiles().Count <= 1)
-            return;
-
-        var provider = string.Equals(evt.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase)
-            ? "GitHub Copilot"
-            : evt.ProviderType ?? "custom";
-        var text = string.IsNullOrEmpty(evt.Model)
-            ? $"Model: {evt.ProfileAlias} \u00B7 {provider}"
-            : $"Model: {evt.ProfileAlias} \u00B7 {provider} \u00B7 {evt.Model}";
-
-        // Include the attribution text in the turn response builder so the line participates
-        // in transcript search (SearchAgentThread scans ResponseTextBuilder content).
-        if (thread.CurrentTurn is not null)
-        {
-            if (thread.CurrentTurn.ResponseTextBuilder.Length > 0)
-                thread.CurrentTurn.ResponseTextBuilder.AppendLine();
-            thread.CurrentTurn.ResponseTextBuilder.Append(text);
-        }
-
-        var paragraph = CreateTranscriptParagraph(bottomMargin: 4);
-        var run = new Run(text);
-        run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        run.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-        paragraph.Inlines.Add(run);
-        thread.Document.Blocks.Add(paragraph);
-        ScrollToEndIfAtBottom(thread);
     }
 
     private void ReconcileFinalSubagentResponseText(TranscriptThreadState thread, string finalText)
@@ -32797,13 +32772,20 @@ public partial class MainWindow : Window
             yield return entry.Thread;
     }
 
-    private Paragraph CreateCompletedTimeParagraph(string text)
+    private Paragraph CreateCompletedTimeParagraph(string text, string? profileAlias = null)
     {
         var p = CreateTranscriptParagraph(bottomMargin: 0);
         p.Margin = new Thickness(0, 10, 0, 0);
         var run = new Run(text) { FontSize = (double)Application.Current.Resources["FontSizeSmall"] };
         run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         p.Inlines.Add(run);
+        if (!string.IsNullOrEmpty(profileAlias))
+        {
+            var aliasRun = new Run($" under [{profileAlias}]");
+            aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+            p.Inlines.Add(aliasRun);
+        }
         return p;
     }
 
@@ -32816,6 +32798,7 @@ public partial class MainWindow : Window
     {
         if (thread.CompletedAt is null) return;
         thread.CompletedAt = null;
+        thread.CompletionFooterProfileAlias = null;
         if (thread.CompletedTimeParagraph is not null)
         {
             thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
@@ -32836,7 +32819,7 @@ public partial class MainWindow : Window
                 var text = $"Completed {StatusTimingPresentation.FormatRelativeTimestamp(thread.CompletedAt!.Value)}";
                 if (thread.CompletedTimeParagraph is null)
                 {
-                    var p = CreateCompletedTimeParagraph(text);
+                    var p = CreateCompletedTimeParagraph(text, thread.CompletionFooterProfileAlias);
                     thread.Document.Blocks.Add(p);
                     thread.CompletedTimeParagraph = p;
                 }
