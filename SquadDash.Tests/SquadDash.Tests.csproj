@@ -432,6 +432,7 @@
     <Compile Include="..\SquadDash\PlanCollectionService.cs" Link="Source\PlanCollectionService.cs" />
     <Compile Include="..\SquadDash\PlanProgressPublisher.cs" Link="Source\PlanProgressPublisher.cs" />
     <Compile Include="..\SquadDash\PlanViewerLiveSyncHandler.cs" Link="Source\PlanViewerLiveSyncHandler.cs" />
+    <Compile Include="..\SquadDash\PlanViewerAutoScrollPolicy.cs" Link="Source\PlanViewerAutoScrollPolicy.cs" />
     <Compile Include="..\SquadDash\PlanTaskActivityState.cs" Link="Source\PlanTaskActivityState.cs" />
     <Compile Include="..\SquadDash\PlanTaskActivityResolver.cs" Link="Source\PlanTaskActivityResolver.cs" />
     <Compile Include="..\SquadDash\PlanTaskProjectionValidator.cs" Link="Source\PlanTaskProjectionValidator.cs" />

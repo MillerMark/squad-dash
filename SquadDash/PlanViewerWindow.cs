@@ -65,6 +65,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
     private FlowDocument? _detailDocument;
+    private FrameworkElement? _approvalSummary;
+    private FrameworkElement? _header;
+    private FrameworkElement? _readingHint;
+    private double _canvasContentWidth;
+    private double _canvasContentHeight;
+    private double _activeVisibilityStart = double.NaN;
+    private double _activeVisibilityEnd = double.NaN;
+    private double _allocatedApprovalHeight;
+    private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
+    private bool _initialLayoutApplied;
 
     private record SelectedElementIdentity(string Kind, string Id);
     private SelectedElementIdentity? _selectedElement;
@@ -141,6 +151,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Height    = 720;
         MinWidth  = 760;
         MinHeight = 480;
+
+        PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
+        PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
+        ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
         Closed += (_, _) => _preflightPollTimer?.Stop();
@@ -226,10 +240,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void ApplyLiveUpdate(Plan updatedPlan)
     {
         if (_plan is null) return;
+        var autoScrollForNewActiveTask = HasNewActiveTask(_durablePlan, updatedPlan);
         var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
         _plan = updatedDefinition;
         _durablePlan = updatedPlan;
-        RebuildPreservingScroll(updatedDefinition, updatedPlan);
+        RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForNewActiveTask);
         Title = $"Plan — {updatedDefinition.Group.GroupTitle}";
     }
 
@@ -249,6 +264,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        var previousApprovalHeight = _approvalSummary is { ActualHeight: > 0 } currentSummary
+            ? currentSummary.ActualHeight
+            : _allocatedApprovalHeight;
+        _approvalSummary = null;
         _preflightPollTimer?.Stop();
         _preflightPollTimer = null;
         _plan = plan;
@@ -274,6 +293,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 2) };
+        _header = header;
 
         if (applyAction is not null)
         {
@@ -535,6 +555,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         hintBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        _readingHint = hintBlock;
 
         if (durablePlan is not null)
         {
@@ -696,9 +717,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         scroll.PreviewMouseWheel += OnGraphScrollPreviewMouseWheel;
 
         var splitGrid = new Grid();
-        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(7, GridUnitType.Star) });
         splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5, GridUnitType.Pixel) });
-        splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300, GridUnitType.Pixel), MinWidth = 200 });
+        splitGrid.ColumnDefinitions.Add(new ColumnDefinition
+        {
+            Width = new GridLength(3, GridUnitType.Star),
+            MinWidth = 200,
+        });
 
         Grid.SetColumn(scroll, 0);
         splitGrid.Children.Add(scroll);
@@ -2594,8 +2619,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Math.Max(
                 validationBottom,
                 allClusterFootprints.Select(footprint => footprint.Bottom).DefaultIfEmpty(0).Max()));
-
-        SizeWindowToContent(canvas.Width, canvas.Height);
+        _canvasContentWidth = canvas.Width;
+        _canvasContentHeight = canvas.Height;
+        ResolveActiveVisibilityRange(durablePlan, levels, positions, canvas.Margin.Left);
 
         if (durablePlan is not null)
         {
@@ -2604,12 +2630,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 levels,
                 quickReplyFontSize);
             Grid.SetRow(approvalSummary, 3);
-            approvalSummary.Visibility = Visibility.Collapsed;
+            approvalSummary.Visibility = Visibility.Visible;
+            approvalSummary.MaxHeight = 0;
             root.Children.Add(approvalSummary);
+            _approvalSummary = approvalSummary;
 
-            // Defer expansion to after layout completes so we can measure without stealing graph space.
-            Dispatcher.BeginInvoke(() => RevealApprovalSummary(approvalSummary),
-                System.Windows.Threading.DispatcherPriority.Loaded);
+            if (_initialLayoutApplied)
+            {
+                Dispatcher.BeginInvoke(
+                    () => ResizeForApprovalSummary(approvalSummary, previousApprovalHeight),
+                    System.Windows.Threading.DispatcherPriority.Render);
+            }
+        }
+        else if (_initialLayoutApplied && previousApprovalHeight > 0)
+        {
+            Height = Math.Max(MinHeight, ActualHeight - previousApprovalHeight);
+            _allocatedApprovalHeight = 0;
         }
     }
 
@@ -2792,7 +2828,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
     /// existing window, location, size, focus, and owner. Rebuilding on this window also ensures
     /// every interaction handler targets the visible viewer and does not create a hidden WPF window.
     /// </summary>
-    private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)
+    private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan) =>
+        RebuildPreservingScroll(plan, durablePlan, autoScrollForNewActiveTask: false);
+
+    private void RebuildPreservingScroll(
+        PendingDecomposePlan plan,
+        Plan? durablePlan,
+        bool autoScrollForNewActiveTask)
     {
         var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
         var verticalOffset   = _graphScroll?.VerticalOffset  ?? 0;
@@ -2808,6 +2850,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
                 _graphScroll?.ScrollToVerticalOffset(verticalOffset);
+                if (autoScrollForNewActiveTask &&
+                    PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+                {
+                    Dispatcher.BeginInvoke(
+                        EnsureActiveRangeVisible,
+                        System.Windows.Threading.DispatcherPriority.Render);
+                }
             }, System.Windows.Threading.DispatcherPriority.Loaded);
         }, System.Windows.Threading.DispatcherPriority.Normal);
     }
@@ -2966,92 +3015,192 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return border;
     }
 
-    private void SizeWindowToContent(double canvasWidth, double canvasHeight)
+    private void OnInitialContentRendered(object? sender, EventArgs e)
     {
-        const double horizontalChrome = 18 * 2 + 20;
-        const double verticalChrome = 18 * 2 + 60 + 40;
-        const double approvalReserve = 180;
-
-        var idealWidth = canvasWidth + horizontalChrome;
-        var idealHeight = canvasHeight + verticalChrome + approvalReserve;
-
-        var workArea = SystemParameters.WorkArea;
-
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        if (hwnd != nint.Zero)
-        {
-            var physicalWorkArea = NativeMethods.GetWorkAreaForWindow(hwnd);
-            var source = PresentationSource.FromVisual(this);
-            var dpiX = source?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            var dpiY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-            workArea = new Rect(
-                physicalWorkArea.X / dpiX, physicalWorkArea.Y / dpiY,
-                physicalWorkArea.Width / dpiX, physicalWorkArea.Height / dpiY);
-        }
-
-        Width = Math.Max(MinWidth, Math.Min(idealWidth, workArea.Width));
-        Height = Math.Max(MinHeight, Math.Min(idealHeight, workArea.Height));
+        ContentRendered -= OnInitialContentRendered;
+        ApplyInitialWindowLayout();
+        _initialLayoutApplied = true;
+        Dispatcher.BeginInvoke(EnsureActiveRangeVisible,
+            System.Windows.Threading.DispatcherPriority.Render);
     }
 
-    private void RevealApprovalSummary(FrameworkElement approvalSummary)
+    private void ApplyInitialWindowLayout()
     {
-        // Measure how much space the summary needs while still collapsed.
-        approvalSummary.Visibility = Visibility.Visible;
-        approvalSummary.MaxHeight = 0;
+        const double graphShare = 0.70;
+        const double splitterWidth = 5;
+        const double graphHorizontalInsets = 22 * 2 + 18 * 2;
+        const double canvasVerticalInsets = 4 + 18;
+        const double windowBorderInsets = 3;
+
+        var workArea = GetLogicalWorkArea();
+        var requiredGraphColumnWidth = _canvasContentWidth + graphHorizontalInsets;
+        var idealWidth = requiredGraphColumnWidth / graphShare + splitterWidth + windowBorderInsets;
+        Width = Math.Min(workArea.Width, Math.Max(MinWidth, idealWidth));
         UpdateLayout();
 
-        approvalSummary.Measure(new Size(ActualWidth, double.PositiveInfinity));
-        var desiredHeight = approvalSummary.DesiredSize.Height;
-        if (desiredHeight <= 0)
-        {
-            approvalSummary.MaxHeight = double.PositiveInfinity;
-            return;
-        }
+        var approvalHeight = _approvalSummary is null
+            ? 0
+            : MeasureApprovalSummaryHeight(_approvalSummary);
+        var fixedHeight = CloseButtonHeight + windowBorderInsets +
+                          (_header?.DesiredSize.Height ?? 0) +
+                          _canvasContentHeight + canvasVerticalInsets +
+                          (_readingHint?.DesiredSize.Height ?? 0);
+        var idealHeight = fixedHeight + approvalHeight;
+        Height = Math.Min(workArea.Height, Math.Max(MinHeight, idealHeight));
 
-        // Get the monitor work area in physical pixels via the window's HWND.
+        var approvalSpace = Math.Max(0, Height - fixedHeight);
+        var allocatedApprovalHeight = Math.Min(approvalHeight, approvalSpace);
+        if (_approvalSummary is not null)
+        {
+            var showsFullSummary = allocatedApprovalHeight >= approvalHeight - 0.5;
+            if (!showsFullSummary)
+                allocatedApprovalHeight = Math.Min(170, allocatedApprovalHeight);
+            _approvalSummary.MaxHeight = showsFullSummary
+                ? double.PositiveInfinity
+                : allocatedApprovalHeight;
+        }
+        _allocatedApprovalHeight = allocatedApprovalHeight;
+
+        KeepWindowInside(workArea);
+        UpdateLayout();
+    }
+
+    private void ResizeForApprovalSummary(FrameworkElement approvalSummary, double previousHeight)
+    {
+        if (!ReferenceEquals(_approvalSummary, approvalSummary))
+            return;
+
+        var desiredHeight = MeasureApprovalSummaryHeight(approvalSummary);
+        var workArea = GetLogicalWorkArea();
+        var availableBelow = Math.Max(0, workArea.Bottom - (Top + ActualHeight));
+        var canAllocate = Math.Max(0, previousHeight + availableBelow);
+        var showsFullSummary = desiredHeight <= canAllocate + 0.5;
+        var targetHeight = showsFullSummary
+            ? desiredHeight
+            : Math.Min(170, canAllocate);
+
+        var heightDelta = targetHeight - previousHeight;
+        if (Math.Abs(heightDelta) > 0.5)
+            Height = Math.Min(workArea.Height, Math.Max(MinHeight, ActualHeight + heightDelta));
+
+        approvalSummary.MaxHeight = showsFullSummary
+            ? double.PositiveInfinity
+            : targetHeight;
+        _allocatedApprovalHeight = targetHeight;
+        UpdateLayout();
+    }
+
+    private double MeasureApprovalSummaryHeight(FrameworkElement approvalSummary)
+    {
+        approvalSummary.Visibility = Visibility.Visible;
+        approvalSummary.MaxHeight = double.PositiveInfinity;
+        approvalSummary.Measure(new Size(Math.Max(1, ActualWidth - 16), double.PositiveInfinity));
+        var desiredHeight = approvalSummary.DesiredSize.Height;
+        approvalSummary.MaxHeight = 0;
+        return Math.Max(0, desiredHeight);
+    }
+
+    private Rect GetLogicalWorkArea()
+    {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         if (hwnd == nint.Zero)
-        {
-            approvalSummary.MaxHeight = 170;
-            return;
-        }
+            return SystemParameters.WorkArea;
 
-        var workArea = NativeMethods.GetWorkAreaForWindow(hwnd);
-
-        // Convert window bounds to physical pixels for comparison.
+        var physical = NativeMethods.GetWorkAreaForWindow(hwnd);
         var source = PresentationSource.FromVisual(this);
-        var dpiY = source?.CompositionTarget?.TransformToDevice.M22 ?? 1.0;
-        var windowBottomPhysical = (Top + ActualHeight) * dpiY;
-        var windowTopPhysical = Top * dpiY;
+        if (source?.CompositionTarget is null)
+            return SystemParameters.WorkArea;
 
-        // Check that the window is fully contained within this monitor's work area.
-        if (windowTopPhysical < workArea.Top || windowBottomPhysical > workArea.Bottom)
-        {
-            approvalSummary.MaxHeight = 170;
-            return;
-        }
-
-        var availableBelowPhysical = workArea.Bottom - windowBottomPhysical;
-        var availableBelow = availableBelowPhysical / dpiY;
-
-        if (availableBelow >= desiredHeight)
-        {
-            // Plenty of room — grow window, then reveal at full size.
-            Height = ActualHeight + desiredHeight;
-            approvalSummary.MaxHeight = double.PositiveInfinity;
-        }
-        else if (availableBelow > 0)
-        {
-            // Partial room — grow what we can, constrain the summary.
-            Height = ActualHeight + availableBelow;
-            approvalSummary.MaxHeight = availableBelow;
-        }
-        else
-        {
-            // No room — use scrollbar fallback.
-            approvalSummary.MaxHeight = 170;
-        }
+        var toDip = source.CompositionTarget.TransformFromDevice;
+        var topLeft = toDip.Transform(new Point(physical.Left, physical.Top));
+        var bottomRight = toDip.Transform(new Point(physical.Right, physical.Bottom));
+        return new Rect(topLeft, bottomRight);
     }
+
+    private void KeepWindowInside(Rect workArea)
+    {
+        if (double.IsNaN(Left) || double.IsNaN(Top))
+            return;
+
+        Left = Width >= workArea.Width - 0.5
+            ? workArea.Left
+            : Math.Clamp(Left, workArea.Left, workArea.Right - Width);
+        Top = Height >= workArea.Height - 0.5
+            ? workArea.Top
+            : Math.Clamp(Top, workArea.Top, workArea.Bottom - Height);
+    }
+
+    private void ResolveActiveVisibilityRange(
+        Plan? durablePlan,
+        IReadOnlyDictionary<string, int> levels,
+        IReadOnlyDictionary<string, Point> positions,
+        double canvasLeftMargin)
+    {
+        _activeVisibilityStart = double.NaN;
+        _activeVisibilityEnd = double.NaN;
+        if (durablePlan is null)
+            return;
+
+        var activity = PlanTaskActivityResolver.Resolve(durablePlan);
+        var activeTaskIds = activity
+            .Where(item => IsActivelyWorking(item.Value))
+            .Select(item => item.Key)
+            .Concat(_recoveryAssessmentTaskIds)
+            .Where(id => levels.ContainsKey(id) && positions.ContainsKey(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (activeTaskIds.Length == 0)
+            return;
+
+        var activeLevel = activeTaskIds.Max(id => levels[id]);
+        var targetLevel = levels.Values
+            .Where(level => level > activeLevel)
+            .DefaultIfEmpty(activeLevel)
+            .Min();
+        _activeVisibilityStart = positions
+            .Where(item => levels[item.Key] == activeLevel)
+            .Min(item => item.Value.X) + canvasLeftMargin;
+        _activeVisibilityEnd = positions
+            .Where(item => levels[item.Key] == targetLevel)
+            .Max(item => item.Value.X + NodeWidth) + canvasLeftMargin;
+    }
+
+    private void EnsureActiveRangeVisible()
+    {
+        if (_graphScroll is null ||
+            double.IsNaN(_activeVisibilityStart) ||
+            double.IsNaN(_activeVisibilityEnd))
+            return;
+
+        _graphScroll.UpdateLayout();
+        var requestedOffset = PlanViewerAutoScrollPolicy.CalculateHorizontalOffset(
+            _graphScroll.HorizontalOffset,
+            _graphScroll.ViewportWidth,
+            _activeVisibilityStart,
+            _activeVisibilityEnd,
+            _graphScroll.ExtentWidth);
+        if (Math.Abs(requestedOffset - _graphScroll.HorizontalOffset) > 0.5)
+            _graphScroll.ScrollToHorizontalOffset(requestedOffset);
+    }
+
+    private static bool HasNewActiveTask(Plan? previousPlan, Plan currentPlan)
+    {
+        if (previousPlan is null)
+            return false;
+
+        var previousActive = PlanTaskActivityResolver.Resolve(previousPlan)
+            .Where(item => IsActivelyWorking(item.Value))
+            .Select(item => item.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        return PlanTaskActivityResolver.Resolve(currentPlan)
+            .Any(item => IsActivelyWorking(item.Value) && !previousActive.Contains(item.Key));
+    }
+
+    private static bool IsActivelyWorking(PlanTaskActivityState state) => state is
+        PlanTaskActivityState.Executing or
+        PlanTaskActivityState.Assessing or
+        PlanTaskActivityState.Verifying or
+        PlanTaskActivityState.Reworking;
 
     private FrameworkElement CreateAgentAvatarChip(
         (ImageSource? Image, string Initial, Brush Accent)? info,
