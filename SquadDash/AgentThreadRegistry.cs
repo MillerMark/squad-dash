@@ -909,6 +909,7 @@ internal sealed class AgentThreadRegistry {
                 StatusText = record.StatusText,
                 DetailText = record.DetailText,
                 CompletedAt = record.CompletedAt,
+                CompletionFooterProfileAlias = record.CompletionFooterProfileAlias,
                 IsCurrentBackgroundRun = false,
                 WasObservedAsBackgroundTask = record.WasObservedAsBackgroundTask == true ||
                                                IsPersistedBackgroundThread(record)

@@ -5983,17 +5983,7 @@ public partial class MainWindow : Window
         var subagentMsgAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentMsgAlias))
             subagentMsgAlias = ResolveRouteProfileAlias(thread);
-        if (!string.IsNullOrEmpty(subagentMsgAlias) && _modelProfileStore.GetProfiles().Count > 1)
-        {
-            var defaultProfile = _modelProfileStore.GetDefaultProfile();
-            bool isDefault = defaultProfile is not null &&
-                             string.Equals(subagentMsgAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
-            thread.CompletionFooterProfileAlias = isDefault ? null : subagentMsgAlias;
-        }
-        else
-        {
-            thread.CompletionFooterProfileAlias = null;
-        }
+        thread.CompletionFooterProfileAlias = string.IsNullOrEmpty(subagentMsgAlias) ? null : subagentMsgAlias;
 
         thread.ResponseStreamed = false;
         FindAgentCardForThread(thread)?.NotifyTurnEnded();
@@ -6141,13 +6131,8 @@ public partial class MainWindow : Window
         var subagentCompletedAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentCompletedAlias))
             subagentCompletedAlias = ResolveRouteProfileAlias(thread);
-        if (!string.IsNullOrEmpty(subagentCompletedAlias) && _modelProfileStore.GetProfiles().Count > 1)
-        {
-            var defaultProfile = _modelProfileStore.GetDefaultProfile();
-            bool isDefault = defaultProfile is not null &&
-                             string.Equals(subagentCompletedAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
-            thread.CompletionFooterProfileAlias = isDefault ? null : subagentCompletedAlias;
-        }
+        if (!string.IsNullOrEmpty(subagentCompletedAlias))
+            thread.CompletionFooterProfileAlias = subagentCompletedAlias;
         // If subagentCompletedAlias is still empty here, trust whatever HandleSubagentMessage already set.
         SquadDashTrace.Write("UI", $"HandleSubagentCompleted alias resolution: evtAlias={evt.ProfileAlias ?? "(null)"} resolvedAlias={subagentCompletedAlias ?? "(null)"} handle={thread.AgentId ?? thread.RequestedAgentHandle ?? "(unknown)"} footerAlias={thread.CompletionFooterProfileAlias ?? "(null)"}");
         UpdateCompletedTimeFooters();
@@ -33038,7 +33023,7 @@ public partial class MainWindow : Window
         p.Inlines.Add(run);
         if (!string.IsNullOrEmpty(profileAlias))
         {
-            var aliasRun = new Run($" under [{profileAlias}]");
+            var aliasRun = new Run($" \u00b7 using {profileAlias}");
             aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
             p.Inlines.Add(aliasRun);
@@ -33091,14 +33076,14 @@ public partial class MainWindow : Window
                         : null;
                     var expectedAlias = string.IsNullOrEmpty(thread.CompletionFooterProfileAlias)
                         ? null
-                        : $" under [{thread.CompletionFooterProfileAlias}]";
+                        : $" \u00b7 using {thread.CompletionFooterProfileAlias}";
                     if (existingAlias != expectedAlias)
                     {
                         while (thread.CompletedTimeParagraph.Inlines.Count > 1)
                             thread.CompletedTimeParagraph.Inlines.Remove(thread.CompletedTimeParagraph.Inlines.LastInline!);
                         if (!string.IsNullOrEmpty(thread.CompletionFooterProfileAlias))
                         {
-                            var aliasRun = new Run($" under [{thread.CompletionFooterProfileAlias}]");
+                            var aliasRun = new Run($" \u00b7 using {thread.CompletionFooterProfileAlias}");
                             aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                             aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
                             thread.CompletedTimeParagraph.Inlines.Add(aliasRun);
