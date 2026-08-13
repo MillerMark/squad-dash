@@ -3985,10 +3985,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Builds the rich two-line tooltip shown on an active queue tab:
-    /// the base hint text followed by a pause warning paragraph.
+    /// Holds the mutable content for a queue-tab tooltip. Queue tabs keep the same
+    /// explicit ToolTip instance for their lifetime so an open WPF tooltip popup is
+    /// never asked to switch between implicit (string) and explicit ToolTip content.
     /// </summary>
-    private ToolTip BuildQueueTabActiveTooltip(string plainTooltip)
+    private sealed record QueueTabToolTipContent(TextBlock Hint, TextBlock PauseWarning);
+
+    private ToolTip BuildQueueTabTooltip(string plainTooltip, bool isActive)
     {
         var hintBlock = new TextBlock
         {
@@ -4002,6 +4005,7 @@ public partial class MainWindow : Window
             MaxWidth = 320,
             Margin = new Thickness(0, 4, 0, 0),
             Opacity = 0.8,
+            Visibility = isActive ? Visibility.Visible : Visibility.Collapsed,
         };
         pauseBlock.Inlines.Add(new System.Windows.Documents.Run("Because this tab is active, automatic queuing will pause when this prompt is reached. Select the "));
         pauseBlock.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run("Active Draft")));
@@ -4010,11 +4014,21 @@ public partial class MainWindow : Window
         tipPanel.Children.Add(hintBlock);
         tipPanel.Children.Add(pauseBlock);
         var tt = new ToolTip { Content = tipPanel };
+        tt.Tag = new QueueTabToolTipContent(hintBlock, pauseBlock);
         tt.SetResourceReference(Control.BackgroundProperty, "InputSurface");
         tt.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
         tt.BorderThickness = new Thickness(1);
         tt.Padding = new Thickness(6, 4, 6, 4);
         return tt;
+    }
+
+    private static void UpdateQueueTabTooltip(ToolTip tooltip, string plainTooltip, bool isActive)
+    {
+        if (tooltip.Tag is not QueueTabToolTipContent content)
+            return;
+
+        content.Hint.Text = plainTooltip;
+        content.PauseWarning.Visibility = isActive ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>
@@ -4101,18 +4115,11 @@ public partial class MainWindow : Window
                 var plainTooltip = tabId == nextReadyId
                     ? "This prompt is next in the Squad queue."
                     : "This item is in the Squad queue.";
-                // Close any open tooltip and clear its bindings before replacing it.
-                // SetResourceReference creates bindings that can fire asynchronously;
-                // clearing them before nulling the ToolTip prevents WPF from trying to
-                // re-traverse into it and raising "ToolTip cannot have a logical or visual parent".
-                if (tab.ToolTip is ToolTip openTip)
-                {
-                    openTip.IsOpen = false;
-                    openTip.Content = null;
-                    System.Windows.Data.BindingOperations.ClearAllBindings(openTip);
-                }
-                tab.ClearValue(FrameworkElement.ToolTipProperty);
-                tab.ToolTip = isActive ? BuildQueueTabActiveTooltip(plainTooltip) : (object)plainTooltip;
+                // Keep the ToolTip object stable while it may be open. Replacing a string
+                // tooltip with an explicit ToolTip during the click route makes WPF's
+                // implicit popup try to parent the new ToolTip and throws.
+                if (tab.ToolTip is ToolTip queueTooltip)
+                    UpdateQueueTabTooltip(queueTooltip, plainTooltip, isActive);
             }
         }
     }
@@ -4316,7 +4323,7 @@ public partial class MainWindow : Window
         }
 
         object? tipContent = tooltip is null ? null
-            : (isActive && id is not null) ? BuildQueueTabActiveTooltip(tooltip)
+            : id is not null ? BuildQueueTabTooltip(tooltip, isActive)
             : (object)tooltip;
 
         var tab = new Border
