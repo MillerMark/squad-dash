@@ -34,4 +34,9 @@ internal static class MainWindow {
 
     internal static string? SanitizeResponseTextOrNull(string? text) =>
         TranscriptTextUtilities.SanitizeResponseTextOrNull(text);
+
+    internal static string FormatPlanRecoveryCommitLog(
+        string logOutput,
+        IReadOnlyList<PlanRecoveryCommitReference>? commitReferences) =>
+        PlanRecoveryCommitLogFormatter.Format(logOutput, commitReferences);
 }

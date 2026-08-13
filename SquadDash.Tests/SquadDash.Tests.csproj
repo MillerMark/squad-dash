@@ -442,6 +442,7 @@
     <Compile Include="..\SquadDash\QueuedLoopJob.cs" Link="Source\QueuedLoopJob.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryOptionsResponse.cs" Link="Source\PlanRecoveryOptionsResponse.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryAssessment.cs" Link="Source\PlanRecoveryAssessment.cs" />
+    <Compile Include="..\SquadDash\PlanRecoveryCommitLogFormatter.cs" Link="Source\PlanRecoveryCommitLogFormatter.cs" />
     <Compile Include="..\SquadDash\RecoveryCommitValidator.cs" Link="Source\RecoveryCommitValidator.cs" />
 
     <!-- Maintenance Mode — Phase 2 tests (auto-included by SDK glob) -->
