@@ -34,6 +34,12 @@ A submenu for simulating error and startup states without actually triggering th
 
 **Bridge Disposed** — simulates the Squad bridge being unexpectedly disposed.
 
+**Simulate Plans** — previews the interactive transcript surfaces that can appear while
+planning or running a plan. Each response-card type can be inserted separately, or **Show all
+response cards** can insert the complete gallery for checking themes, font scaling, spacing,
+and training material. Preview quick-reply buttons intentionally ignore input. The submenu also
+contains the existing live approval-request and validation-state simulations.
+
 **Startup Issue Preview** — previews startup error screens:
 - *None* — clears any active simulation
 - *Missing Node.js tooling*

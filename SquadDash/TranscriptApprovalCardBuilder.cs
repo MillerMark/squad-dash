@@ -194,7 +194,7 @@ internal static class TranscriptApprovalCardBuilder
                 var boxSize = Math.Round((fontSize + 1) * 1.2);
                 var localChecked = item.IsChecked;
 
-                var checkIconViewbox = Application.Current.FindResource("PlanApprovalResolvedCheck") as Viewbox
+                var checkIconViewbox = Application.Current?.TryFindResource("PlanApprovalResolvedCheck") as Viewbox
                     ?? new Viewbox();
                 checkIconViewbox.Visibility = localChecked ? Visibility.Visible : Visibility.Hidden;
                 checkIconViewbox.Margin = new Thickness(2);

@@ -363,6 +363,7 @@ public partial class MainWindow : Window
     private FrmUltimateCallout? _approvalAttentionCallout;
     private DeveloperApprovalSimulator? _developerApprovalSimulator;
     private ValidationStateSimulator? _validationStateSimulator;
+    private readonly List<Block> _developerPlanCardPreviewBlocks = [];
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
@@ -26956,6 +26957,248 @@ public partial class MainWindow : Window
     }
 
     // ── Developer > Simulation menu ───────────────────────────────────────────
+
+    private static readonly string[] DeveloperPlanResponseCardKinds =
+    [
+        "ProposedPlan",
+        "HumanReview",
+        "PlanRevision",
+        "PreflightBlocked",
+        "PlanRecovery",
+        "RecoveryOptions",
+    ];
+
+    private void SimulatePlanResponseCard_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var kind = (sender as MenuItem)?.Tag as string;
+            if (string.Equals(kind, "All", StringComparison.Ordinal))
+            {
+                foreach (var cardKind in DeveloperPlanResponseCardKinds)
+                    ShowDeveloperPlanResponseCard(cardKind);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(kind))
+                ShowDeveloperPlanResponseCard(kind);
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePlanResponseCard_Click), ex); }
+    }
+
+    private void ClearPlanResponseCardPreviews_Click(object sender, RoutedEventArgs e)
+    {
+        try { ClearDeveloperPlanResponseCardPreviews(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ClearPlanResponseCardPreviews_Click), ex); }
+    }
+
+    private void ShowDeveloperPlanResponseCard(string kind)
+    {
+        SelectTranscriptThread(CoordinatorThread);
+        var blocks = CoordinatorThread.Document.Blocks;
+        var existing = blocks.Cast<Block>().ToHashSet();
+        var label = kind switch
+        {
+            "ProposedPlan" => "Proposed plan actions",
+            "HumanReview" => "Human review checkpoint",
+            "PlanRevision" => "Plan revision approval",
+            "PreflightBlocked" => "Preflight blocked",
+            "PlanRecovery" => "Plan recovery",
+            "RecoveryOptions" => "Recovery options",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown plan response-card preview."),
+        };
+
+        var heading = CreateTranscriptParagraph(bottomMargin: 8);
+        heading.Margin = new Thickness(0, 12, 0, 8);
+        heading.FontSize = _transcriptFontSize - 1;
+        var headingRun = new Run($"🛠 Developer preview — {label} · controls are inactive")
+        {
+            FontWeight = FontWeights.SemiBold,
+        };
+        headingRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        heading.Inlines.Add(headingRun);
+        blocks.Add(heading);
+
+        var plan = BuildDeveloperPlanCardPreviewPlan(kind);
+        var pendingPlan = PendingDecomposePlanAdapter.FromPlan(plan);
+
+        switch (kind)
+        {
+            case "ProposedPlan":
+                AppendPendingDecomposeApproval(pendingPlan);
+                break;
+
+            case "HumanReview":
+                AppendDeveloperHumanReviewCard(plan);
+                break;
+
+            case "PlanRevision":
+                var proposal = new PendingPlanRevisionProposal(
+                    $"developer-preview-{Guid.NewGuid():N}",
+                    DateTimeOffset.UtcNow,
+                    new PlanRevisionProposalPayload(
+                        plan.PlanId,
+                        plan.Revision,
+                        "Reopen the completed setup step and add focused regression coverage before continuing.",
+                        ReopenTaskIds: null,
+                        RevisedPlan: null,
+                        Operations: null));
+                var revisionPreview = new PlanRevisionApplyResult(
+                    PlanRevisionApplyOutcome.Applied,
+                    UpdatedPlan: null,
+                    EffectiveGroup: null,
+                    AppliedChangeCount: 2,
+                    PreservedLockedTaskCount: 1);
+                AppendPlanRevisionApprovalCard(plan, proposal, revisionPreview, ownerView: null);
+                break;
+
+            case "PreflightBlocked":
+                var blocked = new PlanPreflightBlockedException(
+                    "Uncommitted changes",
+                    ["SquadDash/MainWindow.xaml", "SquadDash/MainWindow.xaml.cs", "docs/developing/developer-menu.md", "README.md"],
+                    plan.Branch);
+                ShowTranscriptPlanPreflightRecovery(
+                    pendingPlan,
+                    "new-branch",
+                    plan.Branch,
+                    blocked,
+                    sourceActionsPanel: null,
+                    blocks: blocks,
+                    readinessOverride: static () => Task.FromResult(false));
+                break;
+
+            case "PlanRecovery":
+                AppendDecomposeRecoveryActions(
+                    pendingPlan,
+                    pendingPlan.Group.Tasks.First().Id,
+                    showEndPlan: true);
+                break;
+
+            case "RecoveryOptions":
+                var options = new[]
+                {
+                    new PlanRecoveryOption("adopt", "Adopt verified commit", "Accept the proven commit and continue.", "adopt-commit", true),
+                    new PlanRecoveryOption("retry", "Retry from clean state", "Discard the failed attempt and rerun the step.", "clean-retry", true),
+                    new PlanRecoveryOption("replan", "Revise remaining plan", "Create an editable plan revision.", "replan", true),
+                };
+                var response = new PlanRecoveryOptionsResponse(
+                    plan.PlanId,
+                    pendingPlan.Group.Tasks.First().Id,
+                    plan.Revision,
+                    options,
+                    Recommendation: "adopt");
+                AppendRecoveryOptionsPanel(response, options, pendingPlan, response.TaskId);
+                break;
+        }
+
+        foreach (var block in blocks.Cast<Block>().Where(block => !existing.Contains(block)).ToArray())
+        {
+            MakeDeveloperPreviewButtonsInert(block);
+            if (!_developerPlanCardPreviewBlocks.Contains(block))
+                _developerPlanCardPreviewBlocks.Add(block);
+        }
+
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private Plan BuildDeveloperPlanCardPreviewPlan(string kind)
+    {
+        var source = SimulationPlanFixtureBuilder.BuildDemoPlan();
+        var id = $"SQUADDASH-DEVELOPER-CARD-{kind.ToUpperInvariant()}-{Guid.NewGuid():N}";
+        var tasks = source.Tasks.Select((task, index) => task with
+        {
+            Status = index == 0 ? PlanTaskStatus.Complete : PlanTaskStatus.Pending,
+            Commit = index == 0 ? "a13f0c2".PadRight(40, '0') : null,
+            CompletedAt = index == 0 ? DateTimeOffset.UtcNow.AddMinutes(-5) : null,
+            DisplayStepLabel = (index + 1).ToString(),
+        }).ToArray();
+        return source with
+        {
+            PlanId = id,
+            Revision = $"developer-preview-{Guid.NewGuid():N}",
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Title = $"Developer Preview — {kind}",
+            Branch = "feature/developer-card-preview",
+            Tasks = tasks,
+            ApprovalGates = [],
+            Progress = new PlanProgress(1, tasks.Length),
+            Validations = [],
+        };
+    }
+
+    private void AppendDeveloperHumanReviewCard(Plan source)
+    {
+        var completedTask = source.Tasks[0];
+        var nextTask = source.Tasks[1];
+        var gate = new PlanApprovalGate(
+            GateId: $"developer-preview-gate-{Guid.NewGuid():N}",
+            Message: "Confirm the completed interaction is visually clear and behaves correctly before continuing.",
+            AfterTaskIds: [completedTask.TaskId],
+            BeforeTaskIds: [nextTask.TaskId],
+            Status: PlanGateStatus.AwaitingApproval,
+            PlanRevision: source.Revision,
+            Question: "Does the card remain readable in this theme? Are the actions and evidence hierarchy clear?");
+        var plan = source with { ApprovalGates = [gate] };
+        var snapshot = BuildLightweightApprovalSnapshot(plan, gate);
+        var card = TranscriptApprovalCardBuilder.Build(
+            snapshot,
+            plan,
+            gate,
+            _transcriptFontSize,
+            onApprove: _ => { },
+            onRequestChanges: () => { },
+            requestVersion: 1,
+            onOpenPlan: null,
+            onOpenCommit: null,
+            onOpenInbox: null,
+            onOpenEvidence: null,
+            onChecklistChanged: null,
+            onAddressUncheckedItems: null);
+        CoordinatorThread.Document.Blocks.Add(card.Container);
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private static void MakeDeveloperPreviewButtonsInert(Block block)
+    {
+        if (block is Section section)
+        {
+            foreach (var child in section.Blocks)
+                MakeDeveloperPreviewButtonsInert(child);
+        }
+
+        if (block is not BlockUIContainer { Child: DependencyObject root })
+            return;
+
+        foreach (var button in TranscriptQuickReplyFactory.EnumerateButtons(root))
+        {
+            button.IsHitTestVisible = false;
+            button.Focusable = false;
+            button.ToolTip = ToolTipHelper.MakeThemedToolTip("Developer preview only — this control is intentionally inactive.");
+        }
+
+        if (root is FlowDocumentScrollViewer { Document: { } document })
+        {
+            foreach (var child in document.Blocks)
+                MakeDeveloperPreviewButtonsInert(child);
+        }
+        else if (root is Border { Child: FlowDocumentScrollViewer { Document: { } nestedDocument } })
+        {
+            foreach (var child in nestedDocument.Blocks)
+                MakeDeveloperPreviewButtonsInert(child);
+        }
+    }
+
+    private void ClearDeveloperPlanResponseCardPreviews()
+    {
+        foreach (var block in _developerPlanCardPreviewBlocks.ToArray())
+        {
+            if (block.Parent is FlowDocument document && document.Blocks.Contains(block))
+                document.Blocks.Remove(block);
+            else if (block.Parent is Section section && section.Blocks.Contains(block))
+                section.Blocks.Remove(block);
+        }
+        _developerPlanCardPreviewBlocks.Clear();
+    }
 
     private void RecordDockingTestMenuItem_Click(object sender, RoutedEventArgs e)
     {
