@@ -48465,6 +48465,35 @@ public partial class MainWindow : Window
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
             menu.Items.Add(sep1);
 
+            if (hasRemote)
+            {
+                var pushItem = new MenuItem { Header = "Push branch" };
+                pushItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                pushItem.Click += async (_, _) =>
+                {
+                    try
+                    {
+                        string pushArgs;
+                        try
+                        {
+                            var upstream = await RunGitAsync(workspaceFolder, "rev-parse --abbrev-ref --symbolic-full-name @{u}");
+                            pushArgs = $"push origin {branch}";
+                        }
+                        catch
+                        {
+                            pushArgs = $"push --set-upstream origin {branch}";
+                        }
+                        await RunGitAsync(workspaceFolder, pushArgs);
+                        UpdateBranchIndicator();
+                    }
+                    catch (Exception ex)
+                    {
+                        UIErrorHelper.ShowError("Push Failed", $"Could not push branch '{branch}':\n\n{ex.Message}");
+                    }
+                };
+                menu.Items.Add(pushItem);
+            }
+
             if (!isOnMain && hasRemote)
             {
                 bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
