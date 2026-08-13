@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
@@ -102,52 +103,149 @@ internal static class PlanRecoveryAssessmentParser
                 })
                 .ToArray(),
         };
-        if (response is null ||
-            string.IsNullOrWhiteSpace(response.RecoveryAssessmentId) ||
-            string.IsNullOrWhiteSpace(response.Summary))
+        if (response is null)
         {
-            error = "The recovery assessment omitted its assessment identity or summary.";
+            error = "The recovery assessment payload was empty.";
             return false;
         }
 
+        // Report every finding that can be determined from this payload. A one-shot repair
+        // must not fix the first schema problem only to reveal a second independent problem.
+        var validationErrors = new List<string>();
+        if (string.IsNullOrWhiteSpace(response.RecoveryAssessmentId) ||
+            string.IsNullOrWhiteSpace(response.Summary))
+            validationErrors.Add("The recovery assessment omitted its assessment identity or summary.");
+
         if (!PlanRecoveryClassification.IsValid(response.Classification))
-        {
-            error = "The recovery classification must be complete, partial, not_started, or inconclusive.";
-            return false;
-        }
+            validationErrors.Add("The recovery classification must be complete, partial, not_started, or inconclusive.");
 
         if (response.Commits.Any(commit =>
                 string.IsNullOrWhiteSpace(commit.CommitId) ||
                 !PlanRecoveryCommitRelation.IsValid(commit.Relation) ||
                 (commit.Relation != PlanRecoveryCommitRelation.Unrelated &&
                  string.IsNullOrWhiteSpace(commit.Reason))))
-        {
-            error = "Every assessed commit requires a commitId and valid relation; non-unrelated commits also require a reason.";
-            return false;
-        }
+            validationErrors.Add("Every assessed commit requires a commitId and valid relation; non-unrelated commits also require a reason.");
+
         if ((response.SupportingCommits ?? []).Any(commit =>
                 string.IsNullOrWhiteSpace(commit.Commit) ||
                 string.IsNullOrWhiteSpace(commit.Reason) ||
                 !PlanRecoveryCommitRelation.IsValid(commit.Relation)))
-        {
-            error = "Every supporting commit requires a commit, reason, and valid relation.";
-            return false;
-        }
+            validationErrors.Add("Every supporting commit requires a commit, reason, and valid relation.");
 
         if (response.Classification == PlanRecoveryClassification.Complete &&
             !string.Equals(response.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase))
-        {
-            error = "A complete recovery assessment requires passed verification evidence.";
-            return false;
-        }
+            validationErrors.Add("A complete recovery assessment requires passed verification evidence.");
 
         if (response.Classification == PlanRecoveryClassification.Partial &&
             response.RemainingWork is not { Count: > 0 })
+            validationErrors.Add("A partial recovery assessment must describe the remaining work.");
+
+        if (validationErrors.Count > 0)
         {
-            error = "A partial recovery assessment must describe the remaining work.";
+            error = string.Join(" ", validationErrors);
             return false;
         }
 
+        return true;
+    }
+}
+
+/// <summary>
+/// Reconstructs the candidate envelope needed to resume independent verification after the
+/// live execution envelope was lost. The worker handoff remains candidate evidence; this policy
+/// never marks the task complete or treats the worker's build as independent acceptance.
+/// </summary>
+internal static class PlanVerificationRecoveryPolicy
+{
+    internal static bool CanResume(Plan plan, string taskId)
+    {
+        if (plan.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked))
+            return false;
+
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        return task is not null &&
+               task.Status is PlanTaskStatus.VerificationPending or PlanTaskStatus.Verifying &&
+               task.Handoff is { } handoff &&
+               IsSafeGitCommitIdentifier(handoff.Commit) &&
+               string.Equals(handoff.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool TryCreateCandidate(
+        Plan plan,
+        string taskId,
+        string resolvedCommit,
+        out DecomposeStepResult? candidate,
+        out string? error)
+    {
+        candidate = null;
+        error = null;
+        if (!CanResume(plan, taskId))
+        {
+            error = "The interrupted task does not have a verification-stage candidate handoff with passed build evidence.";
+            return false;
+        }
+        if (!IsSafeGitCommitIdentifier(resolvedCommit))
+        {
+            error = "The stored candidate commit did not resolve to a valid Git commit identifier.";
+            return false;
+        }
+
+        var task = plan.Tasks.Single(item =>
+            string.Equals(item.TaskId, taskId, StringComparison.Ordinal));
+        var handoff = task.Handoff!;
+        var proofEvidence = (task.ProofEvidence ?? [])
+            .Select(item => new DecomposeStepProofEvidence(
+                item.RequirementId,
+                item.ProofType,
+                item.Summary,
+                item.Artifacts))
+            .ToArray();
+        candidate = new DecomposeStepResult(
+            plan.PlanId,
+            taskId,
+            plan.Revision,
+            "complete",
+            resolvedCommit,
+            handoff.Summary,
+            [],
+            handoff.Verification,
+            ProofEvidence: proofEvidence,
+            DeferredWork: handoff.DeferredWork);
+        return true;
+    }
+
+    private static bool IsSafeGitCommitIdentifier(string? value) =>
+        value is { Length: >= 7 and <= 64 } &&
+        Regex.IsMatch(value, "^[0-9a-fA-F]+$", RegexOptions.CultureInvariant);
+}
+
+internal static class PlanRecoveryAssessmentFallbackPolicy
+{
+    internal const string UnverifiedCompleteError =
+        "A complete recovery assessment requires passed verification evidence.";
+
+    /// <summary>
+    /// Preserves useful semantic and commit-attribution evidence after the one repair is used,
+    /// but converts an unverified completion claim into the existing human-review boundary.
+    /// </summary>
+    internal static bool TryDowngradeUnverifiedComplete(
+        PlanRecoveryAssessmentResponse? response,
+        string? error,
+        out PlanRecoveryAssessmentResponse? downgraded)
+    {
+        downgraded = null;
+        if (response?.Classification != PlanRecoveryClassification.Complete ||
+            !string.Equals(error?.Trim(), UnverifiedCompleteError, StringComparison.Ordinal))
+            return false;
+
+        downgraded = response with
+        {
+            Classification = PlanRecoveryClassification.Inconclusive,
+            Summary = "Implementation evidence was found, but independent verification was not passed. " +
+                      response.Summary.Trim(),
+            RemainingWork = [],
+        };
         return true;
     }
 }
@@ -288,20 +386,30 @@ internal static class PlanRecoveryAssessmentErrorReport
         string planId,
         string taskId,
         string assessmentId,
-        string? error) => $"""
-        Recovery assessment validation report
+        string? error,
+        string responseAttempt = "Initial assessment response")
+    {
+        var result = string.Equals(
+            responseAttempt,
+            "Initial assessment response",
+            StringComparison.Ordinal)
+            ? "SquadDash left the plan unchanged and requested one corrected structured response from AI."
+            : "SquadDash left the plan unchanged because the corrected response still did not satisfy the recovery contract.";
+        return $"""
+            Recovery assessment validation report
 
-        Plan: {planId}
-        Task: {taskId}
-        Assessment: {assessmentId}
-        Response attempt: Initial assessment response
+            Plan: {planId}
+            Task: {taskId}
+            Assessment: {assessmentId}
+            Response attempt: {responseAttempt}
 
-        Validation findings
-        {error?.Trim() ?? "The response did not satisfy the recovery assessment contract."}
+            Validation findings
+            {error?.Trim() ?? "The response did not satisfy the recovery assessment contract."}
 
-        Result
-        SquadDash left the plan unchanged and requested one corrected structured response from AI.
-        """;
+            Result
+            {result}
+            """;
+    }
 
     internal static string CreateLinkTarget(string report)
     {

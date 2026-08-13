@@ -85,4 +85,36 @@ internal sealed class PlanExecutionResumeEnvelopeTests
                 Is.EqualTo(new[] { "Set the attachment file reference." }));
         });
     }
+
+    [Test]
+    public void VerificationRecovery_ReclaimsPendingCandidateAndActiveTask()
+    {
+        var pending = new PendingTaskVerification(
+            "PLAN-1",
+            "PLAN-1-007",
+            "revision-1",
+            "{\"status\":\"complete\"}",
+            "abc1234",
+            ["SquadDash/MainWindow.xaml.cs"],
+            DateTimeOffset.UtcNow);
+        var prior = new ActiveLoopExecutionState(
+            "old-loop.md",
+            "PLAN-1",
+            "PLAN-1",
+            "revision-1",
+            TaskBaselineCommit: "abc1234",
+            PendingTaskVerification: pending,
+            ActiveVerificationTaskId: "PLAN-1-007");
+
+        var resumed = PlanExecutionResumeEnvelope.Create(
+            "new-loop.md", "PLAN-1", "revision-1", 4, prior, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.PendingTaskVerification, Is.SameAs(pending));
+            Assert.That(resumed.ActiveVerificationTaskId, Is.EqualTo("PLAN-1-007"));
+            Assert.That(resumed.TaskBaselineCommit, Is.EqualTo("abc1234"));
+            Assert.That(resumed.LastCompletedIteration, Is.EqualTo(4));
+        });
+    }
 }

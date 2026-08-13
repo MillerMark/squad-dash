@@ -8548,6 +8548,26 @@ public partial class MainWindow : Window
                 reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision),
                 assessedRecoveryContinuation));
 
+        // A reconstructed verification envelope has no in-memory runner identity from the
+        // implementation round. Re-track the same pending task before the verifier starts so
+        // an accepted verdict can apply the preserved candidate instead of failing with
+        // "no tracked plan step" after verification succeeds.
+        if (_conversationManager.ConversationState.ActiveLoopExecution?.ActiveVerificationTaskId is { } verificationTaskId)
+        {
+            TrackFirstEligiblePlanStep(groupId);
+            if (!string.Equals(
+                    _CodeHealthGroupRunner?.CurrentStepId,
+                    verificationTaskId,
+                    StringComparison.Ordinal))
+            {
+                _activeDecomposeGroupId = null;
+                _CodeHealthGroupRunner = null;
+                _conversationManager.UpdateActiveLoopExecutionState(null);
+                throw new InvalidOperationException(
+                    $"SquadDash could not restore task {verificationTaskId} as the active verification candidate.");
+            }
+        }
+
         if (!TryPublishPlanStarted(groupId, executionGroup, revision, out var planStartError))
         {
             _planExecutionLog.Append(new PlanExecutionLogEntry(
@@ -10431,16 +10451,24 @@ public partial class MainWindow : Window
         var interruptedTaskIsAmendment = durablePlan?.Tasks.Any(task =>
             string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal) &&
             !string.IsNullOrWhiteSpace(task.AmendmentGateId)) == true;
+        var canResumeInterruptedVerification = durablePlan is not null &&
+                                               !string.IsNullOrWhiteSpace(interruptedTaskId) &&
+                                               PlanVerificationRecoveryPolicy.CanResume(
+                                                   durablePlan, interruptedTaskId!);
         var interruptedPrimaryActionLabel = hasRecordedTaskEvidence
             ? interruptedTaskIsAmendment
                 ? "Review & Approve Amendment"
                 : "Review & Accept Completed Work"
-            : null;
+            : canResumeInterruptedVerification
+                ? "Resume Verification & Continue"
+                : null;
         var interruptedPrimaryActionHint = hasRecordedTaskEvidence
             ? interruptedTaskIsAmendment
                 ? "Review the exact amendment commit range; accepting it also approves the checkpoint that requested the amendment."
                 : "Review the exact commit range recorded for this task attempt, then accept it and continue if it satisfies the task."
-            : null;
+            : canResumeInterruptedVerification
+                ? "Resume independent verification from the candidate handoff already saved for this task; implementation work will not be repeated."
+                : null;
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
@@ -11699,7 +11727,8 @@ public partial class MainWindow : Window
             _conversationManager.UpdateActiveLoopExecutionState(cleared);
             ScheduleDecomposeSystemEntry(
                 $"Work verified · \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". {verification.Summary}");
-            await AcceptVerifiedTaskAsync(groupId, taskId, pending.Revision, candidate, cleared);
+            await AcceptVerifiedTaskAsync(
+                groupId, taskId, pending.Revision, candidate, cleared, pending.BaselineCommit);
             return;
         }
 
@@ -11756,14 +11785,15 @@ public partial class MainWindow : Window
         string taskId,
         string revision,
         DecomposeStepResult result,
-        ActiveLoopExecutionState activeExecution)
+        ActiveLoopExecutionState activeExecution,
+        string verificationBaselineCommit)
     {
         if (_CodeHealthGroupRunner is null || _planStore is null) return;
         if (_currentWorkspace is not null && !string.IsNullOrWhiteSpace(result.Commit))
         {
             var commitOutput = await RunGitAsync(
                 _currentWorkspace.FolderPath,
-                $"rev-list --reverse \"{activeExecution.PendingTaskVerification?.BaselineCommit ?? _decomposeIterationBaselineCommit}..{result.Commit}\"");
+                $"rev-list --reverse \"{verificationBaselineCommit}..{result.Commit}\"");
             var commits = commitOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(commit => new PlanEvidenceCommit(
                     commit, PlanRecoveryCommitRelation.Task, "Commit produced within this step's host-recorded baseline range."))
@@ -14010,7 +14040,8 @@ public partial class MainWindow : Window
     private void AppendDecomposeRecoveryActions(
         PendingDecomposePlan plan,
         string taskId,
-        bool showEndPlan = false)
+        bool showEndPlan = false,
+        bool assessmentRetry = false)
     {
         var recoveryTag = new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId);
         var recoverySurface = new Section { Tag = recoveryTag };
@@ -14323,11 +14354,21 @@ public partial class MainWindow : Window
                 async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
         }
 
+        var canResumeVerification = durablePlan is not null &&
+                                    PlanVerificationRecoveryPolicy.CanResume(durablePlan, taskId);
+        var recoveryActionLabel = canResumeVerification
+            ? "Resume Verification & Continue"
+            : assessmentRetry
+                ? "Retry Assessment"
+                : "Assess & Continue";
+        var recoveryActionHint = canResumeVerification
+            ? "Resume independent verification from the durable candidate handoff. Implementation work will not be repeated."
+            : "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
+              "SquadDash will validate the assessment, then accept completed work, continue partial work, or start the task. " +
+              "If evidence is inconclusive, nothing changes and you’ll be asked to review it.";
         AddAsyncAction(
-            "Assess & Continue",
-            "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
-            "SquadDash will validate the assessment, then accept completed work, continue partial work, or start the task. " +
-            "If evidence is inconclusive, nothing changes and you’ll be asked to review it.",
+            recoveryActionLabel,
+            recoveryActionHint,
             async () => await AssessAndContinuePlanRecoveryAsync(plan, taskId));
         AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
             () => QueueDecomposeReplan(plan, taskId));
@@ -14527,18 +14568,103 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Plan {durable.PlanId} requires branch '{durable.Branch}', but '{activeBranch}' is active.");
 
+        if (PlanVerificationRecoveryPolicy.CanResume(durable, taskId))
+        {
+            try
+            {
+                await ResumeInterruptedTaskVerificationAsync(durable, taskId);
+                return;
+            }
+            catch (Exception ex)
+            {
+                var latest = _planStore.Load(durable.PlanId);
+                if (latest is null ||
+                    latest.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+                    !string.Equals(latest.Revision, durable.Revision, StringComparison.Ordinal))
+                    throw;
+
+                SquadDashTrace.Write(
+                    "Plan",
+                    $"Could not reconstruct verification for plan={durable.PlanId} task={taskId}; " +
+                    $"falling back to repository assessment: {ex.Message}");
+                ShowSystemTranscriptEntry(
+                    "SquadDash could not safely restore the saved verification stage, so it is assessing the repository state instead. " +
+                    "Implementation work will remain stopped while the evidence is checked.");
+                durable = latest;
+                plan = PendingDecomposePlanAdapter.FromPlan(latest);
+            }
+        }
+
         await QueuePlanRecoveryAssessmentAsync(plan, durable, taskId, repositoryChangeRetries: 0);
     }
 
-    private async Task QueuePlanRecoveryAssessmentAsync(
-        PendingDecomposePlan plan,
-        Plan durable,
-        string taskId,
-        int repositoryChangeRetries)
+    private async Task ResumeInterruptedTaskVerificationAsync(Plan durable, string taskId)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("No workspace is active.");
 
         var workspace = _currentWorkspace.FolderPath;
+        var task = durable.Tasks.Single(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var handoff = task.Handoff
+            ?? throw new InvalidOperationException(
+                $"Task {taskId} no longer has the candidate handoff required for verification.");
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
+        var candidateCommit = (await RunGitAsync(
+            workspace, $"rev-parse --verify \"{handoff.Commit}^{{commit}}\"")).Trim();
+        var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{candidateCommit}\"");
+        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{candidateCommit}\" \"{head}\"");
+        if (!PlanVerificationRecoveryPolicy.TryCreateCandidate(
+                durable, taskId, candidateCommit, out var candidate, out var candidateError) ||
+            candidate is null)
+            throw new InvalidOperationException(candidateError ??
+                "SquadDash could not reconstruct the saved candidate for verification.");
+
+        var changedFiles = (handoff.ChangedFiles ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var pending = new PendingTaskVerification(
+            durable.PlanId,
+            taskId,
+            durable.Revision,
+            JsonSerializer.Serialize(candidate),
+            baseline,
+            changedFiles,
+            handoff.SubmittedAt);
+        var previousExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
+        var recoveryExecution = new ActiveLoopExecutionState(
+            loopPath,
+            durable.PlanId,
+            durable.PlanId,
+            durable.Revision,
+            PreviousPlanExecutionAttempts: previousExecution?.PreviousPlanExecutionAttempts,
+            LastCompletedIteration: durable.InterruptionData?.LoopIteration ?? 0,
+            TaskBaselineCommit: baseline,
+            PendingTaskVerification: pending,
+            ActiveVerificationTaskId: taskId);
+        _conversationManager.UpdateActiveLoopExecutionState(recoveryExecution);
+
+        var shortCommit = candidateCommit[..Math.Min(7, candidateCommit.Length)];
+        ShowSystemTranscriptEntry(
+            $"Found the completed candidate for {taskId} at {shortCommit}; its recorded build passed. " +
+            "SquadDash is resuming independent verification without repeating implementation work.");
+        if (!await StartDecomposeLoopAsync(
+                durable.PlanId,
+                resumeFromIteration: durable.InterruptionData?.LoopIteration ?? 0,
+                expectedRevision: durable.Revision))
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(previousExecution);
+            throw new InvalidOperationException(
+                $"SquadDash could not resume independent verification for {taskId}.");
+        }
+    }
+
+    private async Task<string> ResolvePlanRecoveryBaselineAsync(string workspace, Plan durable)
+    {
         var baselineCandidate = durable.InterruptionData?.TaskCommitEvidence?.BaselineCommit
             ?? durable.InterruptionData?.LastCommit;
         if (string.IsNullOrWhiteSpace(baselineCandidate))
@@ -14555,8 +14681,20 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 "SquadDash does not have a reliable commit from before this task began. Replan the remaining work instead of guessing.");
 
-        var baseline = (await RunGitAsync(
+        return (await RunGitAsync(
             workspace, $"rev-parse --verify \"{baselineCandidate}^{{commit}}\"")).Trim();
+    }
+
+    private async Task QueuePlanRecoveryAssessmentAsync(
+        PendingDecomposePlan plan,
+        Plan durable,
+        string taskId,
+        int repositoryChangeRetries)
+    {
+        if (_currentWorkspace is null) return;
+
+        var workspace = _currentWorkspace.FolderPath;
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
         var status = NormalizeGitSnapshot(await RunGitAsync(
@@ -14703,7 +14841,22 @@ public partial class MainWindow : Window
         if (_pendingPlanRecoveryAssessment is null) return;
         var context = _pendingPlanRecoveryAssessment;
 
-        if (!PlanRecoveryAssessmentParser.TryParse(rawResponse, out var response, out var error) || response is null)
+        var parsed = PlanRecoveryAssessmentParser.TryParse(
+            rawResponse, out var response, out var error);
+        if ((!parsed || response is null) &&
+            context.RepairAttempts > 0 &&
+            PlanRecoveryAssessmentFallbackPolicy.TryDowngradeUnverifiedComplete(
+                response, error, out var downgraded) &&
+            downgraded is not null)
+        {
+            response = downgraded;
+            parsed = true;
+            ShowSystemTranscriptEntry(
+                "The corrected assessment found implementation evidence but did not provide passed verification. " +
+                "SquadDash preserved the findings for review instead of discarding the assessment or accepting the task.");
+        }
+
+        if (!parsed || response is null)
         {
             if (TryQueuePlanRecoveryAssessmentRepair(context, error, rawResponse))
                 return;
@@ -14711,11 +14864,18 @@ public partial class MainWindow : Window
             _pendingPlanRecoveryAssessment = null;
             _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
                 context.Plan.Group.GroupId, context.TaskId, IsActive: false));
-            ScheduleDecomposeSystemEntry(
-                "SquadDash could not validate the recovery assessment after one automatic repair, so the plan remains stopped. " + error,
+            var validationReport = PlanRecoveryAssessmentErrorReport.Build(
                 context.Plan.Group.GroupId,
-                context.Plan.Revision,
-                context.TaskId);
+                context.TaskId,
+                context.AssessmentId,
+                error,
+                "Corrected assessment response");
+            var validationReportTarget = PlanRecoveryAssessmentErrorReport.CreateLinkTarget(
+                validationReport);
+            KeepPlanStoppedAfterAssessment(
+                context,
+                "SquadDash could not validate the recovery assessment after one automatic repair. " +
+                error + $" [Review validation details]({validationReportTarget}).");
             return;
         }
 
@@ -14807,9 +14967,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        var validationReport = PlanRecoveryAssessmentErrorReport.Build(
+            context.Plan.Group.GroupId,
+            context.TaskId,
+            context.AssessmentId,
+            error,
+            "Corrected assessment response");
+        var validationReportTarget = PlanRecoveryAssessmentErrorReport.CreateLinkTarget(
+            validationReport);
         KeepPlanStoppedAfterAssessment(
             context,
-            "SquadDash could not validate the recovery assessment after one automatic repair. " + error);
+            "SquadDash could not validate the recovery assessment after one automatic repair. " +
+            error + $" [Review validation details]({validationReportTarget}).");
     }
 
     private static string BuildPlanRecoveryAssessmentRepairPrompt(
@@ -14840,7 +15009,8 @@ public partial class MainWindow : Window
             an older implementation was replaced by the current plan revision. Output strict JSON with double-quoted
             property names and no prose after the object. Do not return planId, taskId, revision, baselineCommit,
             assessedHead, or a SHA for any captured commit. Omit reason for unrelated commits; include it for every
-            other relation.
+            other relation. Complete requires verification.status passed. If the available evidence does not support
+            passed verification, use inconclusive instead of complete and preserve the implementation findings in summary.
             {{expectedCommitInstructions}}
 
             Previous response:
@@ -15048,7 +15218,8 @@ public partial class MainWindow : Window
                 _planStore.Save(assessedPlan);
                 _broker.Publish(new PlanProgressEvent(assessedPlan.PlanId, assessedPlan));
                 ShowSystemTranscriptEntry(PlanRecoveryPresentationBuilder.AssessmentStoppedMessage);
-                AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
+                AppendDecomposeRecoveryActions(
+                    context.Plan, context.TaskId, assessmentRetry: true);
                 break;
         }
     }
@@ -15174,7 +15345,7 @@ public partial class MainWindow : Window
         string message)
     {
         ShowSystemTranscriptEntry("The plan remains stopped. " + message);
-        AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
+        AppendDecomposeRecoveryActions(context.Plan, context.TaskId, assessmentRetry: true);
     }
 
     private static string NormalizeGitSnapshot(string value) =>
@@ -15258,6 +15429,33 @@ public partial class MainWindow : Window
             sb.AppendLine(System.Text.Json.JsonSerializer.Serialize(failedTask));
         else
             sb.AppendLine($"(task {taskId} not found in plan)");
+        sb.AppendLine();
+
+        // Durable execution state is authoritative recovery context. In particular, a worker
+        // handoff may already contain a successful build while independent verification was the
+        // phase interrupted by restart. Label it as candidate evidence so it is not confused
+        // with an independent acceptance verdict.
+        var durableTask = _planStore?.Load(groupId)?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        sb.AppendLine("--- Durable task stage and candidate evidence ---");
+        if (durableTask is null)
+        {
+            sb.AppendLine("(no durable task state was available)");
+        }
+        else
+        {
+            sb.AppendLine($"Task status: {durableTask.Status}");
+            if (durableTask.Handoff is not null)
+            {
+                sb.AppendLine("Worker candidate handoff (not independent acceptance):");
+                sb.AppendLine(JsonSerializer.Serialize(durableTask.Handoff));
+            }
+            if (durableTask.VerificationHistory?.LastOrDefault() is { } latestVerification)
+            {
+                sb.AppendLine("Latest independent verification report:");
+                sb.AppendLine(JsonSerializer.Serialize(latestVerification));
+            }
+        }
         sb.AppendLine();
 
         // 6. Downstream dependencies

@@ -127,6 +127,24 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void InvalidAssessment_ReportsAllRepairableFindingsTogether()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","classification":"complete",
+             "summary":"Looks complete.","remainingWork":[],
+             "verification":{"status":"not_run","command":null,"summary":"Not run."},
+             "commits":[{"commitId":"c001"}]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out _, out var error), Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Does.Contain("valid relation"));
+            Assert.That(error, Does.Contain("passed verification"));
+        });
+    }
+
+    [Test]
     public void PartialAssessment_WithoutRemainingWork_IsRejected()
     {
         var text = Prefix + """
@@ -326,6 +344,24 @@ internal sealed class PlanRecoveryAssessmentTests
         });
     }
 
+    [Test]
+    public void ErrorReport_CorrectedAttemptExplainsTerminalSafeStop()
+    {
+        var report = PlanRecoveryAssessmentErrorReport.Build(
+            "PLAN-1",
+            "TASK-2",
+            "assessment-3",
+            "Passed verification was missing.",
+            "Corrected assessment response");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(report, Does.Contain("Response attempt: Corrected assessment response"));
+            Assert.That(report, Does.Contain("corrected response still did not satisfy"));
+            Assert.That(report, Does.Not.Contain("requested one corrected structured response"));
+        });
+    }
+
     [TestCase("https://example.com")]
     [TestCase("app://plan-recovery-assessment-error/not-base64!")]
     public void ErrorReportLink_RejectsUnrelatedOrMalformedTargets(string target)
@@ -452,6 +488,104 @@ internal sealed class PlanRecoveryAssessmentTests
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
             plan, "TASK-1", response, out var error), Is.True, error);
+    }
+
+    [Test]
+    public void VerificationRecovery_ReconstructsCandidateFromDurableVerifyingHandoff()
+    {
+        var handoff = new PlanTaskHandoff(
+            "abcdef1",
+            "Implemented the completion footer.",
+            ["SquadDash/MainWindow.xaml.cs"],
+            new DecomposeStepVerification("passed", "dotnet build", "Build succeeded."),
+            DateTimeOffset.UtcNow,
+            []);
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.Verifying,
+            Handoff: handoff,
+            ProofEvidence:
+            [
+                new PlanTaskProofEvidence("build", "build", "Build succeeded.", ["build.log"]),
+            ]);
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var created = PlanVerificationRecoveryPolicy.TryCreateCandidate(
+            plan, "TASK-1", "abcdef1234567890", out var candidate, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.True);
+            Assert.That(created, Is.True, error);
+            Assert.That(candidate, Is.Not.Null);
+            Assert.That(candidate!.Status, Is.EqualTo("complete"));
+            Assert.That(candidate.Commit, Is.EqualTo("abcdef1234567890"));
+            Assert.That(candidate.Verification?.Status, Is.EqualTo("passed"));
+            Assert.That(candidate.ProofEvidence?.Single().RequirementId, Is.EqualTo("build"));
+        });
+    }
+
+    [TestCase(PlanTaskStatus.Executing, "passed")]
+    [TestCase(PlanTaskStatus.Verifying, "not_run")]
+    public void VerificationRecovery_RequiresVerificationStageAndPassedCandidateBuild(
+        string taskStatus,
+        string buildStatus)
+    {
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", taskStatus,
+            Handoff: new PlanTaskHandoff(
+                "abcdef1", "Candidate", [],
+                new DecomposeStepVerification(buildStatus, null, null),
+                DateTimeOffset.UtcNow));
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.False);
+    }
+
+    [Test]
+    public void RecoveryFallback_PreservesSoleUnverifiedCompletionAsInconclusive()
+    {
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]) with
+        {
+            Verification = new DecomposeStepVerification("not_run", null, "Build unavailable."),
+        };
+
+        var downgraded = PlanRecoveryAssessmentFallbackPolicy.TryDowngradeUnverifiedComplete(
+            response,
+            PlanRecoveryAssessmentFallbackPolicy.UnverifiedCompleteError,
+            out var result);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(downgraded, Is.True);
+            Assert.That(result!.Classification, Is.EqualTo(PlanRecoveryClassification.Inconclusive));
+            Assert.That(result.Summary, Does.Contain("independent verification was not passed"));
+            Assert.That(result.Commits, Is.EqualTo(response.Commits));
+        });
+    }
+
+    [Test]
+    public void RecoveryFallback_DoesNotHideAdditionalValidationFailures()
+    {
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]) with
+        {
+            Verification = new DecomposeStepVerification("not_run", null, "Build unavailable."),
+        };
+
+        Assert.That(PlanRecoveryAssessmentFallbackPolicy.TryDowngradeUnverifiedComplete(
+            response,
+            PlanRecoveryAssessmentFallbackPolicy.UnverifiedCompleteError +
+            " Every assessed commit requires a valid relation.",
+            out _), Is.False);
     }
 
     [Test]
