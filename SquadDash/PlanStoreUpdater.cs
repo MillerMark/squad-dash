@@ -882,6 +882,40 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Records direct conversational work performed while a plan remains paused for human
+    /// review. This deliberately leaves task, gate, progress, and lifecycle state unchanged;
+    /// the next host-owned assessment uses the activity as context and validates repository
+    /// evidence before any plan work is accepted or resumed.
+    /// </summary>
+    internal static Plan ApplyManualReviewActivity(
+        Plan existing,
+        IReadOnlyCollection<string> taskIds,
+        string summary,
+        DateTimeOffset? recordedAt = null)
+    {
+        if (taskIds.Count == 0 || string.IsNullOrWhiteSpace(summary)) return existing;
+        var targetIds = taskIds.ToHashSet(StringComparer.Ordinal);
+        if (targetIds.Any(id => !PlanReviewActivityResponseParser.IsActiveTarget(existing, id)))
+            return existing;
+
+        var activity = new PlanTaskReviewActivity(
+            PlanReviewActivityKind.ManualCorrection,
+            summary.Trim(),
+            recordedAt ?? DateTimeOffset.UtcNow);
+        var changed = false;
+        var tasks = existing.Tasks.Select(task =>
+        {
+            if (!targetIds.Contains(task.TaskId)) return task;
+            changed = true;
+            return task with
+            {
+                ReviewActivity = (task.ReviewActivity ?? []).Append(activity).ToArray(),
+            };
+        }).ToArray();
+        return changed ? existing with { Tasks = tasks } : existing;
+    }
+
+    /// <summary>
     /// Adds bounded work discovered during human review without withdrawing any accepted task
     /// result. The amendment becomes part of the reviewed side of the same gate, and validations
     /// covering the affected joined result are rescheduled after the amendment.

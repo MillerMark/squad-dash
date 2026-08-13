@@ -229,7 +229,7 @@ internal static class PlanRevisionPromptInjection
         return $$"""
             ## Optional revision of an unfinished plan
 
-            The plan executor is currently at a durable boundary. If, and only if, the user's request asks to change one of the unfinished plans below, do not edit source files in this turn. Read the exact durable plan file, then propose only the requested changes with exactly one `PLAN_REVISION_JSON:` object.
+            The plan executor is currently at a durable boundary. If, and only if, the user's request asks to change the specification or graph of one of the unfinished plans below, do not edit source files in this turn. Read the exact durable plan file, then propose only the requested changes with exactly one `PLAN_REVISION_JSON:` object. A conversational correction to implementation while the approved task specification remains unchanged is not a plan revision; follow the injected human-review activity protocol instead.
 
             {{string.Join("\n", lines)}}
 

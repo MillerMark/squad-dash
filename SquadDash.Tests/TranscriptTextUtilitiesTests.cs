@@ -335,6 +335,26 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_PlanReviewActivity_StripsPayloadAndPreservesVisibleText()
+    {
+        const string response = """
+            I adjusted the completion footer while leaving the plan paused.
+
+            PLAN_REVIEW_ACTIVITY_JSON:
+            {"planId":"PLAN-1","revision":"rev","activity":"manual-correction","taskIds":["TASK-1"],"summary":"Adjusted footer."}
+            """;
+
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(response);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sanitized, Is.EqualTo(
+                "I adjusted the completion footer while leaving the plan paused."));
+            Assert.That(sanitized, Does.Not.Contain("PLAN_REVIEW_ACTIVITY_JSON"));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_InlinePlanRecoveryAssessment_StripsPayloadAndKeepsJsonInspectable()
     {
         const string text = "Review complete. PLAN_RECOVERY_ASSESSMENT_JSON:\n" +

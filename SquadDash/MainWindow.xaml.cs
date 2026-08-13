@@ -365,6 +365,7 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
+    private bool _planReviewActivityRepairPending;
 
     // ── Static simulation runtime ──────────────────────────────────────────────
     private SimulationSessionManager? _simulationSessionManager;
@@ -5533,8 +5534,12 @@ public partial class MainWindow : Window
                             TryApplyPlanRecoveryAssessmentFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
-                            _ = TryHandleGateResponseFromResponseAsync(rawResponse);
-                            TryHandleGateApprovalFromResponse(rawResponse);
+                            var hasReviewActivity = TryHandlePlanReviewActivityFromResponse(rawResponse);
+                            if (!hasReviewActivity)
+                            {
+                                _ = TryHandleGateResponseFromResponseAsync(rawResponse);
+                                TryHandleGateApprovalFromResponse(rawResponse);
+                            }
                         }
 
                         if (_decomposeRepairPending && !hasTasksPayload)
@@ -12151,6 +12156,7 @@ public partial class MainWindow : Window
         _approvalTranscriptCards.Clear();
         _approvalPlansUpdating.Clear();
         _activePlanAwaitingGateApproval = null;
+        _planReviewActivityRepairPending = false;
         _planApprovalRuntime = null;
         _approvalNotificationCoordinator = null;
         if (_currentWorkspace is null || _planStore is null || _inboxStore is null)
@@ -13142,6 +13148,95 @@ public partial class MainWindow : Window
             return await ApplyGateAmendmentResponseAsync(plan, gate, currentToken, response);
 
         return await ApplyGateReworkResponseAsync(plan, gate, currentToken, response);
+    }
+
+    private bool TryHandlePlanReviewActivityFromResponse(string? rawResponse)
+    {
+        if (!PlanReviewActivityResponseParser.TryParse(rawResponse, out var response) ||
+            response is null)
+        {
+            if (rawResponse?.Contains(
+                    PlanReviewActivityResponseParser.Marker,
+                    StringComparison.Ordinal) != true)
+                return false;
+
+            if (!_planReviewActivityRepairPending && _planStore is not null)
+            {
+                _planReviewActivityRepairPending = true;
+                _promptQueue.EnqueueAtFront(
+                    PlanReviewActivityResponseParser.BuildRepairInstruction(_planStore.LoadAll()),
+                    _promptQueueCoordinator.NextSequenceNumber(),
+                    sourceTag: "plan-review-activity-repair",
+                    isSystemInjected: true);
+                SyncQueuePanel();
+                SyncSendButton();
+                AppendLine("SquadDash could not read the conversational review metadata. " +
+                           "It asked AI once to repair only that metadata; no plan state changed.");
+            }
+            else
+            {
+                _planReviewActivityRepairPending = false;
+                AppendLine("⚠ SquadDash could not record the conversational review activity after one repair. " +
+                           "The plan remains safely paused.");
+            }
+            return true;
+        }
+        _planReviewActivityRepairPending = false;
+        if (_planStore is null) return true;
+
+        var plan = _planStore.Load(response.PlanId);
+        if (plan is null ||
+            !string.Equals(plan.Revision, response.Revision, StringComparison.Ordinal) ||
+            response.TaskIds.Any(taskId =>
+                !PlanReviewActivityResponseParser.IsActiveTarget(plan, taskId)))
+        {
+            AppendLine("⚠ The conversational review context changed before the response completed. " +
+                       "No plan review activity was recorded.");
+            return true;
+        }
+
+        if (string.Equals(
+                _pendingGateResponseContext?.Token.PlanId,
+                response.PlanId,
+                StringComparison.Ordinal))
+            ClearPendingGateResponse(response.PlanId, keepForClarification: false);
+
+        if (response.Activity == PlanReviewActivityKind.ReviewDiscussion)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Related review discussion retained plan boundary plan={plan.PlanId} tasks={string.Join(",", response.TaskIds)}.");
+            return true;
+        }
+
+        var updated = PlanStoreUpdater.ApplyManualReviewActivity(
+            plan,
+            response.TaskIds,
+            response.Summary);
+        if (ReferenceEquals(updated, plan))
+        {
+            AppendLine("⚠ SquadDash could not associate the conversational correction with the active review boundary. " +
+                       "The plan remains unchanged.");
+            return true;
+        }
+        if (!TryPublishPlanProgress(updated, out var saveError))
+        {
+            AppendLine("⚠ The conversational correction completed, but SquadDash could not record it for later plan assessment: " +
+                       (saveError ?? "unknown persistence failure"));
+            return true;
+        }
+
+        var labels = response.TaskIds
+            .Select(taskId => PlanRecoveryPresentationBuilder.FormatStepLabel(
+                updated.Tasks.First(task => string.Equals(
+                    task.TaskId, taskId, StringComparison.Ordinal)).DisplayStepLabel,
+                updated.Tasks.First(task => string.Equals(
+                    task.TaskId, taskId, StringComparison.Ordinal)).Title ?? taskId))
+            .ToArray();
+        ShowSystemTranscriptEntry(
+            $"Conversational correction recorded for {string.Join(", ", labels)}. " +
+            "The plan remains paused; use Assess & Continue when you want SquadDash to reconcile and verify the accumulated work.");
+        return true;
     }
 
     private void QueueGateResponseRepairOrExplainFailure()
@@ -14285,6 +14380,20 @@ public partial class MainWindow : Window
                 A recovery assessment must not classify this task complete while that verdict is unresolved. Use partial
                 with bounded remaining work when the discrepancy is correctable, or inconclusive when it requires human judgment.
                 """;
+        var manualCorrections = task?.ReviewActivity?
+            .Where(activity => activity.Kind == PlanReviewActivityKind.ManualCorrection)
+            .OrderBy(activity => activity.RecordedAt)
+            .ToArray() ?? [];
+        var manualCorrectionContext = manualCorrections.Length == 0
+            ? string.Empty
+            : $$"""
+
+                The user performed conversational corrections while this plan remained paused:
+                {{string.Join("\n", manualCorrections.Select(activity =>
+                    $"- {activity.RecordedAt:O}: {activity.Summary}"))}}
+                These entries identify work that must be inspected; they are not proof of completion. Compare the
+                repository changes with the current task specification and include them in the assessment.
+                """;
         return $$"""
             Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
             Do not edit files, create commits, revert work, or start the task. Inspect the repository and, when useful,
@@ -14300,6 +14409,8 @@ public partial class MainWindow : Window
             - recoveryAssessmentId: {{assessmentId}}
 
             {{verificationContext}}
+
+            {{manualCorrectionContext}}
 
             {{evidence}}
 

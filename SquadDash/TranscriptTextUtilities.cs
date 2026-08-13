@@ -17,6 +17,7 @@ internal static class TranscriptTextUtilities
         PlanRecoveryOptionsParser.Marker,
         PlanGateResponseParser.Marker,
         PlanGateApprovalParser.Marker,
+        PlanReviewActivityResponseParser.Marker,
         PlanValidationResultParser.Marker,
         PlanTaskVerificationResultParser.Marker,
         PlanTaskVerificationResultParser.LegacyMarker,

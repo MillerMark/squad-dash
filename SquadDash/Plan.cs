@@ -108,6 +108,17 @@ internal sealed record PlanTaskAttempt(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? Note = null);
 
+/// <summary>
+/// Durable evidence that the user chose to work conversationally on a task while its plan
+/// remained paused for human review. This is intentionally not a task attempt: it neither
+/// accepts nor reopens the task. Recovery assessment consumes it as context on the next
+/// explicit continuation.
+/// </summary>
+internal sealed record PlanTaskReviewActivity(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("recordedAt")] DateTimeOffset RecordedAt);
+
 internal sealed record PlanTaskOutput(
     [property: JsonPropertyName("outputId")] string OutputId,
     [property: JsonPropertyName("description")] string Description);
@@ -237,7 +248,10 @@ internal sealed record PlanTask(
                                                 string? DisplayStepLabel = null,
     [property: JsonPropertyName("commits")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanEvidenceCommit>? Commits = null);
+                                                IReadOnlyList<PlanEvidenceCommit>? Commits = null,
+    [property: JsonPropertyName("reviewActivity")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskReviewActivity>? ReviewActivity = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

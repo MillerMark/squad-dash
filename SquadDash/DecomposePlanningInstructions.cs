@@ -61,9 +61,12 @@ internal static class DecomposePlanningInstructions
         "format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
         "file's DECOMPOSE_RECOVERY_JSON protocol. If SquadDash has paused an executing plan at a " +
         "human approval gate and the user approves in free text, follow the file's " +
-        "PLAN_GATE_APPROVAL_JSON protocol. If the user explicitly requests revisions to reviewed " +
+        "PLAN_GATE_APPROVAL_JSON protocol. If the user explicitly requests plan-managed rework of reviewed " +
         "work, follow PLAN_GATE_RESPONSE_JSON; do not modify plan work until SquadDash accepts that " +
-        "structured rework decision. Emitting TASKS_JSON proposes a plan; it does not grant execution permission.";
+        "structured rework decision. If the user instead asks to discuss or directly correct reviewed " +
+        "work conversationally while the plan remains paused, follow the injected PLAN_REVIEW_ACTIVITY_JSON " +
+        "instructions; a direct conversational correction is not plan-managed rework. Emitting TASKS_JSON " +
+        "proposes a plan; it does not grant execution permission.";
 
     internal static string BuildPendingPlanContext(string squadFolderPath)
     {
@@ -130,7 +133,8 @@ internal static class DecomposePlanningInstructions
                 sections.Add(
                     "\nApproval-gate plans paused at a human gate — emit PLAN_GATE_APPROVAL_JSON when " +
                     "the user approves in free text. Emit PLAN_GATE_RESPONSE_JSON with disposition request-rework " +
-                    "only when the user explicitly asks to revise reviewed work. Unrelated requests do not change " +
+                    "only when the user explicitly asks to send reviewed work back through plan-managed rework. " +
+                    "Conversational corrections follow the separately injected PLAN_REVIEW_ACTIVITY_JSON protocol. Unrelated requests do not change " +
                     "the approval. Use the exact identifiers and request version shown:\n" +
                     string.Join("\n", awaitingGateLines));
         }
@@ -164,6 +168,19 @@ internal static class DecomposePlanningInstructions
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"Could not read interrupted plan context: {ex.Message}");
+        }
+
+        try
+        {
+            var reviewContext = PlanReviewActivityResponseParser.BuildProtocolContext(
+                new PlanStore(squadFolderPath).LoadAll());
+            if (!string.IsNullOrWhiteSpace(reviewContext))
+                sections.Add("\n" + reviewContext);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Could not build conversational plan-review context: {ex.Message}");
         }
 
         return string.Join(string.Empty, sections);
