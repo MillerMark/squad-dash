@@ -380,7 +380,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onReplanRemainingWork is not null)
             {
                 var replanButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Replan Remaining Work", quickReplyFontSize,
+                    "✎ Revise Remaining Plan…", quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         "Replace this blocked step with smaller, dependency-aware steps."));
                 replanButton.Focusable = false;
@@ -4590,7 +4590,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
         if (!string.IsNullOrWhiteSpace(approvalQuestion))
         {
-            AddSectionHeader("What to verify");
+            AddSectionHeader("Verify the Following:");
             var questionPara = new Paragraph(new Run(approvalQuestion)
             {
                 FontWeight = FontWeights.SemiBold,
@@ -4967,7 +4967,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!string.IsNullOrWhiteSpace(question))
             {
                 var questionParagraph = new Paragraph();
-                questionParagraph.Inlines.Add(new Run("What to verify: ") { FontWeight = FontWeights.SemiBold });
+                questionParagraph.Inlines.Add(new Run("Verify the Following: ") { FontWeight = FontWeights.SemiBold });
                 questionParagraph.Inlines.Add(new Run(question));
                 questionParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 questionParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");

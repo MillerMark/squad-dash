@@ -1384,13 +1384,16 @@ internal sealed class TranscriptConversationManager {
                             ImageSubmittedAt  = a.ImageSubmittedAt?.ToString("O"),
                             InboxMessageId    = a.InboxMessageId,
                             FileReferencePath = a.FileReferencePath,
+                            RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
+                            RemovalWarning = a.RemovalWarning,
                         })
                         .ToList();
                 }
                 return new QueuedPromptEntry(
                     i.Text, i.IsDictated, i.IsSystemInjected, dtos, i.IsSimEntry, i.SimResponse,
                     i.SimDelaySeconds, i.QueueNumber, i.SourceTag, i.IsLocked, i.DisplayLabel,
-                    i.ReadOnlyDisplayText, i.CaretIndex, i.SelectionStart, i.SelectionLength);
+                    i.ReadOnlyDisplayText, i.CaretIndex, i.SelectionStart, i.SelectionLength,
+                    i.IsEditing);
             }).ToArray();
         }
         var previousState = _conversationState;

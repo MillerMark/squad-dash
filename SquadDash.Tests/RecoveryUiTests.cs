@@ -88,7 +88,7 @@ internal sealed class RecoveryUiTests
         var message = BuildMessage();
         Assert.That(
             message.Actions.Select(a => a.Label),
-            Has.Member("Replan Remaining Work"),
+            Has.Member("✎ Revise Remaining Plan…"),
             "Recovery message must expose the replan action.");
     }
 

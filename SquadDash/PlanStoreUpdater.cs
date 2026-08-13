@@ -1633,6 +1633,43 @@ internal static class PlanStoreUpdater
         };
     }
 
+    /// <summary>Records one human-review checkbox without resolving or reopening the gate.</summary>
+    internal static Plan ApplyGateHumanReviewSelection(
+        Plan existing,
+        string gateId,
+        string itemId,
+        bool isChecked,
+        string candidateCommit,
+        DateTimeOffset? updatedAt = null)
+    {
+        if (string.IsNullOrWhiteSpace(itemId) || string.IsNullOrWhiteSpace(candidateCommit))
+            return existing;
+        var gate = existing.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
+            return existing;
+
+        var selection = new PlanHumanReviewSelection(
+            itemId.Trim(), isChecked, candidateCommit.Trim(), updatedAt ?? DateTimeOffset.UtcNow);
+        var selections = (gate.HumanReviewSelections ?? [])
+            .Where(existingSelection =>
+                !string.Equals(existingSelection.ItemId, selection.ItemId, StringComparison.Ordinal) ||
+                !string.Equals(existingSelection.CandidateCommit, selection.CandidateCommit,
+                    StringComparison.OrdinalIgnoreCase))
+            .Append(selection)
+            .ToArray();
+        var updatedGate = gate with { HumanReviewSelections = selections };
+        return existing with
+        {
+            ApprovalGates = existing.ApprovalGates
+                .Select(candidate => string.Equals(candidate.GateId, gateId, StringComparison.Ordinal)
+                    ? updatedGate
+                    : candidate)
+                .ToArray(),
+            Timestamps = existing.Timestamps with { LastRunAt = selection.UpdatedAt },
+        };
+    }
+
     /// <summary>
     /// Repairs builds that allowed a generic AI recovery assessment to mark work complete despite
     /// an unresolved independent-verification verdict. Human acceptance remains authoritative; this

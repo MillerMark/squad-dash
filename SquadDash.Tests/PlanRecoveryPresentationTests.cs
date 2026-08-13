@@ -168,17 +168,20 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation, Is.Not.Null);
-            Assert.That(presentation!.Title, Is.EqualTo("Human review required"));
+            Assert.That(presentation!.Title, Is.EqualTo("Human Review Required"));
             Assert.That(presentation.Question,
                 Is.EqualTo("Does the completed footer identify the selected model profile?"));
-            Assert.That(presentation.AnalysisBullets, Does.Contain(
+            Assert.That(presentation.AnalysisBullets.Select(item => item.Text), Does.Contain(
                 "All code-verifiable claims are supported by the diff and current file state."));
-            Assert.That(presentation.AnalysisBullets, Does.Contain(
+            Assert.That(presentation.AnalysisBullets.Select(item => item.Text), Does.Contain(
                 "Runtime rendering still needs human observation."));
-            Assert.That(presentation.AnalysisBullets, Does.Contain(
+            Assert.That(presentation.AnalysisBullets.Select(item => item.Text), Does.Contain(
                 "AppendModelAttributionLine was removed."));
             Assert.That(presentation.AnalysisBullets.Count(bullet =>
-                bullet.StartsWith("The build passes", StringComparison.Ordinal)), Is.EqualTo(1));
+                bullet.Text.StartsWith("The build passes", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(presentation.AnalysisBullets.Single(item =>
+                item.Text == "AppendModelAttributionLine was removed.").Severity,
+                Is.EqualTo(PlanHumanReviewAnalysisSeverity.Error));
         });
     }
 
@@ -301,7 +304,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.CommitEvidence, Is.SameAs(evidence));
-            Assert.That(presentation.Heading, Does.Contain("committed work"));
+            Assert.That(presentation.Heading, Does.Contain("Committed Work"));
             Assert.That(presentation.RetryLabel, Is.EqualTo("Retry Task Anyway…"));
             Assert.That(presentation.RetryIsWarning, Is.True);
         });
@@ -319,7 +322,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.CommitEvidence, Is.Null);
-            Assert.That(presentation.Heading, Is.EqualTo("SquadDash could not confirm whether this task finished."));
+            Assert.That(presentation.Heading, Is.EqualTo("SquadDash Could Not Confirm Whether This Task Finished"));
             Assert.That(presentation.Explanation, Does.Contain("may include unrelated work"));
         });
     }
@@ -359,6 +362,73 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(presentation.RetryLabel, Is.EqualTo("Continue Preserved Work"));
             Assert.That(presentation.RetryIsWarning, Is.False);
         });
+    }
+
+    [Test]
+    public void HumanChecklist_SplitsLegacyBundledQuestionsIntoAtomicItems()
+    {
+        var task = new PlanTask(
+            "PLAN-007", "Review", "Review", [], "high", PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff("abcdef123456", "Done", [], null, DateTimeOffset.UtcNow));
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "visual", "live-ui-observation", "Observe the UI",
+                    "Does the footer show the alias? Does it survive restart? Does search exclude it?"),
+            ]);
+        var plan = TestPlan(null) with { Tasks = [task], ApprovalGates = [gate] };
+
+        var items = PlanHumanReviewChecklist.Build(plan, [gate]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(items.Select(item => item.ItemId),
+                Is.EqualTo(new[] { "visual#1", "visual#2", "visual#3" }));
+            Assert.That(items.All(item => item.CandidateCommit == "abcdef123456"), Is.True);
+            Assert.That(items.All(item => !item.IsChecked), Is.True);
+        });
+    }
+
+    [Test]
+    public void HumanChecklist_NewCandidateRequiresFreshChecksButShowsPriorVerification()
+    {
+        var task = new PlanTask(
+            "PLAN-007", "Review", "Review", [], "high", PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff("newcommit123", "Updated", [], null, DateTimeOffset.UtcNow));
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [new PlanTaskProofRequirement("visual", "live-ui-observation", "Observe", "Does it work?")],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection("visual", true, "oldcommit456", DateTimeOffset.UtcNow.AddMinutes(-5))]);
+        var plan = TestPlan(null) with { Tasks = [task], ApprovalGates = [gate] };
+
+        var item = PlanHumanReviewChecklist.Build(plan, [gate]).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.IsChecked, Is.False);
+            Assert.That(item.WasPreviouslyChecked, Is.True);
+            Assert.That(item.PreviouslyCheckedCommit, Is.EqualTo("oldcommit456"));
+        });
+    }
+
+    [Test]
+    public void ApplyGateHumanReviewSelection_PreservesEarlierCandidateHistory()
+    {
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", ["PLAN-007"], [], PlanGateStatus.AwaitingApproval);
+        var plan = TestPlan(null) with { ApprovalGates = [gate] };
+
+        var oldCandidate = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            plan, gate.GateId, "visual", true, "oldcommit");
+        var newCandidate = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            oldCandidate, gate.GateId, "visual", false, "newcommit");
+
+        Assert.That(newCandidate.ApprovalGates.Single().HumanReviewSelections,
+            Has.Count.EqualTo(2));
     }
 
     private static Plan TestPlan(PlanTaskCommitEvidence? evidence) => new(

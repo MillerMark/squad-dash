@@ -132,7 +132,7 @@ internal static class DecomposePlanInbox
             "assess-and-continue",
             "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing the plan."));
         actions.Add(BuildAction(
-            "Replan Remaining Work",
+            "✎ Revise Remaining Plan…",
             "replan-failed-task",
             "Replace the blocked task with smaller approved steps."));
 

@@ -382,7 +382,7 @@ public class DurableApprovalRequestManagerTests
 
         var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], []);
 
-        Assert.That(body, Does.Contain("What to verify:** Does clicking the item populate the detail panel?"));
+        Assert.That(body, Does.Contain("Verify the Following:** Does clicking the item populate the detail panel?"));
     }
 
     [Test]

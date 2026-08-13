@@ -137,7 +137,18 @@ internal sealed record PlanTaskProofEvidence(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("artifacts")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<string>? Artifacts = null);
+                                                 IReadOnlyList<string>? Artifacts = null);
+
+/// <summary>
+/// A reviewer selection for one atomic human-verification item. Selections are scoped to the
+/// candidate commit so a later implementation attempt cannot silently inherit stale approval.
+/// Older candidate selections remain in the gate as review history.
+/// </summary>
+internal sealed record PlanHumanReviewSelection(
+    [property: JsonPropertyName("itemId")] string ItemId,
+    [property: JsonPropertyName("isChecked")] bool IsChecked,
+    [property: JsonPropertyName("candidateCommit")] string CandidateCommit,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt);
 
 /// <summary>
 /// Work deliberately left to a named downstream task. A worker may not use this as a general
@@ -307,7 +318,10 @@ internal sealed record PlanApprovalGate(
                                                   bool? BeforeTaskIdsSpecified = null,
     [property: JsonPropertyName("question")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  string? Question = null);
+                                                  string? Question = null,
+    [property: JsonPropertyName("humanReviewSelections")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  IReadOnlyList<PlanHumanReviewSelection>? HumanReviewSelections = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan

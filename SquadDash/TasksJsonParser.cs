@@ -234,6 +234,13 @@ internal static class TasksJsonParser
                     return Fail("unsupported-proof-type",
                         $"task '{task.Id}' uses unsupported proofType '{requirement.ProofType}'");
                 }
+                if (PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType) &&
+                    !string.IsNullOrWhiteSpace(requirement.Question) &&
+                    PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question).Count != 1)
+                {
+                    return Fail("non-atomic-human-proof",
+                        $"task '{task.Id}' must give each human proof requirement one atomic true/false question");
+                }
             }
         }
 
@@ -341,6 +348,19 @@ internal static class TasksJsonParser
                         return Fail("invalid-human-proof-checkpoint",
                             $"gate '{gate.GateId}' must contain unique human-only proof requirements");
                     }
+                    if (!string.IsNullOrWhiteSpace(requirement.Question) &&
+                        PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question).Count != 1)
+                    {
+                        return Fail("non-atomic-human-proof",
+                            $"gate '{gate.GateId}' must give each human proof requirement one atomic true/false question");
+                    }
+                }
+
+                if ((gate.ProofRequirements is null || gate.ProofRequirements.Count == 0) &&
+                    PlanHumanReviewChecklist.SplitLegacyQuestions(gate.Question).Count != 1)
+                {
+                    return Fail("non-atomic-gate-question",
+                        $"gate '{gate.GateId}' must contain one atomic true/false question or separate proof requirements");
                 }
 
                 foreach (var id in gate.AfterTaskIds ?? [])

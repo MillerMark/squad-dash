@@ -417,6 +417,7 @@
     <Compile Include="..\SquadDash\ApprovalReviewSnapshotBuilder.cs" Link="Source\ApprovalReviewSnapshotBuilder.cs" />
     <Compile Include="..\SquadDash\DurableApprovalRequestManager.cs" Link="Source\DurableApprovalRequestManager.cs" />
     <Compile Include="..\SquadDash\TranscriptApprovalCardBuilder.cs" Link="Source\TranscriptApprovalCardBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanHumanReviewChecklist.cs" Link="Source\PlanHumanReviewChecklist.cs" />
     <Compile Include="..\SquadDash\ApprovalCardNotificationCoordinator.cs" Link="Source\ApprovalCardNotificationCoordinator.cs" />
     <Compile Include="..\SquadDash\ApprovalActionCoordinator.cs" Link="Source\ApprovalActionCoordinator.cs" />
     <Compile Include="..\SquadDash\PlanApprovalRuntime.cs" Link="Source\PlanApprovalRuntime.cs" />

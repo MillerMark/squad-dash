@@ -176,4 +176,32 @@ internal static class TranscriptQuickReplyFactory
                 yield return descendant;
         }
     }
+
+    /// <summary>
+    /// Returns the actionable buttons from the newest transcript quick-reply container,
+    /// including buttons hosted inside rich approval and recovery cards.
+    /// </summary>
+    internal static IReadOnlyList<Button> FindLatestActionButtons(BlockCollection blocks)
+    {
+        foreach (var block in blocks.Cast<Block>().Reverse())
+        {
+            if (block is Section section)
+            {
+                var nested = FindLatestActionButtons(section.Blocks);
+                if (nested.Count > 0) return nested;
+            }
+
+            if (block is not BlockUIContainer container ||
+                !IsQuickReplyContainer(container) ||
+                container.Child is not DependencyObject child)
+                continue;
+            var buttons = EnumerateButtons(child)
+                .Where(button => button.Visibility == Visibility.Visible &&
+                                 button.IsEnabled &&
+                                 button.Content is string)
+                .ToArray();
+            if (buttons.Length > 0) return buttons;
+        }
+        return [];
+    }
 }

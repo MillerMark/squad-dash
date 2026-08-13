@@ -238,7 +238,7 @@ internal sealed class CompletedWorkReviewPresentationTests
 
         Assert.That(message.Actions, Has.Count.EqualTo(2));
         Assert.That(message.Actions.Select(a => a.Label),
-            Is.EqualTo(new[] { "Assess & Continue", "Replan Remaining Work" }));
+            Is.EqualTo(new[] { "Assess & Continue", "✎ Revise Remaining Plan…" }));
     }
 
     [Test]

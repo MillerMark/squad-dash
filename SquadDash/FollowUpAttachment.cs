@@ -9,7 +9,9 @@ internal sealed record FollowUpAttachment(
     string? ImagePath = null,
     DateTime? ImageSubmittedAt = null,
     string? InboxMessageId = null,
-    string? FileReferencePath = null);
+    string? FileReferencePath = null,
+    bool RequiresRemovalConfirmation = false,
+    string? RemovalWarning = null);
 
 /// <summary>DTO for persisting <see cref="FollowUpAttachment"/> items as JSON.</summary>
 internal sealed class FollowUpAttachmentDto
@@ -33,5 +35,7 @@ internal sealed class FollowUpAttachmentDto
     public string? ImageSubmittedAt { get; set; }
     public string? InboxMessageId      { get; set; }
     public string? FileReferencePath   { get; set; }
+    public bool RequiresRemovalConfirmation { get; set; }
+    public string? RemovalWarning { get; set; }
 }
 

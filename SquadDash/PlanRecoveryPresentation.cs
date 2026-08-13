@@ -11,7 +11,18 @@ internal sealed record PlanRecoveryPresentation(
 internal sealed record PlanHumanReviewCardPresentation(
     string Title,
     string? Question,
-    IReadOnlyList<string> AnalysisBullets);
+    IReadOnlyList<PlanHumanReviewAnalysisItem> AnalysisBullets);
+
+internal enum PlanHumanReviewAnalysisSeverity
+{
+    Information,
+    Warning,
+    Error,
+}
+
+internal sealed record PlanHumanReviewAnalysisItem(
+    string Text,
+    PlanHumanReviewAnalysisSeverity Severity);
 
 /// <summary>
 /// Identifies the narrow case where an inconclusive automated verification can be resolved by
@@ -117,9 +128,11 @@ internal static class PlanRecoveryPresentationBuilder
     {
         if (verification is null) return null;
 
-        var label = verification.Command?.Contains("--filter", StringComparison.OrdinalIgnoreCase) == true
-            ? "Focused tests"
-            : "Tests";
+        var label = verification.Command?.Contains("build", StringComparison.OrdinalIgnoreCase) == true
+            ? "Build"
+            : verification.Command?.Contains("--filter", StringComparison.OrdinalIgnoreCase) == true
+                ? "Focused tests"
+                : "Tests";
         var summary = verification.Summary?.Trim().TrimEnd('.');
         if (string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase))
             return string.IsNullOrWhiteSpace(summary)
@@ -149,32 +162,50 @@ internal static class PlanRecoveryPresentationBuilder
             .OrderByDescending(candidate => candidate.ProofRequirements?.Count ?? 0)
             .FirstOrDefault();
         var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
-        var bullets = new List<string>();
+        var bullets = new List<PlanHumanReviewAnalysisItem>();
         if (report is not null)
         {
-            bullets.AddRange(SplitAnalysisSentences(report.Summary));
+            bullets.AddRange(SplitAnalysisSentences(report.Summary).Select(text =>
+                new PlanHumanReviewAnalysisItem(text, ClassifyAnalysisSentence(text))));
             foreach (var missing in report.MissingOrOverstatedWork)
-                if (!string.IsNullOrWhiteSpace(missing)) bullets.Add(missing.Trim());
-            bullets.AddRange(SplitAnalysisSentences(report.TestAssessment));
+                if (!string.IsNullOrWhiteSpace(missing)) bullets.Add(new PlanHumanReviewAnalysisItem(
+                    missing.Trim(), ClassifyAnalysisSentence(missing)));
+            bullets.AddRange(SplitAnalysisSentences(report.TestAssessment).Select(text =>
+                new PlanHumanReviewAnalysisItem(text, ClassifyAnalysisSentence(text))));
         }
         if (bullets.Count == 0)
-            bullets.Add(SummarizeReason(plan.InterruptionData?.Reason));
+            bullets.Add(new PlanHumanReviewAnalysisItem(
+                SummarizeReason(plan.InterruptionData?.Reason),
+                PlanHumanReviewAnalysisSeverity.Warning));
 
-        var distinct = new List<string>();
+        var distinct = new List<PlanHumanReviewAnalysisItem>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var bullet in bullets)
         {
-            var normalized = string.Join(' ', bullet.Split(
+            var normalized = string.Join(' ', bullet.Text.Split(
                 (char[]?)null,
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).TrimEnd('.', '!', '?');
             if (normalized.Length == 0 || !seen.Add(normalized)) continue;
-            distinct.Add(bullet.Trim());
+            distinct.Add(bullet with { Text = bullet.Text.Trim() });
         }
 
         return new PlanHumanReviewCardPresentation(
-            "Human review required",
+            "Human Review Required",
             question,
             distinct);
+    }
+
+    private static PlanHumanReviewAnalysisSeverity ClassifyAnalysisSentence(string text)
+    {
+        if (text.Contains("passes", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("passed", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("supported", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("succeeded", StringComparison.OrdinalIgnoreCase))
+            return PlanHumanReviewAnalysisSeverity.Information;
+        if (text.Contains("human observation", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("human review", StringComparison.OrdinalIgnoreCase))
+            return PlanHumanReviewAnalysisSeverity.Warning;
+        return PlanHumanReviewAnalysisSeverity.Error;
     }
 
     internal static IReadOnlyList<string> SplitAnalysisSentences(string? text)
@@ -203,8 +234,8 @@ internal static class PlanRecoveryPresentationBuilder
                 !string.IsNullOrWhiteSpace(task.AmendmentGateId));
             return new PlanRecoveryPresentation(
                 isAmendment
-                    ? "Amendment stopped after producing committed work."
-                    : "Task stopped after producing committed work.",
+                    ? "Amendment Stopped After Producing Committed Work"
+                    : "Task Stopped After Producing Committed Work",
                 isAmendment
                     ? "SquadDash captured a host-validated amendment commit before execution stopped."
                     : "SquadDash captured a host-validated commit from this task before execution stopped.",
@@ -219,7 +250,7 @@ internal static class PlanRecoveryPresentationBuilder
         if (hasPreservedWork)
         {
             return new PlanRecoveryPresentation(
-                "Task stopped with preserved work.",
+                "Task Stopped With Preserved Work",
                 "SquadDash preserved the task's uncommitted files and will verify that they have not changed before continuing.",
                 CommitEvidence: null,
                 "Recommended: continue the preserved work rather than starting the task again.",
@@ -228,7 +259,7 @@ internal static class PlanRecoveryPresentationBuilder
         }
 
         return new PlanRecoveryPresentation(
-            "SquadDash could not confirm whether this task finished.",
+            "SquadDash Could Not Confirm Whether This Task Finished",
             "The application stopped before the task result was recorded. The repository has changed since the task began, but those changes may include unrelated work.",
             CommitEvidence: null,
             "Recommended: assess the current work before continuing.",

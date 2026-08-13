@@ -605,7 +605,8 @@ internal sealed class WorkspaceConversationStoreTests {
                         ReadOnlyDisplayText: "Locked plan continuation",
                         CaretIndex: 17,
                         SelectionStart: 5,
-                        SelectionLength: 6)
+                        SelectionLength: 6,
+                        IsEditing: true)
                 ],
                 QueueLastChangedAt = queueLastChangedAt
             });
@@ -628,6 +629,7 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(entries![2].DisplayLabel, Is.EqualTo("Plan Step 3"));
             Assert.That(entries![2].ReadOnlyDisplayText, Is.EqualTo("Locked plan continuation"));
             Assert.That(entries![2].CaretIndex, Is.EqualTo(17));
+            Assert.That(entries![2].IsEditing, Is.True);
             Assert.That(entries![2].SelectionStart, Is.EqualTo(5));
             Assert.That(entries![2].SelectionLength, Is.EqualTo(6));
             Assert.That(loaded.QueueLastChangedAt, Is.EqualTo(queueLastChangedAt));

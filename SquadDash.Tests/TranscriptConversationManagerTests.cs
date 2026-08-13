@@ -658,7 +658,8 @@ internal sealed class TranscriptConversationManagerTests {
                 IsSystemInjected = true,
                 IsLocked = true,
                 DisplayLabel = "Plan Step 4",
-                ReadOnlyDisplayText = "Read-only continuation details"
+                ReadOnlyDisplayText = "Read-only continuation details",
+                IsEditing = true,
             }
         ]);
 
@@ -668,6 +669,7 @@ internal sealed class TranscriptConversationManagerTests {
             Assert.That(entry.IsLocked, Is.True);
             Assert.That(entry.DisplayLabel, Is.EqualTo("Plan Step 4"));
             Assert.That(entry.ReadOnlyDisplayText, Is.EqualTo("Read-only continuation details"));
+            Assert.That(entry.IsEditing, Is.True);
         });
     }
 
@@ -748,7 +750,9 @@ internal sealed class TranscriptConversationManagerTests {
             TranscriptQuote: "quoted text",
             ContentBlock:    "code block",
             ImagePath:       @"C:\screenshots\shot.png",
-            ImageSubmittedAt: new DateTime(2026, 5, 1, 12, 0, 0, DateTimeKind.Utc));
+            ImageSubmittedAt: new DateTime(2026, 5, 1, 12, 0, 0, DateTimeKind.Utc),
+            RequiresRemovalConfirmation: true,
+            RemovalWarning: "Required plan context");
 
         manager.UpdateQueuedPromptsState(
             [item],
@@ -765,6 +769,8 @@ internal sealed class TranscriptConversationManagerTests {
             Assert.That(dto.ContentBlock,    Is.EqualTo("code block"));
             Assert.That(dto.ImagePath,       Is.EqualTo(@"C:\screenshots\shot.png"));
             Assert.That(dto.ImageSubmittedAt, Is.EqualTo("2026-05-01T12:00:00.0000000Z"));
+            Assert.That(dto.RequiresRemovalConfirmation, Is.True);
+            Assert.That(dto.RemovalWarning, Is.EqualTo("Required plan context"));
         });
     }
 

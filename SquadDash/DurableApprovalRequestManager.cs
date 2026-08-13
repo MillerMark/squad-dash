@@ -583,7 +583,7 @@ internal sealed class DurableApprovalRequestManager
                     : $"- **Step {stepLabel}:** {reason}");
                 var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
                 if (!string.IsNullOrWhiteSpace(question))
-                    parts.Add($"  - **What to verify:** {question}");
+                    parts.Add($"  - **Verify the Following:** {question}");
             }
 
             AppendReviewEvidence(parts, plan, activeGateIds, snapshot);

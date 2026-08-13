@@ -193,4 +193,30 @@ internal sealed class TranscriptQuickReplyFactoryTests
             Assert.That(tag.GetCopyText(), Is.EqualTo("Human review required"));
         });
     }
+
+    [Test]
+    public void FindLatestActionButtons_DiscoversEnabledButtonsInsideNewestCard()
+    {
+        _ = Application.Current ?? new Application();
+        var document = new FlowDocument();
+        var oldPanel = new WrapPanel();
+        oldPanel.Children.Add(TranscriptQuickReplyFactory.CreateButton("Old action", 14));
+        document.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(oldPanel));
+        var section = new Section();
+        var cardPanel = new WrapPanel();
+        var disabled = TranscriptQuickReplyFactory.CreateButton("Step 7 Is Complete", 14);
+        disabled.IsEnabled = false;
+        var address = TranscriptQuickReplyFactory.CreateButton("✎ Address Unchecked Items…", 14);
+        cardPanel.Children.Add(disabled);
+        cardPanel.Children.Add(address);
+        section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            new Border { Child = cardPanel },
+            new DecomposeRecoveryTag("PLAN", "revision", "PLAN-007")));
+        document.Blocks.Add(section);
+
+        var buttons = TranscriptQuickReplyFactory.FindLatestActionButtons(document.Blocks);
+
+        Assert.That(buttons.Select(button => button.Content),
+            Is.EqualTo(new object[] { "✎ Address Unchecked Items…" }));
+    }
 }

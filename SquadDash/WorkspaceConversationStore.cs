@@ -1074,7 +1074,8 @@ internal sealed record QueuedPromptEntry(
     string? ReadOnlyDisplayText = null,
     int CaretIndex = 0,
     int SelectionStart = 0,
-    int SelectionLength = 0);
+    int SelectionLength = 0,
+    bool IsEditing = false);
 
 internal enum TranscriptThoughtPlacement {
     BeforeTools,

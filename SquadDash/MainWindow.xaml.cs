@@ -9631,29 +9631,158 @@ public partial class MainWindow : Window
             return await RetryDecomposeTaskAsync(plan, recoveryTaskId);
     }
 
-    private void QueueDecomposeReplan(PendingDecomposePlan plan, string taskId)
+    private void QueueDecomposeReplan(
+        PendingDecomposePlan plan,
+        string taskId,
+        string? repositoryContext = null)
     {
         var failedTask = plan.Group.Tasks.FirstOrDefault(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal));
         if (failedTask is null) return;
 
-        var prompt =
-            $"Revise decomposition plan {plan.Group.GroupId} at revision {plan.Revision}. " +
-            $"Task {taskId} was too large or could not be completed as written. Return a complete revised TASKS_JSON proposal " +
-            "for the same groupId. Preserve every existing task, add smaller replacement tasks, and set parentTaskId on each " +
-            $"replacement to {taskId}. Give the replacements real dependencies and update downstream dependsOn entries to the " +
-            "terminal replacement tasks. Do not execute work and do not emit a decision or step result.\n\n" +
-            "Current plan:\n" + System.Text.Json.JsonSerializer.Serialize(plan.Group) + "\n\n" +
-            "Blocked task:\n" + System.Text.Json.JsonSerializer.Serialize(failedTask) + "\n\n" +
+        var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        var authoritativeContext =
+            $"Plan ID: {plan.Group.GroupId}\n" +
+            $"Base revision: {plan.Revision}\n" +
+            $"Blocked task: {taskId}\n\n" +
+            "Revise only the remaining plan. Preserve completed work and the authoritative plan identity. " +
+            "Replace or decompose the blocked task with dependency-aware work based on the user's requested changes. " +
+            "Do not execute implementation in this turn. Use the plan-revision protocol when it is available.\n\n" +
+            (string.IsNullOrWhiteSpace(repositoryContext)
+                ? string.Empty
+                : "Repository context:\n" + repositoryContext.Trim() + "\n\n") +
+            "Blocked task JSON:\n" + System.Text.Json.JsonSerializer.Serialize(failedTask) + "\n\n" +
             DecomposePlanningInstructions.LoadSpecification();
-        _promptQueue.EnqueueAtFront(
-            prompt,
-            _promptQueueCoordinator.NextSequenceNumber(),
-            sourceTag: "decompose-replan",
-            isSystemInjected: true);
+        var attachments = new List<FollowUpAttachment>();
+        if (durablePlan is not null)
+        {
+            attachments.Add(new FollowUpAttachment(
+                CommitSha: string.Empty,
+                Description: $"Plan: {durablePlan.Title}",
+                OriginalPrompt: null,
+                ContentBlock: PlanRevisionPromptContextParser.BuildAttachment(durablePlan),
+                FileReferencePath: $".squad/plans/{durablePlan.PlanId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan attachment anchors the revision to the correct plan and revision. Remove it anyway?"));
+        }
+        else
+        {
+            attachments.Add(new FollowUpAttachment(
+                CommitSha: string.Empty,
+                Description: $"Plan: {plan.Group.GroupTitle}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock(
+                    "plan",
+                    plan.Group.GroupTitle,
+                    System.Text.Json.JsonSerializer.Serialize(plan.Group)),
+                FileReferencePath: $".squad/plans/{plan.Group.GroupId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan attachment anchors the revision to the correct plan. Remove it anyway?"));
+        }
+        attachments.Add(new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: "Required replanning context",
+            OriginalPrompt: null,
+            ContentBlock: BuildTypedAttachmentBlock(
+                "plan-continuation-context",
+                "Required replanning context",
+                authoritativeContext),
+            RequiresRemovalConfirmation: true,
+            RemovalWarning: "This context preserves the blocked step, repository state, and planning rules needed for a safe continuation. Remove it anyway?"));
+
+        QueueEditablePlanPrompt(
+            "Revise the remaining plan based on the requested changes below.\r\n\r\n" +
+            "What should be different?\r\n\r\n" +
+            "[Describe the change you want]\r\n",
+            "[Describe the change you want]",
+            "Revise remaining plan",
+            "decompose-replan-draft",
+            attachments);
+    }
+
+    private void QueueEditablePlanPrompt(
+        string text,
+        string selectedPlaceholder,
+        string displayLabel,
+        string sourceTag,
+        IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        var selectionStart = text.IndexOf(selectedPlaceholder, StringComparison.Ordinal);
+        var item = new PromptQueueItem
+        {
+            Text = text,
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            IsEditing = true,
+            SourceTag = sourceTag,
+            DisplayLabel = displayLabel,
+            CaretIndex = selectionStart < 0 ? text.Length : selectionStart,
+            SelectionStart = selectionStart < 0 ? text.Length : selectionStart,
+            SelectionLength = selectionStart < 0 ? 0 : selectedPlaceholder.Length,
+        };
+        _promptQueue.EnqueueItemAtFront(item);
+        _promptQueue.RenumberSequentially();
+        if (attachments.Count > 0)
+            _followUpAttachments[item.Id] = attachments.ToList();
         SyncQueuePanel();
+        OnQueueTabClicked(item.Id);
+        PromptTextBox.Focus();
         SyncSendButton();
-        _ = DrainQueueIfNeededAsync();
+    }
+
+    private void QueueAddressUncheckedItems(
+        Plan plan,
+        string taskId,
+        IReadOnlyList<PlanHumanReviewChecklistItem> checklistItems)
+    {
+        var uncheckedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
+        if (uncheckedItems.Length == 0)
+            return;
+
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task?.DisplayStepLabel,
+            task?.Title ?? taskId);
+        var checklistText = string.Join("\n", uncheckedItems.Select(item => $"- {item.Text}"));
+        var context =
+            $"Plan ID: {plan.PlanId}\n" +
+            $"Revision: {plan.Revision}\n" +
+            $"Task ID: {taskId}\n" +
+            $"Candidate commit: {uncheckedItems[0].CandidateCommit}\n\n" +
+            "The user is requesting a conversational correction at an existing human-review boundary. " +
+            "Address only the requested unchecked verification items. Keep the plan paused, do not mark the " +
+            "human checks complete, and emit the normal PLAN_REVIEW_ACTIVITY_JSON manual-correction record " +
+            "after any implementation work.\n\nUnchecked verification items:\n" + checklistText;
+        var attachments = new List<FollowUpAttachment>
+        {
+            new(
+                CommitSha: string.Empty,
+                Description: $"Plan: {plan.Title}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock("plan", plan.Title, BuildPlanContentBody(plan)),
+                FileReferencePath: $".squad/plans/{plan.PlanId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan attachment anchors the correction to the correct plan and revision. Remove it anyway?"),
+            new(
+                CommitSha: string.Empty,
+                Description: "Required unchecked-item context",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock(
+                    "plan-review-context",
+                    "Required unchecked-item context",
+                    context),
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This attachment identifies the unchecked verification items and keeps the plan paused correctly. Remove it anyway?"),
+        };
+        QueueEditablePlanPrompt(
+            $"Address the unchecked verification items for {stepLabel}.\r\n\r\n" +
+            "What needs to be different?\r\n\r\n" +
+            "[Describe the correction you want]\r\n",
+            "[Describe the correction you want]",
+            "Address unchecked items",
+            "plan-review-correction-draft",
+            attachments);
     }
 
     private async Task<bool> RetryDecomposeTaskAsync(
@@ -12506,7 +12635,21 @@ public partial class MainWindow : Window
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             onOpenInbox: () => OpenOrFocusInboxMessage(
                 DurableApprovalRequestManager.BuildMessageId(plan.PlanId)),
-            onOpenEvidence: task => OpenApprovalStepEvidence(plan, task));
+            onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
+            onChecklistChanged: (item, isChecked) =>
+                RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onAddressUncheckedItems: uncheckedItems =>
+            {
+                var reviewedTaskId = activeGates
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.GateId,
+                        uncheckedItems.FirstOrDefault()?.GateId,
+                        StringComparison.Ordinal))?
+                    .AfterTaskIds.FirstOrDefault()
+                    ?? gate.AfterTaskIds.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                    QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems);
+            });
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
         {
@@ -14020,6 +14163,26 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
+    private void RecordHumanReviewChecklistSelection(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        bool isChecked)
+    {
+        var current = _planStore?.Load(planId);
+        if (current is null) return;
+        var updated = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            current,
+            item.GateId,
+            item.ItemId,
+            isChecked,
+            item.CandidateCommit);
+        if (ReferenceEquals(updated, current)) return;
+        if (!TryPublishPlanProgress(updated, out var saveError))
+            UIErrorHelper.ShowWarning(
+                "Save Human Review",
+                saveError ?? "SquadDash could not save this verification selection.");
+    }
+
     private void OpenApprovalStepEvidence(Plan plan, ReviewTaskEntry reviewTask)
     {
         var durableTask = plan.Tasks.FirstOrDefault(task =>
@@ -14065,6 +14228,17 @@ public partial class MainWindow : Window
         var humanReview = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
+        var combinedHumanReviewGate = durablePlan is null
+            ? null
+            : PlanHumanReviewGatePolicy.FindCombinableGate(durablePlan, taskId);
+        var humanChecklistItems = durablePlan is null || combinedHumanReviewGate is null
+            ? Array.Empty<PlanHumanReviewChecklistItem>()
+            : PlanHumanReviewChecklist.Build(durablePlan, [combinedHumanReviewGate]).ToArray();
+        var humanChecklistState = humanChecklistItems.ToDictionary(
+            item => item.ItemId,
+            item => item.IsChecked,
+            StringComparer.Ordinal);
+        Action refreshHumanReviewActions = () => { };
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         var cardDocument = new FlowDocument
         {
@@ -14146,7 +14320,7 @@ public partial class MainWindow : Window
         recoverySurface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(card, cardTag));
         var blocks = cardDocument.Blocks;
 
-        var cardTitle = humanReview?.Title ?? "Plan recovery required";
+        var cardTitle = humanReview?.Title ?? "Plan Recovery Required";
         var titleParagraph = CreateTranscriptParagraph(bottomMargin: 7);
         titleParagraph.FontSize = _transcriptFontSize + 2;
         var titleRun = new Run(cardTitle) { FontWeight = FontWeights.SemiBold };
@@ -14155,24 +14329,6 @@ public partial class MainWindow : Window
         blocks.Add(titleParagraph);
 
         var copyParts = new List<string> { cardTitle };
-        if (!string.IsNullOrWhiteSpace(humanReview?.Question))
-        {
-            var questionLabel = CreateTranscriptParagraph(bottomMargin: 2);
-            var questionLabelRun = new Run("What to verify");
-            questionLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            questionLabel.Inlines.Add(questionLabelRun);
-            blocks.Add(questionLabel);
-
-            var questionParagraph = CreateTranscriptParagraph(bottomMargin: 8);
-            questionParagraph.FontSize = _transcriptFontSize + 1;
-            questionParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            MarkdownFlowDocumentBuilder.AddInboxInlineText(
-                questionParagraph.Inlines,
-                humanReview!.Question!);
-            blocks.Add(questionParagraph);
-            copyParts.Add("What to verify: " + humanReview.Question);
-        }
-
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
         var planLabelRun = new Run("Plan: ");
         planLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -14195,9 +14351,6 @@ public partial class MainWindow : Window
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
             taskTitle);
-        var combinedHumanReviewGate = durablePlan is null
-            ? null
-            : PlanHumanReviewGatePolicy.FindCombinableGate(durablePlan, taskId);
         var taskParagraph = CreateTranscriptParagraph(bottomMargin: 7);
         var stepRun = new Run(stepLabel + ": ");
         stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -14207,10 +14360,98 @@ public partial class MainWindow : Window
         copyParts.Add($"Plan: {plan.Group.GroupTitle}");
         copyParts.Add($"{stepLabel}: {taskTitle}");
 
+        if (humanChecklistItems.Length > 0)
+        {
+            var checklistStack = new StackPanel { Margin = new Thickness(0, 0, 0, 7) };
+            var checklistLabel = new TextBlock
+            {
+                Text = "Verify the Following:",
+                FontSize = _transcriptFontSize - 1,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            checklistLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            checklistStack.Children.Add(checklistLabel);
+            var boxes = new List<CheckBox>();
+            foreach (var item in humanChecklistItems)
+            {
+                var itemText = new TextBlock
+                {
+                    Text = item.Text,
+                    FontSize = _transcriptFontSize + 1,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                itemText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                var box = new CheckBox
+                {
+                    Content = itemText,
+                    IsChecked = item.IsChecked,
+                    Margin = new Thickness(8, 1, 0, 4),
+                    VerticalContentAlignment = VerticalAlignment.Top,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Check this after you personally verify that the statement is true."),
+                };
+                var capturedItem = item;
+                box.Checked += (_, _) =>
+                {
+                    humanChecklistState[capturedItem.ItemId] = true;
+                    RecordHumanReviewChecklistSelection(durablePlan!.PlanId, capturedItem, true);
+                    refreshHumanReviewActions();
+                };
+                box.Unchecked += (_, _) =>
+                {
+                    humanChecklistState[capturedItem.ItemId] = false;
+                    RecordHumanReviewChecklistSelection(durablePlan!.PlanId, capturedItem, false);
+                    refreshHumanReviewActions();
+                };
+                boxes.Add(box);
+                checklistStack.Children.Add(box);
+                copyParts.Add("☐ " + item.Text);
+                if (item.WasPreviouslyChecked && !item.IsChecked)
+                {
+                    var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
+                        ? "an earlier candidate"
+                        : item.PreviouslyCheckedCommit.Length > 7
+                            ? item.PreviouslyCheckedCommit[..7]
+                            : item.PreviouslyCheckedCommit;
+                    var previous = new TextBlock
+                    {
+                        Text = $"Previously verified on {previousCommit}; recheck after the new work.",
+                        FontSize = _transcriptFontSize - 2,
+                        Margin = new Thickness(32, -2, 0, 4),
+                    };
+                    previous.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                    checklistStack.Children.Add(previous);
+                }
+            }
+            var checklistBorder = new Border
+            {
+                Child = checklistStack,
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 2, 0, 8),
+            };
+            checklistBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+            checklistBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+            var menu = new ContextMenu();
+            menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+            var markAll = new MenuItem { Header = "Mark All as Verified" };
+            markAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            markAll.Click += (_, _) =>
+            {
+                foreach (var box in boxes)
+                    box.IsChecked = true;
+            };
+            menu.Items.Add(markAll);
+            checklistBorder.ContextMenu = menu;
+            blocks.Add(new BlockUIContainer(checklistBorder));
+        }
+
         if (humanReview is not null)
         {
             var analysisLabel = CreateTranscriptParagraph(bottomMargin: 2);
-            var analysisLabelRun = new Run("Automated review status");
+            var analysisLabelRun = new Run("Automated Review Status:");
             analysisLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             analysisLabel.Inlines.Add(analysisLabelRun);
             blocks.Add(analysisLabel);
@@ -14224,9 +14465,16 @@ public partial class MainWindow : Window
             foreach (var bullet in humanReview.AnalysisBullets)
             {
                 var bulletParagraph = CreateTranscriptParagraph(bottomMargin: 2);
-                MarkdownFlowDocumentBuilder.AddInboxInlineText(bulletParagraph.Inlines, bullet);
+                bulletParagraph.SetResourceReference(
+                    TextElement.ForegroundProperty,
+                    bullet.Severity == PlanHumanReviewAnalysisSeverity.Error
+                        ? "ToolFailureIcon"
+                        : bullet.Severity == PlanHumanReviewAnalysisSeverity.Warning
+                            ? "ImportantText"
+                            : "BodyText");
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(bulletParagraph.Inlines, bullet.Text);
                 analysisList.ListItems.Add(new ListItem(bulletParagraph));
-                copyParts.Add("• " + bullet);
+                copyParts.Add("• " + bullet.Text);
             }
             blocks.Add(analysisList);
         }
@@ -14289,7 +14537,7 @@ public partial class MainWindow : Window
                 $"Continue Working on {assessmentStepLabel}",
                 $"Keep {assessmentStepLabel} incomplete and continue from the existing repository state.",
                 async () => await RetryDecomposeTaskAsync(plan, taskId));
-            AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
+            AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
                 () => QueueDecomposeReplan(plan, taskId));
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
@@ -14340,10 +14588,16 @@ public partial class MainWindow : Window
                 {
                     var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 3);
                     verificationParagraph.Margin = new Thickness(12, 0, 0, 3);
-                    verificationParagraph.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    var verificationPassed = string.Equals(
+                        commitEvidence.Verification?.Status,
+                        "passed",
+                        StringComparison.OrdinalIgnoreCase);
+                    verificationParagraph.SetResourceReference(
+                        TextElement.ForegroundProperty,
+                        verificationPassed ? "ToolSuccessIcon" : "SubtleText");
                     MarkdownFlowDocumentBuilder.AddInboxInlineText(
                         verificationParagraph.Inlines,
-                        compactTests);
+                        (verificationPassed ? "✓ " : string.Empty) + compactTests);
                     blocks.Add(verificationParagraph);
                 }
             }
@@ -14357,6 +14611,45 @@ public partial class MainWindow : Window
                 recommendationText);
             blocks.Add(recommendation);
 
+        }
+
+        if (combinedHumanReviewGate is not null && humanChecklistItems.Length > 0)
+        {
+            var completionButton = AddAsyncResultAction(
+                $"{stepLabel} Is Complete",
+                $"Enabled once every verification item is checked. Mark {stepLabel} complete, record the human checkpoint, and continue without another AI review.",
+                async () =>
+                {
+                    var latest = _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!;
+                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                });
+            var addressButton = AddAction(
+                "✎ Address Unchecked Items…",
+                "Create an editable queued prompt with the current plan and unchecked verification items attached as protected context.",
+                () => QueueAddressUncheckedItems(
+                    _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!,
+                    taskId,
+                    humanChecklistItems.Select(item => item with
+                    {
+                        IsChecked = humanChecklistState[item.ItemId]
+                    }).ToArray()),
+                removeAfterAction: false);
+            AddAction(
+                "✎ Revise Remaining Plan…",
+                "Create an editable queued prompt with protected plan and replanning context attached. Nothing is sent until you review and submit it.",
+                () => QueueDecomposeReplan(plan, taskId),
+                removeAfterAction: false);
+            refreshHumanReviewActions = () =>
+            {
+                var allChecked = humanChecklistState.Count > 0 &&
+                                 humanChecklistState.Values.All(value => value);
+                completionButton.IsEnabled = allChecked;
+                addressButton.IsEnabled = humanChecklistState.Values.Any(value => !value);
+            };
+            refreshHumanReviewActions();
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
         }
 
         if (review is not null)
@@ -14390,7 +14683,7 @@ public partial class MainWindow : Window
             recoveryActionLabel,
             recoveryActionHint,
             async () => await AssessAndContinuePlanRecoveryAsync(plan, taskId));
-        AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
+        AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
             () => QueueDecomposeReplan(plan, taskId));
 
         if (showEndPlan)
@@ -14410,7 +14703,7 @@ public partial class MainWindow : Window
             recoveryTag));
         ScrollToEndIfAtBottom(CoordinatorThread);
 
-        void AddAction(
+        Button AddAction(
             string label,
             string hint,
             Action action,
@@ -14429,6 +14722,7 @@ public partial class MainWindow : Window
                 action();
             };
             panel.Children.Add(button);
+            return button;
         }
 
         void AddAsyncAction(
@@ -14457,7 +14751,7 @@ public partial class MainWindow : Window
             panel.Children.Add(button);
         }
 
-        void AddAsyncResultAction(
+        Button AddAsyncResultAction(
             string label,
             string hint,
             Func<Task<bool>> action,
@@ -14497,6 +14791,7 @@ public partial class MainWindow : Window
                 }
             };
             panel.Children.Add(button);
+            return button;
         }
     }
 
@@ -16583,28 +16878,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        var prompt =
-            $"Revise decomposition plan {plan.Group.GroupId} at revision {plan.Revision}. " +
-            $"Task {taskId} was too large or could not be completed as written. Return a complete revised TASKS_JSON proposal " +
-            "for the same groupId. Preserve every existing task, add smaller replacement tasks, and set parentTaskId on each " +
-            $"replacement to {taskId}. Give the replacements real dependencies and update downstream dependsOn entries to the " +
-            "terminal replacement tasks. Do not execute work and do not emit a decision or step result.\n\n" +
-            "Current repository state (treat this as the new baseline for remaining work):\n" +
-            repoStateSummary + "\n\n" +
-            "Current plan:\n" + System.Text.Json.JsonSerializer.Serialize(plan.Group) + "\n\n" +
-            "Blocked task:\n" + System.Text.Json.JsonSerializer.Serialize(failedTask) + "\n\n" +
-            DecomposePlanningInstructions.LoadSpecification();
-        _promptQueue.EnqueueAtFront(
-            prompt,
-            _promptQueueCoordinator.NextSequenceNumber(),
-            sourceTag: "decompose-replan",
-            isSystemInjected: true);
-        SyncQueuePanel();
-        SyncSendButton();
+        QueueDecomposeReplan(plan, taskId, repoStateSummary);
 
         var shortHead = currentHead.Length >= 7 ? currentHead[..7] : currentHead;
         ShowSystemTranscriptEntry(
-            $"📋 Replan queued for task {taskId} with current repository state as baseline (HEAD: {shortHead}).");
+            $"✎ Replan draft created for task {taskId} with current repository state as baseline (HEAD: {shortHead}).");
     }
 
     private void OpenDecomposePlanAttachment(InboxAttachment attachment)
@@ -21671,6 +21949,13 @@ public partial class MainWindow : Window
 
     private string[] GetCurrentQuickReplyOptions()
     {
+        var cardOptions = TranscriptQuickReplyFactory
+            .FindLatestActionButtons(CoordinatorThread.Document.Blocks)
+            .Select(button => (string)button.Content)
+            .ToArray();
+        if (cardOptions.Length > 0)
+            return cardOptions;
+
         var latestResponse = CoordinatorThread?.LatestResponse;
         if (string.IsNullOrEmpty(latestResponse))
             return _currentQuickReplyOptions;
@@ -21787,6 +22072,21 @@ public partial class MainWindow : Window
     /// </summary>
     private void SimulateQuickReplyIntelliSenseAccept(string optionLabel, TextBox targetBox)
     {
+        var cardButton = TranscriptQuickReplyFactory
+            .FindLatestActionButtons(CoordinatorThread.Document.Blocks)
+            .FirstOrDefault(button => string.Equals(
+                button.Content as string,
+                optionLabel,
+                StringComparison.OrdinalIgnoreCase));
+        if (cardButton is not null)
+        {
+            _isApplyingIntelliSenseAccept = true;
+            try { targetBox.Text = string.Empty; }
+            finally { _isApplyingIntelliSenseAccept = false; }
+            cardButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, cardButton));
+            return;
+        }
+
         // Look up the full routing payload for this label (populated when quick reply
         // buttons are built).  A match means this is a regular AI-routed quick reply.
         var payload = _currentQuickReplyPayloads
@@ -31613,6 +31913,7 @@ public partial class MainWindow : Window
                 restoredItem.CaretIndex = entry.CaretIndex;
                 restoredItem.SelectionStart = entry.SelectionStart;
                 restoredItem.SelectionLength = entry.SelectionLength;
+                restoredItem.IsEditing = entry.IsEditing;
                 if (entry.IsSimEntry)
                 {
                     restoredItem.IsSimEntry      = true;
@@ -31633,7 +31934,9 @@ public partial class MainWindow : Window
                             a.ImagePath,
                             a.ImageSubmittedAt is not null && DateTime.TryParse(a.ImageSubmittedAt, out var dt2) ? dt2 : null,
                             a.InboxMessageId,
-                            a.FileReferencePath))
+                            a.FileReferencePath,
+                            a.RequiresRemovalConfirmation,
+                            a.RemovalWarning))
                         .ToList();
                 }
             }
@@ -45607,7 +45910,9 @@ public partial class MainWindow : Window
                         d.ImagePath,
                         d.ImageSubmittedAt is not null && DateTime.TryParse(d.ImageSubmittedAt, out var dt1) ? dt1 : null,
                         d.InboxMessageId,
-                        d.FileReferencePath)));
+                        d.FileReferencePath,
+                        d.RequiresRemovalConfirmation,
+                        d.RemovalWarning)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -47399,6 +47704,16 @@ public partial class MainWindow : Window
                 {
                     e.Handled = true;
                     var l = GetOrCreateFollowUpList(_activeTabId ?? "");
+                    if (capturedAtt.RequiresRemovalConfirmation &&
+                        MessageBox.Show(
+                            this,
+                            capturedAtt.RemovalWarning ??
+                            "This attachment is required to continue the plan with the correct context. Remove it anyway?",
+                            "Remove Required Context?",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Warning,
+                            MessageBoxResult.No) != MessageBoxResult.Yes)
+                        return;
                     l.Remove(capturedAtt);
                     if (l.Count == 0) _guidedTourCoordinator.RaiseAllAttachmentsRemoved();
                     UpdateFollowUpStrip();
@@ -47983,6 +48298,15 @@ public partial class MainWindow : Window
     private void FollowUpDismissBtn_Click(object sender, RoutedEventArgs e)
     {
         var hadAttachments = _followUpAttachments.TryGetValue(_activeTabId ?? "", out var existing) && existing.Count > 0;
+        if (existing?.Any(attachment => attachment.RequiresRemovalConfirmation) == true &&
+            MessageBox.Show(
+                this,
+                "One or more attachments provide required plan-continuation context. Remove all attachments anyway?",
+                "Remove Required Context?",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No) != MessageBoxResult.Yes)
+            return;
         _followUpAttachments.Remove(_activeTabId ?? "");
         if (hadAttachments) _guidedTourCoordinator.RaiseAllAttachmentsRemoved();
         UpdateFollowUpStrip();
@@ -48011,6 +48335,8 @@ public partial class MainWindow : Window
                 ImageSubmittedAt  = a.ImageSubmittedAt?.ToString("O"),
                 InboxMessageId    = a.InboxMessageId,
                 FileReferencePath = a.FileReferencePath,
+                RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
+                RemovalWarning = a.RemovalWarning,
             }).ToList();
             _docsPanelState = state with
             {

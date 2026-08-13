@@ -76,6 +76,9 @@ internal static class TranscriptApprovalCardBuilder
 
         /// <summary>Commit-evidence links rendered in the card.</summary>
         internal IReadOnlyList<Hyperlink> CommitLinks { get; init; } = [];
+
+        /// <summary>Returns whether every current human-verification item is checked.</summary>
+        internal Func<bool> CanApprove { get; init; } = static () => true;
     }
 
     /// <summary>
@@ -94,6 +97,8 @@ internal static class TranscriptApprovalCardBuilder
         Action<string>? onOpenCommit = null,
         Action? onOpenInbox = null,
         Action<ReviewTaskEntry>? onOpenEvidence = null,
+        Action<PlanHumanReviewChecklistItem, bool>? onChecklistChanged = null,
+        Action<IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
@@ -105,6 +110,8 @@ internal static class TranscriptApprovalCardBuilder
         var commitLinks = new List<Hyperlink>();
         Hyperlink? inboxLink = null;
         Hyperlink? inboxMessageLink = null;
+        Button? approveButton = null;
+        Button? requestChangesButton = null;
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -123,7 +130,7 @@ internal static class TranscriptApprovalCardBuilder
 
         var titleBlock = new TextBlock
         {
-            Text = "Approval Required",
+            Text = "Human Review Required",
             FontSize = fontSize + 2,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
@@ -158,29 +165,24 @@ internal static class TranscriptApprovalCardBuilder
         // ── Human verification question ──────────────────────────────────
         TextBlock? questionBlock = null;
         Hyperlink? inspectPlanLink = null;
-        var gatesWithQuestions = activeGates
-            .Select(candidate => (Gate: candidate, Question: PlanProofCapabilityPolicy.ResolveHumanQuestion(candidate)))
-            .Where(item => !string.IsNullOrWhiteSpace(item.Question))
-            .ToArray();
-        if (gatesWithQuestions.Length > 0)
+        var checklistItems = PlanHumanReviewChecklist.Build(plan, activeGates);
+        var checklistState = checklistItems.ToDictionary(
+            item => item.GateId + "\0" + item.ItemId,
+            item => item.IsChecked,
+            StringComparer.Ordinal);
+        var checklistBoxes = new List<CheckBox>();
+        if (checklistItems.Count > 0)
         {
             var questionStack = new StackPanel();
-            var questionLabel = CreateStyledTextBlock("What to verify", fontSize - 1, "SubtleText");
+            var questionLabel = CreateStyledTextBlock("Verify the Following:", fontSize - 1, "SubtleText");
             questionLabel.FontWeight = FontWeights.SemiBold;
             questionLabel.Margin = new Thickness(0, 0, 0, 3);
             questionStack.Children.Add(questionLabel);
 
-            foreach (var (questionGate, question) in gatesWithQuestions)
+            foreach (var item in checklistItems)
             {
-                var step = ResolveGateStepLabel(plan, questionGate);
                 var itemBlock = CreateStyledTextBlock(string.Empty, fontSize + 1, "ImportantText");
-                if (!string.IsNullOrWhiteSpace(step))
-                {
-                    var stepPrefix = new Run($"Step {step}: ");
-                    stepPrefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                    itemBlock.Inlines.Add(stepPrefix);
-                }
-                var questionRun = new Run(question!);
+                var questionRun = new Run(item.Text);
                 questionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 itemBlock.Inlines.Add(questionRun);
                 itemBlock.FontWeight = FontWeights.Normal;
@@ -188,7 +190,45 @@ internal static class TranscriptApprovalCardBuilder
                 itemBlock.Margin = new Thickness(0, 0, 0, 5);
                 AutomationProperties.SetName(itemBlock, "Approval question");
                 questionBlock ??= itemBlock;
-                questionStack.Children.Add(itemBlock);
+                var checkBox = new CheckBox
+                {
+                    Content = itemBlock,
+                    IsChecked = item.IsChecked,
+                    Margin = new Thickness(8, 1, 0, 4),
+                    VerticalContentAlignment = VerticalAlignment.Top,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Check this after you personally verify that the statement is true."),
+                };
+                AutomationProperties.SetName(checkBox, item.Text);
+                checklistBoxes.Add(checkBox);
+                var capturedItem = item;
+                checkBox.Checked += (_, _) =>
+                {
+                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = true;
+                    onChecklistChanged?.Invoke(capturedItem, true);
+                    UpdateApprovalAvailability();
+                };
+                checkBox.Unchecked += (_, _) =>
+                {
+                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = false;
+                    onChecklistChanged?.Invoke(capturedItem, false);
+                    UpdateApprovalAvailability();
+                };
+                questionStack.Children.Add(checkBox);
+                if (item.WasPreviouslyChecked && !item.IsChecked)
+                {
+                    var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
+                        ? "an earlier candidate"
+                        : item.PreviouslyCheckedCommit.Length > 7
+                            ? item.PreviouslyCheckedCommit[..7]
+                            : item.PreviouslyCheckedCommit;
+                    var previous = CreateStyledTextBlock(
+                        $"Previously verified on {previousCommit}; recheck after the new work.",
+                        fontSize - 2,
+                        "SubtleText");
+                    previous.Margin = new Thickness(32, -2, 0, 4);
+                    questionStack.Children.Add(previous);
+                }
             }
 
             var questionBorder = new Border
@@ -201,6 +241,17 @@ internal static class TranscriptApprovalCardBuilder
             };
             questionBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
             questionBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+            var checklistMenu = new ContextMenu();
+            checklistMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+            var markAll = new MenuItem { Header = "Mark All as Verified" };
+            markAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            markAll.Click += (_, _) =>
+            {
+                foreach (var box in checklistBoxes)
+                    box.IsChecked = true;
+            };
+            checklistMenu.Items.Add(markAll);
+            questionBorder.ContextMenu = checklistMenu;
             stack.Children.Add(questionBorder);
         }
 
@@ -471,14 +522,17 @@ internal static class TranscriptApprovalCardBuilder
             Margin = new Thickness(0, 0, 0, 2),
         };
 
-        var approveLabel = ApprovalCardNotificationCoordinator.BuildApproveLabel(activeGateCount);
+        var reviewedTaskIds = activeGates.SelectMany(candidate => candidate.AfterTaskIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var approveLabel = reviewedTaskIds.Length == 1
+            ? $"{ResolveCompletionStepLabel(plan, reviewedTaskIds[0])} Is Complete"
+            : "Reviewed Steps Are Complete";
 
-        var approveButton = TranscriptQuickReplyFactory.CreateButton(
+        approveButton = TranscriptQuickReplyFactory.CreateButton(
             approveLabel,
             fontSize,
-            toolTip: activeGateCount > 1
-                ? $"Approve all {activeGateCount} pending checkpoints and resume plan execution"
-                : "Approve this checkpoint and resume plan execution");
+            toolTip: "Enabled after every verification item is checked. Records your human verification and continues the plan without another AI review.");
         AutomationProperties.SetName(approveButton, approveLabel);
 
         // Shared approve action used by button click and keyboard shortcut
@@ -503,17 +557,26 @@ internal static class TranscriptApprovalCardBuilder
         };
 
         actionsPanel.Children.Add(approveButton);
-        Button? requestChangesButton = null;
         if (onRequestChanges is not null)
         {
             requestChangesButton = TranscriptQuickReplyFactory.CreateButton(
-                "Request changes…",
+                "✎ Address Unchecked Items…",
                 fontSize,
-                toolTip: "Describe revisions in the normal prompt box; the plan remains paused until SquadDash receives a valid rework decision");
-            AutomationProperties.SetName(requestChangesButton, "Request changes");
-            requestChangesButton.Click += (_, _) => onRequestChanges();
+                toolTip: "Create an editable queued prompt, with protected plan context attached, describing what should change for the unchecked items");
+            AutomationProperties.SetName(requestChangesButton, "Address unchecked items");
+            requestChangesButton.Click += (_, _) =>
+            {
+                var uncheckedItems = checklistItems
+                    .Where(item => !checklistState[item.GateId + "\0" + item.ItemId])
+                    .ToArray();
+                if (onAddressUncheckedItems is not null)
+                    onAddressUncheckedItems(uncheckedItems);
+                else
+                    onRequestChanges();
+            };
             actionsPanel.Children.Add(requestChangesButton);
         }
+        UpdateApprovalAvailability();
         stack.Children.Add(actionsPanel);
 
         var resolvedIndicator = CreateStyledTextBlock("✓ Approved.", fontSize, "PlanApprovalResolved");
@@ -558,7 +621,7 @@ internal static class TranscriptApprovalCardBuilder
         border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         border.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
         AutomationProperties.SetName(border, $"Approval card for {snapshot.PlanTitle}");
-        var questionSummary = string.Join(" ", gatesWithQuestions.Select(item => item.Question));
+        var questionSummary = string.Join(" ", checklistItems.Select(item => item.Text));
         AutomationProperties.SetHelpText(border,
             $"{snapshot.CompletedTaskCount} of {snapshot.TotalTaskCount} steps complete. " +
             (string.IsNullOrWhiteSpace(questionSummary)
@@ -593,7 +656,27 @@ internal static class TranscriptApprovalCardBuilder
             InboxLink = inboxLink,
             InboxMessageLink = inboxMessageLink,
             CommitLinks = commitLinks,
+            CanApprove = () => checklistState.Count == 0 || checklistState.Values.All(value => value),
         };
+
+        void UpdateApprovalAvailability()
+        {
+            var allChecked = checklistState.Count == 0 || checklistState.Values.All(value => value);
+            if (approveButton is not null)
+                approveButton.IsEnabled = allChecked;
+            if (requestChangesButton is not null)
+                requestChangesButton.IsEnabled = checklistState.Values.Any(value => !value);
+        }
+    }
+
+    private static string ResolveCompletionStepLabel(Plan plan, string taskId)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var label = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task?.DisplayStepLabel,
+            task?.Title ?? taskId);
+        return label;
     }
 
     internal static void FocusNoteEditorAtPoint(TextBox noteBox, Point point)
@@ -618,7 +701,7 @@ internal static class TranscriptApprovalCardBuilder
     internal static void HideUpdatingState(CardResult card)
     {
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
-        card.ApproveButton.IsEnabled = true;
+        card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
         card.NoteTextBox.IsEnabled = true;

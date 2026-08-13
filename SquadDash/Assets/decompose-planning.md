@@ -116,9 +116,11 @@ fence around the object is accepted but not required.
   human-only requirements to a generated approval checkpoint after the task; the task worker is
   never asked to fabricate proof it cannot observe. A complete step result must return matching
   `proofEvidence` only for the worker/host requirements that remain on the task. `question` is
-  optional for stored-plan compatibility, but supply it for every human-only requirement. Write a
-  short, direct question that tells the reviewer exactly what to try and observe, such as
-  `Does clicking an item show a selection highlight and populate the detail panel? Is the grid splitter draggable?`.
+  optional for stored-plan compatibility, but supply it for every human-only requirement. Every
+  human-only requirement must be atomic: its `question` must contain exactly one independently
+  verifiable true/false claim, where true means the check passed and false means it failed. If a
+  reviewer must check three outcomes, emit three proof requirements with three stable IDs; never
+  bundle them into one question. Example: `Does clicking an item show a selection highlight?`.
 - `approvalGates[].question`: required in every newly proposed explicit human approval gate (the
   host only treats it as optional while reading older stored plans). Ask the concrete approval question in plain language;
   do not merely restate the gate message or say “Confirm this works.” SquadDash features this
@@ -126,6 +128,7 @@ fence around the object is accepted but not required.
 - `approvalGates[].proofRequirements`: optional human-only proof contracts using the same object
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
   Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.
+  Each entry must likewise be one atomic true/false verification item.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.
