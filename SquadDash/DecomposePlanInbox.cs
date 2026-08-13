@@ -120,11 +120,11 @@ internal static class DecomposePlanInbox
         if (hasCommitEvidence)
         {
             actions.Add(BuildAction(
-                isAmendment ? "Review & Approve Amendment" : "Review & Accept Completed Work",
+                isAmendment ? "Review & Approve Amendment" : "Review Completed Work",
                 "review-completed-work",
                 isAmendment
                     ? "Review the amendment commit and tests. Accepting it also approves the checkpoint that requested the amendment."
-                    : "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task."));
+                    : "Open the committed work, changed files, test results, and downstream effects. No additional AI review runs; completion remains your decision."));
         }
 
         actions.Add(BuildAction(
@@ -155,7 +155,7 @@ internal static class DecomposePlanInbox
             if (tests is not null) body += tests + "\n";
             body += isAmendment
                 ? "\nRecommended: review the amendment once; accepting it also approves its checkpoint.\n"
-                : "\nRecommended: review and accept the completed work if it satisfies the task.\n";
+                : "\nRecommended: review the completed work and confirm it only if it satisfies the task.\n";
         }
 
         body += "\nChoose a recovery action below.";

@@ -10446,6 +10446,10 @@ public partial class MainWindow : Window
         var hasRecordedTaskEvidence = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                                       !string.IsNullOrWhiteSpace(interruptedTaskId) &&
                                       CompletedWorkReviewPresentationBuilder.Build(durablePlan, interruptedTaskId!) is not null;
+        var combinesHumanReviewGate = durablePlan is not null &&
+                                      !string.IsNullOrWhiteSpace(interruptedTaskId) &&
+                                      PlanHumanReviewGatePolicy.FindCombinableGate(
+                                          durablePlan, interruptedTaskId!) is not null;
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
             durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
                 ? hasRecordedTaskEvidence
@@ -10464,14 +10468,16 @@ public partial class MainWindow : Window
         var interruptedPrimaryActionLabel = hasRecordedTaskEvidence
             ? interruptedTaskIsAmendment
                 ? "Review & Approve Amendment"
-                : "Review & Accept Completed Work"
+                : "Review Completed Work"
             : canResumeInterruptedVerification
                 ? "Resume Verification & Continue"
                 : null;
         var interruptedPrimaryActionHint = hasRecordedTaskEvidence
             ? interruptedTaskIsAmendment
                 ? "Review the exact amendment commit range; accepting it also approves the checkpoint that requested the amendment."
-                : "Review the exact commit range recorded for this task attempt, then accept it and continue if it satisfies the task."
+                : combinesHumanReviewGate
+                    ? "Open the exact commit evidence and human checkpoint together. No additional AI review runs; confirming the step also approves its human-only gate."
+                    : "Open the exact commit range recorded for this task attempt. No additional AI review runs; completion remains your decision."
             : canResumeInterruptedVerification
                 ? "Resume independent verification from the candidate handoff already saved for this task; implementation work will not be repeated."
                 : null;
@@ -14189,6 +14195,9 @@ public partial class MainWindow : Window
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
             taskTitle);
+        var combinedHumanReviewGate = durablePlan is null
+            ? null
+            : PlanHumanReviewGatePolicy.FindCombinableGate(durablePlan, taskId);
         var taskParagraph = CreateTranscriptParagraph(bottomMargin: 7);
         var stepRun = new Run(stepLabel + ": ");
         stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -14201,7 +14210,7 @@ public partial class MainWindow : Window
         if (humanReview is not null)
         {
             var analysisLabel = CreateTranscriptParagraph(bottomMargin: 2);
-            var analysisLabelRun = new Run("AI analysis");
+            var analysisLabelRun = new Run("Automated review status");
             analysisLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             analysisLabel.Inlines.Add(analysisLabelRun);
             blocks.Add(analysisLabel);
@@ -14268,13 +14277,13 @@ public partial class MainWindow : Window
                 "SquadDash cannot confirm that the existing work completes this step. No repository changes were made.");
             blocks.Add(assessmentParagraph);
 
-            AddAsyncAction(
+            AddAsyncResultAction(
                 $"Accept {assessmentStepLabel} as Complete",
                 $"Review and explicitly accept the existing evidence for {assessmentStepLabel}, mark only this step complete, and continue the plan.",
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
-                    await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
                 });
             AddAsyncAction(
                 $"Continue Working on {assessmentStepLabel}",
@@ -14340,9 +14349,12 @@ public partial class MainWindow : Window
             }
 
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
+            var recommendationText = combinedHumanReviewGate is null
+                ? presentation.Recommendation
+                : $"Review the completed work once. Confirming {stepLabel} also approves the human checkpoint above.";
             MarkdownFlowDocumentBuilder.AddInboxInlineText(
                 recommendation.Inlines,
-                presentation.Recommendation);
+                recommendationText);
             blocks.Add(recommendation);
 
         }
@@ -14352,11 +14364,13 @@ public partial class MainWindow : Window
             var reviewsAmendment = durablePlan!.Tasks.Any(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
                 !string.IsNullOrWhiteSpace(task.AmendmentGateId));
-            AddAsyncAction(
-                reviewsAmendment ? "Review & Approve Amendment" : "Review & Accept Completed Work",
+            AddAsyncResultAction(
+                reviewsAmendment ? "Review & Approve Amendment" : "Review Completed Work",
                 reviewsAmendment
                     ? "Review the amendment commit, changed files, and tests. Accepting it also approves the checkpoint that requested this amendment."
-                    : "Review the committed work, changed files, test results, and downstream effects, then accept it and continue if it satisfies the task.",
+                    : combinedHumanReviewGate is not null
+                        ? $"Open the commit evidence for your review. No additional AI review runs. Confirm {stepLabel} only after observing the human checkpoint above."
+                        : "Open the committed work, changed files, tests, and downstream effects. No additional AI review runs; completion remains your decision.",
                 async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
         }
 
@@ -14434,7 +14448,53 @@ public partial class MainWindow : Window
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
                 PrepareForHostRecoveryAction();
                 try { await action(); }
-                catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
+                catch (Exception ex)
+                {
+                    if (removeAfterAction) panel.Visibility = Visibility.Visible;
+                    HandleUiCallbackException("Decompose recovery", ex);
+                }
+            };
+            panel.Children.Add(button);
+        }
+
+        void AddAsyncResultAction(
+            string label,
+            string hint,
+            Func<Task<bool>> action,
+            bool removeAfterAction = true,
+            QuickReplyTone tone = QuickReplyTone.Default)
+        {
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label,
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(hint),
+                tone: tone);
+            button.Click += async (_, _) =>
+            {
+                if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
+                PrepareForHostRecoveryAction();
+                try
+                {
+                    if (!await action() && removeAfterAction)
+                        panel.Visibility = Visibility.Visible;
+                }
+                catch (PlanPreflightBlockedException blocked)
+                {
+                    ShowTranscriptPlanPreflightRecovery(
+                        plan,
+                        "run",
+                        durablePlan?.Branch,
+                        blocked,
+                        panel,
+                        CoordinatorThread.Document.Blocks,
+                        retryOverride: action,
+                        retryLabel: label);
+                }
+                catch (Exception ex)
+                {
+                    if (removeAfterAction) panel.Visibility = Visibility.Visible;
+                    HandleUiCallbackException("Decompose recovery", ex);
+                }
             };
             panel.Children.Add(button);
         }
@@ -15671,6 +15731,11 @@ public partial class MainWindow : Window
                 "No Interrupted Task", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
+        var taskIndex = storedPlan.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            pendingTask.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            pendingTask.Title ?? pendingTask.Description);
         var combinedAmendmentGate = string.IsNullOrWhiteSpace(pendingTask.AmendmentGateId)
             ? null
             : storedPlan.ApprovalGates.FirstOrDefault(gate =>
@@ -15680,6 +15745,10 @@ public partial class MainWindow : Window
                 gate.BeforeTaskIds.All(id => storedPlan.Tasks.Any(task =>
                     string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
                     task.Status == PlanTaskStatus.Pending)));
+        var combinedHumanReviewGate = combinedAmendmentGate is null
+            ? PlanHumanReviewGatePolicy.FindCombinableGate(storedPlan, taskId)
+            : null;
+        var combinedApprovalGate = combinedAmendmentGate ?? combinedHumanReviewGate;
 
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
@@ -15740,8 +15809,6 @@ public partial class MainWindow : Window
                 "Plan State Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
-
-        await EnsurePlanWorktreeReadyAsync(workspace);
 
         var history = (await RunGitAsync(workspace, "rev-list HEAD"))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -15850,6 +15917,11 @@ public partial class MainWindow : Window
             return false;
         }
 
+        // Evidence review is read-only and remains useful in a dirty workspace. Block the state
+        // transition only after the user has inspected the recorded range, so a preflight pause
+        // can offer a targeted retry without turning the review click into an exception.
+        await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
+
         var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(storedPlan.Tasks, taskId);
         var commitLines = string.Join("\n", selectedRange.Select(entry =>
             $"  • {entry.Commit[..7]} {entry.Subject}"));
@@ -15857,9 +15929,17 @@ public partial class MainWindow : Window
         var warning = downstream.Count == 0
             ? string.Empty
             : "\n\nAlready-completed dependent tasks: " + string.Join(", ", downstream);
-        var combinedApprovalText = combinedAmendmentGate is null
-            ? ""
-            : " and approve the human checkpoint that requested this amendment";
+        var combinedApprovalText = combinedApprovalGate is null
+            ? string.Empty
+            : combinedAmendmentGate is not null
+                ? " and approve the human checkpoint that requested this amendment"
+                : " and approve its human-observation checkpoint";
+        var humanQuestion = combinedHumanReviewGate is null
+            ? null
+            : PlanProofCapabilityPolicy.ResolveHumanQuestion(combinedHumanReviewGate);
+        var humanQuestionText = string.IsNullOrWhiteSpace(humanQuestion)
+            ? string.Empty
+            : $"\n\nHuman checkpoint:\n{humanQuestion}";
         if (PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance))
         {
             var confirmation = MessageBox.Show(
@@ -15867,10 +15947,14 @@ public partial class MainWindow : Window
                 $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
                 $"as the completed result for {taskId}{combinedApprovalText} and continue the plan?\n\n" +
                 $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
-                $"Changed files:\n{changedFileLines}{warning}\n\n" +
+                $"Changed files:\n{changedFileLines}{warning}{humanQuestionText}\n\n" +
                 "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
-                "Confirm that this preserved work satisfies the task.",
-                combinedAmendmentGate is null ? "Accept Commit and Continue" : "Approve Amendment and Continue",
+                "No additional AI review will run. Confirm that this preserved work satisfies the task.",
+                combinedHumanReviewGate is not null
+                    ? $"{stepLabel} Is Complete?"
+                    : combinedAmendmentGate is not null
+                        ? "Approve Amendment and Continue"
+                        : "Accept Commit and Continue",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
                 MessageBoxResult.No);
@@ -15882,7 +15966,7 @@ public partial class MainWindow : Window
         var rangeLabel = selectedRange.Length == 1
             ? terminalCommit
             : $"{firstCommit}..{terminalCommit}";
-        var summary = $"Host adopted verified commit range {rangeLabel} ({selectedRange.Length} commit" +
+        var summary = $"Human accepted commit range {rangeLabel} ({selectedRange.Length} commit" +
                       (selectedRange.Length == 1 ? ")." : "s).");
         var syntheticResult = new DecomposeStepResult(
             GroupId: storedPlan.PlanId,
@@ -15894,8 +15978,8 @@ public partial class MainWindow : Window
             RemainingWork: [],
             Verification: new DecomposeStepVerification(
                 "passed",
-                "host-controlled commit-range validation",
-                $"Validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
+                "human acceptance with host-controlled commit-range validation",
+                $"The human reviewer accepted the task after SquadDash validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
 
         var originalTasks = File.ReadAllText(tasksPath);
         var writer = new DecomposedTasksWriter();
@@ -15922,21 +16006,23 @@ public partial class MainWindow : Window
                 items,
                 nextExecutingTaskId: null,
                 acceptedResult: syntheticResult);
-            if (combinedAmendmentGate is not null)
+            if (combinedApprovalGate is not null)
             {
-                if (combinedAmendmentGate.Status == PlanGateStatus.Pending)
-                    updated = PlanStoreUpdater.ApplyGateReady(updated, combinedAmendmentGate.GateId);
+                if (combinedApprovalGate.Status == PlanGateStatus.Pending)
+                    updated = PlanStoreUpdater.ApplyGateReady(updated, combinedApprovalGate.GateId);
                 var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
                 updated = PlanStoreUpdater.ApplyGateApproved(
                     updated,
-                    combinedAmendmentGate.GateId,
-                    "Approved while accepting the host-validated amendment commit.",
+                    combinedApprovalGate.GateId,
+                    combinedAmendmentGate is not null
+                        ? "Approved while accepting the reviewed amendment commit."
+                        : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
                     resolvedBy);
             }
             var nextTaskId = updated.Tasks.FirstOrDefault(task =>
                 task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
             var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
-                "Preserved work was adopted by the host.",
+                "Preserved work was accepted by the human reviewer.",
                 PlanRecoveryState.PendingRecovery,
                 0)) with
             {
@@ -15946,7 +16032,7 @@ public partial class MainWindow : Window
                 LastCompletedTaskId = taskId,
                 LastCommit = terminalCommit,
                 AffectedPaths = changedPaths,
-                PartialWorkEvidence = $"Verified commit range {rangeLabel}"
+                PartialWorkEvidence = $"Human-accepted commit range {rangeLabel}"
             };
             updated = updated with
             {
@@ -15970,11 +16056,13 @@ public partial class MainWindow : Window
                                        HasReadyPendingApprovalGate(acceptedPlan!);
         var mustAwaitApproval = hasReadyApprovalBoundary &&
                                 PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
-        ShowSystemTranscriptEntry(combinedAmendmentGate is null
-            ? mustAwaitApproval
-                ? $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Opening the required human approval checkpoint."
-                : $"✓ Adopted verified commit range {rangeLabel} as task {taskId}. Resuming with the next pending task."
-            : $"✓ Accepted verified amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task.");
+        ShowSystemTranscriptEntry(combinedHumanReviewGate is not null
+            ? $"✓ {stepLabel} accepted from commit range {rangeLabel}; its human checkpoint is also approved. Resuming with the next pending task."
+            : combinedAmendmentGate is not null
+                ? $"✓ Accepted reviewed amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task."
+                : mustAwaitApproval
+                    ? $"✓ Human accepted commit range {rangeLabel} for {stepLabel}. Opening the required human approval checkpoint."
+                    : $"✓ Human accepted commit range {rangeLabel} for {stepLabel}. Resuming with the next pending task.");
 
         if (hasReadyApprovalBoundary)
         {

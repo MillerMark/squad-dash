@@ -178,7 +178,7 @@ internal sealed class CompletedWorkReviewPresentationTests
     // --- Routing: Inbox actions ---
 
     [Test]
-    public void BuildRecoveryMessage_WithEvidence_IncludesCombinedReviewAndAcceptAction()
+    public void BuildRecoveryMessage_WithEvidence_IncludesReviewAction()
     {
         var pending = MakePending();
         var evidence = MakeEvidence();
@@ -186,7 +186,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
         Assert.That(message.Actions.Select(a => a.Label),
-            Does.Contain("Review & Accept Completed Work"));
+            Does.Contain("Review Completed Work"));
     }
 
     [Test]
@@ -213,7 +213,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             Assert.That(message.Actions.Select(action => action.Label),
                 Does.Contain("Review & Approve Amendment"));
             Assert.That(message.Actions.Select(action => action.Label),
-                Has.No.Member("Review & Accept Completed Work"));
+                Has.No.Member("Review Completed Work"));
             Assert.That(message.Body, Does.Contain("accepting it also approves its checkpoint"));
         });
     }
@@ -226,7 +226,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow);
 
         Assert.That(message.Actions.Select(a => a.Label),
-            Has.No.Member("Review & Accept Completed Work"));
+            Has.No.Member("Review Completed Work"));
     }
 
     [Test]
@@ -323,7 +323,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             Assert.That(result.ShouldArchive, Is.False);
             Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
             Assert.That(result.Message.Actions.Select(a => a.Label),
-                Does.Contain("Review & Accept Completed Work"));
+                Does.Contain("Review Completed Work"));
         });
     }
 

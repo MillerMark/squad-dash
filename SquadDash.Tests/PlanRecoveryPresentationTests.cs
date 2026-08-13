@@ -168,7 +168,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation, Is.Not.Null);
-            Assert.That(presentation!.Title, Is.EqualTo("Human verification required"));
+            Assert.That(presentation!.Title, Is.EqualTo("Human review required"));
             Assert.That(presentation.Question,
                 Is.EqualTo("Does the completed footer identify the selected model profile?"));
             Assert.That(presentation.AnalysisBullets, Does.Contain(
@@ -180,6 +180,94 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(presentation.AnalysisBullets.Count(bullet =>
                 bullet.StartsWith("The build passes", StringComparison.Ordinal)), Is.EqualTo(1));
         });
+    }
+
+    [Test]
+    public void HumanReviewGatePolicy_CombinesSingleDirectHumanProofGate()
+    {
+        var reviewed = new PlanTask(
+            "PLAN-007", "Review me", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired);
+        var downstream = new PlanTask(
+            "PLAN-008", "Continue", "Next", [reviewed.TaskId], "high",
+            PlanTaskStatus.Pending);
+        var gate = new PlanApprovalGate(
+            "GATE-007",
+            "Observe the completed behavior.",
+            [reviewed.TaskId],
+            [downstream.TaskId],
+            PlanGateStatus.Pending,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "proof-007", "live-ui-observation", "Observe the footer."),
+            ],
+            Question: "Does the footer show the alias?");
+        var plan = TestPlan(null) with
+        {
+            Tasks = [reviewed, downstream],
+            ApprovalGates = [gate],
+        };
+
+        Assert.That(
+            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reviewed.TaskId),
+            Is.SameAs(gate));
+    }
+
+    [Test]
+    public void HumanReviewGatePolicy_DoesNotCombineAutomatedOrAmbiguousGate()
+    {
+        var reviewed = new PlanTask(
+            "PLAN-007", "Review me", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired);
+        var automatedGate = new PlanApprovalGate(
+            "GATE-007",
+            "Automated proof.",
+            [reviewed.TaskId],
+            [],
+            PlanGateStatus.Pending,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "proof-007", "build", "Build the project."),
+            ]);
+        var plan = TestPlan(null) with
+        {
+            Tasks = [reviewed],
+            ApprovalGates = [automatedGate],
+        };
+
+        Assert.That(
+            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reviewed.TaskId),
+            Is.Null);
+    }
+
+    [Test]
+    public void HumanReviewGatePolicy_DoesNotAbsorbExplicitReworkState()
+    {
+        var reworking = new PlanTask(
+            "PLAN-007", "Needs changes", "Work", [], "high",
+            PlanTaskStatus.Reworking);
+        var gate = new PlanApprovalGate(
+            "GATE-007",
+            "Observe the completed behavior.",
+            [reworking.TaskId],
+            [],
+            PlanGateStatus.Pending,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "proof-007", "live-ui-observation", "Observe the footer."),
+            ]);
+        var plan = TestPlan(null) with
+        {
+            Tasks = [reworking],
+            ApprovalGates = [gate],
+        };
+
+        Assert.That(
+            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reworking.TaskId),
+            Is.Null);
     }
 
     [Test]

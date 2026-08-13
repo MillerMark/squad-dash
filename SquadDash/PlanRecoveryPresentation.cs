@@ -14,6 +14,39 @@ internal sealed record PlanHumanReviewCardPresentation(
     IReadOnlyList<string> AnalysisBullets);
 
 /// <summary>
+/// Identifies the narrow case where an inconclusive automated verification can be resolved by
+/// the task's already-approved human-only proof checkpoint. Explicit rework findings never enter
+/// this path, and ambiguous/multi-gate boundaries remain separate.
+/// </summary>
+internal static class PlanHumanReviewGatePolicy
+{
+    internal static PlanApprovalGate? FindCombinableGate(Plan plan, string taskId)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        if (task?.Status != PlanTaskStatus.HumanReviewRequired)
+            return null;
+
+        var candidates = plan.ApprovalGates.Where(gate =>
+            gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+            gate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal) &&
+            gate.AfterTaskIds.All(afterTaskId =>
+                string.Equals(afterTaskId, taskId, StringComparison.Ordinal) ||
+                plan.Tasks.Any(candidate =>
+                    string.Equals(candidate.TaskId, afterTaskId, StringComparison.Ordinal) &&
+                    candidate.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
+            gate.BeforeTaskIds.All(beforeTaskId => plan.Tasks.Any(candidate =>
+                string.Equals(candidate.TaskId, beforeTaskId, StringComparison.Ordinal) &&
+                candidate.Status == PlanTaskStatus.Pending)) &&
+            gate.ProofRequirements is { Count: > 0 } &&
+            gate.ProofRequirements.All(requirement =>
+                PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))).ToArray();
+
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+}
+
+/// <summary>
 /// Converts durable recovery provenance into calm, state-specific user language. It never infers
 /// task ownership from commit timestamps, authors, or a coincidental position in branch history.
 /// </summary>
@@ -139,7 +172,7 @@ internal static class PlanRecoveryPresentationBuilder
         }
 
         return new PlanHumanReviewCardPresentation(
-            "Human verification required",
+            "Human review required",
             question,
             distinct);
     }
@@ -178,7 +211,7 @@ internal static class PlanRecoveryPresentationBuilder
                 evidence,
                 isAmendment
                     ? "Recommended: review the amendment once; accepting it also approves the checkpoint that requested it."
-                    : "Recommended: review and accept this commit before continuing.",
+                    : "Recommended: review the completed work before deciding whether this step is complete.",
                 "Retry Task Anyway…",
                 RetryIsWarning: true);
         }

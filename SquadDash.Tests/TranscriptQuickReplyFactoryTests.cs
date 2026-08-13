@@ -178,7 +178,7 @@ internal sealed class TranscriptQuickReplyFactoryTests
             new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
             actions)
         {
-            CopyText = "Human verification required",
+            CopyText = "Human review required",
         };
         var card = TranscriptQuickReplyFactory.CreateContainer(new Border { Child = actions }, tag);
         section.Blocks.Add(card);
@@ -190,7 +190,7 @@ internal sealed class TranscriptQuickReplyFactoryTests
         {
             Assert.That(section.Blocks.Contains(card), Is.True);
             Assert.That(actions.Visibility, Is.EqualTo(Visibility.Collapsed));
-            Assert.That(tag.GetCopyText(), Is.EqualTo("Human verification required"));
+            Assert.That(tag.GetCopyText(), Is.EqualTo("Human review required"));
         });
     }
 }
