@@ -3445,7 +3445,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var approveItem = new MenuItem
                 {
-                    Header = "✓ Approve",
+                    Header = "Approve this task",
                     Style  = TryFindResource("ThemedMenuItemStyle") as Style,
                 };
                 approveItem.Click += (_, _) => approveAction();
@@ -3455,7 +3455,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var unapproveItem = new MenuItem
                 {
-                    Header = "✗ Unapprove",
+                    Header = "Cancel approval",
                     Style  = TryFindResource("ThemedMenuItemStyle") as Style,
                 };
                 unapproveItem.Click += (_, _) => unapproveAction();
