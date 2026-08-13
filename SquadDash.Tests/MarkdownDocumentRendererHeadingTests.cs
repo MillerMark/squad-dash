@@ -15,7 +15,9 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static MarkdownDocumentRenderer MakeRenderer(string? gitHubUrl = "https://github.com/owner/repo") =>
+    private static MarkdownDocumentRenderer MakeRenderer(
+        string? gitHubUrl = "https://github.com/owner/repo",
+        Func<string, string?>? resolvePlanDisplayName = null) =>
         new(
             getFontSize:               () => 14.0,
             getWorkspaceGitHubUrl:     () => gitHubUrl,
@@ -25,7 +27,8 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
             onQuickReplyButtonClick:   (_, _) => { },
             appendResponseSegment:     (_, _, _) => { },
             scrollToEndIfAtBottom:     _ => { },
-            getCoordinatorThread:      () => null!);
+            getCoordinatorThread:      () => null!,
+            resolvePlanDisplayName:    resolvePlanDisplayName);
 
     private static IEnumerable<Inline> FlattenInlines(IEnumerable<Inline> inlines) {
         foreach (var inline in inlines) {
@@ -36,14 +39,39 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
         }
     }
 
-    private static List<Block> BuildHeadingBlocks(string markdownLine, string? gitHubUrl = "https://github.com/owner/repo") {
+    private static List<Block> BuildHeadingBlocks(
+        string markdownLine,
+        string? gitHubUrl = "https://github.com/owner/repo",
+        Func<string, string?>? resolvePlanDisplayName = null) {
         EnsureApplicationResources();
-        var renderer = MakeRenderer(gitHubUrl);
+        var renderer = MakeRenderer(gitHubUrl, resolvePlanDisplayName);
         var thread   = new TranscriptThreadState("t1", TranscriptThreadKind.Coordinator, "Test", DateTimeOffset.Now);
         var section  = new Section();
         var turn     = new TranscriptTurnView(thread, "prompt", DateTimeOffset.Now, section, []);
         var entry    = new TranscriptResponseEntry(turn, 1, section, allowQuickReplies: false);
         return renderer.BuildResponseBlocks(entry, markdownLine, allowQuickReplies: false).ToList();
+    }
+
+    [Test]
+    public void BarePlanOrTaskId_RendersPlanNameAsLinkText()
+    {
+        var blocks = BuildHeadingBlocks(
+            "Found candidate for MODELPROF-20260810-007.",
+            resolvePlanDisplayName: reference =>
+                reference == "MODELPROF-20260810-007" ? "Model Profiles" : null);
+
+        var allInlines = blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => FlattenInlines(paragraph.Inlines))
+            .ToList();
+        var link = allInlines.OfType<Hyperlink>().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(link.Inlines.OfType<Run>().Single().Text, Is.EqualTo("Model Profiles"));
+            Assert.That(link.Tag, Is.EqualTo("app://open-plan:MODELPROF-20260810-007"));
+            Assert.That(allInlines.OfType<Run>().Any(run =>
+                run.Text.Contains("MODELPROF-20260810-007", StringComparison.Ordinal)), Is.False);
+        });
     }
 
     private static void EnsureApplicationResources() {

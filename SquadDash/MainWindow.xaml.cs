@@ -329,6 +329,7 @@ public partial class MainWindow : Window
     private NotesPanelController? _notesPanel;
     private List<NoteItem> _noteItems = [];
     private PlanStore? _planStore;
+    private readonly HashSet<string> _reportedMissingPlanReferences = new(StringComparer.Ordinal);
     private PlanRecoveryProvenanceService? _planRecoveryProvenance;
     private PlanRecoveryDecisionHandler? _planRecoveryDecision;
     private PlansPanelController? _plansPanelController;
@@ -1717,7 +1718,12 @@ public partial class MainWindow : Window
             onQuickReplyButtonClick: QuickReplyButton_Click,
             appendResponseSegment: (thread, text, newLine) => AppendResponseSegment(thread, text, newLine),
             scrollToEndIfAtBottom: thread => ScrollToEndIfAtBottom(thread),
-            getCoordinatorThread: () => CoordinatorThread);
+            getCoordinatorThread: () => CoordinatorThread,
+            resolvePlanDisplayName: referenceId =>
+            {
+                var title = _planStore?.LoadByPlanOrTaskReference(referenceId)?.Title?.Trim();
+                return string.IsNullOrWhiteSpace(title) ? null : title;
+            });
 
         RegisterUiReplayActions();
         RegisterFixtureLoaders();
@@ -35462,11 +35468,15 @@ public partial class MainWindow : Window
         {
             var encodedPlanId = target["app://open-plan:".Length..];
             var planId = Uri.UnescapeDataString(encodedPlanId);
-            var plan = _planStore?.Load(planId);
+            var plan = _planStore?.LoadByPlanOrTaskReference(planId);
+            var missingReferenceKey = $"{_currentWorkspace?.FolderPath}\0{planId}";
             if (plan is not null)
+            {
+                _reportedMissingPlanReferences.Remove(missingReferenceKey);
                 OpenPlanFromStore(plan);
-            else
-                ShowSystemTranscriptEntry($"Plan {planId} is no longer available in this workspace.");
+            }
+            else if (_reportedMissingPlanReferences.Add(missingReferenceKey))
+                ShowSystemTranscriptEntry("That plan is no longer available in this workspace.");
             return;
         }
         if (target.StartsWith("app://open-loop-md:", StringComparison.OrdinalIgnoreCase))

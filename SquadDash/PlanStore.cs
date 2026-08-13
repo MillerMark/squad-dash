@@ -61,6 +61,43 @@ internal sealed class PlanStore
     }
 
     /// <summary>
+    /// Resolves a transcript reference that may name either a plan or one of its tasks.
+    /// Exact plan identity wins when both identities exist. Returns <see langword="null"/>
+    /// when the reference is absent or matches tasks in more than one plan.
+    /// </summary>
+    internal Plan? LoadByPlanOrTaskReference(string referenceId)
+    {
+        lock (_sync)
+        {
+            var exactPlan = LoadInternal(referenceId);
+            if (exactPlan is not null) return exactPlan;
+            if (!Directory.Exists(_plansFolder)) return null;
+
+            Plan? containingPlan = null;
+            foreach (var path in Directory.EnumerateFiles(_plansFolder, "*.json"))
+            {
+                var planId = Path.GetFileNameWithoutExtension(path);
+                var plan = LoadInternal(planId);
+                if (plan is null || !plan.Tasks.Any(task =>
+                        string.Equals(task.TaskId, referenceId, StringComparison.Ordinal)))
+                    continue;
+
+                if (containingPlan is not null)
+                {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"Plan/task reference '{referenceId}' is ambiguous across plans " +
+                        $"'{containingPlan.PlanId}' and '{plan.PlanId}'.");
+                    return null;
+                }
+
+                containingPlan = plan;
+            }
+
+            return containingPlan;
+        }
+    }
+
+    /// <summary>
     /// Loads all plans found in the plans folder.
     /// Silently skips any file that fails to parse or fails identity validation.
     /// </summary>

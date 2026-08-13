@@ -24,6 +24,7 @@ internal sealed class MarkdownDocumentRenderer {
     // ── Injected dependencies ──────────────────────────────────────────────
     private readonly Func<double>                                           _getFontSize;
     private readonly Func<string?>                                          _getWorkspaceGitHubUrl;
+    private readonly Func<string, string?>                                  _resolvePlanDisplayName;
     private readonly Action<string>                                         _onLinkClicked;
     private readonly Action<string, Exception>                              _onException;
     private readonly Func<TranscriptResponseEntry, TranscriptThreadState?>  _resolveContinuationThread;
@@ -56,9 +57,11 @@ internal sealed class MarkdownDocumentRenderer {
         RoutedEventHandler                                     onQuickReplyButtonClick,
         Action<TranscriptThreadState, string, bool>            appendResponseSegment,
         Action<TranscriptThreadState>                          scrollToEndIfAtBottom,
-        Func<TranscriptThreadState>                            getCoordinatorThread) {
+        Func<TranscriptThreadState>                            getCoordinatorThread,
+        Func<string, string?>?                                 resolvePlanDisplayName = null) {
         _getFontSize               = getFontSize;
         _getWorkspaceGitHubUrl     = getWorkspaceGitHubUrl;
+        _resolvePlanDisplayName    = resolvePlanDisplayName ?? (_ => null);
         _onLinkClicked             = onLinkClicked;
         _onException               = onException;
         _resolveContinuationThread = resolveContinuationThread;
@@ -616,9 +619,13 @@ internal sealed class MarkdownDocumentRenderer {
                 flush(buffer.ToString());
                 buffer.Clear();
                 var planUrl = $"app://open-plan:{Uri.EscapeDataString(planId)}";
-                var planLink = new Hyperlink(new Run(planId)) {
+                var resolvedPlanName = _resolvePlanDisplayName(planId)?.Trim();
+                var displayName = string.IsNullOrWhiteSpace(resolvedPlanName)
+                    ? planId
+                    : resolvedPlanName;
+                var planLink = new Hyperlink(new Run(displayName)) {
                     Tag = planUrl,
-                    ToolTip = $"Open plan visualizer: {planId}"
+                    ToolTip = $"Open plan: {displayName}"
                 };
                 planLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                 planLink.Click += (_, _) => _onLinkClicked(planUrl);
