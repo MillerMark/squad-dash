@@ -623,10 +623,10 @@ internal sealed class SquadSdkProcessTests {
     [Test]
     public async Task RunPromptAsync_Timeout_DoesNotAppendBenignNodeSQLiteWarning() {
         await using var sut = new SquadSdkProcess(
-            () => BuildPowerShellScriptStartInfo("""
-                [Console]::Error.WriteLine("(node:43416) ExperimentalWarning: SQLite is an experimental feature and might change at any time")
-                [Console]::Error.WriteLine('(Use `node --trace-warnings ...` to show where the warning was created)')
-                Start-Sleep -Seconds 60
+            BuildStartInfo("""
+                echo (node:43416) ExperimentalWarning: SQLite is an experimental feature and might change at any time 1>&2
+                echo (Use `node --trace-warnings ...` to show where the warning was created) 1>&2
+                ping.exe -n 61 127.0.0.1 >nul
                 """),
             new SquadSdkProcessOptions {
                 PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
@@ -646,9 +646,9 @@ internal sealed class SquadSdkProcessTests {
     [Test]
     public async Task RunPromptAsync_Timeout_AppendsActionableStderr() {
         await using var sut = new SquadSdkProcess(
-            () => BuildPowerShellScriptStartInfo("""
-                [Console]::Error.WriteLine("real provider failure")
-                Start-Sleep -Seconds 60
+            BuildStartInfo("""
+                echo real provider failure 1>&2
+                ping.exe -n 61 127.0.0.1 >nul
                 """),
             new SquadSdkProcessOptions {
                 PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
