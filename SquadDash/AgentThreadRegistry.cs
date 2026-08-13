@@ -268,8 +268,15 @@ internal sealed class AgentThreadRegistry {
             .OrderByDescending(GetThreadLastActivityAt)
             .ThenByDescending(thread => thread.StartedAt)
             .FirstOrDefault();
-        if (existingThread is not null)
+        if (existingThread is not null) {
+            // The thread title may be stale if the roster lookup failed at launch time and
+            // fell back to "Temporary Agent". Refresh from the card's known display name.
+            if (existingThread.Title == "Temporary Agent" && !string.IsNullOrWhiteSpace(agentCard.DisplayName)) {
+                existingThread.AgentDisplayName = agentCard.DisplayName;
+                existingThread.Title = agentCard.DisplayName;
+            }
             return existingThread;
+        }
 
         var placeholderKey = "placeholder-thread:" + agentCard.AccentStorageKey;
         if (_agentThreadsByKey.TryGetValue(placeholderKey, out var existingPlaceholder))
