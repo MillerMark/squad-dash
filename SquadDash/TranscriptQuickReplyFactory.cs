@@ -15,6 +15,21 @@ internal enum QuickReplyTone
 internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
 internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
 internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
+internal sealed class DecomposeRecoveryCardTag : ICopyable
+{
+    internal DecomposeRecoveryCardTag(
+        DecomposeRecoveryTag identity,
+        FrameworkElement actionsPanel)
+    {
+        Identity = identity;
+        ActionsPanel = actionsPanel;
+    }
+
+    internal DecomposeRecoveryTag Identity { get; }
+    internal FrameworkElement ActionsPanel { get; }
+    internal string CopyText { get; set; } = string.Empty;
+    public string GetCopyText() => CopyText;
+}
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
 internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
 
@@ -83,7 +98,7 @@ internal static class TranscriptQuickReplyFactory
         };
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
-        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or
+        container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or DecomposeRecoveryCardTag or
             PlanGateApprovalTag or PlanPreflightRecoveryTag or TranscriptApprovalCardTag or ContainerMarker;
 
     internal static void RemovePendingDecomposeApprovalContainers(
@@ -113,6 +128,7 @@ internal static class TranscriptQuickReplyFactory
         foreach (var block in blocks.ToArray())
         {
             if (block is BlockUIContainer { Tag: DecomposeRecoveryTag } or
+                BlockUIContainer { Tag: DecomposeRecoveryCardTag } or
                 Section { Tag: DecomposeRecoveryTag })
                 blocks.Remove(block);
             else if (block is Section section)
@@ -133,6 +149,12 @@ internal static class TranscriptQuickReplyFactory
                 string.Equals(tag.GroupId, groupId, StringComparison.Ordinal))
             {
                 blocks.Remove(block);
+                continue;
+            }
+            if (block is BlockUIContainer { Tag: DecomposeRecoveryCardTag cardTag } &&
+                string.Equals(cardTag.Identity.GroupId, groupId, StringComparison.Ordinal))
+            {
+                cardTag.ActionsPanel.Visibility = Visibility.Collapsed;
                 continue;
             }
 

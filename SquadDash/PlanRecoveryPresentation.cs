@@ -8,6 +8,11 @@ internal sealed record PlanRecoveryPresentation(
     string RetryLabel,
     bool RetryIsWarning);
 
+internal sealed record PlanHumanReviewCardPresentation(
+    string Title,
+    string? Question,
+    IReadOnlyList<string> AnalysisBullets);
+
 /// <summary>
 /// Converts durable recovery provenance into calm, state-specific user language. It never infers
 /// task ownership from commit timestamps, authors, or a coincidental position in branch history.
@@ -91,6 +96,67 @@ internal static class PlanRecoveryPresentationBuilder
         return string.IsNullOrWhiteSpace(summary)
             ? $"{label}: {verification.Status}."
             : $"{label}: {summary}.";
+    }
+
+    internal static PlanHumanReviewCardPresentation? BuildHumanReviewCard(
+        Plan plan,
+        string taskId)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var report = task?.VerificationHistory?.LastOrDefault(candidate =>
+            !string.Equals(candidate.Verdict, PlanTaskVerificationVerdict.Accepted, StringComparison.Ordinal));
+        if (task?.Status != PlanTaskStatus.HumanReviewRequired &&
+            report?.Verdict != PlanTaskVerificationVerdict.HumanReviewRequired)
+            return null;
+
+        var gate = plan.ApprovalGates
+            .Where(candidate => candidate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+                                candidate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))
+            .OrderByDescending(candidate => candidate.ProofRequirements?.Count ?? 0)
+            .FirstOrDefault();
+        var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        var bullets = new List<string>();
+        if (report is not null)
+        {
+            bullets.AddRange(SplitAnalysisSentences(report.Summary));
+            foreach (var missing in report.MissingOrOverstatedWork)
+                if (!string.IsNullOrWhiteSpace(missing)) bullets.Add(missing.Trim());
+            bullets.AddRange(SplitAnalysisSentences(report.TestAssessment));
+        }
+        if (bullets.Count == 0)
+            bullets.Add(SummarizeReason(plan.InterruptionData?.Reason));
+
+        var distinct = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var bullet in bullets)
+        {
+            var normalized = string.Join(' ', bullet.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)).TrimEnd('.', '!', '?');
+            if (normalized.Length == 0 || !seen.Add(normalized)) continue;
+            distinct.Add(bullet.Trim());
+        }
+
+        return new PlanHumanReviewCardPresentation(
+            "Human verification required",
+            question,
+            distinct);
+    }
+
+    internal static IReadOnlyList<string> SplitAnalysisSentences(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        var normalized = string.Join(' ', text.Split(
+            (char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return System.Text.RegularExpressions.Regex.Split(
+                normalized,
+                @"(?<=[.!?])\s+(?=[`*_]*[A-Z0-9])",
+                System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+            .Where(sentence => !string.IsNullOrWhiteSpace(sentence))
+            .Select(sentence => sentence.Trim())
+            .ToArray();
     }
 
     internal static PlanRecoveryPresentation Build(Plan plan, string taskId, bool hasPreservedWork)

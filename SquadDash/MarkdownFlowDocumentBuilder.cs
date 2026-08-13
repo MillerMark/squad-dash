@@ -29,6 +29,13 @@ internal static class MarkdownFlowDocumentBuilder {
         BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true);
 
     /// <summary>
+    /// Adds Inbox-style inline content to an existing WPF text surface. Explicit backtick spans
+    /// and camelCase/PascalCase identifiers receive the standard code-reference treatment.
+    /// </summary>
+    internal static void AddInboxInlineText(InlineCollection inlines, string text) =>
+        AddInlineText(inlines, text, styleCodeIdentifiers: true);
+
+    /// <summary>
     /// Builds a <see cref="FlowDocument"/> from <paramref name="markdown"/> and also returns,
     /// for each block in document order, the 0-based (StartLine, EndLine) range in the
     /// normalised input that produced it.  Use this to map rendered blocks back to source.

@@ -162,6 +162,24 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
     }
 
     [Test]
+    public void AddInboxInlineText_StylesIdentifiersOnTranscriptCards() {
+        var paragraph = new Paragraph();
+
+        MarkdownFlowDocumentBuilder.AddInboxInlineText(
+            paragraph.Inlines,
+            "Inspect ResponseTextBuilder in `MainWindow.xaml.cs`.");
+
+        var runs = paragraph.Inlines.OfType<Run>().ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(runs.Single(run => run.Text == "ResponseTextBuilder").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(runs.Single(run => run.Text == "MainWindow.xaml.cs").FontFamily.Source,
+                Does.Contain("Consolas"));
+        });
+    }
+
+    [Test]
     public void Build_DefaultRenderer_DoesNotAutoStyleIdentifiers() {
         var doc = Build("PlanViewerWindow.cs remains ordinary outside Inbox.");
         var runs = doc.Blocks.OfType<Paragraph>()

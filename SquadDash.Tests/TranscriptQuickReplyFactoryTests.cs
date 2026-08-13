@@ -163,4 +163,34 @@ internal sealed class TranscriptQuickReplyFactoryTests
             Assert.That(document.Blocks.Contains(planBActions), Is.True);
         });
     }
+
+    [Test]
+    public void RemoveDecomposeRecoveryActions_HidesButtonsButPreservesRecoveryCard()
+    {
+        var document = new FlowDocument();
+        var section = new Section
+        {
+            Tag = new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+        };
+        var actions = new WrapPanel();
+        actions.Children.Add(new Button { Content = "Assess & Continue" });
+        var tag = new DecomposeRecoveryCardTag(
+            new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+            actions)
+        {
+            CopyText = "Human verification required",
+        };
+        var card = TranscriptQuickReplyFactory.CreateContainer(new Border { Child = actions }, tag);
+        section.Blocks.Add(card);
+        document.Blocks.Add(section);
+
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(document.Blocks, "PLAN-A");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(section.Blocks.Contains(card), Is.True);
+            Assert.That(actions.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(tag.GetCopyText(), Is.EqualTo("Human verification required"));
+        });
+    }
 }

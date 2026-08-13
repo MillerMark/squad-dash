@@ -13919,24 +13919,88 @@ public partial class MainWindow : Window
         var recoveryTag = new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId);
         var recoverySurface = new Section { Tag = recoveryTag };
         CoordinatorThread.Document.Blocks.Add(recoverySurface);
-        var blocks = recoverySurface.Blocks;
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
         var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
-        if (PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
+        var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var humanReview = durablePlan is null
+            ? null
+            : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var cardDocument = new FlowDocument
         {
-            var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
-                durablePlan?.InterruptionData?.Reason);
-            var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-            var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
-            var reasonRun = new Run(compactReason) { FontWeight = FontWeights.SemiBold };
-            reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            reasonParagraph.Inlines.Add(reasonLabel);
-            reasonParagraph.Inlines.Add(reasonRun);
-            blocks.Add(reasonParagraph);
+            PagePadding = new Thickness(0),
+            ColumnWidth = double.PositiveInfinity,
+            Background = Brushes.Transparent,
+            FontFamily = new FontFamily("Segoe UI, Segoe UI Emoji"),
+            FontSize = _transcriptFontSize,
+        };
+        cardDocument.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        var cardViewer = new FlowDocumentScrollViewer
+        {
+            Document = cardDocument,
+            IsToolBarVisible = false,
+            IsSelectionEnabled = true,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+        };
+        var card = new Border
+        {
+            Child = cardViewer,
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(14, 10, 14, 10),
+            MaxWidth = _transcriptFontSize * 54,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4, 0, 4),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 6,
+                ShadowDepth = 1,
+                Opacity = 0.2,
+                Color = Colors.Black,
+            },
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+        var cardTag = new DecomposeRecoveryCardTag(recoveryTag, panel);
+        recoverySurface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(card, cardTag));
+        var blocks = cardDocument.Blocks;
+
+        var cardTitle = humanReview?.Title ?? "Plan recovery required";
+        var titleParagraph = CreateTranscriptParagraph(bottomMargin: 7);
+        titleParagraph.FontSize = _transcriptFontSize + 2;
+        var titleRun = new Run(cardTitle) { FontWeight = FontWeights.SemiBold };
+        titleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        titleParagraph.Inlines.Add(titleRun);
+        blocks.Add(titleParagraph);
+
+        var copyParts = new List<string> { cardTitle };
+        if (!string.IsNullOrWhiteSpace(humanReview?.Question))
+        {
+            var questionLabel = CreateTranscriptParagraph(bottomMargin: 2);
+            var questionLabelRun = new Run("What to verify");
+            questionLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            questionLabel.Inlines.Add(questionLabelRun);
+            blocks.Add(questionLabel);
+
+            var questionParagraph = CreateTranscriptParagraph(bottomMargin: 8);
+            questionParagraph.FontSize = _transcriptFontSize + 1;
+            questionParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                questionParagraph.Inlines,
+                humanReview!.Question!);
+            blocks.Add(questionParagraph);
+            copyParts.Add("What to verify: " + humanReview.Question);
         }
 
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-        planLinkParagraph.Inlines.Add(new Run("Plan: "));
+        var planLabelRun = new Run("Plan: ");
+        planLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        planLinkParagraph.Inlines.Add(planLabelRun);
         var planLink = new Hyperlink(new Run(plan.Group.GroupTitle))
         {
             Cursor = Cursors.Hand,
@@ -13947,13 +14011,58 @@ public partial class MainWindow : Window
         planLinkParagraph.Inlines.Add(planLink);
         blocks.Add(planLinkParagraph);
 
-        var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
-            string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
-        var taskParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-        taskParagraph.Inlines.Add(new Run("Attempted Task: \""));
-        taskParagraph.Inlines.Add(new Run(taskTitle));
-        taskParagraph.Inlines.Add(new Run("\""));
+        var taskDefinition = plan.Group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal));
+        var taskTitle = taskDefinition?.Title ?? taskId;
+        var taskIndex = plan.Group.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            taskTitle);
+        var taskParagraph = CreateTranscriptParagraph(bottomMargin: 7);
+        var stepRun = new Run(stepLabel + ": ");
+        stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        taskParagraph.Inlines.Add(stepRun);
+        MarkdownFlowDocumentBuilder.AddInboxInlineText(taskParagraph.Inlines, taskTitle);
         blocks.Add(taskParagraph);
+        copyParts.Add($"Plan: {plan.Group.GroupTitle}");
+        copyParts.Add($"{stepLabel}: {taskTitle}");
+
+        if (humanReview is not null)
+        {
+            var analysisLabel = CreateTranscriptParagraph(bottomMargin: 2);
+            var analysisLabelRun = new Run("AI analysis");
+            analysisLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            analysisLabel.Inlines.Add(analysisLabelRun);
+            blocks.Add(analysisLabel);
+
+            var analysisList = new System.Windows.Documents.List
+            {
+                MarkerStyle = TextMarkerStyle.Disc,
+                Margin = new Thickness(18, 0, 0, 7),
+                Padding = new Thickness(0),
+            };
+            foreach (var bullet in humanReview.AnalysisBullets)
+            {
+                var bulletParagraph = CreateTranscriptParagraph(bottomMargin: 2);
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(bulletParagraph.Inlines, bullet);
+                analysisList.ListItems.Add(new ListItem(bulletParagraph));
+                copyParts.Add("• " + bullet);
+            }
+            blocks.Add(analysisList);
+        }
+        else if (PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
+        {
+            var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
+                durablePlan?.InterruptionData?.Reason);
+            var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
+            reasonParagraph.Inlines.Add(reasonLabel);
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(reasonParagraph.Inlines, compactReason);
+            blocks.Add(reasonParagraph);
+            copyParts.Add("Why it stopped: " + compactReason);
+        }
+        cardTag.CopyText = string.Join(Environment.NewLine, copyParts);
 
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
                                _decomposeContinuationPaths.Count > 0;
@@ -13965,17 +14074,16 @@ public partial class MainWindow : Window
             ? null
             : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
 
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         if (assessmentEvidence is not null &&
             string.Equals(durablePlan?.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
         {
-            var durableTask = durablePlan!.Tasks.FirstOrDefault(task =>
+            var assessmentTask = durablePlan!.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
-            var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
-                durableTask?.DisplayStepLabel,
-                durableTask?.Title ?? taskTitle);
+            var assessmentStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                assessmentTask?.DisplayStepLabel,
+                assessmentTask?.Title ?? taskTitle);
             var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-            assessmentParagraph.Inlines.Add(new Run($"{stepLabel} appears implemented "));
+            assessmentParagraph.Inlines.Add(new Run($"{assessmentStepLabel} appears implemented "));
             var evidenceLink = new Hyperlink(new Run("(evidence)"))
             {
                 Cursor = Cursors.Hand,
@@ -13984,22 +14092,23 @@ public partial class MainWindow : Window
             evidenceLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
             evidenceLink.Click += (_, _) => _ = OpenEvidenceViewerAsync(assessmentEvidence.Commits);
             assessmentParagraph.Inlines.Add(evidenceLink);
-            assessmentParagraph.Inlines.Add(new Run(
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                assessmentParagraph.Inlines,
                 ", but its commits could not be attributed confidently enough for automatic acceptance. " +
-                "SquadDash cannot confirm that the existing work completes this step. No repository changes were made."));
+                "SquadDash cannot confirm that the existing work completes this step. No repository changes were made.");
             blocks.Add(assessmentParagraph);
 
             AddAsyncAction(
-                $"Accept {stepLabel} as Complete",
-                $"Review and explicitly accept the existing evidence for {stepLabel}, mark only this step complete, and continue the plan.",
+                $"Accept {assessmentStepLabel} as Complete",
+                $"Review and explicitly accept the existing evidence for {assessmentStepLabel}, mark only this step complete, and continue the plan.",
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
                     await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
                 });
             AddAsyncAction(
-                $"Continue Working on {stepLabel}",
-                $"Keep {stepLabel} incomplete and continue from the existing repository state.",
+                $"Continue Working on {assessmentStepLabel}",
+                $"Keep {assessmentStepLabel} incomplete and continue from the existing repository state.",
                 async () => await RetryDecomposeTaskAsync(plan, taskId));
             AddAction("Replan Remaining Work", "Replace this blocked step with smaller, dependency-aware steps.",
                 () => QueueDecomposeReplan(plan, taskId));
@@ -14027,7 +14136,7 @@ public partial class MainWindow : Window
 
         if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted)
         {
-            if (presentation.CommitEvidence is { } commitEvidence)
+            if (presentation!.CommitEvidence is { } commitEvidence)
             {
                 var commitParagraph = CreateTranscriptParagraph(bottomMargin: 3);
                 commitParagraph.Margin = new Thickness(12, 0, 0, 3);
@@ -14052,16 +14161,18 @@ public partial class MainWindow : Window
                 {
                     var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 3);
                     verificationParagraph.Margin = new Thickness(12, 0, 0, 3);
-                    var verificationRun = new Run(compactTests);
-                    verificationRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                    verificationParagraph.Inlines.Add(verificationRun);
+                    verificationParagraph.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                        verificationParagraph.Inlines,
+                        compactTests);
                     blocks.Add(verificationParagraph);
                 }
             }
 
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
-            var recommendationRun = new Run(presentation.Recommendation) { FontWeight = FontWeights.SemiBold };
-            recommendation.Inlines.Add(recommendationRun);
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                recommendation.Inlines,
+                presentation.Recommendation);
             blocks.Add(recommendation);
 
         }
