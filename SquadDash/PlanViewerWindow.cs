@@ -2000,7 +2000,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task entry"));
                 addBeforeItem.Click += (_, _) =>
                 {
-                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
+                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow!,
                         "Enter a message for this approval gate:",
                         "Require Approval Before",
                         $"Review before: {capturedTask.Title ?? capturedTask.Id}");
@@ -2019,7 +2019,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task exit"));
                 addAfterItem.Click += (_, _) =>
                 {
-                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow,
+                    var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current.MainWindow!,
                         "Enter a message for this approval gate:",
                         "Require Approval After",
                         $"Review after: {capturedTask.Title ?? capturedTask.Id}");

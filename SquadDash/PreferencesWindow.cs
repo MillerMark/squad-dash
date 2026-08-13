@@ -298,7 +298,7 @@ internal sealed class PreferencesWindow : Window {
             }
             // SetEnvironmentVariable(EnvironmentVariableTarget.User) broadcasts WM_SETTINGCHANGE to all
             // top-level windows synchronously, which can block the UI thread for 10+ seconds.
-            var apiKey = _apiKeyRevealBox.IsVisible ? _apiKeyRevealBox.Text : _apiKeyPasswordBox.Password;
+            var apiKey = _apiKeyRevealBox!.IsVisible ? _apiKeyRevealBox!.Text : _apiKeyPasswordBox!.Password;
             try {
                 await Task.Run(() =>
                     Environment.SetEnvironmentVariable("SQUAD_SPEECH_KEY", apiKey, EnvironmentVariableTarget.User));

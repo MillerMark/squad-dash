@@ -1968,25 +1968,6 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         (FrameworkElement? element, string? name) lastResult = (null, null);
         Window? lastHitWindow = null;
 
-        // Find the topmost named element under the screen-space cursor, searching all windows.
-        (FrameworkElement? fe, string? name, Window? win) HitTestAllWindows(Point overlayPos)
-        {
-            var screenPos = overlay.PointToScreen(overlayPos);
-            foreach (var win in allWindows)
-            {
-                if (!win.IsVisible) continue;
-                var winPos = win.PointFromScreen(screenPos);
-                var hit = VisualTreeHelper.HitTest(win, winPos);
-                if (hit?.VisualHit is DependencyObject hitObj)
-                {
-                    var (fe, name) = FindFirstUniqueNamedAncestor(hitObj, win);
-                    if (fe != null && name != null)
-                        return (fe, name, win);
-                }
-            }
-            return (null, null, null);
-        }
-
         overlay.MouseMove += (_, e) =>
         {
             var overlayPos = e.GetPosition(overlay);
@@ -2045,8 +2026,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         {
             var overlayPos = e.GetPosition(overlay);
             // Convert to screen coords NOW, before Close() tears down the window's HwndSource.
-            // HitTestAllWindows calls overlay.PointToScreen() — if overlay is already closed
-            // that call throws InvalidOperationException.
+            // overlay.PointToScreen() throws InvalidOperationException if called after the window is closed.
             var screenPosAtClick = overlay.PointToScreen(overlayPos);
             ClearHighlight(canvas);
             overlay.Close();

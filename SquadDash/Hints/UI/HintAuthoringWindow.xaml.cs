@@ -16,7 +16,9 @@ internal partial class HintAuthoringWindow : Window
     private HintDefinition? _editingHint;
     private string _workspaceRoot = string.Empty;
     private FrmUltimateCallout? _previewCallout;
+#pragma warning disable CS0414 // field assigned but value never read; reserved for future use
     private bool _previewCalloutClosedByUser;
+#pragma warning restore CS0414
     private FrameworkElement? _targetElement;
 
     public HintAuthoringWindow()

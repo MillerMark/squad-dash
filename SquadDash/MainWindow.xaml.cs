@@ -11002,7 +11002,7 @@ public partial class MainWindow : Window
                     File.Exists(teamPath) ? File.ReadAllText(teamPath) : string.Empty);
                 attempt = PlanExecutionAttemptState.Create(
                     _activeDecomposeGroupId,
-                    currentTaskId,
+                    currentTaskId!,
                     _CodeHealthGroupRunner.CurrentRevision,
                     _currentWorkspace.FolderPath,
                     _currentWorkspace.SquadFolderPath,
@@ -11022,7 +11022,7 @@ public partial class MainWindow : Window
             {
                 attempt = PlanExecutionAttemptState.CreateGeneric(
                     _activeDecomposeGroupId,
-                    currentTaskId,
+                    currentTaskId!,
                     _CodeHealthGroupRunner.CurrentRevision,
                     _currentWorkspace.FolderPath);
             }
@@ -11063,8 +11063,8 @@ public partial class MainWindow : Window
               "Use at most one write-capable primary worker for this task; do not run concurrent writers in the active worktree."
             : DecomposePlanningInstructions.BuildPlanStepRoutingContext(
                 _currentWorkspace.SquadFolderPath,
-                currentTaskId,
-                _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentTaskId,
+                currentTaskId!,
+                _CodeHealthGroupRunner.GetCurrentStepTitle() ?? currentTaskId!,
                 _CodeHealthGroupRunner.GetCurrentStepDescription() ?? string.Empty,
                 assignments,
                 _CodeHealthGroupRunner.CurrentRevision,
@@ -11165,7 +11165,7 @@ public partial class MainWindow : Window
         {
             AppendPlanExecutionJournal(
                 durablePlan.PlanId,
-                currentTaskId,
+                currentTaskId!,
                 string.IsNullOrWhiteSpace(verificationReworkContext)
                     ? "task-context-sent"
                     : "bounded-rework-context-sent",
@@ -16037,13 +16037,13 @@ public partial class MainWindow : Window
 
         if (viableOptions.Count == 0)
         {
-            Dispatcher.BeginInvoke(() =>
+            _ = Dispatcher.BeginInvoke(() =>
                 ShowSystemTranscriptEntry($"AI analysis complete for {plan.Group.GroupId}: no viable options found. " +
                     "Use the Replan or Retry buttons to proceed manually."));
             return;
         }
 
-        Dispatcher.BeginInvoke(() => AppendRecoveryOptionsPanel(response, viableOptions, plan, context.TaskId));
+        _ = Dispatcher.BeginInvoke(() => AppendRecoveryOptionsPanel(response, viableOptions, plan, context.TaskId));
     }
 
     private void AppendRecoveryOptionsPanel(
@@ -18801,7 +18801,7 @@ public partial class MainWindow : Window
     /// Walks the visual tree upward from <paramref name="element"/> (inclusive) and
     /// returns the first ancestor of type <typeparamref name="T"/>, or <c>null</c>.
     /// </summary>
-    private static T? FindVisualAncestorOrSelf<T>(DependencyObject element)
+    private static T? FindVisualAncestorOrSelf<T>(DependencyObject? element)
         where T : DependencyObject
     {
         var current = element;
@@ -23667,6 +23667,7 @@ public partial class MainWindow : Window
             }
 
             // Install process reported failure and files are still missing
+            if (_currentWorkspace is null) return;
             var failureMessage = result.Success
                 ? "Squad setup completed, but the local Squad command is still unavailable."
                 : result.Message;
@@ -29298,7 +29299,7 @@ public partial class MainWindow : Window
                 workspaceFolderPath: _workspacePaths.ApplicationRoot,
                 workspacePaths:      _workspacePaths,
                 getFeatureGroups:    () => (_featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList()).AsReadOnly(),
-                workspaceStateDirectory: _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath),
+                workspaceStateDirectory: _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace!.FolderPath),
                 onCategoriesAssigned: assignments => Dispatcher.Invoke(() => ApplyCommitCategories(assignments)),
                 onCategoriesMerged:   merges      => Dispatcher.Invoke(() => ApplyFeatureCategoryMerges(merges)),
                 settingsStore:        _settingsStore);
@@ -48915,7 +48916,7 @@ public partial class MainWindow : Window
                 isPromptRunning: () => _isPromptRunning,
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
                 addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); },
-                getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace.SquadFolderPath, "plans", plan.PlanId + ".json"),
+                getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace!.SquadFolderPath, "plans", plan.PlanId + ".json"),
                 revisePlan: BeginPlanRevision);
 
             if (PlansPanelBorder is { } ppb)

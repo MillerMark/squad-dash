@@ -17,10 +17,13 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? NextClicked;
     public event EventHandler? NextTourClicked;
     public event EventHandler? MoreToursClicked;
+    // Reserved API surface for future tour-authoring actions; not yet wired to any controller.
+#pragma warning disable CS0067
     public event EventHandler? EditClicked;
     public event EventHandler? NewStepAfterClicked;
     public event EventHandler? NewStepBeforeClicked;
     public event EventHandler? DeleteClicked;
+#pragma warning restore CS0067
 
     private TextBlock? _nextLabel;
     private StackPanel? _nextButtonInner;
