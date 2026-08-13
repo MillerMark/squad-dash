@@ -247,6 +247,7 @@ internal static class TasksPanelParser {
                 string? agentRoutingMode = null;
                 string? genericAgentReason = null;
                 string? amendmentGateId = null;
+                string? executionMode = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -291,6 +292,12 @@ internal static class TasksPanelParser {
                     }
                     else if (metadata.StartsWith("genericAgentReason:", StringComparison.OrdinalIgnoreCase))
                         genericAgentReason = metadata["genericAgentReason:".Length..].Trim();
+                    else if (metadata.StartsWith("executionMode:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        executionMode = metadata["executionMode:".Length..].Trim();
+                        if (executionMode is not (PlanTaskExecutionMode.Implementation or PlanTaskExecutionMode.Verification))
+                            errors.Add($"Task {taskId} has invalid executionMode '{executionMode}'.");
+                    }
                     else if (metadata.StartsWith("amendmentGateId:", StringComparison.OrdinalIgnoreCase))
                         amendmentGateId = metadata["amendmentGateId:".Length..].Trim();
                     metadataEnd++;
@@ -341,7 +348,8 @@ internal static class TasksPanelParser {
                 tasks.Add(new DecomposedSubTask(
                     taskId, description, dependsOn, priority, taskTitle, parentTaskId,
                     agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason,
-                    AmendmentGateId: amendmentGateId));
+                    AmendmentGateId: amendmentGateId,
+                    ExecutionMode: executionMode));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

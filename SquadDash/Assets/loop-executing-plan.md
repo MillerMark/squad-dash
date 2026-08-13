@@ -48,8 +48,10 @@ host-assigned task. SquadDash owns every task status marker: do not edit, stage,
 
 For the assigned task:
 
-1. Implement the step fully and correctly.
-2. Commit only source changes to the branch specified in the group header. Never stage `tasks.md`.
+1. Complete the step fully and correctly.
+2. For implementation steps, commit only source changes to the branch specified in the group header.
+   For a host-marked verification-only step, do not create a commit; report the current evaluated HEAD.
+   Never stage `tasks.md`.
 3. Build must be green when done.
 4. Do NOT emit QUICK_REPLIES_JSON.
 5. Do NOT emit HOST_COMMAND_JSON or change the task marker.

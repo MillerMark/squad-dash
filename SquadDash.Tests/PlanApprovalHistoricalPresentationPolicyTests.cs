@@ -94,4 +94,28 @@ internal sealed class PlanApprovalHistoricalPresentationPolicyTests
 
         Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
     }
+
+    [Test]
+    public void CollectivelyApprovedEquivalentBoundary_IsHiddenBeforeDependentStarts()
+    {
+        var state = PlanApprovalHistoricalPresentationPolicy.Resolve(
+            executionLocked: false,
+            controllingGateStatus: null,
+            isPrimaryAnchor: false,
+            hasResolvedEquivalent: true);
+
+        Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.Hidden));
+    }
+
+    [Test]
+    public void CollectivelyUnresolvedEquivalentBoundary_IsReadOnlyBeforeDependentStarts()
+    {
+        var state = PlanApprovalHistoricalPresentationPolicy.Resolve(
+            executionLocked: false,
+            controllingGateStatus: null,
+            isPrimaryAnchor: false,
+            hasUnresolvedEquivalent: true);
+
+        Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
+    }
 }

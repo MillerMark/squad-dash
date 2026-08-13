@@ -1563,6 +1563,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 durablePlan is not null &&
                 PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
                     joinAfterIds, joinBeforeIds, durablePlan.ApprovalGates);
+            var collectivelyUnresolvedJoin = collectivelyCoveredJoin && durablePlan is not null &&
+                PlanGateVisualizationPolicy.BoundaryHasUnresolvedIncomingGate(
+                    joinAfterIds, joinBeforeIds, durablePlan.ApprovalGates);
             var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
                                coveringJoinGate is not null || collectivelyCoveredJoin;
             var joinAnchor = AllAnchor(joinBeforeIds);
@@ -1588,8 +1591,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 joinExecutionLocked,
                 (existingJoinGate ?? coveringJoinGate)?.Status,
                 IsPrimary(existingJoinGate ?? coveringJoinGate, joinAnchor),
-                hasUnresolvedEquivalent: collectivelyCoveredJoin && durablePlan is not null &&
-                    durablePlan.ApprovalGates.Any(IsUnresolvedApproval));
+                hasUnresolvedEquivalent: collectivelyUnresolvedJoin,
+                hasResolvedEquivalent: collectivelyCoveredJoin && !collectivelyUnresolvedJoin);
             var joinApproved = joinVisual == PlanApprovalControlVisualState.ApprovedCheck;
             var joinAwaiting = joinVisual == PlanApprovalControlVisualState.AwaitingQuestion;
             if (joinVisual != PlanApprovalControlVisualState.Hidden)
@@ -2275,7 +2278,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         entryExecutionLocked,
                         controllingBeforeGate?.Status,
                         IsPrimary(controllingBeforeGate, beforeAnchor),
-                        collectivelyUnresolvedEntry);
+                        hasUnresolvedEquivalent: collectivelyUnresolvedEntry,
+                        hasResolvedEquivalent: collectivelyCoveredEntry && !collectivelyUnresolvedEntry);
                     var beforeApproved = beforeVisual == PlanApprovalControlVisualState.ApprovedCheck;
                     var beforeAwaiting = beforeVisual == PlanApprovalControlVisualState.AwaitingQuestion;
                     if (beforeVisual != PlanApprovalControlVisualState.Hidden)
@@ -2384,7 +2388,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         exitExecutionLocked,
                         controllingAfterGate?.Status,
                         IsPrimary(controllingAfterGate, afterAnchor),
-                        collectivelyUnresolvedExit);
+                        hasUnresolvedEquivalent: collectivelyUnresolvedExit,
+                        hasResolvedEquivalent: collectivelyCoveredByAllJoins && !collectivelyUnresolvedExit);
                     var afterApproved = afterVisual == PlanApprovalControlVisualState.ApprovedCheck;
                     var afterAwaiting = afterVisual == PlanApprovalControlVisualState.AwaitingQuestion;
                     if (afterVisual != PlanApprovalControlVisualState.Hidden)

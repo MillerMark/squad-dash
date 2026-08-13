@@ -30,7 +30,8 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
 `summary`, and 2–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
-`delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, and an explicit `agentRoutingMode`.
+`delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, an explicit
+`agentRoutingMode`, and an explicit `executionMode` (`implementation` or `verification`).
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -67,6 +68,12 @@ acceptance criteria, not a generic documentation or test reminder. It must:
   automated check from a live UI, restart, or human observation. This makes the final completion
   audit mandatory for every newly generated plan while legacy stored plans remain readable.
 
+Use `executionMode: "verification"` when this step only runs checks or records observations and is
+not expected to change source files. Verification-only steps report the current evaluated HEAD but
+do not create a commit and do not receive a redundant independent Verity Cross review. This is
+commonly the final step, but use it anywhere the approved task is genuinely non-mutating. If the
+step may repair failures or otherwise change the repository, use `executionMode: "implementation"`.
+
 Bad final steps: "Update documentation", "Run the test suite", "Clean up".
 Good final step: "Verify that clicking 'Export' in the Reports panel produces a downloadable CSV
 containing all filtered rows, by running `dotnet test --filter ReportExportIntegration` and
@@ -100,6 +107,9 @@ fence around the object is accepted but not required.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
+- `tasks[].executionMode`: required for new plans; either `"implementation"` for source-producing
+  work or `"verification"` for non-mutating proof work. Verification tasks must declare at least one
+  `proofRequirements` entry and must not create a commit merely to satisfy plan bookkeeping.
 - `tasks[].agentRoutingMode`: required; either `"assigned"` or `"generic"`. Never omit this to obtain a fallback.
 - `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments remain unavailable until SquadDash can isolate writers in separate worktrees.
 - `tasks[].genericAgentReason`: required only with `agentRoutingMode: "generic"`; explain why no roster specialist is appropriate.
@@ -183,6 +193,7 @@ TASKS_JSON:
       "description": "Introduce ISearchIndex and InMemorySearchIndex so that document indexing has a testable seam. Observable outcome: unit tests pass proving the in-memory implementation indexes and queries documents. Production consumer: task 002 will call ISearchIndex from the existing indexing path.",
       "dependsOn": [],
       "priority": "high",
+      "executionMode": "implementation",
       "outputs": [{ "outputId": "search-index-contract", "description": "The reusable search index abstraction and in-memory implementation." }],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers the new search abstraction."
@@ -193,6 +204,7 @@ TASKS_JSON:
       "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved. Observable outcome: the integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly. Production consumer: SearchPanel.Query (wired in task 003) will read from ISearchIndex.",
       "dependsOn": ["SEARCH-20260725-001"],
       "priority": "high",
+      "executionMode": "implementation",
       "inputs": ["search-index-contract"],
       "outputs": [{ "outputId": "indexed-document-path", "description": "Document indexing routed through ISearchIndex." }],
       "agentRoutingMode": "generic",
@@ -204,6 +216,7 @@ TASKS_JSON:
       "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and run the full test suite. Observable outcome: typing a query in the search panel returns matching documents from the ISearchIndex-backed path. End-to-end proof: run `dotnet test --filter SearchIntegration` and confirm the test exercises SearchPanel → ISearchIndex → InMemorySearchIndex → document results.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
+      "executionMode": "verification",
       "inputs": ["search-index-contract", "indexed-document-path"],
       "proofRequirements": [
         {

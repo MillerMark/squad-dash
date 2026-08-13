@@ -11,7 +11,8 @@ internal static class PlanApprovalHistoricalPresentationPolicy
         bool executionLocked,
         string? controllingGateStatus,
         bool isPrimaryAnchor,
-        bool hasUnresolvedEquivalent = false)
+        bool hasUnresolvedEquivalent = false,
+        bool hasResolvedEquivalent = false)
     {
         // Resolution is authoritative even when the individual task boundary has not yet
         // crossed its execution frontier. A single approved gate can be projected at several
@@ -33,11 +34,19 @@ internal static class PlanApprovalHistoricalPresentationPolicy
                 ? PlanApprovalControlVisualState.AwaitingQuestion
                 : PlanApprovalControlVisualState.LockedOctagon;
 
+        // A convergence boundary can be represented by several independent incoming gates.
+        // Keep a non-primary projection visible only while one of those gates is unresolved;
+        // once all of them are resolved, their primary task checks are the complete history.
+        if (hasUnresolvedEquivalent)
+            return PlanApprovalControlVisualState.LockedOctagon;
+
+        if (hasResolvedEquivalent)
+            return PlanApprovalControlVisualState.Hidden;
+
         if (!executionLocked)
             return PlanApprovalControlVisualState.EditableOctagon;
 
-        if (controllingGateStatus == PlanGateStatus.Pending ||
-            hasUnresolvedEquivalent)
+        if (controllingGateStatus == PlanGateStatus.Pending)
             return PlanApprovalControlVisualState.LockedOctagon;
 
         return PlanApprovalControlVisualState.Hidden;

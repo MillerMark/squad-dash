@@ -49,7 +49,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.Description,
                         requirement.Question)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
-                DisplayStepLabel: (index + 1).ToString()))
+                DisplayStepLabel: (index + 1).ToString(),
+                ExecutionMode: t.ExecutionMode))
             .ToArray();
 
         var totalCount = tasks.Count(t => t.Status != PlanTaskStatus.Superseded);
@@ -147,7 +148,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.ProofType,
                         requirement.Description,
                         requirement.Question)).ToArray(),
-                AmendmentGateId: t.AmendmentGateId))
+                AmendmentGateId: t.AmendmentGateId,
+                ExecutionMode: t.ExecutionMode))
             .ToArray();
 
         var gates = plan.ApprovalGates is { Count: > 0 }

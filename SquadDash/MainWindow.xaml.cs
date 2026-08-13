@@ -8959,6 +8959,8 @@ public partial class MainWindow : Window
             try
             {
                 await StartOrResumeDurablePlanAsync(updated);
+                ResolveRecoveryTranscript(
+                    "↩ Recovery resumed. The remaining plan was revised and execution continued.");
             }
             catch (PlanPreflightBlockedException blocked)
             {
@@ -9859,6 +9861,16 @@ public partial class MainWindow : Window
             preservedPaths.Count > 0 ? taskId : null,
             preservedPaths,
             assessedRecoveryContinuation);
+        var durableTask = _planStore?.Load(plan.Group.GroupId)?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            durableTask?.DisplayStepLabel,
+            durableTask?.Title ?? taskId);
+        ResolveRecoveryTranscript(PlanTaskExecutionPolicy.IsVerificationOnly(durableTask)
+            ? $"↩ Recovery resumed. Running {stepLabel} as a verification-only step against the current branch."
+            : assessedRecoveryContinuation is not null
+                ? $"↩ Recovery resumed. Continuing only the remaining work for {stepLabel}."
+                : $"↩ Recovery resumed. Restarting {stepLabel} from the preserved repository state.");
         return true;
     }
 
@@ -11075,12 +11087,25 @@ public partial class MainWindow : Window
                 "and return the normal DECOMPOSE_STEP_RESULT_JSON payload. Do not repeat completed work and do not commit tasks.md.";
         }
 
+        var effectiveProofRequirements = currentTask.ProofRequirements;
+        if (effectiveProofRequirements is not { Count: > 0 } && durablePlan is not null)
+        {
+            effectiveProofRequirements = durablePlan.Tasks.FirstOrDefault(task =>
+                    string.Equals(task.TaskId, currentTaskId, StringComparison.Ordinal))
+                ?.ProofRequirements
+                ?.Select(requirement => new DecomposedTaskProofRequirement(
+                    requirement.RequirementId,
+                    requirement.ProofType,
+                    requirement.Description,
+                    requirement.Question))
+                .ToArray();
+        }
         string? proofContext = null;
-        if (currentTask.ProofRequirements is { Count: > 0 })
+        if (effectiveProofRequirements is { Count: > 0 })
         {
             var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(
-                currentTask.ProofRequirements);
-            var hostRequirements = currentTask.ProofRequirements
+                effectiveProofRequirements);
+            var hostRequirements = effectiveProofRequirements
                 .Where(requirement =>
                     PlanProofCapabilityPolicy.Classify(requirement.ProofType) == PlanProofExecutorKind.Host)
                 .ToArray();
@@ -11123,8 +11148,16 @@ public partial class MainWindow : Window
                 execution.VerificationReworkInstructions;
         }
 
+        var verificationOnlyContext = PlanTaskExecutionPolicy.IsVerificationOnly(currentTask)
+            ? "## Verification-Only Execution (host-owned)\n\n" +
+              "This approved task verifies existing work and must not change source files or create a bookkeeping commit. " +
+              "Run the declared checks against the current worktree, return their exact proof evidence, and set `commit` " +
+              "to the current evaluated HEAD. SquadDash will accept the proof directly without a second independent review."
+            : null;
+
         var contexts = new[]
-            { planExecutionContext, continuationContext, assessedRecoveryContext, verificationReworkContext, routingContext, proofContext }
+            { planExecutionContext, continuationContext, assessedRecoveryContext, verificationReworkContext,
+              verificationOnlyContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         var taskContext = string.Join("\n\n", contexts);
         if (durablePlan is not null)
@@ -11310,6 +11343,7 @@ public partial class MainWindow : Window
                 expectedAssignments = persistedTask?.AgentAssignments;
             }
         }
+        var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(persistedTask);
 
         var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
         if (routingPolicy != PlanAgentRoutingPolicy.Off &&
@@ -11371,23 +11405,23 @@ public partial class MainWindow : Window
             (executionAttempt is null ||
              string.Equals(result.ExecutionAttemptId, executionAttempt.AttemptId, StringComparison.Ordinal)))
         {
-            var commitValidationError = await ValidateDecomposeStepCommitAsync(result);
-            if (commitValidationError is null && !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
+            var commitValidation = await ValidateDecomposeStepCommitAsync(result, verificationOnly);
+            if (commitValidation.Error is null &&
+                !string.IsNullOrWhiteSpace(commitValidation.EffectiveCommit) &&
+                !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
             {
-                var resolvedCommit = (await RunGitAsync(
-                    _currentWorkspace.FolderPath,
-                    $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
+                result = result with { Commit = commitValidation.EffectiveCommit };
                 taskCommitEvidence = new PlanTaskCommitEvidence(
                     taskId,
                     executionAttempt?.AttemptId,
                     _decomposeIterationBaselineCommit!,
-                    resolvedCommit,
+                    commitValidation.EffectiveCommit,
                     result.Summary,
                     result.Verification);
             }
             else if (error is null)
             {
-                error = commitValidationError;
+                error = commitValidation.Error;
             }
         }
 
@@ -11623,7 +11657,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (result.Status == "complete")
+        if (result.Status == "complete" &&
+            PlanTaskExecutionPolicy.RequiresIndependentVerification(persistedTask))
         {
             var baseline = activeExecution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit;
             if (string.IsNullOrWhiteSpace(baseline))
@@ -12272,12 +12307,14 @@ public partial class MainWindow : Window
     }
 
 
-    private async Task<string?> ValidateDecomposeStepCommitAsync(DecomposeStepResult result)
+    private async Task<(string? Error, string? EffectiveCommit)> ValidateDecomposeStepCommitAsync(
+        DecomposeStepResult result,
+        bool verificationOnly)
     {
-        if (_currentWorkspace is null) return "No workspace is active.";
+        if (_currentWorkspace is null) return ("No workspace is active.", null);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
-            return "The reported commit was missing or malformed.";
+            return ("The reported commit was missing or malformed.", null);
 
         try
         {
@@ -12285,9 +12322,21 @@ public partial class MainWindow : Window
             var resolved = (await RunGitAsync(workspace, $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
             var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
             if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
-                return $"The reported commit resolves to {resolved}, but the active branch is at {head}.";
-            if (string.Equals(_decomposeIterationBaselineCommit, head, StringComparison.OrdinalIgnoreCase))
-                return "The step reported completion without creating a new commit.";
+            {
+                if (!verificationOnly)
+                    return ($"The reported commit resolves to {resolved}, but the active branch is at {head}.", null);
+                try
+                {
+                    await RunGitAsync(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
+                }
+                catch
+                {
+                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null);
+                }
+            }
+            if (!verificationOnly &&
+                string.Equals(_decomposeIterationBaselineCommit, head, StringComparison.OrdinalIgnoreCase))
+                return ("The step reported completion without creating a new commit.", null);
 
             if (!string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
             {
@@ -12297,8 +12346,12 @@ public partial class MainWindow : Window
                 var commitCountText = (await RunGitAsync(
                     workspace,
                     $"rev-list --count \"{_decomposeIterationBaselineCommit}..{head}\"")).Trim();
-                if (!int.TryParse(commitCountText, out var commitCount) || commitCount != 1)
-                    return $"The step created {commitCountText} commits; each plan step must produce exactly one atomic commit.";
+                if (!int.TryParse(commitCountText, out var commitCount))
+                    return ("SquadDash could not determine how many commits the step produced.", null);
+                if (verificationOnly && commitCount != 0)
+                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null);
+                if (!verificationOnly && commitCount != 1)
+                    return ($"The step created {commitCountText} commits; each implementation step must produce exactly one atomic commit.", null);
             }
 
             var changedPaths = (await RunGitAsync(
@@ -12314,14 +12367,14 @@ public partial class MainWindow : Window
                     path.Replace('\\', '/'),
                     tasksRelativePath,
                     StringComparison.OrdinalIgnoreCase)))
-                return "The AI commit modified tasks.md; plan status is owned by SquadDash.";
+                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null);
 
             await EnsurePlanWorktreeReadyAsync(workspace);
-            return null;
+            return (null, head);
         }
         catch (Exception ex)
         {
-            return $"Git validation failed: {ex.Message}";
+            return ($"Git validation failed: {ex.Message}", null);
         }
     }
 
@@ -14036,6 +14089,51 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(Publish, System.Windows.Threading.DispatcherPriority.Send);
     }
 
+    private void ResolveRecoveryTranscript(string outcome)
+    {
+        var staleMessages = new[]
+        {
+            PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommittedWork: true),
+            PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommittedWork: false),
+        };
+        var persisted = _conversationManager.ReplaceLatestCoordinatorResponse(staleMessages, outcome);
+        var rendered = ReplaceLatestRenderedRecoveryStatus(
+            CoordinatorThread.Document.Blocks,
+            staleMessages,
+            outcome);
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
+        TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
+        if (!persisted && !rendered)
+            ShowSystemTranscriptEntry(outcome);
+    }
+
+    private bool ReplaceLatestRenderedRecoveryStatus(
+        BlockCollection blocks,
+        IReadOnlyCollection<string> staleMessages,
+        string outcome)
+    {
+        var expected = new HashSet<string>(staleMessages.Select(message => message.Trim()), StringComparer.Ordinal);
+        foreach (var block in blocks.Cast<Block>().Reverse())
+        {
+            if (block is not Section section)
+                continue;
+            if (ReplaceLatestRenderedRecoveryStatus(section.Blocks, staleMessages, outcome))
+                return true;
+
+            var visibleText = new TextRange(section.ContentStart, section.ContentEnd).Text.Trim();
+            if (!expected.Contains(visibleText))
+                continue;
+
+            foreach (var child in section.Blocks.ToArray())
+                section.Blocks.Remove(child);
+            var paragraph = CreateTranscriptParagraph(bottomMargin: 18);
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(paragraph.Inlines, outcome);
+            section.Blocks.Add(paragraph);
+            return true;
+        }
+        return false;
+    }
+
     private PendingDecomposePlan? ResolveRecoveryPendingPlan(string groupId, string revision)
     {
         var durable = _planStore?.Load(groupId);
@@ -14669,12 +14767,19 @@ public partial class MainWindow : Window
 
         var canResumeVerification = durablePlan is not null &&
                                     PlanVerificationRecoveryPolicy.CanResume(durablePlan, taskId);
-        var recoveryActionLabel = canResumeVerification
+        var verificationOnlyRecovery = durablePlan?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal)) is { } interruptedTask &&
+            PlanTaskExecutionPolicy.IsVerificationOnly(interruptedTask);
+        var recoveryActionLabel = verificationOnlyRecovery
+            ? "Retry Verification"
+            : canResumeVerification
             ? "Resume Verification & Continue"
             : assessmentRetry
                 ? "Retry Assessment"
                 : "Assess & Continue";
-        var recoveryActionHint = canResumeVerification
+        var recoveryActionHint = verificationOnlyRecovery
+            ? "Run this non-mutating verification step again against the current branch. It will not create a commit or launch a second independent review."
+            : canResumeVerification
             ? "Resume independent verification from the durable candidate handoff. Implementation work will not be repeated."
             : "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
               "SquadDash will validate the assessment, then accept completed work, continue partial work, or start the task. " +
@@ -14682,7 +14787,13 @@ public partial class MainWindow : Window
         AddAsyncAction(
             recoveryActionLabel,
             recoveryActionHint,
-            async () => await AssessAndContinuePlanRecoveryAsync(plan, taskId));
+            async () =>
+            {
+                if (verificationOnlyRecovery)
+                    await RetryDecomposeTaskAsync(plan, taskId);
+                else
+                    await AssessAndContinuePlanRecoveryAsync(plan, taskId);
+            });
         AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
             () => QueueDecomposeReplan(plan, taskId));
 
@@ -15697,8 +15808,8 @@ public partial class MainWindow : Window
                 => " Plan validation is starting.",
             _ => " Continuing with the next plan task.",
         };
-        ShowSystemTranscriptEntry(
-            $"✓ Assessed and accepted {context.TaskId} at commit {shortCommit}.{boundaryMessage}");
+        ResolveRecoveryTranscript(
+            $"✓ Recovery completed. Reused committed work from {shortCommit}.{boundaryMessage}");
     }
 
     private void KeepPlanStoppedAfterAssessment(
@@ -16351,13 +16462,13 @@ public partial class MainWindow : Window
                                        HasReadyPendingApprovalGate(acceptedPlan!);
         var mustAwaitApproval = hasReadyApprovalBoundary &&
                                 PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
-        ShowSystemTranscriptEntry(combinedHumanReviewGate is not null
-            ? $"✓ {stepLabel} accepted from commit range {rangeLabel}; its human checkpoint is also approved. Resuming with the next pending task."
+        ResolveRecoveryTranscript(combinedHumanReviewGate is not null
+            ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is also approved."
             : combinedAmendmentGate is not null
-                ? $"✓ Accepted reviewed amendment {rangeLabel} and approved its checkpoint. Resuming with the next pending task."
+                ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel} and approved its checkpoint."
                 : mustAwaitApproval
-                    ? $"✓ Human accepted commit range {rangeLabel} for {stepLabel}. Opening the required human approval checkpoint."
-                    : $"✓ Human accepted commit range {rangeLabel} for {stepLabel}. Resuming with the next pending task.");
+                    ? $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the next human checkpoint is opening."
+                    : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is continuing.");
 
         if (hasReadyApprovalBoundary)
         {
@@ -16692,7 +16803,8 @@ public partial class MainWindow : Window
         }
 
         LoadTasksPanel();
-        ShowSystemTranscriptEntry($"✓ Adopted commit {candidateCommit} as task {taskId} result.");
+        ResolveRecoveryTranscript(
+            $"✓ Recovery completed. Adopted committed work from {candidateCommit} and continued the plan.");
 
         // Resume the plan loop from the next pending task
         await StartBackloggedDecomposeGroupAsync(
@@ -35524,6 +35636,7 @@ public partial class MainWindow : Window
             // the Inbox reminder the durable action surface, while the transcript link remains.
             RemovePendingDecomposeApprovalButtons();
             TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
+            TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
             var isOrdinaryUserTurn = !_pendingPromptIsSystemInjected &&
                                      !_decomposeRepairPending &&
                                      _activeDecomposeGroupId is null &&
@@ -36414,8 +36527,11 @@ public partial class MainWindow : Window
         if (newBlocks.Count == 0)
             newBlocks.Add(CreateTranscriptParagraph(bottomMargin: 18));
 
-        foreach (var protocolJsonBlock in protocolJsonBlocks)
-            newBlocks.Add(BuildProtocolJsonIndicatorParagraph(protocolJsonBlock));
+        if (entry.AllowQuickReplies)
+        {
+            foreach (var protocolJsonBlock in protocolJsonBlocks)
+                newBlocks.Add(BuildProtocolJsonIndicatorParagraph(protocolJsonBlock));
+        }
 
         // Only add the "✉ Sent to Inbox" indicator after a confirmed save.  InboxMessageId is
         // set only when TrySaveInboxMessageFromResponse succeeds, so this never fires for
@@ -36530,6 +36646,7 @@ public partial class MainWindow : Window
     {
         var paragraph = CreateTranscriptParagraph(bottomMargin: 6);
         paragraph.Margin = new Thickness(0, 4, 0, 6);
+        paragraph.Tag = new TranscriptProtocolJsonIndicatorTag(protocolBlock.Marker);
 
         var button = new Button
         {
@@ -38621,7 +38738,9 @@ public partial class MainWindow : Window
     {
         var entry = CreateResponseEntry(turn, responseSegment.Sequence);
         entry.AllowQuickReplies = allowQuickReplies;
-        entry.ProtocolJsonBlocks = responseSegment.ProtocolJsonBlocks;
+        // Raw protocol payloads remain durable in the conversation record and diagnostics,
+        // but historical transcript turns should not regain orphaned "JSON received" buttons.
+        entry.ProtocolJsonBlocks = [];
         entry.RawTextBuilder.Append(responseSegment.Text);
         RenderResponseEntry(entry);
     }

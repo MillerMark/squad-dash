@@ -219,4 +219,28 @@ internal sealed class TranscriptQuickReplyFactoryTests
         Assert.That(buttons.Select(button => button.Content),
             Is.EqualTo(new object[] { "✎ Address Unchecked Items…" }));
     }
+
+    [Test]
+    public void RemoveProtocolJsonIndicators_RemovesNestedDiagnosticButtonsOnly()
+    {
+        var document = new FlowDocument();
+        var section = new Section();
+        var narrative = new Paragraph(new Run("Recovery summary"));
+        var jsonIndicator = new Paragraph
+        {
+            Tag = new TranscriptProtocolJsonIndicatorTag("DECOMPOSE_STEP_RESULT_JSON"),
+        };
+        jsonIndicator.Inlines.Add(new InlineUIContainer(new Button { Content = "{ } JSON received" }));
+        section.Blocks.Add(narrative);
+        section.Blocks.Add(jsonIndicator);
+        document.Blocks.Add(section);
+
+        TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(document.Blocks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(section.Blocks.Contains(narrative), Is.True);
+            Assert.That(section.Blocks.Contains(jsonIndicator), Is.False);
+        });
+    }
 }

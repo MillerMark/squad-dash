@@ -876,6 +876,59 @@ internal sealed class TranscriptConversationManager {
         }, "TagLastTurnAsNewProjectOnboarding");
     }
 
+    /// <summary>
+    /// Replaces the newest completed coordinator response that exactly matches one of the
+    /// supplied operational status messages. Raw protocol payloads are deliberately dropped
+    /// from the replacement segment; the durable diagnostic stores remain authoritative.
+    /// </summary>
+    internal bool ReplaceLatestCoordinatorResponse(
+        IReadOnlyCollection<string> expectedResponses,
+        string replacement)
+    {
+        if (_getWorkspace() is null || expectedResponses.Count == 0 || string.IsNullOrWhiteSpace(replacement))
+            return false;
+
+        var expected = new HashSet<string>(
+            expectedResponses.Select(value => value.Trim()),
+            StringComparer.Ordinal);
+        var turns = _conversationState.Turns.ToList();
+        var targetIndex = -1;
+        for (var index = turns.Count - 1; index >= 0; index--)
+        {
+            if (expected.Contains((turns[index].ResponseText ?? string.Empty).Trim()))
+            {
+                targetIndex = index;
+                break;
+            }
+        }
+        if (targetIndex < 0)
+            return false;
+
+        var original = turns[targetIndex];
+        var replacementSegment = new TranscriptResponseSegmentRecord(replacement.Trim())
+        {
+            Sequence = original.GetResponseSegments().LastOrDefault()?.Sequence,
+        };
+        var updated = original with
+        {
+            ResponseText = replacement.Trim(),
+            ResponseSegments = [replacementSegment],
+        };
+        turns[targetIndex] = updated;
+
+        var allTurns = _allCoordinatorTurns.ToList();
+        var allIndex = allTurns.FindLastIndex(turn =>
+            turn.StartedAt == original.StartedAt &&
+            string.Equals(turn.Prompt, original.Prompt, StringComparison.Ordinal));
+        if (allIndex >= 0)
+            allTurns[allIndex] = updated;
+        _allCoordinatorTurns = allTurns;
+
+        PersistConversationState(_conversationState with { Turns = turns },
+            "ReplaceLatestCoordinatorResponse");
+        return true;
+    }
+
     internal void AppendAgentReportToLastTurn(string agentLabel, string reportPath) =>
         AppendAgentReportToCurrentOrLastTurn(agentLabel, reportPath);
 

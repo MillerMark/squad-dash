@@ -217,6 +217,20 @@ internal static class TasksJsonParser
                     $"task '{task.Id}' must explain its explicit generic routing and omit assignments");
             }
 
+            var executionMode = task.ExecutionMode?.Trim();
+            if (executionMode is not null &&
+                executionMode is not (PlanTaskExecutionMode.Implementation or PlanTaskExecutionMode.Verification))
+            {
+                return Fail("invalid-task-execution-mode",
+                    $"task '{task.Id}' executionMode must be implementation or verification");
+            }
+            if (executionMode == PlanTaskExecutionMode.Verification &&
+                task.ProofRequirements is not { Count: > 0 })
+            {
+                return Fail("verification-task-without-proof",
+                    $"verification task '{task.Id}' must declare at least one proof requirement");
+            }
+
             var proofIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var requirement in task.ProofRequirements ?? [])
             {

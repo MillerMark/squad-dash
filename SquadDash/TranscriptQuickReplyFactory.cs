@@ -32,6 +32,7 @@ internal sealed class DecomposeRecoveryCardTag : ICopyable
 }
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
 internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
+internal sealed record TranscriptProtocolJsonIndicatorTag(string Marker);
 
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
@@ -174,6 +175,20 @@ internal static class TranscriptQuickReplyFactory
             var child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
             foreach (var descendant in EnumerateButtons(child))
                 yield return descendant;
+        }
+    }
+
+    internal static void RemoveProtocolJsonIndicators(BlockCollection blocks)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            if (block.Tag is TranscriptProtocolJsonIndicatorTag)
+            {
+                blocks.Remove(block);
+                continue;
+            }
+            if (block is Section section)
+                RemoveProtocolJsonIndicators(section.Blocks);
         }
     }
 

@@ -34,6 +34,7 @@
     <Compile Include="..\SquadDash\AssessedPlanContinuationPolicy.cs" Link="Source\AssessedPlanContinuationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanTaskActivityPulseEvent.cs" Link="Source\PlanTaskActivityPulseEvent.cs" />
     <Compile Include="..\SquadDash\PlanStepProofPolicy.cs" Link="Source\PlanStepProofPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanTaskExecutionPolicy.cs" Link="Source\PlanTaskExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\PlanProofCapabilityPolicy.cs" Link="Source\PlanProofCapabilityPolicy.cs" />
     <Compile Include="..\SquadDash\HumanApprovalIdentityResolver.cs" Link="Source\HumanApprovalIdentityResolver.cs" />
     <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />

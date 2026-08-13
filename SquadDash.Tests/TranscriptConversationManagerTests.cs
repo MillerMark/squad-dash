@@ -843,6 +843,43 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ReplaceLatestCoordinatorResponse_ReplacesStaleRecoveryAndDropsProtocolButtons() {
+        using var workspace = new TestWorkspace();
+        var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+        var manager = MakeManager(workspace: sessionWorkspace);
+        var testStore = new WorkspaceConversationStore(workspace.GetPath("store"));
+        typeof(TranscriptConversationManager)
+            .GetField("_conversationStore", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(manager, testStore);
+        const string stale = "Plan execution stopped unexpectedly after producing committed work. Recovery is available.";
+        const string outcome = "✓ Recovery completed. Reused committed work and continued.";
+        var turn = MakeTurn(stale) with
+        {
+            ResponseSegments =
+            [
+                new TranscriptResponseSegmentRecord(stale)
+                {
+                    ProtocolJsonBlocks =
+                    [
+                        new TranscriptProtocolJsonBlock("DECOMPOSE_STEP_RESULT_JSON", "{}"),
+                    ],
+                },
+            ],
+        };
+        manager.ConversationState = manager.ConversationState with { Turns = [turn] };
+
+        var replaced = manager.ReplaceLatestCoordinatorResponse([stale], outcome);
+
+        var updated = manager.ConversationState.Turns.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(replaced, Is.True);
+            Assert.That(updated.ResponseText, Is.EqualTo(outcome));
+            Assert.That(updated.GetResponseSegments().Single().ProtocolJsonBlocks, Is.Null);
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static T InvokePrivate<T>(TranscriptConversationManager manager, string methodName, params object?[] args) {

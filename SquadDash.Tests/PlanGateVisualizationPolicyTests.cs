@@ -217,4 +217,31 @@ internal sealed class PlanGateVisualizationPolicyTests
         Assert.That(PlanGateVisualizationPolicy.BoundaryIsCollectivelyCoveredByIncomingGates(
             ["A", "B"], ["TARGET"], taskExitGates), Is.False);
     }
+
+    [Test]
+    public void BoundaryHasNoUnresolvedIncomingGate_WhenOnlyLaterGateIsPending()
+    {
+        PlanApprovalGate[] gates =
+        [
+            new("A-GATE", "Review A", ["A"], ["TARGET"], PlanGateStatus.Approved),
+            new("B-GATE", "Review B", ["B"], ["TARGET"], PlanGateStatus.Approved),
+            new("LATER-GATE", "Review target", ["TARGET"], [], PlanGateStatus.Pending),
+        ];
+
+        Assert.That(PlanGateVisualizationPolicy.BoundaryHasUnresolvedIncomingGate(
+            ["A", "B"], ["TARGET"], gates), Is.False);
+    }
+
+    [Test]
+    public void BoundaryHasUnresolvedIncomingGate_WhenOneBranchApprovalIsPending()
+    {
+        PlanApprovalGate[] gates =
+        [
+            new("A-GATE", "Review A", ["A"], ["TARGET"], PlanGateStatus.Approved),
+            new("B-GATE", "Review B", ["B"], ["TARGET"], PlanGateStatus.Pending),
+        ];
+
+        Assert.That(PlanGateVisualizationPolicy.BoundaryHasUnresolvedIncomingGate(
+            ["A", "B"], ["TARGET"], gates), Is.True);
+    }
 }

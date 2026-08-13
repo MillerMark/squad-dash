@@ -20,7 +20,7 @@ internal static class PlanRevisionDeltaApplier
     private static readonly IReadOnlySet<string> TaskPatchFields = Set(
         "description", "dependsOn", "priority", "title", "parentTaskId", "agentAssignments",
         "parallelEligible", "agentRoutingMode", "genericAgentReason", "outputs", "inputs",
-        "proofRequirements", "amendmentGateId");
+        "proofRequirements", "amendmentGateId", "executionMode");
     private static readonly IReadOnlySet<string> GatePatchFields = Set(
         "message", "afterTaskIds", "beforeTaskIds", "proofRequirements", "question");
     private static readonly IReadOnlySet<string> ValidationPatchFields = Set(

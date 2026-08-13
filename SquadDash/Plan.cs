@@ -262,7 +262,10 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanEvidenceCommit>? Commits = null,
     [property: JsonPropertyName("reviewActivity")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskReviewActivity>? ReviewActivity = null);
+                                                IReadOnlyList<PlanTaskReviewActivity>? ReviewActivity = null,
+    [property: JsonPropertyName("executionMode")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ExecutionMode = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

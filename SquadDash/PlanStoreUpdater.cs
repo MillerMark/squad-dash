@@ -1885,7 +1885,8 @@ internal static class PlanStoreUpdater
                 Outputs: MapOutputs(sub.Outputs),
                 Inputs: sub.Inputs,
                 ProofRequirements: MapProofRequirements(sub.ProofRequirements),
-                DisplayStepLabel: (index + 1).ToString());
+                DisplayStepLabel: (index + 1).ToString(),
+                ExecutionMode: sub.ExecutionMode);
         }).ToList();
     }
 
@@ -1999,7 +2000,8 @@ internal static class PlanStoreUpdater
             GenericAgentReason: sub.GenericAgentReason,
             Outputs:            MapOutputs(sub.Outputs),
             Inputs:             sub.Inputs,
-            ProofRequirements:  MapProofRequirements(sub.ProofRequirements));
+            ProofRequirements:  MapProofRequirements(sub.ProofRequirements),
+            ExecutionMode:      sub.ExecutionMode);
 
     private static IReadOnlyList<PlanTaskOutput>? MapOutputs(
         IReadOnlyList<DecomposedTaskOutput>? outputs) =>

@@ -203,4 +203,13 @@ internal static class PlanGateVisualizationPolicy
                 boundary.AfterTaskIds.Contains(afterId, StringComparer.Ordinal) &&
                 boundary.BeforeTaskIds.Contains(beforeId, StringComparer.Ordinal))));
     }
+
+    internal static bool BoundaryHasUnresolvedIncomingGate(
+        IReadOnlyList<string> afterIds,
+        IReadOnlyList<string> beforeIds,
+        IReadOnlyList<PlanApprovalGate> gates) =>
+        gates.Any(gate =>
+            gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+            gate.AfterTaskIds.Any(afterIds.Contains) &&
+            gate.BeforeTaskIds.Any(beforeIds.Contains));
 }
