@@ -214,6 +214,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
+    private void OnGraphScrollPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.Shift) return;
+        if (_graphScroll is null) return;
+        var delta = e.Delta > 0 ? -SystemParameters.WheelScrollLines * 16.0 : SystemParameters.WheelScrollLines * 16.0;
+        _graphScroll.ScrollToHorizontalOffset(_graphScroll.HorizontalOffset + delta);
+        e.Handled = true;
+    }
+
     private void ApplyLiveUpdate(Plan updatedPlan)
     {
         if (_plan is null) return;
@@ -684,6 +693,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _graphScroll = scroll;
         scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
+        scroll.PreviewMouseWheel += OnGraphScrollPreviewMouseWheel;
 
         var splitGrid = new Grid();
         splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
