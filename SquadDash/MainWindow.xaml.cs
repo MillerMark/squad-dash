@@ -6129,6 +6129,18 @@ public partial class MainWindow : Window
         // Pass the raw (unsanitized) response so ParseAndApplyApprovalGroups can detect
         // APPROVAL_GROUP_JSON blocks that SanitizeResponseText strips from display.
         _agentThreadRegistry.FinalizeAgentThread(thread, rawResponse: evt.LatestResponse);
+        // Set or clear the completion-footer alias from the completion event. This mirrors the
+        // same logic in HandleSubagentMessage and ensures the alias is always current when
+        // UpdateCompletedTimeFooters creates the footer paragraph. If the completion event
+        // carries no ProfileAlias, preserve whatever HandleSubagentMessage may have set.
+        if (!string.IsNullOrEmpty(evt.ProfileAlias) && _modelProfileStore.GetProfiles().Count > 1)
+        {
+            var defaultProfile = _modelProfileStore.GetDefaultProfile();
+            bool isDefault = defaultProfile is not null &&
+                             string.Equals(evt.ProfileAlias, defaultProfile.Alias, StringComparison.OrdinalIgnoreCase);
+            thread.CompletionFooterProfileAlias = isDefault ? null : evt.ProfileAlias;
+        }
+        // If evt.ProfileAlias is empty here, trust whatever HandleSubagentMessage already set.
         UpdateCompletedTimeFooters();
         var summary = BackgroundTaskPresenter.BuildThreadCompletionSummary(thread);
         SquadDashTrace.Write("UI", $"Subagent completed {summary}");
@@ -32916,8 +32928,28 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    if (thread.CompletedTimeParagraph.Inlines.FirstInline is Run run)
-                        run.Text = text;
+                    if (thread.CompletedTimeParagraph.Inlines.FirstInline is Run timeRun)
+                        timeRun.Text = text;
+                    // Sync alias annotation: if alias changed (or was set after initial creation),
+                    // rebuild inlines after the timestamp run.
+                    var existingAlias = thread.CompletedTimeParagraph.Inlines.Count > 1
+                        ? (thread.CompletedTimeParagraph.Inlines.Skip(1).FirstOrDefault() as Run)?.Text
+                        : null;
+                    var expectedAlias = string.IsNullOrEmpty(thread.CompletionFooterProfileAlias)
+                        ? null
+                        : $" under [{thread.CompletionFooterProfileAlias}]";
+                    if (existingAlias != expectedAlias)
+                    {
+                        while (thread.CompletedTimeParagraph.Inlines.Count > 1)
+                            thread.CompletedTimeParagraph.Inlines.Remove(thread.CompletedTimeParagraph.Inlines.LastInline!);
+                        if (!string.IsNullOrEmpty(thread.CompletionFooterProfileAlias))
+                        {
+                            var aliasRun = new Run($" under [{thread.CompletionFooterProfileAlias}]");
+                            aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                            aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                            thread.CompletedTimeParagraph.Inlines.Add(aliasRun);
+                        }
+                    }
                     if (!ReferenceEquals(thread.Document.Blocks.LastBlock, thread.CompletedTimeParagraph))
                     {
                         thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
