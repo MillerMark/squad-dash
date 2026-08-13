@@ -11,11 +11,10 @@ internal sealed class PlanRecoveryAssessmentTests
     public void CompleteAssessment_WithPassedVerificationAndAttributedCommit_Parses()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"complete","summary":"Task is complete.","remainingWork":[],
+            {"recoveryAssessmentId":"assessment-1","classification":"complete",
+             "summary":"Task is complete.","remainingWork":[],
              "verification":{"status":"passed","command":"dotnet test","summary":"All tests passed."},
-             "commits":[{"commit":"bbbbbbbb","relation":"task","reason":"Implements the task."}]}
+             "commits":[{"commitId":"c001","relation":"task","reason":"Implements the task."}]}
             """;
 
         Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
@@ -30,12 +29,10 @@ internal sealed class PlanRecoveryAssessmentTests
     public void Assessment_WithTrailingCommasAndComments_ParsesTolerantly()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"inconclusive","summary":"Needs review.",
+            {"recoveryAssessmentId":"assessment-1","classification":"inconclusive","summary":"Needs review.",
              "remainingWork":[],"verification":null,
              "commits":[
-               {"commit":"bbbbbbbb","relation":"unknown","reason":"Unclear.",},
+               {"commitId":"c001","relation":"unknown","reason":"Unclear.",},
              ], // repairable JSON style emitted by some models
             }
             """;
@@ -45,14 +42,39 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void UnrelatedCommit_MayOmitReasonForCompactResponse()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","classification":"not_started",
+             "summary":"No current task work exists.","remainingWork":[],"verification":null,
+             "commits":[{"commitId":"c001","relation":"unrelated"}]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
+        Assert.That(response!.Commits.Single().Reason, Does.Contain("unrelated"));
+    }
+
+    [Test]
+    public void RelevantCommit_MustExplainItsRelation()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","classification":"inconclusive",
+             "summary":"Potential task work exists.","remainingWork":[],"verification":null,
+             "commits":[{"commitId":"c001","relation":"unknown"}]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("require a reason"));
+    }
+
+    [Test]
     public void InconclusiveAssessment_PreservesChronologicalSupportingCommits()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"dddddddd",
-             "classification":"inconclusive","summary":"Older work may implement the step.",
+            {"recoveryAssessmentId":"assessment-1","classification":"inconclusive",
+             "summary":"Older work may implement the step.",
              "remainingWork":[],"verification":null,
-             "commits":[{"commit":"dddddddd","relation":"unrelated","reason":"Recovery infrastructure."}],
+             "commits":[{"commitId":"c001","relation":"unrelated","reason":"Recovery infrastructure."}],
              "supportingCommits":[
                {"commit":"bbbbbbbb","relation":"task","reason":"Introduced the feature."},
                {"commit":"cccccccc","relation":"unknown","reason":"May refine the feature."}
@@ -73,9 +95,8 @@ internal sealed class PlanRecoveryAssessmentTests
     {
         var text = """
             ```json
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":" Inconclusive ","summary":"Needs review.",
+            {"recoveryAssessmentId":"assessment-1","classification":" Inconclusive ",
+             "summary":"Needs review.",
              "remainingWork":null,"verification":null,"commits":null}
             ```
             """;
@@ -95,9 +116,8 @@ internal sealed class PlanRecoveryAssessmentTests
     public void CompleteAssessment_WithoutPassedVerification_IsRejected()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"complete","summary":"Looks complete.","remainingWork":[],
+            {"recoveryAssessmentId":"assessment-1","classification":"complete",
+             "summary":"Looks complete.","remainingWork":[],
              "verification":{"status":"not_run","command":null,"summary":"Not run."},
              "commits":[]}
             """;
@@ -110,9 +130,8 @@ internal sealed class PlanRecoveryAssessmentTests
     public void PartialAssessment_WithoutRemainingWork_IsRejected()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"partial","summary":"Some work exists.","remainingWork":[],
+            {"recoveryAssessmentId":"assessment-1","classification":"partial",
+             "summary":"Some work exists.","remainingWork":[],
              "verification":null,"commits":[]}
             """;
 
@@ -124,11 +143,10 @@ internal sealed class PlanRecoveryAssessmentTests
     public void UnknownCommitRelation_IsRejected()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"inconclusive","summary":"Cannot tell.","remainingWork":[],
+            {"recoveryAssessmentId":"assessment-1","classification":"inconclusive",
+             "summary":"Cannot tell.","remainingWork":[],
              "verification":null,
-             "commits":[{"commit":"bbbbbbbb","relation":"maybe","reason":"Unclear."}]}
+             "commits":[{"commitId":"c001","relation":"maybe","reason":"Unclear."}]}
             """;
 
         Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out _, out var error), Is.False);
@@ -139,11 +157,10 @@ internal sealed class PlanRecoveryAssessmentTests
     public void SupersededCommitRelation_ParsesForRevisedTaskEvidence()
     {
         var text = Prefix + """
-            {"recoveryAssessmentId":"assessment-1","planId":"PLAN-1","taskId":"TASK-1",
-             "revision":"rev-1","baselineCommit":"aaaaaaaa","assessedHead":"bbbbbbbb",
-             "classification":"not_started","summary":"Only replaced work exists.","remainingWork":[],
+            {"recoveryAssessmentId":"assessment-1","classification":"not_started",
+             "summary":"Only replaced work exists.","remainingWork":[],
              "verification":null,
-             "commits":[{"commit":"bbbbbbbb","relation":"superseded","reason":"Implements the old specification."}]}
+             "commits":[{"commitId":"c001","relation":"superseded","reason":"Implements the old specification."}]}
             """;
 
         Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
@@ -151,17 +168,60 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
-    public void MatchesRequest_RejectsStaleHead()
+    public void MatchesRequest_RejectsWrongAssessmentNonce()
     {
         var response = Response(
             PlanRecoveryClassification.Inconclusive,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Unknown)]) with
-        {
-            AssessedHead = "stale-head",
-        };
+            [Commit("c001", PlanRecoveryCommitRelation.Unknown)]);
 
         Assert.That(PlanRecoveryAssessmentValidator.MatchesRequest(
-            response, "assessment-1", "PLAN-1", "TASK-1", "rev-1", "aaaaaaaa", "bbbbbbbb"), Is.False);
+            response, "another-assessment"), Is.False);
+    }
+
+    [Test]
+    public void CommitReferences_UseDeterministicShortIdsWithoutChangingShas()
+    {
+        var references = References("aaaaaaaa", "bbbbbbbb", "cccccccc");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(references.Select(reference => reference.Id),
+                Is.EqualTo(new[] { "c001", "c002", "c003" }));
+            Assert.That(references.Select(reference => reference.Commit),
+                Is.EqualTo(new[] { "aaaaaaaa", "bbbbbbbb", "cccccccc" }));
+        });
+    }
+
+    [Test]
+    public void EvidenceLog_PairsShortIdsWithRealShasForReadOnlyGitTools()
+    {
+        const string first = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string second = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var formatted = MainWindow.FormatPlanRecoveryCommitLog(
+            $"{first}\tFirst commit\n{second}\tSecond commit",
+            References(first, second));
+
+        Assert.That(formatted, Is.EqualTo(
+            $"c001\t{first}\tFirst commit\nc002\t{second}\tSecond commit"));
+    }
+
+    [Test]
+    public void CompactResponse_SerializesOnlyNonceAndSemanticAssessmentData()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(Response(
+            PlanRecoveryClassification.NotStarted,
+            [Commit("c001", PlanRecoveryCommitRelation.Unrelated)]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"recoveryAssessmentId\":\"assessment-1\""));
+            Assert.That(json, Does.Contain("\"commitId\":\"c001\""));
+            Assert.That(json, Does.Not.Contain("planId"));
+            Assert.That(json, Does.Not.Contain("taskId"));
+            Assert.That(json, Does.Not.Contain("revision"));
+            Assert.That(json, Does.Not.Contain("baselineCommit"));
+            Assert.That(json, Does.Not.Contain("assessedHead"));
+        });
     }
 
     [Test]
@@ -169,13 +229,13 @@ internal sealed class PlanRecoveryAssessmentTests
     {
         var response = Response(
             PlanRecoveryClassification.Partial,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]) with
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]) with
         {
             RemainingWork = ["Finish tests"],
         };
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-            response, ["bbbbbbbb", "cccccccc"], out _, out var error), Is.False);
+            response, References("bbbbbbbb", "cccccccc"), out _, out var error), Is.False);
         Assert.That(error, Does.Contain("every commit"));
     }
 
@@ -184,14 +244,14 @@ internal sealed class PlanRecoveryAssessmentTests
     {
         var response = Response(
             PlanRecoveryClassification.NotStarted,
-            [Commit("dddddddd", PlanRecoveryCommitRelation.Unrelated)]);
+            [Commit("c003", PlanRecoveryCommitRelation.Unrelated)]);
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-            response, ["bbbbbbbb", "cccccccc"], out _, out var error), Is.False);
+            response, References("bbbbbbbb", "cccccccc"), out _, out var error), Is.False);
         Assert.Multiple(() =>
         {
-            Assert.That(error, Does.Contain("Missing: bbbbbbbb, cccccccc"));
-            Assert.That(error, Does.Contain("Not in the captured range: dddddddd"));
+            Assert.That(error, Does.Contain("Missing: c001, c002"));
+            Assert.That(error, Does.Contain("Not in the captured range: c003"));
         });
     }
 
@@ -201,16 +261,16 @@ internal sealed class PlanRecoveryAssessmentTests
         var response = Response(
             PlanRecoveryClassification.NotStarted,
             [
-                Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task),
-                Commit("dddddddd", PlanRecoveryCommitRelation.Unrelated),
+                Commit("c001", PlanRecoveryCommitRelation.Task),
+                Commit("c003", PlanRecoveryCommitRelation.Unrelated),
             ]);
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-            response, ["bbbbbbbb", "cccccccc"], out _, out var error), Is.False);
+            response, References("bbbbbbbb", "cccccccc"), out _, out var error), Is.False);
         Assert.Multiple(() =>
         {
-            Assert.That(error, Does.Contain("Missing: cccccccc"));
-            Assert.That(error, Does.Contain("Not in the captured range: dddddddd"));
+            Assert.That(error, Does.Contain("Missing: c002"));
+            Assert.That(error, Does.Contain("Not in the captured range: c003"));
             Assert.That(error, Does.Contain("not started"));
             Assert.That(error, Does.Contain("superseded"));
         });
@@ -221,10 +281,10 @@ internal sealed class PlanRecoveryAssessmentTests
     {
         var response = Response(
             PlanRecoveryClassification.NotStarted,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Superseded)]);
+            [Commit("c001", PlanRecoveryCommitRelation.Superseded)]);
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-            response, ["bbbbbbbb"], out var attributed, out var error), Is.True, error);
+            response, References("bbbbbbbb"), out var attributed, out var error), Is.True, error);
         Assert.That(attributed, Is.Empty);
     }
 
@@ -280,10 +340,10 @@ internal sealed class PlanRecoveryAssessmentTests
     {
         var response = Response(
             PlanRecoveryClassification.Complete,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Unrelated)]);
+            [Commit("c001", PlanRecoveryCommitRelation.Unrelated)]);
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-            response, ["bbbbbbbb"], out _, out var error), Is.False);
+            response, References("bbbbbbbb"), out _, out var error), Is.False);
         Assert.That(error, Does.Contain("without identifying"));
     }
 
@@ -293,9 +353,9 @@ internal sealed class PlanRecoveryAssessmentTests
         var response = Response(
             PlanRecoveryClassification.Partial,
             [
-                Commit("cccccccc", PlanRecoveryCommitRelation.Mixed),
-                Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task),
-                Commit("dddddddd", PlanRecoveryCommitRelation.Unrelated),
+                Commit("c002", PlanRecoveryCommitRelation.Mixed),
+                Commit("c001", PlanRecoveryCommitRelation.Task),
+                Commit("c003", PlanRecoveryCommitRelation.Unrelated),
             ]) with
         {
             RemainingWork = ["Finish tests"],
@@ -303,7 +363,7 @@ internal sealed class PlanRecoveryAssessmentTests
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
             response,
-            ["bbbbbbbb", "cccccccc", "dddddddd"],
+            References("bbbbbbbb", "cccccccc", "dddddddd"),
             out var attributed,
             out var error), Is.True, error);
         Assert.That(attributed, Is.EqualTo(new[] { "bbbbbbbb", "cccccccc" }));
@@ -328,10 +388,10 @@ internal sealed class PlanRecoveryAssessmentTests
             new PlanTimestamps(DateTimeOffset.UtcNow));
         var response = Response(
             PlanRecoveryClassification.Complete,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]);
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]);
 
         var valid = PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
-            plan, response, out var error);
+            plan, "TASK-1", response, out var error);
 
         Assert.Multiple(() =>
         {
@@ -358,13 +418,13 @@ internal sealed class PlanRecoveryAssessmentTests
             new PlanTimestamps(DateTimeOffset.UtcNow));
         var response = Response(
             PlanRecoveryClassification.Partial,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]) with
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]) with
         {
             RemainingWork = ["Add guard"],
         };
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
-            plan, response, out var error), Is.True, error);
+            plan, "TASK-1", response, out var error), Is.True, error);
     }
 
     [Test]
@@ -388,10 +448,10 @@ internal sealed class PlanRecoveryAssessmentTests
             new PlanTimestamps(now));
         var response = Response(
             PlanRecoveryClassification.Complete,
-            [Commit("bbbbbbbb", PlanRecoveryCommitRelation.Task)]);
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]);
 
         Assert.That(PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
-            plan, response, out var error), Is.True, error);
+            plan, "TASK-1", response, out var error), Is.True, error);
     }
 
     [Test]
@@ -405,19 +465,17 @@ internal sealed class PlanRecoveryAssessmentTests
         });
     }
 
-    private static PlanRecoveryCommitAssessment Commit(string sha, string relation) =>
-        new(sha, relation, "Evidence");
+    private static PlanRecoveryCommitAssessment Commit(string commitId, string relation) =>
+        new(commitId, relation, "Evidence");
+
+    private static IReadOnlyList<PlanRecoveryCommitReference> References(params string[] commits) =>
+        PlanRecoveryAssessmentValidator.CreateCommitReferences(commits);
 
     private static PlanRecoveryAssessmentResponse Response(
         string classification,
         IReadOnlyList<PlanRecoveryCommitAssessment> commits) =>
         new(
             "assessment-1",
-            "PLAN-1",
-            "TASK-1",
-            "rev-1",
-            "aaaaaaaa",
-            "bbbbbbbb",
             classification,
             "Summary",
             [],

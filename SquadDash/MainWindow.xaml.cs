@@ -14152,6 +14152,7 @@ public partial class MainWindow : Window
         string BaselineCommit,
         string AssessedHead,
         string StatusSnapshot,
+        IReadOnlyList<PlanRecoveryCommitReference> CommitReferences,
         int RepairAttempts = 0,
         int RepositoryChangeRetries = 0);
 
@@ -14235,13 +14236,17 @@ public partial class MainWindow : Window
         var status = NormalizeGitSnapshot(await RunGitAsync(
             workspace, "status --porcelain --untracked-files=all"));
         var assessmentId = Guid.NewGuid().ToString("N");
+        var actualCommits = (await RunGitAsync(
+                workspace, $"rev-list --reverse \"{baseline}..{head}\""))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var commitReferences = PlanRecoveryAssessmentValidator.CreateCommitReferences(actualCommits);
         var evidence = await GatherPlanRecoveryEvidenceAsync(
-            workspace, durable.PlanId, taskId, baseline, plan);
+            workspace, durable.PlanId, taskId, baseline, plan, commitReferences);
         var prompt = BuildPlanRecoveryAssessmentPrompt(
-            durable, taskId, assessmentId, baseline, head, evidence);
+            durable, taskId, assessmentId, evidence);
 
         _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
-            plan, taskId, assessmentId, baseline, head, status,
+            plan, taskId, assessmentId, baseline, head, status, commitReferences,
             RepositoryChangeRetries: repositoryChangeRetries);
         _broker.Publish(new PlanRecoveryAssessmentActivityEvent(durable.PlanId, taskId, IsActive: true));
         _promptQueue.EnqueueAtFront(
@@ -14281,8 +14286,6 @@ public partial class MainWindow : Window
         Plan plan,
         string taskId,
         string assessmentId,
-        string baseline,
-        string head,
         string evidence)
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
@@ -14318,13 +14321,8 @@ public partial class MainWindow : Window
             count as work satisfying the current task revision. Do not infer ownership from
             time, author, or commit position alone; compare actual changes with the task specification.
 
-            Host-bound identity (copy exactly):
+            Host-bound identity (copy exactly). This nonce is the only host identity the response must echo:
             - recoveryAssessmentId: {{assessmentId}}
-            - planId: {{plan.PlanId}}
-            - taskId: {{taskId}}
-            - revision: {{plan.Revision}}
-            - baselineCommit: {{baseline}}
-            - assessedHead: {{head}}
 
             {{verificationContext}}
 
@@ -14333,20 +14331,15 @@ public partial class MainWindow : Window
             Return exactly one {{PlanRecoveryAssessmentParser.Marker}} payload with this shape:
             {
               "recoveryAssessmentId": "{{assessmentId}}",
-              "planId": "{{plan.PlanId}}",
-              "taskId": "{{taskId}}",
-              "revision": "{{plan.Revision}}",
-              "baselineCommit": "{{baseline}}",
-              "assessedHead": "{{head}}",
               "classification": "complete|partial|not_started|inconclusive",
               "summary": "brief evidence-based explanation",
               "remainingWork": ["required only for partial"],
               "verification": { "status": "passed|failed|not_run", "command": "...", "summary": "..." },
               "commits": [
-                { "commit": "full SHA", "relation": "task|mixed|unrelated|unknown|superseded", "reason": "..." }
+                { "commitId": "c001", "relation": "task|mixed|unrelated|unknown|superseded", "reason": "required unless unrelated" }
               ],
               "supportingCommits": [
-                { "commit": "full SHA", "relation": "task|mixed|unknown|superseded", "reason": "why older evidence is relevant" }
+                { "commit": "short unambiguous Git ID", "relation": "task|mixed|unknown|superseded", "reason": "why older evidence is relevant" }
               ]
             }
 
@@ -14354,6 +14347,10 @@ public partial class MainWindow : Window
             evidence cannot safely distinguish task work from unrelated work. Not_started requires no task or mixed
             commits against the current revision; use superseded for replaced older-spec work. Do not include recovery choices or execute
             a recovery action; SquadDash owns that decision.
+            Candidate SHAs are input-only. If repository inspection is useful, use the full SHA paired with a commitId
+            in a read-only Git command, but return only that commitId in commits. Include every listed cNNN ID exactly once.
+            To keep the response compact, omit reason for commits classified unrelated. Explain task, mixed, unknown,
+            and superseded classifications.
             When relevant implementation commits predate the captured baseline, include them chronologically in
             supportingCommits and explain why each is included. Use relation unknown when attribution is uncertain.
             """;
@@ -14420,7 +14417,7 @@ public partial class MainWindow : Window
         PendingPlanRecoveryAssessment context,
         string? error,
         string? invalidResponse,
-        IReadOnlyList<string>? expectedCommits = null)
+        IReadOnlyList<PlanRecoveryCommitReference>? expectedCommits = null)
     {
         if (context.RepairAttempts != 0)
             return false;
@@ -14431,7 +14428,7 @@ public partial class MainWindow : Window
                 context,
                 error,
                 invalidResponse,
-                expectedCommits),
+                expectedCommits ?? context.CommitReferences),
             _promptQueueCoordinator.NextSequenceNumber(),
             sourceTag: PlanRecoveryAssessmentQueueTag,
             isSystemInjected: true);
@@ -14455,7 +14452,7 @@ public partial class MainWindow : Window
         PendingPlanRecoveryAssessment context,
         PlanRecoveryAssessmentResponse response,
         string error,
-        IReadOnlyList<string>? expectedCommits = null)
+        IReadOnlyList<PlanRecoveryCommitReference>? expectedCommits = null)
     {
         var invalidResponse = PlanRecoveryAssessmentParser.Marker + "\n" +
                               JsonSerializer.Serialize(response);
@@ -14477,7 +14474,7 @@ public partial class MainWindow : Window
         PendingPlanRecoveryAssessment context,
         string? error,
         string? invalidResponse,
-        IReadOnlyList<string>? expectedCommits = null)
+        IReadOnlyList<PlanRecoveryCommitReference>? expectedCommits = null)
     {
         var response = invalidResponse ?? string.Empty;
         if (response.Length > 16000) response = response[^16000..];
@@ -14485,26 +14482,23 @@ public partial class MainWindow : Window
             ? $$"""
 
                 The commits array must contain each of these captured baseline-to-HEAD commits exactly once, using
-                the full SHA shown here and no other commit:
-                {{string.Join("\n", expectedCommits.Select(commit => "- " + commit))}}
+                the short commitId shown here and no other commitId:
+                {{string.Join("\n", expectedCommits.Select(reference => "- " + reference.Id))}}
                 """
             : string.Empty;
         return $$"""
             Your previous recovery assessment was invalid: {{error ?? "invalid structured response"}}.
             Make no repository changes and do not repeat the assessment. Return only one corrected
             {{PlanRecoveryAssessmentParser.Marker}} JSON object using the evidence and conclusions already obtained.
-            Copy these identity fields exactly:
+            Copy this single host identity exactly:
             - recoveryAssessmentId: {{context.AssessmentId}}
-            - planId: {{context.Plan.Group.GroupId}}
-            - taskId: {{context.TaskId}}
-            - revision: {{context.Plan.Revision}}
-            - baselineCommit: {{context.BaselineCommit}}
-            - assessedHead: {{context.AssessedHead}}
             Use classification complete, partial, not_started, or inconclusive. Include summary, remainingWork (an
-            empty array unless partial), verification, and a commits array classifying every commit as task, mixed,
+            empty array unless partial), verification, and a commits array classifying every commitId as task, mixed,
             unrelated, unknown, or superseded. Not_started must not mark any commit task or mixed; use superseded when
             an older implementation was replaced by the current plan revision. Output strict JSON with double-quoted
-            property names and no prose after the object.
+            property names and no prose after the object. Do not return planId, taskId, revision, baselineCommit,
+            assessedHead, or a SHA for any captured commit. Omit reason for unrelated commits; include it for every
+            other relation.
             {{expectedCommitInstructions}}
 
             Previous response:
@@ -14520,17 +14514,12 @@ public partial class MainWindow : Window
         var planId = context.Plan.Group.GroupId;
         if (!PlanRecoveryAssessmentValidator.MatchesRequest(
                 response,
-                context.AssessmentId,
-                planId,
-                context.TaskId,
-                context.Plan.Revision,
-                context.BaselineCommit,
-                context.AssessedHead))
+                context.AssessmentId))
         {
             RepairOrStopInvalidPlanRecoveryAssessment(
                 context,
                 response,
-                "The AI response did not match the exact plan, task, revision, or repository snapshot requested.");
+                "The AI response did not match the recovery assessment identity requested.");
             return;
         }
 
@@ -14544,7 +14533,7 @@ public partial class MainWindow : Window
             return;
         }
         if (!PlanRecoveryAssessmentValidator.TryValidateAgainstPlanEvidence(
-                durable, response, out var planEvidenceError))
+                durable, context.TaskId, response, out var planEvidenceError))
         {
             RepairOrStopInvalidPlanRecoveryAssessment(context, response, planEvidenceError!);
             return;
@@ -14595,31 +14584,37 @@ public partial class MainWindow : Window
                 workspace,
                 $"rev-list --reverse \"{context.BaselineCommit}..{context.AssessedHead}\""))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (!actualCommits.SequenceEqual(
+                context.CommitReferences.Select(reference => reference.Commit),
+                StringComparer.OrdinalIgnoreCase))
+        {
+            KeepPlanStoppedAfterAssessment(
+                context,
+                "The captured commit-ID mapping no longer matches the repository range. Run Assess & Continue again to gather fresh evidence.");
+            return;
+        }
         if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
-                response, actualCommits, out var attributed, out var coverageError))
+                response, context.CommitReferences, out var attributed, out var coverageError))
         {
             RepairOrStopInvalidPlanRecoveryAssessment(
                 context,
                 response,
                 coverageError!,
-                actualCommits);
+                context.CommitReferences);
             return;
         }
 
-        var actualCommitById = actualCommits.ToDictionary(
-            commit => commit,
-            commit => commit,
+        var actualCommitById = context.CommitReferences.ToDictionary(
+            reference => reference.Id,
+            reference => reference.Commit,
             StringComparer.OrdinalIgnoreCase);
-        var normalizedResponse = response with
-        {
-            Commits = response.Commits
-                .Select(assessment => assessment with
-                {
-                    Commit = actualCommitById[assessment.Commit],
-                })
-                .ToArray(),
-        };
-        var normalizedSupporting = new List<PlanRecoveryCommitAssessment>();
+        var normalizedCommits = response.Commits
+            .Select(assessment => new PlanEvidenceCommit(
+                actualCommitById[assessment.CommitId],
+                assessment.Relation,
+                assessment.Reason))
+            .ToArray();
+        var normalizedSupporting = new List<PlanEvidenceCommit>();
         foreach (var assessment in response.SupportingCommits ?? [])
         {
             if (!PlanRecoveryAssessmentValidator.IsSafeGitCommitIdentifier(assessment.Commit))
@@ -14628,7 +14623,7 @@ public partial class MainWindow : Window
                     context,
                     response,
                     $"Supporting commit '{assessment.Commit}' is not a valid Git commit identifier.",
-                    actualCommits);
+                    context.CommitReferences);
                 return;
             }
 
@@ -14644,12 +14639,14 @@ public partial class MainWindow : Window
                     context,
                     response,
                     $"Supporting commit '{assessment.Commit}' does not resolve to a commit in this repository.",
-                    actualCommits);
+                    context.CommitReferences);
                 return;
             }
-            normalizedSupporting.Add(assessment with { Commit = resolved });
+            normalizedSupporting.Add(new PlanEvidenceCommit(
+                resolved,
+                assessment.Relation,
+                assessment.Reason));
         }
-        normalizedResponse = normalizedResponse with { SupportingCommits = normalizedSupporting };
         switch (response.Classification)
         {
             case PlanRecoveryClassification.Complete:
@@ -14683,11 +14680,10 @@ public partial class MainWindow : Window
                 await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
                 break;
             default:
-                var evidenceCommits = (normalizedResponse.SupportingCommits ?? [])
-                    .Concat(normalizedResponse.Commits)
+                var evidenceCommits = normalizedSupporting
+                    .Concat(normalizedCommits)
                     .GroupBy(commit => commit.Commit, StringComparer.OrdinalIgnoreCase)
                     .Select(group => group.First())
-                    .Select(commit => new PlanEvidenceCommit(commit.Commit, commit.Relation, commit.Reason))
                     .ToArray();
                 var terminalCommit = evidenceCommits.LastOrDefault()?.Commit ?? context.AssessedHead;
                 var decisionEvidence = new PlanRecoveryDecisionEvidence(
@@ -14873,7 +14869,8 @@ public partial class MainWindow : Window
         string groupId,
         string taskId,
         string baselineCommit,
-        PendingDecomposePlan plan)
+        PendingDecomposePlan plan,
+        IReadOnlyList<PlanRecoveryCommitReference>? commitReferences = null)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -14896,7 +14893,9 @@ public partial class MainWindow : Window
         sb.AppendLine($"=== Baseline commit: {baselineCommit} ===");
         sb.AppendLine();
         sb.AppendLine("--- Candidate unrecorded commits (git log baseline..HEAD) ---");
-        sb.AppendLine(string.IsNullOrWhiteSpace(logOutput) ? "(none)" : logOutput.Trim());
+        sb.AppendLine(string.IsNullOrWhiteSpace(logOutput)
+            ? "(none)"
+            : FormatPlanRecoveryCommitLog(logOutput, commitReferences));
         sb.AppendLine();
         sb.AppendLine("--- Changed files (git diff --stat baseline..HEAD) ---");
         sb.AppendLine(string.IsNullOrWhiteSpace(diffStat) ? "(no changes)" : diffStat.Trim());
@@ -14939,6 +14938,31 @@ public partial class MainWindow : Window
         sb.AppendLine($"--- Plan revision: {plan.Revision} ---");
 
         return sb.ToString();
+    }
+
+    internal static string FormatPlanRecoveryCommitLog(
+        string logOutput,
+        IReadOnlyList<PlanRecoveryCommitReference>? commitReferences)
+    {
+        if (commitReferences is not { Count: > 0 })
+            return logOutput.Trim();
+
+        var idByCommit = commitReferences.ToDictionary(
+            reference => reference.Commit,
+            reference => reference.Id,
+            StringComparer.OrdinalIgnoreCase);
+        return string.Join(
+            "\n",
+            logOutput
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(line =>
+                {
+                    var separator = line.IndexOf('\t');
+                    var commit = separator < 0 ? line : line[..separator];
+                    return idByCommit.TryGetValue(commit, out var id)
+                        ? $"{id}\t{line}"
+                        : line;
+                }));
     }
 
     private static string BuildRecoveryAnalysisPrompt(

@@ -27,9 +27,18 @@ internal static class PlanRecoveryCommitRelation
 }
 
 internal sealed record PlanRecoveryCommitAssessment(
+    [property: JsonPropertyName("commitId")] string CommitId,
+    [property: JsonPropertyName("relation")] string Relation,
+    [property: JsonPropertyName("reason")] string Reason);
+
+internal sealed record PlanRecoverySupportingCommitAssessment(
     [property: JsonPropertyName("commit")] string Commit,
     [property: JsonPropertyName("relation")] string Relation,
     [property: JsonPropertyName("reason")] string Reason);
+
+internal sealed record PlanRecoveryCommitReference(
+    string Id,
+    string Commit);
 
 /// <summary>
 /// AI's semantic assessment of repository state after an interrupted plan task. The host treats
@@ -37,11 +46,6 @@ internal sealed record PlanRecoveryCommitAssessment(
 /// </summary>
 internal sealed record PlanRecoveryAssessmentResponse(
     [property: JsonPropertyName("recoveryAssessmentId")] string RecoveryAssessmentId,
-    [property: JsonPropertyName("planId")] string PlanId,
-    [property: JsonPropertyName("taskId")] string TaskId,
-    [property: JsonPropertyName("revision")] string Revision,
-    [property: JsonPropertyName("baselineCommit")] string BaselineCommit,
-    [property: JsonPropertyName("assessedHead")] string AssessedHead,
     [property: JsonPropertyName("classification")] string Classification,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("remainingWork")] IReadOnlyList<string>? RemainingWork,
@@ -49,7 +53,7 @@ internal sealed record PlanRecoveryAssessmentResponse(
     [property: JsonPropertyName("commits")] IReadOnlyList<PlanRecoveryCommitAssessment> Commits,
     [property: JsonPropertyName("supportingCommits")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<PlanRecoveryCommitAssessment>? SupportingCommits = null);
+    IReadOnlyList<PlanRecoverySupportingCommitAssessment>? SupportingCommits = null);
 
 internal static class PlanRecoveryAssessmentParser
 {
@@ -79,9 +83,15 @@ internal static class PlanRecoveryAssessmentParser
                 .ToArray(),
             Commits = (response.Commits ?? [])
                 .Where(commit => commit is not null)
-                .Select(commit => commit with
+                .Select(commit =>
                 {
-                    Relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty,
+                    var relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty;
+                    var reason = string.IsNullOrWhiteSpace(commit.Reason)
+                        ? relation == PlanRecoveryCommitRelation.Unrelated
+                            ? "Classified as unrelated during recovery assessment."
+                            : string.Empty
+                        : commit.Reason.Trim();
+                    return commit with { Relation = relation, Reason = reason };
                 })
                 .ToArray(),
             SupportingCommits = (response.SupportingCommits ?? [])
@@ -94,14 +104,9 @@ internal static class PlanRecoveryAssessmentParser
         };
         if (response is null ||
             string.IsNullOrWhiteSpace(response.RecoveryAssessmentId) ||
-            string.IsNullOrWhiteSpace(response.PlanId) ||
-            string.IsNullOrWhiteSpace(response.TaskId) ||
-            string.IsNullOrWhiteSpace(response.Revision) ||
-            string.IsNullOrWhiteSpace(response.BaselineCommit) ||
-            string.IsNullOrWhiteSpace(response.AssessedHead) ||
             string.IsNullOrWhiteSpace(response.Summary))
         {
-            error = "The recovery assessment omitted required identity, repository, summary, or commit fields.";
+            error = "The recovery assessment omitted its assessment identity or summary.";
             return false;
         }
 
@@ -112,11 +117,12 @@ internal static class PlanRecoveryAssessmentParser
         }
 
         if (response.Commits.Any(commit =>
-                string.IsNullOrWhiteSpace(commit.Commit) ||
-                string.IsNullOrWhiteSpace(commit.Reason) ||
-                !PlanRecoveryCommitRelation.IsValid(commit.Relation)))
+                string.IsNullOrWhiteSpace(commit.CommitId) ||
+                !PlanRecoveryCommitRelation.IsValid(commit.Relation) ||
+                (commit.Relation != PlanRecoveryCommitRelation.Unrelated &&
+                 string.IsNullOrWhiteSpace(commit.Reason))))
         {
-            error = "Every assessed commit requires a commit, reason, and valid relation.";
+            error = "Every assessed commit requires a commitId and valid relation; non-unrelated commits also require a reason.";
             return false;
         }
         if ((response.SupportingCommits ?? []).Any(commit =>
@@ -153,15 +159,16 @@ internal static class PlanRecoveryAssessmentValidator
 
     internal static bool TryValidateAgainstPlanEvidence(
         Plan plan,
+        string taskId,
         PlanRecoveryAssessmentResponse response,
         out string? error)
     {
         error = null;
         var task = plan.Tasks.FirstOrDefault(candidate =>
-            string.Equals(candidate.TaskId, response.TaskId, StringComparison.Ordinal));
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
         if (task is null)
         {
-            error = $"The assessed task {response.TaskId} is not present in the durable plan.";
+            error = $"The assessed task {taskId} is not present in the durable plan.";
             return false;
         }
 
@@ -186,45 +193,44 @@ internal static class PlanRecoveryAssessmentValidator
 
     internal static bool MatchesRequest(
         PlanRecoveryAssessmentResponse response,
-        string assessmentId,
-        string planId,
-        string taskId,
-        string revision,
-        string baselineCommit,
-        string assessedHead) =>
-        string.Equals(response.RecoveryAssessmentId, assessmentId, StringComparison.Ordinal) &&
-        string.Equals(response.PlanId, planId, StringComparison.Ordinal) &&
-        string.Equals(response.TaskId, taskId, StringComparison.Ordinal) &&
-        string.Equals(response.Revision, revision, StringComparison.Ordinal) &&
-        string.Equals(response.BaselineCommit, baselineCommit, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(response.AssessedHead, assessedHead, StringComparison.OrdinalIgnoreCase);
+        string assessmentId) =>
+        string.Equals(response.RecoveryAssessmentId, assessmentId, StringComparison.Ordinal);
+
+    internal static IReadOnlyList<PlanRecoveryCommitReference> CreateCommitReferences(
+        IReadOnlyList<string> commits) =>
+        commits.Select((commit, index) =>
+                new PlanRecoveryCommitReference($"c{index + 1:D3}", commit))
+            .ToArray();
 
     internal static bool TryValidateCommitCoverage(
         PlanRecoveryAssessmentResponse response,
-        IReadOnlyList<string> actualCommits,
+        IReadOnlyList<PlanRecoveryCommitReference> actualCommits,
         out IReadOnlyList<string> attributedCommits,
         out string? error)
     {
         attributedCommits = [];
         error = null;
-        var actualSet = new HashSet<string>(actualCommits, StringComparer.OrdinalIgnoreCase);
+        var actualById = actualCommits.ToDictionary(
+            reference => reference.Id,
+            reference => reference,
+            StringComparer.OrdinalIgnoreCase);
         var assessed = new Dictionary<string, PlanRecoveryCommitAssessment>(StringComparer.OrdinalIgnoreCase);
         var duplicates = new List<string>();
         var unexpected = new List<string>();
         foreach (var commit in response.Commits)
         {
-            if (!actualSet.Contains(commit.Commit))
-                unexpected.Add(commit.Commit);
-            else if (!assessed.TryAdd(commit.Commit, commit))
-                duplicates.Add(commit.Commit);
+            if (!actualById.ContainsKey(commit.CommitId))
+                unexpected.Add(commit.CommitId);
+            else if (!assessed.TryAdd(commit.CommitId, commit))
+                duplicates.Add(commit.CommitId);
         }
-        var missing = actualCommits.Where(commit => !assessed.ContainsKey(commit)).ToArray();
+        var missing = actualCommits.Where(reference => !assessed.ContainsKey(reference.Id)).ToArray();
         var validationErrors = new List<string>();
         if (missing.Length > 0 || unexpected.Count > 0 || duplicates.Count > 0)
         {
             var details = new List<string>();
             if (missing.Length > 0)
-                details.Add("Missing: " + string.Join(", ", missing));
+                details.Add("Missing: " + string.Join(", ", missing.Select(reference => reference.Id)));
             if (unexpected.Count > 0)
                 details.Add("Not in the captured range: " + string.Join(", ", unexpected.Distinct(StringComparer.OrdinalIgnoreCase)));
             if (duplicates.Count > 0)
@@ -234,9 +240,11 @@ internal static class PlanRecoveryAssessmentValidator
                 string.Join(". ", details) + ".");
         }
 
-        var attributed = actualCommits.Where(commit =>
-            assessed.TryGetValue(commit, out var assessment) &&
-            assessment.Relation is PlanRecoveryCommitRelation.Task or PlanRecoveryCommitRelation.Mixed).ToArray();
+        var attributed = actualCommits.Where(reference =>
+                assessed.TryGetValue(reference.Id, out var assessment) &&
+                assessment.Relation is PlanRecoveryCommitRelation.Task or PlanRecoveryCommitRelation.Mixed)
+            .Select(reference => reference.Commit)
+            .ToArray();
         if (response.Classification == PlanRecoveryClassification.Complete && attributed.Length == 0)
         {
             validationErrors.Add(
@@ -244,9 +252,12 @@ internal static class PlanRecoveryAssessmentValidator
         }
         if (response.Classification == PlanRecoveryClassification.NotStarted && attributed.Length > 0)
         {
+            var attributedIds = actualCommits
+                .Where(reference => attributed.Contains(reference.Commit, StringComparer.OrdinalIgnoreCase))
+                .Select(reference => reference.Id);
             validationErrors.Add(
                 "The assessment called the current task revision not started while also marking these commits as " +
-                $"task or mixed: {string.Join(", ", attributed)}. Use relation superseded for an older implementation " +
+                $"task or mixed: {string.Join(", ", attributedIds)}. Use relation superseded for an older implementation " +
                 "that the current task revision replaced.");
         }
 
