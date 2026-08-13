@@ -23,6 +23,36 @@ internal static class PlanGateManager
     internal static bool CanEditReviewContract(PlanApprovalGate? gate) =>
         gate?.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval;
 
+    /// <summary>
+    /// Returns true when an approved gate can still be reverted — the plan is still awaiting
+    /// approval (not yet advanced into executing) so no downstream tasks have started.
+    /// </summary>
+    internal static bool CanUnapproveGate(Plan plan, string gateId) =>
+        plan.ApprovalGates.Any(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal) &&
+            g.Status == PlanGateStatus.Approved) &&
+        plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval;
+
+    /// <summary>
+    /// Reverts an approved gate back to AwaitingApproval when the plan has not yet advanced.
+    /// Returns plan unchanged when the gate cannot be reverted (<see cref="CanUnapproveGate"/>).
+    /// </summary>
+    internal static Plan UnapproveGate(Plan plan, string gateId)
+    {
+        if (!CanUnapproveGate(plan, gateId)) return plan;
+        var gates = plan.ApprovalGates.Select(gate =>
+            string.Equals(gate.GateId, gateId, StringComparison.Ordinal)
+                ? gate with
+                {
+                    Status        = PlanGateStatus.AwaitingApproval,
+                    ResolvedAt    = null,
+                    ResolutionNote = null,
+                    ResolvedBy    = null,
+                }
+                : gate).ToArray();
+        return plan with { ApprovalGates = gates };
+    }
+
     internal static Plan UpdateReviewContract(
         Plan plan,
         string gateId,

@@ -40,6 +40,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly string? _interruptedPrimaryActionHint;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
+    private readonly Action<Plan, string>? _onUnapproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
     private readonly Func<Task<bool>>? _initializeRepository;
@@ -86,6 +87,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         string? interruptedPrimaryActionHint = null,
         Action<Plan>? onEndPlan      = null,
         Action<Plan, string>? onApproveGate = null,
+        Action<Plan, string>? onUnapproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
         WeakEventBroker? broker = null,
@@ -122,6 +124,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _interruptedPrimaryActionHint = interruptedPrimaryActionHint;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
+        _onUnapproveGate    = onUnapproveGate;
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
         _initializeRepository = initializeRepository;
@@ -252,6 +255,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onContinueInterruptedTask = _onContinueInterruptedTask;
         var onReplanRemainingWork = _onReplanRemainingWork;
         var onApproveGate      = _onApproveGate;
+        var onUnapproveGate    = _onUnapproveGate;
         var group = plan.Group;
 
         var root = new Grid();
@@ -1187,7 +1191,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     selectionAnchor: existingGate?.GateId,
                     toggleActionLabel: milestoneIsPrimary
                         ? "Remove this approval requirement"
-                        : "Make this the primary approval control");
+                        : "Make this the primary approval control",
+                    approveAction: milestoneAwaiting && existingGate is not null && onApproveGate is not null
+                        ? () => { onApproveGate(durablePlan!, existingGate.GateId); }
+                        : null,
+                    unapproveAction: milestoneApproved && existingGate is not null && onUnapproveGate is not null
+                        ? () => { onUnapproveGate(durablePlan!, existingGate.GateId); }
+                        : null);
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneAwaiting ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
@@ -1636,7 +1646,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     selectionAnchor: (existingJoinGate ?? coveringJoinGate)?.GateId,
                     toggleActionLabel: joinIsPrimary
                         ? "Remove this approval requirement"
-                        : "Make this the primary approval control");
+                        : "Make this the primary approval control",
+                    approveAction: joinAwaiting && existingJoinGate is not null && onApproveGate is not null
+                        ? () => { onApproveGate(durablePlan!, existingJoinGate.GateId); }
+                        : null,
+                    unapproveAction: joinApproved && existingJoinGate is not null && onUnapproveGate is not null
+                        ? () => { onUnapproveGate(durablePlan!, existingJoinGate.GateId); }
+                        : null);
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -2307,7 +2323,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             selectionAnchor: controllingBeforeGate?.GateId,
                             toggleActionLabel: beforeIsPrimary
                                 ? "Remove this approval requirement"
-                                : "Make this the primary approval control");
+                                : "Make this the primary approval control",
+                            approveAction: beforeAwaiting && existingBeforeGate is not null && onApproveGate is not null
+                                ? () => { onApproveGate(durablePlan, existingBeforeGate.GateId); }
+                                : null,
+                            unapproveAction: beforeApproved && existingBeforeGate is not null && onUnapproveGate is not null
+                                ? () => { onUnapproveGate(durablePlan, existingBeforeGate.GateId); }
+                                : null);
                         Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeAwaiting ? 4 : 6) * _scaleFactor);
                         Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
@@ -2410,7 +2432,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             selectionAnchor: controllingAfterGate?.GateId,
                             toggleActionLabel: afterIsPrimary
                                 ? "Remove this approval requirement"
-                                : "Make this the primary approval control");
+                                : "Make this the primary approval control",
+                            approveAction: afterAwaiting && existingAfterGate is not null && onApproveGate is not null
+                                ? () => { onApproveGate(durablePlan, existingAfterGate.GateId); }
+                                : null,
+                            unapproveAction: afterApproved && existingAfterGate is not null && onUnapproveGate is not null
+                                ? () => { onUnapproveGate(durablePlan, existingAfterGate.GateId); }
+                                : null);
                         Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterAwaiting ? 24 : 22) * _scaleFactor);
                         Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
@@ -3279,7 +3307,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         bool approved = false,
         bool awaitingApproval = false,
         string? selectionAnchor = null,
-        string? toggleActionLabel = null)
+        string? toggleActionLabel = null,
+        Action? approveAction = null,
+        Action? unapproveAction = null)
     {
         var s = _scaleFactor;
         FrameworkElement indicator;
@@ -3405,6 +3435,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 hitTarget.ContextMenu = menu;
             }
 
+        }
+        // Approval/unapproval context menu for the human-gate icon.
+        if (approveAction is not null || unapproveAction is not null)
+        {
+            var menu = new ContextMenu();
+            menu.Style = TryFindResource("ThemedContextMenuStyle") as Style;
+            if (approveAction is not null)
+            {
+                var approveItem = new MenuItem
+                {
+                    Header = "✓ Approve",
+                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
+                };
+                approveItem.Click += (_, _) => approveAction();
+                menu.Items.Add(approveItem);
+            }
+            if (unapproveAction is not null)
+            {
+                var unapproveItem = new MenuItem
+                {
+                    Header = "✗ Unapprove",
+                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
+                };
+                unapproveItem.Click += (_, _) => unapproveAction();
+                menu.Items.Add(unapproveItem);
+            }
+            hitTarget.ContextMenu = menu;
         }
         return hitTarget;
     }

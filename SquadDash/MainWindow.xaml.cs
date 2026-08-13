@@ -10461,12 +10461,23 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveCurrentPlan(p, gate.GateId);
               }
             : null;
+        Action<Plan, string>? onUnapproveGate = durablePlan?.ApprovalGates.Any(gate =>
+            gate.Status == PlanGateStatus.Approved) == true &&
+            durablePlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval
+            ? (p, gateId) =>
+              {
+                  if (!PlanGateManager.CanUnapproveGate(p, gateId)) return;
+                  var updated = PlanGateManager.UnapproveGate(p, gateId);
+                  if (!ReferenceEquals(updated, p)) TryPublishPlanProgress(updated, out _);
+              }
+            : null;
         win = new PlanViewerWindow(
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
             displayedPlan, activeBranch, _inboxFontSize, applyAction, durablePlan,
             onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange,
             interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
+            onUnapproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
             isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(),
             broker: _broker,
