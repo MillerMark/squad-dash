@@ -46,4 +46,22 @@ internal static class PlanViewerAutoScrollPolicy
         var maximumOffset = Math.Max(0, extentWidth - viewportWidth);
         return Math.Clamp(targetRight - viewportWidth, 0, maximumOffset);
     }
+
+    internal static string? SelectNextWorkTaskId(
+        IReadOnlyList<(string TaskId, string Status)> tasks,
+        string? interruptedTaskId,
+        string? projectedExecutingTaskId)
+    {
+        static bool IsTerminal(string status) =>
+            status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded;
+
+        bool IsEligible(string? taskId) => taskId is not null && tasks.Any(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal) && !IsTerminal(task.Status));
+
+        if (IsEligible(interruptedTaskId))
+            return interruptedTaskId;
+        if (IsEligible(projectedExecutingTaskId))
+            return projectedExecutingTaskId;
+        return tasks.FirstOrDefault(task => !IsTerminal(task.Status)).TaskId;
+    }
 }

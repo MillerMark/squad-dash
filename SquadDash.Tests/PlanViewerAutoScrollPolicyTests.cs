@@ -66,6 +66,39 @@ internal sealed class PlanViewerAutoScrollPolicyTests
     }
 
     [Test]
+    public void SelectNextWorkTaskId_PausedPlan_PrefersInterruptedTask()
+    {
+        var result = PlanViewerAutoScrollPolicy.SelectNextWorkTaskId(
+            [("A", PlanTaskStatus.Complete), ("B", PlanTaskStatus.Partial), ("C", PlanTaskStatus.Pending)],
+            interruptedTaskId: "B",
+            projectedExecutingTaskId: null);
+
+        Assert.That(result, Is.EqualTo("B"));
+    }
+
+    [Test]
+    public void SelectNextWorkTaskId_ApprovalPause_UsesFirstNonterminalTask()
+    {
+        var result = PlanViewerAutoScrollPolicy.SelectNextWorkTaskId(
+            [("A", PlanTaskStatus.Complete), ("B", PlanTaskStatus.Pending), ("C", PlanTaskStatus.Pending)],
+            interruptedTaskId: null,
+            projectedExecutingTaskId: null);
+
+        Assert.That(result, Is.EqualTo("B"));
+    }
+
+    [Test]
+    public void SelectNextWorkTaskId_IgnoresStaleTerminalPointers()
+    {
+        var result = PlanViewerAutoScrollPolicy.SelectNextWorkTaskId(
+            [("A", PlanTaskStatus.Complete), ("B", PlanTaskStatus.Complete), ("C", PlanTaskStatus.Pending)],
+            interruptedTaskId: "A",
+            projectedExecutingTaskId: "B");
+
+        Assert.That(result, Is.EqualTo("C"));
+    }
+
+    [Test]
     public void IsInteractionQuiet_RequiresThirtySecondsWithoutInput()
     {
         var now = new DateTime(2026, 8, 13, 12, 0, 30, DateTimeKind.Utc);

@@ -3156,16 +3156,35 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         var activity = PlanTaskActivityResolver.Resolve(durablePlan);
-        var activeTaskIds = activity
+        var focusTaskIds = activity
             .Where(item => IsActivelyWorking(item.Value))
             .Select(item => item.Key)
             .Concat(_recoveryAssessmentTaskIds)
             .Where(id => levels.ContainsKey(id) && positions.ContainsKey(id))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (activeTaskIds.Length > 0)
+        if (focusTaskIds.Length == 0 && !IsPlanComplete(durablePlan))
         {
-            var activeLevel = activeTaskIds.Max(id => levels[id]);
+            var allTasksUntouched = durablePlan.Tasks.All(task => task.Status == PlanTaskStatus.Pending);
+            var hasDurableCurrentTask = durablePlan.InterruptionData?.InterruptedTaskId is not null ||
+                                        durablePlan.Progress.ExecutingTaskId is not null;
+            if (allTasksUntouched && !hasDurableCurrentTask)
+            {
+                _automaticScrollTarget = AutomaticScrollTarget.PlanStart;
+                return;
+            }
+
+            var nextTaskId = PlanViewerAutoScrollPolicy.SelectNextWorkTaskId(
+                durablePlan.Tasks.Select(task => (task.TaskId, task.Status)).ToArray(),
+                durablePlan.InterruptionData?.InterruptedTaskId,
+                durablePlan.Progress.ExecutingTaskId);
+            if (nextTaskId is not null && levels.ContainsKey(nextTaskId) && positions.ContainsKey(nextTaskId))
+                focusTaskIds = [nextTaskId];
+        }
+
+        if (focusTaskIds.Length > 0)
+        {
+            var activeLevel = focusTaskIds.Max(id => levels[id]);
             var targetLevel = levels.Values
                 .Where(level => level > activeLevel)
                 .DefaultIfEmpty(activeLevel)
