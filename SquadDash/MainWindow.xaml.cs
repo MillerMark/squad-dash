@@ -32867,7 +32867,7 @@ public partial class MainWindow : Window
             TranscriptTitleTextBlock.Text = baseText;
             var gpa0 = BuildGpaTooltip(displayTitle);
             TranscriptTitleTextBlock.ToolTip = gpa0 is not null ? (object)gpa0
-                : (!string.IsNullOrWhiteSpace(intent) ? MakeThemedToolTip($"{baseText}\n{relativeTime}".TrimEnd()) : null);
+                : (!string.IsNullOrWhiteSpace(intent) ? MakeThemedToolTip(BuildCoordinatorTooltipText(baseText, relativeTime)) : null);
             return;
         }
 
@@ -32934,10 +32934,7 @@ public partial class MainWindow : Window
         }
         else if (!string.IsNullOrWhiteSpace(intent) || !string.IsNullOrWhiteSpace(relativeTime))
         {
-            var tooltipText = !string.IsNullOrWhiteSpace(relativeTime)
-                ? $"{baseText}\n{relativeTime}"
-                : baseText;
-            TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(tooltipText);
+            TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(BuildCoordinatorTooltipText(baseText, relativeTime));
         }
         else
         {
@@ -33306,6 +33303,11 @@ public partial class MainWindow : Window
         MainTranscriptBorder.Visibility = Visibility.Visible;
         SyncSelectionControllerWithUiState("ShowMainTranscript");
         SyncTranscriptTargetIndicators();
+        // Recreate any completion footer paragraph that was removed while the transcript
+        // was hidden.  SelectTranscriptThreadCore may skip UpdateCompletedTimeFooters via
+        // its already-visible early-return guard, and the periodic timer was stopped, so
+        // we must call it here to restore the footer (with its alias annotation).
+        UpdateCompletedTimeFooters();
         ScheduleGridRebuild();
     }
 
@@ -34016,16 +34018,34 @@ public partial class MainWindow : Window
         var handle = GetThreadModelOverrideHandle(thread, agent);
         var category = GetThreadModelProfileCategory(thread, handle);
         var resolution = ResolveThreadModelProfile(thread, handle, category);
-        lines.Add(string.Empty);
-        lines.Add($"Effective profile: {resolution.Profile?.Alias ?? "Unavailable"}");
-        lines.Add($"Reason: {GetModelProfileReasonLabel(resolution.Reason)}");
-        if (!string.IsNullOrWhiteSpace(resolution.ExplicitOverrideProfileId))
+        var alias = resolution.Profile?.Alias;
+        if (!string.IsNullOrEmpty(alias))
         {
-            var overrideLabel = resolution.ExplicitOverrideProfile?.Alias ?? resolution.ExplicitOverrideProfileId;
-            lines.Add($"Override: {overrideLabel}");
+            lines.Add(string.Empty);
+            var hasOverride = !string.IsNullOrWhiteSpace(resolution.ExplicitOverrideProfileId);
+            lines.Add(hasOverride ? $"Using: {alias} (override)" : $"Using: {alias}");
         }
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private string BuildCoordinatorTooltipText(string baseText, string? relativeTime)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(baseText);
+        if (!string.IsNullOrWhiteSpace(relativeTime))
+        {
+            sb.AppendLine();
+            sb.Append(relativeTime);
+        }
+        var coordinatorAlias = _modelProfileStore.GetDefaultProfile()?.Alias;
+        if (!string.IsNullOrEmpty(coordinatorAlias))
+        {
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.Append($"Using: {coordinatorAlias}");
+        }
+        return sb.ToString();
     }
 
     private ContextMenu? CreateAgentModelOverrideContextMenu(AgentStatusCard agent, TranscriptThreadState thread)
@@ -34362,7 +34382,7 @@ public partial class MainWindow : Window
                     ? $"Coordinator - {displayIntent}"
                     : $"Coordinator - {displayIntent} - {relTime}";
                 TranscriptTitleTextBlock.Text    = title;
-                TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(displayIntent);
+                TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(BuildCoordinatorTooltipText(displayIntent, relTime));
             }
             else
             {
