@@ -170,7 +170,7 @@ internal static class TranscriptApprovalCardBuilder
             item => item.GateId + "\0" + item.ItemId,
             item => item.IsChecked,
             StringComparer.Ordinal);
-        var checklistBoxes = new List<CheckBox>();
+        var checklistBoxes = new List<Action<bool>>();  // each action: setChecked(value)
         if (checklistItems.Count > 0)
         {
             var questionStack = new StackPanel();
@@ -187,34 +187,60 @@ internal static class TranscriptApprovalCardBuilder
                 itemBlock.Inlines.Add(questionRun);
                 itemBlock.FontWeight = FontWeights.Normal;
                 itemBlock.TextWrapping = TextWrapping.Wrap;
-                itemBlock.Margin = new Thickness(0, 0, 0, 5);
+                itemBlock.Margin = new Thickness(0, 0, 0, 0);
                 AutomationProperties.SetName(itemBlock, "Approval question");
                 questionBlock ??= itemBlock;
-                var checkBox = new CheckBox
+
+                var boxSize = Math.Round((fontSize + 1) * 1.2);
+                var localChecked = item.IsChecked;
+
+                var checkIconViewbox = Application.Current.FindResource("PlanApprovalResolvedCheck") as Viewbox
+                    ?? new Viewbox();
+                checkIconViewbox.Visibility = localChecked ? Visibility.Visible : Visibility.Hidden;
+                checkIconViewbox.Margin = new Thickness(2);
+
+                var checkBorder = new Border
                 {
-                    Content = itemBlock,
-                    IsChecked = item.IsChecked,
-                    Margin = new Thickness(8, 1, 0, 4),
-                    VerticalContentAlignment = VerticalAlignment.Top,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Check this after you personally verify that the statement is true."),
+                    Width = boxSize,
+                    Height = boxSize,
+                    BorderThickness = new Thickness(1.5),
+                    CornerRadius = new CornerRadius(2),
+                    Background = Brushes.Transparent,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(8, 2, 6, 0),
+                    Child = checkIconViewbox,
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("Check this after you personally verify that the statement is true."),
                 };
-                AutomationProperties.SetName(checkBox, item.Text);
-                checklistBoxes.Add(checkBox);
+                checkBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                AutomationProperties.SetName(checkBorder, item.Text);
+
+                var itemRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 0, 4),
+                };
+                itemRow.Children.Add(checkBorder);
+                itemRow.Children.Add(itemBlock);
+
                 var capturedItem = item;
-                checkBox.Checked += (_, _) =>
+                Action<bool> setChecked = (value) =>
                 {
-                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = true;
-                    onChecklistChanged?.Invoke(capturedItem, true);
+                    localChecked = value;
+                    checkIconViewbox.Visibility = value ? Visibility.Visible : Visibility.Hidden;
+                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = value;
+                    onChecklistChanged?.Invoke(capturedItem, value);
                     UpdateApprovalAvailability();
                 };
-                checkBox.Unchecked += (_, _) =>
+
+                checkBorder.MouseDown += (_, e) =>
                 {
-                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = false;
-                    onChecklistChanged?.Invoke(capturedItem, false);
-                    UpdateApprovalAvailability();
+                    if (e.ChangedButton == MouseButton.Left)
+                        setChecked(!localChecked);
                 };
-                questionStack.Children.Add(checkBox);
+
+                checklistBoxes.Add(setChecked);
+                questionStack.Children.Add(itemRow);
                 if (item.WasPreviouslyChecked && !item.IsChecked)
                 {
                     var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
@@ -247,8 +273,8 @@ internal static class TranscriptApprovalCardBuilder
             markAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             markAll.Click += (_, _) =>
             {
-                foreach (var box in checklistBoxes)
-                    box.IsChecked = true;
+                foreach (var setChecked in checklistBoxes)
+                    setChecked(true);
             };
             checklistMenu.Items.Add(markAll);
             questionBorder.ContextMenu = checklistMenu;
