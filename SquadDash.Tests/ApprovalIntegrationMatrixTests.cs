@@ -310,7 +310,7 @@ internal sealed class ApprovalIntegrationMatrixTests
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Full lifecycle: gate ready → activated → approved → back to executing
+    // Full lifecycle: gate ready → activated → approved → waiting for execution claim
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -329,9 +329,9 @@ internal sealed class ApprovalIntegrationMatrixTests
         var stopped = PlanStoreUpdater.ApplyFullStopAtGates(plan, ["GATE-A"]);
         Assert.That(stopped.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
 
-        // Step 3: Gate approved — back to executing
+        // Step 3: Gate approved — authorized but not executing until the host claims a slot
         var approved = PlanStoreUpdater.ApplyGateApproved(stopped, "GATE-A", "LGTM");
-        Assert.That(approved.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(approved.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
         Assert.That(approved.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Approved));
         Assert.That(approved.ApprovalGates[0].ResolvedAt, Is.Not.Null);
     }
@@ -694,9 +694,9 @@ internal sealed class ApprovalIntegrationMatrixTests
         await _durableManager.ResolveCheckpointAsync(plan, "GATE-A", "Approved all");
         Assert.That(_durableManager.IsArchived("PLAN-001"), Is.True);
 
-        // Step 6: Resume — apply gate approved in plan
+        // Step 6: Approval is durable; host execution admission happens separately
         var approvedPlan = PlanStoreUpdater.ApplyGateApproved(stoppedPlan, "GATE-A", "Approved all");
-        Assert.That(approvedPlan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(approvedPlan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
 
         // Step 7: Verify T3 is now eligible
         var released = ApprovalGateReadinessEvaluator.GetReleasedTaskIds(approvedPlan, "GATE-A");

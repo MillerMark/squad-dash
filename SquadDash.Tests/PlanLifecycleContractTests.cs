@@ -141,7 +141,7 @@ internal sealed class PlanLifecycleContractTests
     }
 
     [Test]
-    public void AwaitingApproval_to_Executing_viaGateApproval()
+    public void AwaitingApproval_to_Approved_viaGateApproval()
     {
         var plan      = MakeExecutingPlanWithGate();
         var paused    = PlanStoreUpdater.ApplyGateActivated(plan, "CTR-001-GATE-001");
@@ -150,7 +150,7 @@ internal sealed class PlanLifecycleContractTests
 
         var resumed = PlanStoreUpdater.ApplyGateApproved(paused, "CTR-001-GATE-001", note: "LGTM");
 
-        Assert.That(resumed.LifecycleStatus,               Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(resumed.LifecycleStatus,               Is.EqualTo(PlanLifecycleStatus.Approved));
         Assert.That(resumed.ApprovalGates[0].Status,       Is.EqualTo(PlanGateStatus.Approved));
         Assert.That(resumed.ApprovalGates[0].ResolutionNote, Is.EqualTo("LGTM"));
     }

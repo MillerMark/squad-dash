@@ -635,7 +635,7 @@ internal sealed class ApprovalNotificationLifecycleTests
 
         Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
         Assert.That(result.ShouldResume, Is.True);
-        Assert.That(result.UpdatedPlan!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(result.UpdatedPlan!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
     }
 
     [Test]
@@ -1048,7 +1048,7 @@ internal sealed class ApprovalNotificationLifecycleTests
             advance.ClickToken!, advance.UpdatedPlan, "Looks good!", _ => true);
         Assert.That(approveResult.Result, Is.EqualTo(ApprovalClickResult.Approved));
         Assert.That(approveResult.ShouldResume, Is.True);
-        Assert.That(approveResult.UpdatedPlan!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(approveResult.UpdatedPlan!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
 
         // Message archived
         Assert.That(_durableManager.IsArchived("PLAN-001"), Is.True);

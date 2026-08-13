@@ -1717,6 +1717,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var activityState = taskActivityById.TryGetValue(task.Id, out var resolvedActivityState)
                 ? resolvedActivityState
                 : PlanTaskActivityState.Queued;
+            activityState = PlanTaskActivityPresentation.ResolveLiveState(
+                activityState,
+                _isTaskActivityActive?.Invoke(task.Id) ?? true);
             if (_recoveryAssessmentTaskIds.Contains(task.Id) ||
                 (_isRecoveryAssessmentActive?.Invoke(task.Id) ?? false))
                 activityState = PlanTaskActivityState.Assessing;

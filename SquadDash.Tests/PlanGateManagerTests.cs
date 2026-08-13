@@ -529,4 +529,61 @@ internal sealed class PlanGateManagerTests
             Assert.That(gate.BeforeTaskIds, Is.EqualTo(new[] { "B" }));
         });
     }
+
+    [Test]
+    public void UnapproveGate_ApprovedWaitingPlan_ReopensCheckpoint()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = PlanGateManager.AddBoundaryGate(plan, ["A"], ["B"], "Review", "task-after:A");
+        plan = plan with
+        {
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.Approved }],
+        };
+
+        Assert.That(PlanGateManager.CanUnapproveGate(plan, plan.ApprovalGates[0].GateId), Is.True);
+        var updated = PlanGateManager.UnapproveGate(plan, plan.ApprovalGates[0].GateId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+            Assert.That(updated.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+        });
+    }
+
+    [Test]
+    public void CanUnapproveGate_UnrelatedSameStageWorkDoesNotConsumeBoundary()
+    {
+        var plan = MakePlan(("A", []), ("B", []), ("C", ["A", "B"]));
+        plan = PlanGateManager.AddBoundaryGate(plan, ["A"], ["C"], "Review A", "task-after:A");
+        plan = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = plan.Tasks.Select(task => task.TaskId switch
+            {
+                "A" => task with { Status = PlanTaskStatus.Complete },
+                "B" => task with { Status = PlanTaskStatus.Verifying },
+                _ => task,
+            }).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.Approved }],
+        };
+
+        Assert.That(PlanGateManager.CanUnapproveGate(plan, plan.ApprovalGates[0].GateId), Is.True);
+    }
+
+    [Test]
+    public void CanUnapproveGate_DownstreamWorkStarted_ReturnsFalse()
+    {
+        var plan = MakePlan(("A", []), ("B", ["A"]));
+        plan = PlanGateManager.AddBoundaryGate(plan, ["A"], ["B"], "Review", "task-after:A");
+        plan = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = plan.Tasks.Select(task => task.TaskId == "B"
+                ? task with { Status = PlanTaskStatus.Executing }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.Approved }],
+        };
+
+        Assert.That(PlanGateManager.CanUnapproveGate(plan, plan.ApprovalGates[0].GateId), Is.False);
+    }
 }

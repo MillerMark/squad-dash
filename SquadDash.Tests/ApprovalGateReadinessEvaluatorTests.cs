@@ -553,7 +553,7 @@ internal sealed class ApprovalGateReadinessEvaluatorTests
 
         // Approve GATE-Y too
         var fullyApproved = PlanStoreUpdater.ApplyGateApproved(partialApprove, "GATE-Y", null);
-        Assert.That(fullyApproved.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(fullyApproved.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
     }
 
     // ── GetTerminalTaskIds ────────────────────────────────────────────────────

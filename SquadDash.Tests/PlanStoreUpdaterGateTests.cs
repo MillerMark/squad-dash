@@ -117,7 +117,7 @@ internal sealed class PlanStoreUpdaterGateTests
     }
 
     [Test]
-    public void ApplyGateApproved_WhenNoOtherGatesAwaitingApproval_TransitionsPlanToExecuting()
+    public void ApplyGateApproved_WhenPausedAndNoOtherGatesAwaiting_WaitsApprovedForExecutionSlot()
     {
         var plan    = MakePlanWithGate(PlanGateStatus.AwaitingApproval) with
         {
@@ -125,7 +125,7 @@ internal sealed class PlanStoreUpdaterGateTests
         };
         var updated = PlanStoreUpdater.ApplyGateApproved(plan, KnownGateId, note: null);
 
-        Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
     }
 
     [Test]

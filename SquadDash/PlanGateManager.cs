@@ -24,14 +24,23 @@ internal static class PlanGateManager
         gate?.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval;
 
     /// <summary>
-    /// Returns true when an approved gate can still be reverted — the plan is still awaiting
-    /// approval (not yet advanced into executing) so no downstream tasks have started.
+    /// Returns true when an approved gate can still be reverted. Reversibility is scoped to the
+    /// gate boundary rather than the whole plan: unrelated same-stage work may be executing, but
+    /// none of the tasks controlled by this gate may have started.
     /// </summary>
-    internal static bool CanUnapproveGate(Plan plan, string gateId) =>
-        plan.ApprovalGates.Any(g =>
-            string.Equals(g.GateId, gateId, StringComparison.Ordinal) &&
-            g.Status == PlanGateStatus.Approved) &&
-        plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval;
+    internal static bool CanUnapproveGate(Plan plan, string gateId)
+    {
+        if (PlanLifecycleStatus.IsTerminal(plan.LifecycleStatus)) return false;
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal) &&
+            candidate.Status == PlanGateStatus.Approved);
+        if (gate is null) return false;
+
+        return gate.BeforeTaskIds.All(taskId =>
+            plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Status ==
+            PlanTaskStatus.Pending);
+    }
 
     /// <summary>
     /// Reverts an approved gate back to AwaitingApproval when the plan has not yet advanced.
@@ -50,7 +59,13 @@ internal static class PlanGateManager
                     ResolvedBy    = null,
                 }
                 : gate).ToArray();
-        return plan with { ApprovalGates = gates };
+        return plan with
+        {
+            LifecycleStatus = plan.LifecycleStatus == PlanLifecycleStatus.Approved
+                ? PlanLifecycleStatus.AwaitingApproval
+                : plan.LifecycleStatus,
+            ApprovalGates = gates,
+        };
     }
 
     internal static Plan UpdateReviewContract(

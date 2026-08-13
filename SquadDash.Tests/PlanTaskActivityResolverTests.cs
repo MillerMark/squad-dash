@@ -76,6 +76,19 @@ internal sealed class PlanTaskActivityResolverTests
         Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.VerificationPending));
     }
 
+    [TestCase(PlanLifecycleStatus.Approved)]
+    [TestCase(PlanLifecycleStatus.AwaitingApproval)]
+    public void StaleVerifyingTask_WithoutExecutingLifecycle_ResolvesAsPending(string lifecycleStatus)
+    {
+        var plan = MakePlan(
+            lifecycleStatus: lifecycleStatus,
+            tasks: [MakeTask("t1", PlanTaskStatus.Verifying)]);
+
+        var result = PlanTaskActivityResolver.Resolve(plan);
+
+        Assert.That(result["t1"], Is.EqualTo(PlanTaskActivityState.VerificationPending));
+    }
+
     [Test]
     public void PendingTaskNamedByExecutingProgress_ResolvesToExecuting()
     {
@@ -321,6 +334,19 @@ internal sealed class PlanTaskActivityResolverTests
     {
         Assert.That(
             PlanTaskActivityPresentation.KeepsSpinnerContinuouslyActive(activityState),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase(PlanTaskActivityState.Verifying, false, PlanTaskActivityState.VerificationPending)]
+    [TestCase(PlanTaskActivityState.Verifying, true, PlanTaskActivityState.Verifying)]
+    [TestCase(PlanTaskActivityState.Executing, false, PlanTaskActivityState.Executing)]
+    public void ResolveLiveState_VerificationRequiresMatchingRound(
+        PlanTaskActivityState activityState,
+        bool hasMatchingLiveRound,
+        PlanTaskActivityState expected)
+    {
+        Assert.That(
+            PlanTaskActivityPresentation.ResolveLiveState(activityState, hasMatchingLiveRound),
             Is.EqualTo(expected));
     }
 

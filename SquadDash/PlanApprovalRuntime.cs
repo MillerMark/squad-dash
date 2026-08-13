@@ -45,7 +45,7 @@ internal static class ApprovalResumeRetryPolicy
         string? activePlanId)
     {
         if (isClosing || string.IsNullOrWhiteSpace(planId) || plan is null ||
-            plan.LifecycleStatus != PlanLifecycleStatus.Executing)
+            plan.LifecycleStatus is not (PlanLifecycleStatus.Approved or PlanLifecycleStatus.Executing))
             return ApprovalResumeRetryDecision.Cancel;
         if (isLoopRunning)
             return string.Equals(activePlanId, planId, StringComparison.Ordinal)
@@ -326,7 +326,7 @@ internal sealed class PlanApprovalRuntime
         return new ApprovalRuntimeResolutionResult(
             result,
             updated,
-            wasPaused && updated.LifecycleStatus == PlanLifecycleStatus.Executing,
+            wasPaused && updated.LifecycleStatus == PlanLifecycleStatus.Approved,
             nextToken);
     }
 

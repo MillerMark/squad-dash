@@ -552,8 +552,10 @@ internal static class PlanStoreUpdater
 
     /// <summary>
     /// Marks the gate <see cref="PlanGateStatus.Approved"/>, sets <see cref="PlanApprovalGate.ResolvedAt"/>
-    /// and <see cref="PlanApprovalGate.ResolutionNote"/>. Transitions the plan back to
-    /// <see cref="PlanLifecycleStatus.Executing"/> when no other gates are still awaiting approval.
+    /// and <see cref="PlanApprovalGate.ResolutionNote"/>. A plan paused at the checkpoint moves
+    /// to <see cref="PlanLifecycleStatus.Approved"/> when no other gates are still awaiting
+    /// approval; the host changes it to <see cref="PlanLifecycleStatus.Executing"/> only after
+    /// acquiring an execution slot. A plan already running independent work remains executing.
     /// Returns the plan unchanged if <paramref name="gateId"/> is not found or the gate is not
     /// in <see cref="PlanGateStatus.AwaitingApproval"/> status.
     /// </summary>
@@ -586,9 +588,14 @@ internal static class PlanStoreUpdater
             .Select(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal) ? updatedGate : g)
             .ToList<PlanApprovalGate>();
         var anyStillAwaiting = updatedGates.Any(g => g.Status == PlanGateStatus.AwaitingApproval);
+        var lifecycleStatus = anyStillAwaiting
+            ? PlanLifecycleStatus.AwaitingApproval
+            : existing.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval
+                ? PlanLifecycleStatus.Approved
+                : existing.LifecycleStatus;
         return existing with
         {
-            LifecycleStatus = anyStillAwaiting ? PlanLifecycleStatus.AwaitingApproval : PlanLifecycleStatus.Executing,
+            LifecycleStatus = lifecycleStatus,
             ApprovalGates   = updatedGates,
             Timestamps      = existing.Timestamps with { LastRunAt = now },
         };

@@ -81,7 +81,9 @@ internal static class PlanTaskActivityResolver
             return PlanTaskActivityState.VerificationPending;
 
         if (PlanTaskStatus.IsVerifying(task.Status))
-            return PlanTaskActivityState.Verifying;
+            return plan.LifecycleStatus == PlanLifecycleStatus.Executing
+                ? PlanTaskActivityState.Verifying
+                : PlanTaskActivityState.VerificationPending;
 
         if (task.Status is PlanTaskStatus.Reworking)
             return PlanTaskActivityState.Reworking;

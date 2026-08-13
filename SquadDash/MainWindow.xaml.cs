@@ -8425,6 +8425,14 @@ public partial class MainWindow : Window
         AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         if (_currentWorkspace is null) return false;
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Deferred Executing Plan start because the coordinator slot is busy plan={groupId} " +
+                $"promptRunning={_isPromptRunning} loopRunning={IsLoopRunning} queueDrain={_queueDrainActive}.");
+            return false;
+        }
         var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
                                       continuationPaths is { Count: > 0 };
         if (!isConfirmedContinuation)
@@ -10452,8 +10460,10 @@ public partial class MainWindow : Window
                 QueueDecomposeReplan(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
             }
             : null;
-        Action<Plan, string>? onApproveGate = durablePlan?.ApprovalGates.Any(gate =>
-            gate.Status == PlanGateStatus.AwaitingApproval) == true
+        // Keep gate action callbacks stable for the lifetime of an open viewer. Its durable
+        // plan can refresh from Awaiting -> Approved -> Awaiting without recreating the window;
+        // each handler reloads current state before deciding whether the action is still valid.
+        Action<Plan, string>? onApproveGate = durablePlan is not null
             ? (p, gateId) =>
               {
                   var gate = p.ApprovalGates.FirstOrDefault(g =>
@@ -10461,14 +10471,10 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveCurrentPlan(p, gate.GateId);
               }
             : null;
-        Action<Plan, string>? onUnapproveGate = durablePlan?.ApprovalGates.Any(gate =>
-            gate.Status == PlanGateStatus.Approved) == true &&
-            durablePlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval
+        Action<Plan, string>? onUnapproveGate = durablePlan is not null
             ? (p, gateId) =>
               {
-                  if (!PlanGateManager.CanUnapproveGate(p, gateId)) return;
-                  var updated = PlanGateManager.UnapproveGate(p, gateId);
-                  if (!ReferenceEquals(updated, p)) TryPublishPlanProgress(updated, out _);
+                  _ = UnapproveCurrentPlanAsync(p, gateId);
               }
             : null;
         win = new PlanViewerWindow(
@@ -12958,6 +12964,11 @@ public partial class MainWindow : Window
             }
             if (resolution.ShouldResume && !completedAtApproval)
             {
+                if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                {
+                    ScheduleApprovalResumeWhenIdle(clickToken.PlanId);
+                    return;
+                }
                 try
                 {
                     SquadDashTrace.Write(
@@ -12965,6 +12976,11 @@ public partial class MainWindow : Window
                         $"Approval acquired; attempting automatic plan resume plan={clickToken.PlanId}.");
                     if (!await StartDecomposeLoopAsync(clickToken.PlanId))
                     {
+                        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                        {
+                            ScheduleApprovalResumeWhenIdle(clickToken.PlanId);
+                            return;
+                        }
                         SquadDashTrace.Write(
                             "Approval",
                             $"Automatic plan resume returned false plan={clickToken.PlanId}.");
@@ -13064,6 +13080,47 @@ public partial class MainWindow : Window
             _ = HandleApprovalClickAsync(
                 token,
                 gateIdsToResolve: gateId is null ? null : [gateId]);
+    }
+
+    private async Task UnapproveCurrentPlanAsync(Plan displayedPlan, string gateId)
+    {
+        if (_planStore is null || _planApprovalRuntime is null) return;
+        var current = _planStore.Load(displayedPlan.PlanId);
+        if (current is null || !PlanGateManager.CanUnapproveGate(current, gateId)) return;
+
+        var updated = PlanGateManager.UnapproveGate(current, gateId);
+        if (ReferenceEquals(updated, current)) return;
+        if (!TryPublishPlanProgress(updated, out var publishError))
+        {
+            if (publishError is not null)
+                AppendLine($"⚠ The approval could not be reversed: {publishError}");
+            return;
+        }
+
+        if (string.Equals(_approvalResumeRetryPlanId, updated.PlanId, StringComparison.Ordinal))
+            StopApprovalResumeRetry();
+
+        try
+        {
+            await _planApprovalRuntime.RestoreAsync([updated]);
+            if (_inboxStore is not null)
+            {
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                var messageId = DurableApprovalRequestManager.BuildMessageId(updated.PlanId);
+                if (_inboxStore.GetById(messageId) is { } message)
+                    RefreshOpenApprovalInboxWindows(messageId, message);
+            }
+            AppendLoopOutputLine(
+                $"↩ Reopened approval checkpoint {gateId} for plan {updated.PlanId}.",
+                LoopLifecycleBrush);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Approval", $"Could not restore reversed approval {gateId}: {ex}");
+            AppendLine(
+                $"⚠ The approval was reversed, but its approval action could not be restored: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -13465,14 +13522,7 @@ public partial class MainWindow : Window
             string.Equals(_approvalResumeRetryPlanId, planId, StringComparison.Ordinal))
             return;
 
-        StopApprovalResumeRetry();
-        _approvalResumeRetryPlanId = planId;
-        _approvalResumeRetryTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(1.5),
-        };
-        _approvalResumeRetryTimer.Tick += ApprovalResumeRetryTimer_Tick;
-        _approvalResumeRetryTimer.Start();
+        StartApprovalResumeRetryTimer(planId);
 
         var changedPathSummary = blocked.ChangedPaths.Count == 1
             ? blocked.ChangedPaths[0]
@@ -13484,6 +13534,33 @@ public partial class MainWindow : Window
         ScheduleDecomposeSystemEntry(
             $"Approval acquired for plan {planId}. Continuation is waiting for current repository changes " +
             $"to finish ({changedPathSummary}) and will retry automatically.");
+    }
+
+    private void ScheduleApprovalResumeWhenIdle(string planId)
+    {
+        if (_approvalResumeRetryTimer is not null &&
+            string.Equals(_approvalResumeRetryPlanId, planId, StringComparison.Ordinal))
+            return;
+
+        StartApprovalResumeRetryTimer(planId);
+        SquadDashTrace.Write(
+            "Approval",
+            $"Approved plan continuation queued for the next idle coordinator slot plan={planId} " +
+            $"promptRunning={_isPromptRunning} loopRunning={IsLoopRunning} queueDrain={_queueDrainActive}.");
+        ScheduleDecomposeSystemEntry(
+            $"Approval acquired for plan {planId}. Continuation is waiting for the current turn to finish.");
+    }
+
+    private void StartApprovalResumeRetryTimer(string planId)
+    {
+        StopApprovalResumeRetry();
+        _approvalResumeRetryPlanId = planId;
+        _approvalResumeRetryTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1.5),
+        };
+        _approvalResumeRetryTimer.Tick += ApprovalResumeRetryTimer_Tick;
+        _approvalResumeRetryTimer.Start();
     }
 
     private async void ApprovalResumeRetryTimer_Tick(object? sender, EventArgs e)
@@ -13523,11 +13600,18 @@ public partial class MainWindow : Window
             if (!await IsPlanPreflightWorkspaceCleanAsync(planId))
                 return;
 
+            // The workspace probe yields. Recheck coordinator ownership before changing
+            // durable plan state or starting a verification round.
+            if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                return;
+
             SquadDashTrace.Write(
                 "Approval",
                 $"Repository is clean; retrying approved plan continuation plan={planId}.");
             if (!await StartDecomposeLoopAsync(planId))
             {
+                if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                    return;
                 StopApprovalResumeRetry();
                 ScheduleDecomposeSystemEntry(
                     $"Approval was acquired for plan {planId}, but its delayed continuation did not start. " +

@@ -76,6 +76,24 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public void ApprovalResumeRetryPolicy_WaitsWhileApprovedPlanHasActivePrompt()
+    {
+        var plan = MakePlan(PlanTaskStatus.Pending) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Approved,
+        };
+
+        Assert.That(
+            ApprovalResumeRetryPolicy.Resolve(
+                plan, plan.PlanId, false, true, false, null),
+            Is.EqualTo(ApprovalResumeRetryDecision.Wait));
+        Assert.That(
+            ApprovalResumeRetryPolicy.Resolve(
+                plan, plan.PlanId, false, false, false, null),
+            Is.EqualTo(ApprovalResumeRetryDecision.ProbeWorkspace));
+    }
+
+    [Test]
     public async Task Advance_ReadyGateWithIndependentWork_OpensWindowWithoutStopping()
     {
         var plan = MakePlan(taskBStatus: PlanTaskStatus.Pending);
@@ -165,6 +183,7 @@ public sealed class PlanApprovalRuntimeTests
             Assert.That(resolution.Result, Is.EqualTo(ApprovalClickResult.Approved));
             Assert.That(resolution.ShouldResume, Is.True);
             Assert.That(persisted, Is.Not.Null);
+            Assert.That(persisted!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Approved));
             Assert.That(persisted!.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Approved));
         });
         var message = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(stopped.UpdatedPlan.PlanId));

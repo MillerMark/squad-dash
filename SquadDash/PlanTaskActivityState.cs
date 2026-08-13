@@ -39,6 +39,13 @@ internal enum PlanTaskActivityState
 
 internal static class PlanTaskActivityPresentation
 {
+    internal static PlanTaskActivityState ResolveLiveState(
+        PlanTaskActivityState activityState,
+        bool hasMatchingLiveRound) =>
+        activityState == PlanTaskActivityState.Verifying && !hasMatchingLiveRound
+            ? PlanTaskActivityState.VerificationPending
+            : activityState;
+
     internal static bool KeepsSpinnerContinuouslyActive(
         PlanTaskActivityState activityState) =>
         activityState == PlanTaskActivityState.Assessing;
