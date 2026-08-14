@@ -41153,6 +41153,46 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private Point? _titleBarDragStart;
+    private bool _titleBarDragStarted;
+
+    private void TitleBarLabel_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _titleBarDragStart = e.GetPosition(this);
+        _titleBarDragStarted = false;
+        if (sender is UIElement el)
+            el.CaptureMouse();
+    }
+
+    private void TitleBarLabel_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_titleBarDragStart is null || e.LeftButton != MouseButtonState.Pressed) return;
+        var pos = e.GetPosition(this);
+        var dx = Math.Abs(pos.X - _titleBarDragStart.Value.X);
+        var dy = Math.Abs(pos.Y - _titleBarDragStart.Value.Y);
+        if (dx > SystemParameters.MinimumHorizontalDragDistance ||
+            dy > SystemParameters.MinimumVerticalDragDistance)
+        {
+            _titleBarDragStarted = true;
+            _titleBarDragStart = null;
+            if (sender is UIElement el)
+                el.ReleaseMouseCapture();
+            DragMove();
+        }
+    }
+
+    private void TitleBarLabel_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is UIElement el)
+            el.ReleaseMouseCapture();
+        _titleBarDragStart = null;
+        if (_titleBarDragStarted)
+        {
+            _titleBarDragStarted = false;
+            e.Handled = true; // suppress click after a drag
+        }
+    }
+
     private void VersionTextBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         ShowVersionContextMenu();

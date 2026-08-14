@@ -3718,6 +3718,9 @@
                    Foreground="{DynamicResource BodyText}"
                    MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
                    MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                   PreviewMouseLeftButtonDown="TitleBarLabel_PreviewMouseLeftButtonDown"
+                   PreviewMouseMove="TitleBarLabel_PreviewMouseMove"
+                   PreviewMouseLeftButtonUp="TitleBarLabel_PreviewMouseLeftButtonUp"
                    shell:WindowChrome.IsHitTestVisibleInChrome="True" />
 
         <!-- Squad version + update badge -->
@@ -3733,6 +3736,9 @@
                        Foreground="{DynamicResource BodyText}"
                        MouseLeftButtonUp="VersionTextBlock_MouseLeftButtonUp"
                        MouseRightButtonUp="VersionTextBlock_MouseRightButtonUp"
+                       PreviewMouseLeftButtonDown="TitleBarLabel_PreviewMouseLeftButtonDown"
+                       PreviewMouseMove="TitleBarLabel_PreviewMouseMove"
+                       PreviewMouseLeftButtonUp="TitleBarLabel_PreviewMouseLeftButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
             <TextBlock x:Name="SquadUpdateBadge"
                        Margin="5,0,0,0"
@@ -3756,6 +3762,9 @@
                    ToolTip="Click to reveal in Explorer"
                    MouseLeftButtonUp="WorkspaceTitleText_MouseLeftButtonUp"
                    MouseRightButtonUp="WorkspaceTitleText_MouseRightButtonUp"
+                   PreviewMouseLeftButtonDown="TitleBarLabel_PreviewMouseLeftButtonDown"
+                   PreviewMouseMove="TitleBarLabel_PreviewMouseMove"
+                   PreviewMouseLeftButtonUp="TitleBarLabel_PreviewMouseLeftButtonUp"
                    shell:WindowChrome.IsHitTestVisibleInChrome="True"
                    Text="{Binding WorkspaceTitleDisplay, RelativeSource={RelativeSource AncestorType=Window}}" />
     </StackPanel>
