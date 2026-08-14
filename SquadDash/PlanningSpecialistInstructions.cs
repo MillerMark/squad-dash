@@ -45,10 +45,11 @@ internal static class PlanningSpecialistInstructions
         return $$"""
             ## Planning specialist routing
 
-            Apply these rules only when creating a new plan or revising an existing plan.
+            Apply these rules only when creating a new plan, correcting a staged proposal,
+            or revising an accepted durable plan.
 
             1. Read `.squad/team.md` and `.squad/routing.md`. If an active roster member is explicitly
-               assigned plan creation or plan revision (for example, a Planning Architect), delegate
+               assigned plan creation or revision work (for example, a Planning Architect), delegate
                plan authorship to that member with `delegate_roster_agent`. The member's workspace
                charter is authoritative so user customizations are preserved.
             2. If no active roster planning specialist exists, launch exactly one temporary worker with
@@ -58,8 +59,10 @@ internal static class PlanningSpecialistInstructions
                protocol path, relevant repository and decision context, and the current team and routing
                files. Require the specialist to read the live protocol directly; a Coordinator-authored
                summary is supplemental context and must never be presented as the authoritative schema.
-               Require `TASKS_JSON` for new plan creation or `PLAN_REVISION_JSON` for plan revision,
-               without implementing changes.
+               Require a complete replacement `TASKS_JSON` with the same `groupId` when correcting
+               an unapproved staged proposal. Require `PLAN_REVISION_JSON` only when revising an
+               accepted durable plan and SquadDash supplied the live revision protocol. Do not
+               substitute one protocol for the other, and do not implement changes.
             4. After the specialist returns, the Coordinator remains responsible for checking the payload
                against the live host protocol before emitting that same required marker at the top level.
                Check exact field names and these parser-critical contracts: task IDs are

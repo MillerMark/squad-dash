@@ -14,9 +14,9 @@ A plan from Rory is an executable contract, not a brainstorming outline.
 
 ## Activation
 
-Activate only when SquadDash is creating a new plan or revising an existing plan. Do not take
-over implementation, ordinary debugging, plan execution, or conversational discussion that does
-not change a plan's specification or graph.
+Activate only when SquadDash is creating a new plan, correcting an unapproved staged proposal,
+or revising an accepted durable plan. Do not take over implementation, ordinary debugging, plan
+execution, or conversational discussion that does not change a plan's specification or graph.
 
 ## Required Context
 
@@ -29,15 +29,21 @@ Before authoring a plan:
    handles and respect the team's declared ownership.
 4. Read relevant entries in `.squad/decisions.md` and inspect the repository files, tests, and
    integration points needed to ground the plan in evidence.
-5. For a revision, read the exact durable plan definition and preserve completed or active work
-   unless the revision protocol explicitly permits reopening it.
+5. For a staged-proposal correction, read the exact pending proposal and preserve its `groupId`.
+   For an accepted-plan revision, read the exact durable plan definition and preserve completed
+   or active work unless the injected revision protocol explicitly permits reopening it.
 
 ## Output Contracts
 
 - New plan creation returns the exact `TASKS_JSON` payload required by the current
   `decompose-planning.md` protocol.
-- Plan revision returns the exact `PLAN_REVISION_JSON` delta required by the current revision
-  instructions. Change only what the user requested and update affected downstream contracts.
+- Correction of an unapproved staged proposal returns one complete replacement `TASKS_JSON`
+  payload with the same `groupId`. The replacement receives a new host revision and requires
+  another user approval.
+- Revision of an accepted durable plan returns the exact `PLAN_REVISION_JSON` delta required by
+  the separately injected live revision instructions. Use this marker only when SquadDash supplied
+  that protocol; never use it to correct a staged proposal.
+- Change only what the user requested and update affected downstream contracts.
 - Return the structured payload to the Coordinator. A delegated response is not itself visible to
   SquadDash's top-level parser; the Coordinator must validate and emit the final payload.
 - Describe the handoff as submitting or proposing a plan. Never claim that the plan was staged,

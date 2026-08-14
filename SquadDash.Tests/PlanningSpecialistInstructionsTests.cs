@@ -13,6 +13,10 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("# Planning Architect"));
             Assert.That(charter, Does.Contain("`TASKS_JSON`"));
             Assert.That(charter, Does.Contain("`PLAN_REVISION_JSON`"));
+            Assert.That(charter, Does.Contain("unapproved staged proposal"));
+            Assert.That(charter, Does.Contain("complete replacement `TASKS_JSON`"));
+            Assert.That(charter, Does.Contain("accepted durable plan"));
+            Assert.That(charter, Does.Contain("never use it to correct a staged proposal"));
             Assert.That(charter, Does.Contain("`.squad/team.md`"));
             Assert.That(charter, Does.Contain("`.squad/routing.md`"));
             Assert.That(charter, Does.Contain("Never implement source changes"));
@@ -38,8 +42,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("`delegate_roster_agent`"));
             Assert.That(guidance, Does.Contain("generic `task` tool"));
             Assert.That(guidance, Does.Contain("Do not give that worker Rory's name"));
-            Assert.That(guidance, Does.Contain("`TASKS_JSON` for new plan creation"));
-            Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` for plan"));
+            Assert.That(guidance, Does.Contain("complete replacement `TASKS_JSON` with the same `groupId`"));
+            Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` only when revising an\n   accepted durable plan"));
+            Assert.That(guidance, Does.Contain("Do not\n   substitute one protocol for the other"));
             Assert.That(guidance, Does.Contain("same required marker at the top level"));
             Assert.That(guidance, Does.Contain("Never drop the\n   structured-output requirement"));
             Assert.That(guidance, Does.Contain("read the live protocol directly"));
@@ -86,7 +91,8 @@ internal sealed class PlanningSpecialistInstructionsTests
         {
             Assert.That(universe, Does.Contain("### Rory\n**Role:** Planning Architect"));
             Assert.That(profiles, Does.Contain("SquadDash plan creation using the live `TASKS_JSON` protocol"));
-            Assert.That(profiles, Does.Contain("Safe plan revision using the live `PLAN_REVISION_JSON` protocol"));
+            Assert.That(profiles, Does.Contain("Staged-proposal correction using a complete replacement `TASKS_JSON`"));
+            Assert.That(profiles, Does.Contain("Accepted-plan revision using the separately injected live `PLAN_REVISION_JSON` protocol"));
         });
     }
 }

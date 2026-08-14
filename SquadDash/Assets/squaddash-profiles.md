@@ -517,7 +517,8 @@ This file describes the available characters in the SquadDash Universe.
 
 **Specialties:**
 - SquadDash plan creation using the live `TASKS_JSON` protocol
-- Safe plan revision using the live `PLAN_REVISION_JSON` protocol
+- Staged-proposal correction using a complete replacement `TASKS_JSON` with the same `groupId`
+- Accepted-plan revision using the separately injected live `PLAN_REVISION_JSON` protocol
 - Repository-grounded decomposition into independently verifiable outcomes
 - Dependency graphs, parallelization boundaries, and stable task input/output contracts
 - Roster-aware assignment using active team handles and routing ownership

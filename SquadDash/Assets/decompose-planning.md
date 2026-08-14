@@ -262,7 +262,8 @@ approval controls beneath the transcript response.
 
 ## DECOMPOSE_DECISION_JSON schema
 
-If the user later approves or modifies a staged plan in free text, emit:
+If the user later approves a staged plan or chooses one of its host-owned execution actions in
+free text, emit:
 
 `DECOMPOSE_DECISION_JSON:`
 
@@ -275,8 +276,12 @@ If the user later approves or modifies a staged plan in free text, emit:
 }
 ```
 
-Only emit a decision for a group already staged by SquadDash. A revised task graph requires a
-new `TASKS_JSON` proposal and another approval. `action` must be exactly one of `add-to-backlog`,
+Only emit a decision for a group already staged by SquadDash. If the user changes an unapproved
+staged proposal's tasks, dependencies, validations, assignments, or other graph content, do not
+emit this decision and do not emit `PLAN_REVISION_JSON`. Submit one complete replacement
+`TASKS_JSON` with the same `groupId`; SquadDash assigns a new revision and requires another
+approval. `PLAN_REVISION_JSON` is reserved for an accepted durable plan when SquadDash separately
+injects its live revision protocol. `action` must be exactly one of `add-to-backlog`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
 The `revision` must exactly match the revision supplied by SquadDash for that pending group.
 

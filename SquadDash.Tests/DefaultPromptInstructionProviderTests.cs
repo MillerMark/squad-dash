@@ -33,6 +33,8 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
         Assert.That(instruction, Does.Contain("Never claim that a plan was staged"));
         Assert.That(instruction, Does.Contain("Submitting the plan proposal now."));
+        Assert.That(instruction, Does.Contain("complete replacement\n`TASKS_JSON` with the same `groupId`"));
+        Assert.That(instruction, Does.Contain("`PLAN_REVISION_JSON` is reserved for an accepted durable plan"));
     }
 
     [Test]
@@ -49,6 +51,8 @@ internal sealed class DefaultPromptInstructionProviderTests
             var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path);
             Assert.That(pointer, Does.Contain(path));
             Assert.That(pointer, Does.Contain("Never claim that it was staged"));
+            Assert.That(pointer, Does.Contain("complete replacement TASKS_JSON with the same groupId"));
+            Assert.That(pointer, Does.Contain("PLAN_REVISION_JSON is only for an accepted durable plan"));
         }
         finally
         {

@@ -56,9 +56,13 @@ internal static class DecomposePlanningInstructions
         "or if the user explicitly requests plan creation (using verbs like create, draft, devise, " +
         "design, write, make, propose, outline, or the /plan command), " +
         $"you MUST read `{specificationPath}` before responding, then follow its TASKS_JSON protocol. " +
-        "If the user gives free-text approval or changes for a staged decomposition plan, you MUST " +
-        "read the same file and follow its DECOMPOSE_DECISION_JSON protocol. Do not invent either " +
-        "format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
+        "If the user gives free-text approval or chooses how to execute a staged decomposition plan, " +
+        "you MUST read the same file and follow its DECOMPOSE_DECISION_JSON protocol. If the user " +
+        "changes an unapproved staged plan's tasks, dependencies, validations, assignments, or other " +
+        "graph content, submit one complete replacement TASKS_JSON with the same groupId; do not emit " +
+        "DECOMPOSE_DECISION_JSON or PLAN_REVISION_JSON for that correction. PLAN_REVISION_JSON is only " +
+        "for an accepted durable plan when SquadDash separately injects its live revision protocol. " +
+        "Do not invent any format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
         "file's DECOMPOSE_RECOVERY_JSON protocol. If SquadDash has paused an executing plan at a " +
         "human approval gate and the user approves in free text, follow the file's " +
         "PLAN_GATE_APPROVAL_JSON protocol. If the user explicitly requests plan-managed rework of reviewed " +
