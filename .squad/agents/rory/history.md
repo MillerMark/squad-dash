@@ -39,4 +39,8 @@
 
 ## Work Log
 
-*(No entries yet — Rory joins the team today.)*
+- **2026-08-14 — TASKS_JSON conformance lesson:** A delegated planning handoff summarized only
+  part of the live schema, and the resulting candidate used shorthand task and validation IDs plus
+  obsolete field shapes. Always read `.squad/instructions/decompose-planning.md` directly and run
+  the charter's protocol-conformance preflight before returning a plan. A handoff summary is context,
+  not the authoritative schema.
