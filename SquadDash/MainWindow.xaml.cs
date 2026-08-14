@@ -9878,18 +9878,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private sealed record PendingDecomposeInboxBannerTag(string GroupId, string Revision);
-
     private void AppendPlanMovedToInboxBanner(PendingDecomposePlan plan, InboxMessage message)
     {
         var blocks = CoordinatorThread.Document.Blocks;
-        foreach (var existing in blocks.OfType<Block>().Where(block =>
-                     block.Tag is PendingDecomposeInboxBannerTag tag &&
-                     string.Equals(tag.GroupId, plan.Group.GroupId, StringComparison.Ordinal)).ToArray())
-        {
-            blocks.Remove(existing);
-        }
-
         if (!DecomposePlanInbox.TryGetPlanAttachment(message, plan, out var attachment) || attachment is null)
             return;
 
@@ -9920,7 +9911,20 @@ public partial class MainWindow : Window
         planLink.Click += (_, _) => OpenDecomposePlanAttachment(attachment);
         paragraph.Inlines.Add(planLink);
 
-        blocks.Add(paragraph);
+        var replacedInPlace = TranscriptQuickReplyFactory.ReplacePendingDecomposeApprovalSurfaceWithInboxBanner(
+            blocks,
+            plan.Group.GroupId,
+            paragraph);
+        if (!replacedInPlace)
+        {
+            // Recovery fallback for legacy/corrupt transcript state where the original tagged
+            // plan receipt did not survive hydration. Normal live and restart paths replace the
+            // receipt beside the turn that produced the plan.
+            blocks.Add(paragraph);
+            SquadDashTrace.Write(
+                TraceCategory.UI,
+                $"Pending-plan Inbox banner used transcript-end recovery fallback group={plan.Group.GroupId} revision={plan.Revision}.");
+        }
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
@@ -13249,6 +13253,102 @@ public partial class MainWindow : Window
             BuiltAt: DateTimeOffset.UtcNow);
     }
 
+    private sealed record InboxAttentionCalloutText(
+        string Menu,
+        string MessageRow,
+        string FilteredPanel);
+
+    private static readonly InboxAttentionCalloutText ApprovalInboxAttentionText = new(
+        "**You have an approval request in your Inbox.**\n\nOpen **Inbox** to review the completed work and approve continuation.",
+        "**Approval request ready.**\n\nOpen this message to review the completed work and approve continuation.",
+        "**Approval request ready.**\n\nThe request is in your Inbox but may be hidden by the current Inbox filter.");
+
+    private static readonly InboxAttentionCalloutText PlanInboxAttentionText = new(
+        "**A plan moved to your Inbox.**\n\nOpen **Inbox** to review the plan and choose what to do with it.",
+        "**Plan ready for review.**\n\nOpen this message to view the plan and choose an action.",
+        "**Plan ready for review.**\n\nThe message is unread in your Inbox but may be hidden by the current filter.");
+
+    /// <summary>
+    /// Uses one targeting policy for every host-owned Inbox notification. During startup,
+    /// persisted panel visibility is authoritative even before deferred panel restoration has
+    /// created the controller, preventing an already-visible Inbox from being routed via Tools.
+    /// </summary>
+    private async Task<InboxAttentionTargetKind?> ShowInboxAttentionCalloutAsync(
+        string messageId,
+        InboxAttentionCalloutText text)
+    {
+        var shouldUsePanel = InboxAttentionTargetPolicy.ShouldUseInboxPanel(
+            _inboxPanel?.PanelVisible == true,
+            _docsPanelState?.InboxPanelVisible == true);
+        if (shouldUsePanel && _inboxPanel?.PanelVisible != true)
+        {
+            EnsureInboxPanelCreated();
+            _inboxPanel!.Show(flash: false);
+        }
+
+        if (_inboxPanel?.PanelVisible == true)
+        {
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+            var row = _inboxPanel.FindVisibleMessageRow(messageId);
+            var targetKind = InboxAttentionTargetPolicy.Select(
+                panelVisible: true,
+                messageRowVisible: row is not null);
+            FrameworkElement target;
+            string markdown;
+            if (targetKind == InboxAttentionTargetKind.MessageRow)
+            {
+                row!.BringIntoView();
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+                target = row;
+                markdown = text.MessageRow;
+            }
+            else
+            {
+                target = InboxPanelBorder;
+                markdown = text.FilteredPanel;
+            }
+
+            ShowApprovalAttentionCallout(markdown, target, placement: CalloutPlacement.West);
+            return _approvalAttentionCallout is null ? null : targetKind;
+        }
+
+        _approvalAttentionCallout?.Close();
+        _approvalAttentionCallout = null;
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+        var popupRoot = await _guidedTourCoordinator.OpenTourMenuItemAsync(
+            PanelsMenuItem, nameof(PanelsMenuItem));
+        var menuTarget = popupRoot is null
+            ? null
+            : VisualTreeSearch.FindByName(popupRoot, nameof(ViewInboxMenuItem)) as FrameworkElement
+              ?? (PresentationSource.FromVisual(ViewInboxMenuItem) is not null
+                  ? ViewInboxMenuItem
+                  : null);
+        if (menuTarget is null)
+        {
+            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+            return null;
+        }
+
+        _guidedTourCoordinator.KeepTourMenuPathOpen(
+            nameof(PanelsMenuItem), [PanelsMenuItem]);
+        ShowApprovalAttentionCallout(text.Menu, menuTarget, placement: CalloutPlacement.East);
+        var menuCallout = _approvalAttentionCallout;
+        if (menuCallout is null)
+        {
+            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+            return null;
+        }
+
+        menuCallout.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_approvalAttentionCallout, menuCallout))
+                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
+        };
+        return InboxAttentionTargetKind.Menu;
+    }
+
     /// <summary>
     /// Shows a one-time Ultimate Callout at the visible Inbox request or Inbox menu item.
     /// </summary>
@@ -13272,61 +13372,19 @@ public partial class MainWindow : Window
             ClearDeferredApprovalCallout();
             _pendingApprovalCalloutMessageId = messageId;
 
-            if (_inboxPanel?.PanelVisible == true)
-            {
-                await ShowPendingApprovalInboxRowCalloutAsync();
-                if (_approvalAttentionCallout is not null)
-                    _shownApprovalCalloutMessageIds.Add(messageId);
-                else
-                    DeferApprovalCallout(plan.PlanId, gate.GateId);
-                return;
-            }
-
-            // Close any earlier cue before opening the menu. Its Closed handler may own an older
-            // menu-tracking lease and must not be allowed to clear the lease established below.
-            _approvalAttentionCallout?.Close();
-            _approvalAttentionCallout = null;
-
-            // Use the same proven primitive as OpenMenu, but do not route through the tour command
-            // registry: that registry is populated lazily only after the first tour is initialized.
-            // Approval attention must work in a fresh application session with no tour history.
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
-            var popupRoot = await _guidedTourCoordinator.OpenTourMenuItemAsync(
-                PanelsMenuItem, nameof(PanelsMenuItem));
-            var menuTarget = popupRoot is null
-                ? null
-                : VisualTreeSearch.FindByName(popupRoot, nameof(ViewInboxMenuItem)) as FrameworkElement
-                  ?? (PresentationSource.FromVisual(ViewInboxMenuItem) is not null
-                      ? ViewInboxMenuItem
-                      : null);
-            if (menuTarget is null)
-            {
-                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
-                DeferApprovalCallout(plan.PlanId, gate.GateId);
-                SquadDashTrace.Write("Approval", "Inbox menu item was not rendered after opening the Panels menu; approval callout deferred.");
-                return;
-            }
-            _guidedTourCoordinator.KeepTourMenuPathOpen(
-                nameof(PanelsMenuItem), [PanelsMenuItem]);
-            ShowApprovalAttentionCallout(
-                "**You have an approval request in your Inbox.**\n\nOpen **Inbox** to review the completed work and approve continuation.",
-                menuTarget,
-                placement: CalloutPlacement.East);
-            var menuCallout = _approvalAttentionCallout;
-            if (menuCallout is not null)
-                _shownApprovalCalloutMessageIds.Add(messageId);
-            if (menuCallout is null)
+            var targetKind = await ShowInboxAttentionCalloutAsync(
+                messageId,
+                ApprovalInboxAttentionText);
+            if (targetKind is null)
             {
                 DeferApprovalCallout(plan.PlanId, gate.GateId);
-                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+                SquadDashTrace.Write("Approval", "Inbox attention target was unavailable; approval callout deferred.");
             }
             else
             {
-                menuCallout.Closed += (_, _) =>
-                {
-                    if (ReferenceEquals(_approvalAttentionCallout, menuCallout))
-                        _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
-                };
+                _shownApprovalCalloutMessageIds.Add(messageId);
+                if (targetKind != InboxAttentionTargetKind.Menu)
+                    _pendingApprovalCalloutMessageId = null;
             }
         }
         catch (Exception ex)
@@ -13430,55 +13488,22 @@ public partial class MainWindow : Window
             return;
 
         _pendingPlanInboxCalloutMessageId = messageId;
-        if (_inboxPanel?.PanelVisible == true)
+        var targetKind = await ShowInboxAttentionCalloutAsync(
+            messageId,
+            PlanInboxAttentionText);
+        if (targetKind is null)
         {
-            await ShowPendingPlanInboxRowCalloutAsync();
-            if (_approvalAttentionCallout is not null)
-                _shownApprovalCalloutMessageIds.Add(messageId);
-            return;
-        }
-
-        _approvalAttentionCallout?.Close();
-        _approvalAttentionCallout = null;
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
-        var popupRoot = await _guidedTourCoordinator.OpenTourMenuItemAsync(
-            PanelsMenuItem, nameof(PanelsMenuItem));
-        var menuTarget = popupRoot is null
-            ? null
-            : VisualTreeSearch.FindByName(popupRoot, nameof(ViewInboxMenuItem)) as FrameworkElement
-              ?? (PresentationSource.FromVisual(ViewInboxMenuItem) is not null
-                  ? ViewInboxMenuItem
-                  : null);
-        if (menuTarget is null)
-        {
-            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
             SquadDashTrace.Write(TraceCategory.Inbox,
-                $"Pending-plan Inbox callout deferred because the Inbox menu item was unavailable message={messageId}.");
-            return;
-        }
-
-        _guidedTourCoordinator.KeepTourMenuPathOpen(
-            nameof(PanelsMenuItem), [PanelsMenuItem]);
-        ShowApprovalAttentionCallout(
-            "**A plan moved to your Inbox.**\n\nOpen **Inbox** to review the plan and choose what to do with it.",
-            menuTarget,
-            placement: CalloutPlacement.East);
-        var menuCallout = _approvalAttentionCallout;
-        if (menuCallout is null)
-        {
-            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+                $"Pending-plan Inbox callout deferred because no truthful target was available message={messageId}.");
             return;
         }
 
         _shownApprovalCalloutMessageIds.Add(messageId);
         _activePlanInboxCalloutMessageId = messageId;
+        if (targetKind != InboxAttentionTargetKind.Menu)
+            _pendingPlanInboxCalloutMessageId = null;
         _deferredPlanInboxCalloutMessageId = null;
         _deferredPlanInboxCalloutTimer?.Stop();
-        menuCallout.Closed += (_, _) =>
-        {
-            if (ReferenceEquals(_approvalAttentionCallout, menuCallout))
-                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
-        };
     }
 
     private bool TryGetUnreadAutomaticPlanReminder(
@@ -13509,27 +13534,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-        var row = _inboxPanel.FindVisibleMessageRow(messageId);
-        FrameworkElement target;
-        string text;
-        if (row is not null)
-        {
-            row.BringIntoView();
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-            target = row;
-            text = "**Plan ready for review.**\n\nOpen this message to view the plan and choose an action.";
-        }
-        else
-        {
-            target = InboxPanelBorder;
-            text = "**Plan ready for review.**\n\nThe message is unread in your Inbox but may be hidden by the current filter.";
-        }
-
-        ShowApprovalAttentionCallout(text, target, placement: CalloutPlacement.West);
-        if (_approvalAttentionCallout is not null)
+        var targetKind = await ShowInboxAttentionCalloutAsync(
+            messageId,
+            PlanInboxAttentionText);
+        if (targetKind is not null)
         {
             _activePlanInboxCalloutMessageId = messageId;
             _pendingPlanInboxCalloutMessageId = null;
@@ -13632,27 +13640,11 @@ public partial class MainWindow : Window
         if (messageId is null || _inboxPanel?.PanelVisible != true)
             return;
 
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-        var row = _inboxPanel.FindVisibleMessageRow(messageId);
-        FrameworkElement target;
-        string text;
-        if (row is not null)
-        {
-            row.BringIntoView();
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-            target = row;
-            text = "**Approval request ready.**\n\nOpen this message to review the completed work and approve continuation.";
-        }
-        else
-        {
-            target = InboxPanelBorder;
-            text = "**Approval request ready.**\n\nThe request is in your Inbox but may be hidden by the current Inbox filter.";
-        }
-
-        ShowApprovalAttentionCallout(text, target, placement: CalloutPlacement.West);
-        _pendingApprovalCalloutMessageId = null;
+        var targetKind = await ShowInboxAttentionCalloutAsync(
+            messageId,
+            ApprovalInboxAttentionText);
+        if (targetKind is not null)
+            _pendingApprovalCalloutMessageId = null;
     }
 
     private void ShowApprovalAttentionCallout(

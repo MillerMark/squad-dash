@@ -63,7 +63,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             StringComparison.Ordinal);
         var restoreAndBanner = source[restoreStart..bannerEnd];
         var calloutStart = source.IndexOf(
-            "private async Task TryShowDeferredPlanInboxCalloutAsync()",
+            "private async Task<InboxAttentionTargetKind?> ShowInboxAttentionCalloutAsync(",
             StringComparison.Ordinal);
         var calloutEnd = source.IndexOf(
             "private void DeferApprovalCallout(",
@@ -79,9 +79,13 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             Assert.That(restoreAndBanner, Does.Contain("new Hyperlink(new Run(\"View plan\"))"));
             Assert.That(restoreAndBanner, Does.Contain("OpenOrFocusInboxMessage(message.Id)"));
             Assert.That(restoreAndBanner, Does.Contain("OpenDecomposePlanAttachment(attachment)"));
+            Assert.That(restoreAndBanner, Does.Contain("ReplacePendingDecomposeApprovalSurfaceWithInboxBanner("));
             Assert.That(callout, Does.Contain("OpenTourMenuItemAsync("));
-            Assert.That(callout, Does.Contain("ShowPendingPlanInboxRowCalloutAsync()"));
             Assert.That(callout, Does.Contain("FindVisibleMessageRow(messageId)"));
+            Assert.That(callout, Does.Contain("_docsPanelState?.InboxPanelVisible == true"),
+                "Persisted Inbox visibility must win the startup race with deferred panel restoration.");
+            Assert.That(callout, Does.Contain("ApprovalInboxAttentionText"));
+            Assert.That(callout, Does.Contain("PlanInboxAttentionText"));
             Assert.That(callout, Does.Contain("_deferredApprovalCallout is not null"),
                 "Approval attention must retain priority over the plan reminder cue.");
         });

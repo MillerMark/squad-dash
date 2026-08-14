@@ -14,6 +14,7 @@ internal enum QuickReplyTone
 
 internal sealed record PendingDecomposeApprovalTag(string GroupId, string Revision);
 internal sealed record PendingDecomposePlanLinkTag(string GroupId, string Revision);
+internal sealed record PendingDecomposeInboxBannerTag(string GroupId, string Revision);
 internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
 internal sealed class DecomposeRecoveryCardTag : ICopyable
 {
@@ -139,6 +140,61 @@ internal static class TranscriptQuickReplyFactory
         RemovePendingDecomposeApprovalSurface(blocks, groupId);
         blocks.Add(planLink);
         blocks.Add(actions);
+    }
+
+    /// <summary>
+    /// Replaces a pending plan's historical receipt and action card with one compact Inbox
+    /// receipt at the position of the first historical surface. Returns false only when no
+    /// surface survived transcript hydration, allowing the caller to use a recovery fallback.
+    /// </summary>
+    internal static bool ReplacePendingDecomposeApprovalSurfaceWithInboxBanner(
+        BlockCollection blocks,
+        string groupId,
+        Block banner)
+    {
+        var inserted = false;
+        ReplacePendingDecomposeApprovalSurfaceWithInboxBannerCore(
+            blocks,
+            groupId,
+            banner,
+            ref inserted);
+        return inserted;
+    }
+
+    private static void ReplacePendingDecomposeApprovalSurfaceWithInboxBannerCore(
+        BlockCollection blocks,
+        string groupId,
+        Block banner,
+        ref bool inserted)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            var isMatchingSurface =
+                block.Tag is PendingDecomposePlanLinkTag linkTag &&
+                string.Equals(linkTag.GroupId, groupId, StringComparison.Ordinal) ||
+                block.Tag is PendingDecomposeApprovalTag approvalTag &&
+                string.Equals(approvalTag.GroupId, groupId, StringComparison.Ordinal) ||
+                block.Tag is PendingDecomposeInboxBannerTag bannerTag &&
+                string.Equals(bannerTag.GroupId, groupId, StringComparison.Ordinal);
+
+            if (isMatchingSurface)
+            {
+                if (!inserted)
+                {
+                    blocks.InsertBefore(block, banner);
+                    inserted = true;
+                }
+                blocks.Remove(block);
+                continue;
+            }
+
+            if (block is Section section)
+                ReplacePendingDecomposeApprovalSurfaceWithInboxBannerCore(
+                    section.Blocks,
+                    groupId,
+                    banner,
+                    ref inserted);
+        }
     }
 
     internal static bool ContainsPendingDecomposeApprovalSurface(

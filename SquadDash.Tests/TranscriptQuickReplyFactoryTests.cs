@@ -158,6 +158,66 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
+    public void ReplacePendingDecomposeApprovalSurfaceWithInboxBanner_PreservesOriginalPlanTurnPosition()
+    {
+        var document = new FlowDocument();
+        var planTurn = new Section();
+        var historicalLink = new Paragraph(new Run("Historical plan receipt"))
+        {
+            Tag = new PendingDecomposePlanLinkTag("PLAN-INBOX", "revision-1"),
+        };
+        planTurn.Blocks.Add(historicalLink);
+        document.Blocks.Add(planTurn);
+        var actions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new PendingDecomposeApprovalTag("PLAN-INBOX", "revision-1"));
+        document.Blocks.Add(actions);
+        var laterTurn = new Section(new Paragraph(new Run("A later unrelated turn")));
+        document.Blocks.Add(laterTurn);
+        var banner = new Paragraph(new Run("Plan moved to Inbox"))
+        {
+            Tag = new PendingDecomposeInboxBannerTag("PLAN-INBOX", "revision-1"),
+        };
+
+        var replaced = TranscriptQuickReplyFactory.ReplacePendingDecomposeApprovalSurfaceWithInboxBanner(
+            document.Blocks,
+            "PLAN-INBOX",
+            banner);
+
+        var allBlocks = EnumerateBlocks(document.Blocks).ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(replaced, Is.True);
+            Assert.That(planTurn.Blocks.Single(), Is.SameAs(banner));
+            Assert.That(document.Blocks.LastBlock, Is.SameAs(laterTurn));
+            Assert.That(allBlocks.Any(block => block.Tag is PendingDecomposePlanLinkTag), Is.False);
+            Assert.That(allBlocks.Any(block => block.Tag is PendingDecomposeApprovalTag), Is.False);
+            Assert.That(allBlocks.Count(block => block.Tag is PendingDecomposeInboxBannerTag), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void ReplacePendingDecomposeApprovalSurfaceWithInboxBanner_NoAnchorLeavesRecoveryFallbackToCaller()
+    {
+        var document = new FlowDocument(new Paragraph(new Run("Unrelated transcript")));
+        var banner = new Paragraph(new Run("Plan moved to Inbox"))
+        {
+            Tag = new PendingDecomposeInboxBannerTag("PLAN-MISSING", "revision-1"),
+        };
+
+        var replaced = TranscriptQuickReplyFactory.ReplacePendingDecomposeApprovalSurfaceWithInboxBanner(
+            document.Blocks,
+            "PLAN-MISSING",
+            banner);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(replaced, Is.False);
+            Assert.That(document.Blocks.Contains(banner), Is.False);
+        });
+    }
+
+    [Test]
     public void RemoveDecomposeRecoveryContainers_RemovesEntireTaggedSurfaceRecursively()
     {
         var document = new FlowDocument();
