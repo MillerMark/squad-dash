@@ -47,6 +47,47 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void PendingPlanMovedToInbox_RestoresLinkedBannerAndUnreadCalloutAfterHydration()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var restoreStart = source.IndexOf(
+            "private void RestorePendingDecomposeApprovalSurfaces()",
+            StringComparison.Ordinal);
+        var bannerStart = source.IndexOf(
+            "private void AppendPlanMovedToInboxBanner(",
+            restoreStart,
+            StringComparison.Ordinal);
+        var bannerEnd = source.IndexOf(
+            "private Paragraph CreatePendingDecomposePlanLinkParagraph(",
+            bannerStart,
+            StringComparison.Ordinal);
+        var restoreAndBanner = source[restoreStart..bannerEnd];
+        var calloutStart = source.IndexOf(
+            "private async Task TryShowDeferredPlanInboxCalloutAsync()",
+            StringComparison.Ordinal);
+        var calloutEnd = source.IndexOf(
+            "private void DeferApprovalCallout(",
+            calloutStart,
+            StringComparison.Ordinal);
+        var callout = source[calloutStart..calloutEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreAndBanner, Does.Contain("AppendPlanMovedToInboxBanner(plan, reminder)"));
+            Assert.That(restoreAndBanner, Does.Contain("IsUnreadAutomaticReminder(plan, reminder)"));
+            Assert.That(restoreAndBanner, Does.Contain("new Hyperlink(new Run(\"Inbox\"))"));
+            Assert.That(restoreAndBanner, Does.Contain("new Hyperlink(new Run(\"View plan\"))"));
+            Assert.That(restoreAndBanner, Does.Contain("OpenOrFocusInboxMessage(message.Id)"));
+            Assert.That(restoreAndBanner, Does.Contain("OpenDecomposePlanAttachment(attachment)"));
+            Assert.That(callout, Does.Contain("OpenTourMenuItemAsync("));
+            Assert.That(callout, Does.Contain("ShowPendingPlanInboxRowCalloutAsync()"));
+            Assert.That(callout, Does.Contain("FindVisibleMessageRow(messageId)"));
+            Assert.That(callout, Does.Contain("_deferredApprovalCallout is not null"),
+                "Approval attention must retain priority over the plan reminder cue.");
+        });
+    }
+
+    [Test]
     public void PersistedTurnRendering_DoesNotAttachCurrentRecoveryActionsToHistoryBatches()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

@@ -356,6 +356,11 @@ public partial class MainWindow : Window
     private string? _approvalResumeRetryPlanId;
     private bool _approvalResumeRetryInFlight;
     private string? _pendingApprovalCalloutMessageId;
+    private string? _pendingPlanInboxCalloutMessageId;
+    private string? _deferredPlanInboxCalloutMessageId;
+    private string? _activePlanInboxCalloutMessageId;
+    private DispatcherTimer? _deferredPlanInboxCalloutTimer;
+    private bool _deferredPlanInboxCalloutEvaluationRunning;
     private (string PlanId, string GateId)? _deferredApprovalCallout;
     private DispatcherTimer? _deferredApprovalCalloutTimer;
     private bool _deferredApprovalCalloutEvaluationRunning;
@@ -1981,6 +1986,7 @@ public partial class MainWindow : Window
                 $"MainWindow_Activated settled deferred={_deferredApprovalCallout is not null} "
                 + $"wpfIsActive={IsActive} {WindowHelper.DescribeForegroundOwnership()}.");
             await TryShowDeferredApprovalCalloutAsync();
+            await TryShowDeferredPlanInboxCalloutAsync();
 
             if (!_pendingPowerShellInstallRecheck)
                 return;
@@ -9843,19 +9849,79 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            // Explicit Inbox delivery and the automatic "conversation moved on"
-            // reminder already have a durable action surface of their own.
-            if (DecomposePlanInbox.RequestsInboxDelivery(plan.Group) ||
-                _inboxStore?.Exists(DecomposePlanInbox.BuildMessageId(plan), includeArchive: true) == true)
+            // Explicit Inbox delivery already has the user-requested durable surface.
+            if (DecomposePlanInbox.RequestsInboxDelivery(plan.Group))
             {
                 continue;
             }
+
+
+            // An automatic "conversation moved on" reminder replaces the large action card,
+            // but restart hydration must leave a compact, linked receipt in the transcript.
+            var reminderId = DecomposePlanInbox.BuildMessageId(plan);
+            var reminder = _inboxStore?.GetById(reminderId);
+            if (reminder is not null &&
+                DecomposePlanInbox.TryGetPlanAttachment(reminder, plan, out _))
+            {
+                AppendPlanMovedToInboxBanner(plan, reminder);
+                if (DecomposePlanInbox.IsUnreadAutomaticReminder(plan, reminder))
+                    SchedulePendingPlanInboxCallout(reminder.Id);
+                continue;
+            }
+            if (_inboxStore?.Exists(reminderId, includeArchive: true) == true)
+                continue;
 
             AppendPendingDecomposeApproval(plan);
             SquadDashTrace.Write(
                 TraceCategory.UI,
                 $"Restored pending plan approval surface group={plan.Group.GroupId} revision={plan.Revision} after transcript hydration.");
         }
+    }
+
+    private sealed record PendingDecomposeInboxBannerTag(string GroupId, string Revision);
+
+    private void AppendPlanMovedToInboxBanner(PendingDecomposePlan plan, InboxMessage message)
+    {
+        var blocks = CoordinatorThread.Document.Blocks;
+        foreach (var existing in blocks.OfType<Block>().Where(block =>
+                     block.Tag is PendingDecomposeInboxBannerTag tag &&
+                     string.Equals(tag.GroupId, plan.Group.GroupId, StringComparison.Ordinal)).ToArray())
+        {
+            blocks.Remove(existing);
+        }
+
+        if (!DecomposePlanInbox.TryGetPlanAttachment(message, plan, out var attachment) || attachment is null)
+            return;
+
+        var paragraph = CreateTranscriptParagraph(bottomMargin: 6);
+        paragraph.Tag = new PendingDecomposeInboxBannerTag(plan.Group.GroupId, plan.Revision);
+
+        var prefix = new Run("✓ Plan moved to ");
+        prefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        paragraph.Inlines.Add(prefix);
+
+        var inboxLink = new Hyperlink(new Run("Inbox")) { Cursor = Cursors.Hand };
+        inboxLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+        inboxLink.Click += (_, _) =>
+        {
+            _inboxStore?.MarkRead(message.Id);
+            _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
+            ClearPendingPlanInboxCallout(message.Id);
+            OpenOrFocusInboxMessage(message.Id);
+        };
+        paragraph.Inlines.Add(inboxLink);
+
+        var separator = new Run(".  ");
+        separator.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        paragraph.Inlines.Add(separator);
+
+        var planLink = new Hyperlink(new Run("View plan")) { Cursor = Cursors.Hand };
+        planLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+        planLink.Click += (_, _) => OpenDecomposePlanAttachment(attachment);
+        paragraph.Inlines.Add(planLink);
+
+        blocks.Add(paragraph);
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     private Paragraph CreatePendingDecomposePlanLinkParagraph(PendingDecomposePlan plan)
@@ -10781,7 +10847,15 @@ public partial class MainWindow : Window
 
         _inboxStore.Save(message);
         _inboxPanel?.Refresh(_inboxStore.LoadAll());
-        AppendInboxReceivedEntry(message.Subject, message.Id);
+        if (explicitlyRequested)
+        {
+            AppendInboxReceivedEntry(message.Subject, message.Id);
+        }
+        else
+        {
+            AppendPlanMovedToInboxBanner(plan, message);
+            SchedulePendingPlanInboxCallout(message.Id);
+        }
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"Pending decompose plan '{plan.Group.GroupId}' delivered to Inbox (explicit={explicitlyRequested}).");
     }
@@ -13295,6 +13369,197 @@ public partial class MainWindow : Window
         await TryShowApprovalCalloutAsync(plan, gate);
     }
 
+    private void SchedulePendingPlanInboxCallout(string messageId)
+    {
+        _deferredPlanInboxCalloutMessageId = messageId;
+        if (_deferredPlanInboxCalloutTimer is null)
+        {
+            _deferredPlanInboxCalloutTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200)
+            };
+            _deferredPlanInboxCalloutTimer.Tick += async (_, _) =>
+            {
+                if (_deferredPlanInboxCalloutEvaluationRunning ||
+                    _deferredPlanInboxCalloutMessageId is null ||
+                    !WindowHelper.IsCurrentProcessForeground())
+                {
+                    return;
+                }
+
+                _deferredPlanInboxCalloutEvaluationRunning = true;
+                try
+                {
+                    await TryShowDeferredPlanInboxCalloutAsync();
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write(TraceCategory.Inbox,
+                        $"Deferred pending-plan Inbox callout failed: {ex.Message}");
+                }
+                finally
+                {
+                    _deferredPlanInboxCalloutEvaluationRunning = false;
+                }
+            };
+        }
+        if (!_deferredPlanInboxCalloutTimer.IsEnabled)
+            _deferredPlanInboxCalloutTimer.Start();
+        _ = Dispatcher.BeginInvoke(
+            new Action(async () => await TryShowDeferredPlanInboxCalloutAsync()),
+            DispatcherPriority.ApplicationIdle);
+    }
+
+    private async Task TryShowDeferredPlanInboxCalloutAsync()
+    {
+        var messageId = _deferredPlanInboxCalloutMessageId;
+        if (messageId is null || _shownApprovalCalloutMessageIds.Contains(messageId))
+            return;
+
+        if (!TryGetUnreadAutomaticPlanReminder(messageId, out _, out _))
+        {
+            ClearPendingPlanInboxCallout(messageId);
+            return;
+        }
+
+        // Approval requests remain the higher-priority host-owned attention cue.
+        if (_deferredApprovalCallout is not null || _pendingApprovalCalloutMessageId is not null)
+            return;
+
+        if (!WindowHelper.IsCurrentProcessForeground())
+            return;
+
+        _pendingPlanInboxCalloutMessageId = messageId;
+        if (_inboxPanel?.PanelVisible == true)
+        {
+            await ShowPendingPlanInboxRowCalloutAsync();
+            if (_approvalAttentionCallout is not null)
+                _shownApprovalCalloutMessageIds.Add(messageId);
+            return;
+        }
+
+        _approvalAttentionCallout?.Close();
+        _approvalAttentionCallout = null;
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+        var popupRoot = await _guidedTourCoordinator.OpenTourMenuItemAsync(
+            PanelsMenuItem, nameof(PanelsMenuItem));
+        var menuTarget = popupRoot is null
+            ? null
+            : VisualTreeSearch.FindByName(popupRoot, nameof(ViewInboxMenuItem)) as FrameworkElement
+              ?? (PresentationSource.FromVisual(ViewInboxMenuItem) is not null
+                  ? ViewInboxMenuItem
+                  : null);
+        if (menuTarget is null)
+        {
+            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"Pending-plan Inbox callout deferred because the Inbox menu item was unavailable message={messageId}.");
+            return;
+        }
+
+        _guidedTourCoordinator.KeepTourMenuPathOpen(
+            nameof(PanelsMenuItem), [PanelsMenuItem]);
+        ShowApprovalAttentionCallout(
+            "**A plan moved to your Inbox.**\n\nOpen **Inbox** to review the plan and choose what to do with it.",
+            menuTarget,
+            placement: CalloutPlacement.East);
+        var menuCallout = _approvalAttentionCallout;
+        if (menuCallout is null)
+        {
+            _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: true);
+            return;
+        }
+
+        _shownApprovalCalloutMessageIds.Add(messageId);
+        _activePlanInboxCalloutMessageId = messageId;
+        _deferredPlanInboxCalloutMessageId = null;
+        _deferredPlanInboxCalloutTimer?.Stop();
+        menuCallout.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_approvalAttentionCallout, menuCallout))
+                _guidedTourCoordinator.ClearTourMenuTracking(closeMenus: false);
+        };
+    }
+
+    private bool TryGetUnreadAutomaticPlanReminder(
+        string messageId,
+        out PendingDecomposePlan? plan,
+        out InboxMessage? message)
+    {
+        plan = null;
+        message = _inboxStore?.GetById(messageId);
+        var attachment = message?.Attachments.FirstOrDefault(candidate =>
+            string.Equals(candidate.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase));
+        if (_currentWorkspace is null || attachment?.PlanGroupId is not { Length: > 0 } groupId)
+            return false;
+
+        plan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(groupId);
+        return plan is not null && DecomposePlanInbox.IsUnreadAutomaticReminder(plan, message);
+    }
+
+    private async Task ShowPendingPlanInboxRowCalloutAsync()
+    {
+        var messageId = _pendingPlanInboxCalloutMessageId;
+        if (messageId is null || _inboxPanel?.PanelVisible != true)
+            return;
+
+        if (!TryGetUnreadAutomaticPlanReminder(messageId, out _, out _))
+        {
+            ClearPendingPlanInboxCallout(messageId);
+            return;
+        }
+
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+        var row = _inboxPanel.FindVisibleMessageRow(messageId);
+        FrameworkElement target;
+        string text;
+        if (row is not null)
+        {
+            row.BringIntoView();
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+            target = row;
+            text = "**Plan ready for review.**\n\nOpen this message to view the plan and choose an action.";
+        }
+        else
+        {
+            target = InboxPanelBorder;
+            text = "**Plan ready for review.**\n\nThe message is unread in your Inbox but may be hidden by the current filter.";
+        }
+
+        ShowApprovalAttentionCallout(text, target, placement: CalloutPlacement.West);
+        if (_approvalAttentionCallout is not null)
+        {
+            _activePlanInboxCalloutMessageId = messageId;
+            _pendingPlanInboxCalloutMessageId = null;
+            _deferredPlanInboxCalloutMessageId = null;
+            _deferredPlanInboxCalloutTimer?.Stop();
+        }
+        else
+        {
+            _pendingPlanInboxCalloutMessageId = messageId;
+            _deferredPlanInboxCalloutMessageId = messageId;
+        }
+    }
+
+    private void ClearPendingPlanInboxCallout(string messageId)
+    {
+        if (string.Equals(_pendingPlanInboxCalloutMessageId, messageId, StringComparison.Ordinal))
+            _pendingPlanInboxCalloutMessageId = null;
+        if (string.Equals(_deferredPlanInboxCalloutMessageId, messageId, StringComparison.Ordinal))
+        {
+            _deferredPlanInboxCalloutMessageId = null;
+            _deferredPlanInboxCalloutTimer?.Stop();
+        }
+        if (string.Equals(_activePlanInboxCalloutMessageId, messageId, StringComparison.Ordinal))
+        {
+            _approvalAttentionCallout?.Close();
+            _approvalAttentionCallout = null;
+            _activePlanInboxCalloutMessageId = null;
+        }
+    }
+
     private void DeferApprovalCallout(string planId, string gateId)
     {
         _deferredApprovalCallout = (planId, gateId);
@@ -13402,11 +13667,13 @@ public partial class MainWindow : Window
         {
             _approvalAttentionCallout?.Close();
             _approvalAttentionCallout = null;
+            _activePlanInboxCalloutMessageId = null;
             SquadDashTrace.Write("Approval", "Callout suppressed because another process owns the foreground window at display time.");
             return;
         }
 
         _approvalAttentionCallout?.Close();
+        _activePlanInboxCalloutMessageId = null;
         var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
         var theme = isDark ? CalloutTheme.Dark : CalloutTheme.Light;
         var fontSize = Application.Current?.Resources["FontSizeCallout"] is double calloutSize
@@ -29722,6 +29989,8 @@ public partial class MainWindow : Window
             _inboxPanel!.Toggle();
             if (_inboxPanel.PanelVisible && _pendingApprovalCalloutMessageId is not null)
                 _ = ShowPendingApprovalInboxRowCalloutAsync();
+            else if (_inboxPanel.PanelVisible && _pendingPlanInboxCalloutMessageId is not null)
+                _ = ShowPendingPlanInboxRowCalloutAsync();
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ViewInboxMenuItem_Click), ex); }
     }
@@ -50128,6 +50397,8 @@ public partial class MainWindow : Window
         _inboxPanel!.Show(flash: true);
         if (_pendingApprovalCalloutMessageId is not null)
             _ = ShowPendingApprovalInboxRowCalloutAsync();
+        else if (_pendingPlanInboxCalloutMessageId is not null)
+            _ = ShowPendingPlanInboxRowCalloutAsync();
     }
 
     /// <summary>Returns the workspace tint accent color used for active-panel chrome

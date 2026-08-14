@@ -657,6 +657,33 @@ internal sealed class DecomposePlanInboxTests
             Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending, "I wrote some unrelated tests."), Is.False);
         });
     }
+
+    [Test]
+    public void AutomaticReminderAttention_RequiresUnreadMatchingPendingPlanAndExcludesExplicitDelivery()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+        var pending = new PendingDecomposePlan("abc123", group);
+        var unread = DecomposePlanInbox.BuildMessage(
+            pending, DateTimeOffset.UtcNow, explicitlyRequested: false);
+        var read = unread with { Read = true };
+        var wrongRevision = unread with
+        {
+            Attachments = unread.Attachments.Select(attachment =>
+                attachment with { PlanRevision = "stale" }).ToList(),
+        };
+        var explicitPending = pending with { Group = group with { Delivery = "inbox" } };
+        var explicitMessage = DecomposePlanInbox.BuildMessage(
+            explicitPending, DateTimeOffset.UtcNow, explicitlyRequested: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DecomposePlanInbox.IsUnreadAutomaticReminder(pending, unread), Is.True);
+            Assert.That(DecomposePlanInbox.IsUnreadAutomaticReminder(pending, read), Is.False);
+            Assert.That(DecomposePlanInbox.IsUnreadAutomaticReminder(pending, wrongRevision), Is.False);
+            Assert.That(DecomposePlanInbox.IsUnreadAutomaticReminder(explicitPending, explicitMessage), Is.False);
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

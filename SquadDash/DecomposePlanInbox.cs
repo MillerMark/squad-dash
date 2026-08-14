@@ -29,6 +29,31 @@ internal static class DecomposePlanInbox
     internal static bool RequestsInboxDelivery(DecomposedTaskGroup group) =>
         string.Equals(group.Delivery, "inbox", StringComparison.OrdinalIgnoreCase);
 
+    internal static bool IsUnreadAutomaticReminder(
+        PendingDecomposePlan plan,
+        InboxMessage? message)
+    {
+        if (message is null || message.Read || RequestsInboxDelivery(plan.Group) ||
+            !string.Equals(message.Id, BuildMessageId(plan), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return TryGetPlanAttachment(message, plan, out _);
+    }
+
+    internal static bool TryGetPlanAttachment(
+        InboxMessage message,
+        PendingDecomposePlan plan,
+        out InboxAttachment? attachment)
+    {
+        attachment = message.Attachments.FirstOrDefault(candidate =>
+            string.Equals(candidate.Type, AttachmentType, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(candidate.PlanGroupId, plan.Group.GroupId, StringComparison.Ordinal) &&
+            string.Equals(candidate.PlanRevision, plan.Revision, StringComparison.Ordinal));
+        return attachment is not null;
+    }
+
     internal static string BuildMessageId(PendingDecomposePlan plan) =>
         $"decompose-plan-{plan.Group.GroupId}-{plan.Revision}";
 
