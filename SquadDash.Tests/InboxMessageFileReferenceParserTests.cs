@@ -3,17 +3,19 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class InboxMessageFileReferenceParserTests
 {
-    [Test]
-    public void TryExtract_ValidReference_ReturnsVisibleTextAroundBlock()
+    [TestCase("\n")]
+    [TestCase("\r\n")]
+    public void TryExtract_ValidReference_NormalizesVisibleTextToLf(string newline)
     {
-        const string text = """
-            Report stored in inbox.
-
-            INBOX_MESSAGE_JSON_FILE:
-            { "path": ".squad/tmp/agent-artifacts/inbox.json", "sha256": "abc123" }
-
-            trailing note
-            """;
+        var text = string.Join(newline,
+        [
+            "Report stored in inbox.",
+            string.Empty,
+            "INBOX_MESSAGE_JSON_FILE:",
+            "{ \"path\": \".squad/tmp/agent-artifacts/inbox.json\", \"sha256\": \"abc123\" }",
+            string.Empty,
+            "trailing note"
+        ]);
 
         var result = InboxMessageFileReferenceParser.TryExtract(text, out var extraction);
 
@@ -23,11 +25,9 @@ internal sealed class InboxMessageFileReferenceParserTests
             Assert.That(extraction, Is.Not.Null);
             Assert.That(extraction!.Reference.Path, Is.EqualTo(".squad/tmp/agent-artifacts/inbox.json"));
             Assert.That(extraction.Reference.Sha256, Is.EqualTo("abc123"));
-            Assert.That(extraction.VisibleText, Is.EqualTo("""
-                Report stored in inbox.
-
-                trailing note
-                """));
+            Assert.That(extraction.VisibleText, Is.EqualTo("Report stored in inbox.\n\ntrailing note"));
+            Assert.That(extraction.TextBeforeBlock, Is.EqualTo("Report stored in inbox."));
+            Assert.That(extraction.TrailingText, Is.EqualTo("trailing note"));
         });
     }
 
