@@ -25,6 +25,28 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void WorkspaceLoad_AwaitsHydrationBeforeRestoringPendingPlanActions()
+    {
+        var mainWindowSource = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var managerSource = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
+        const string loadCall = "await _conversationManager.LoadWorkspaceConversationAsync();";
+        const string restoreCall = "RestorePendingDecomposeApprovalSurfaces();";
+
+        var loadIndex = mainWindowSource.IndexOf(loadCall, StringComparison.Ordinal);
+        var restoreIndex = mainWindowSource.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loadIndex, Is.GreaterThanOrEqualTo(0));
+            Assert.That(restoreIndex, Is.GreaterThan(loadIndex),
+                "Pending-plan actions must be reconciled after transcript hydration.");
+            Assert.That(managerSource, Does.Contain("await RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);"),
+                "LoadWorkspaceConversationAsync must not return while its document render is still queued.");
+            Assert.That(managerSource, Does.Not.Contain("_ = RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);"));
+        });
+    }
+
+    [Test]
     public void PersistedTurnRendering_DoesNotAttachCurrentRecoveryActionsToHistoryBatches()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

@@ -110,6 +110,54 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
+    public void ReplacePendingDecomposeApprovalSurface_PlanTurnThenEmptySystemTurn_RestoresOneActionCardAtEnd()
+    {
+        var document = new FlowDocument();
+        var planTurn = new Section();
+        planTurn.Blocks.Add(new Paragraph(new Run("Historical plan receipt"))
+        {
+            Tag = new PendingDecomposePlanLinkTag("PLAN-RESTART", "revision-1"),
+        });
+        document.Blocks.Add(planTurn);
+        document.Blocks.Add(new Section(new Paragraph(new Run(string.Empty)))
+        {
+            Tag = "empty-system-turn",
+        });
+
+        var restoredLink = new Paragraph(new Run("Restored plan receipt"))
+        {
+            Tag = new PendingDecomposePlanLinkTag("PLAN-RESTART", "revision-1"),
+        };
+        var restoredActions = TranscriptQuickReplyFactory.CreateContainer(
+            new WrapPanel(),
+            new PendingDecomposeApprovalTag("PLAN-RESTART", "revision-1"));
+
+        TranscriptQuickReplyFactory.ReplacePendingDecomposeApprovalSurface(
+            document.Blocks,
+            "PLAN-RESTART",
+            restoredLink,
+            restoredActions);
+
+        var allBlocks = EnumerateBlocks(document.Blocks).ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(allBlocks.Count(block => block.Tag is PendingDecomposePlanLinkTag), Is.EqualTo(1));
+            Assert.That(allBlocks.Count(block => block.Tag is PendingDecomposeApprovalTag), Is.EqualTo(1));
+            Assert.That(document.Blocks.LastBlock, Is.SameAs(restoredActions));
+            Assert.That(restoredActions.PreviousBlock, Is.SameAs(restoredLink));
+            Assert.That(document.Blocks.OfType<Section>().Any(section => Equals(section.Tag, "empty-system-turn")), Is.True);
+            Assert.That(
+                TranscriptQuickReplyFactory.ContainsPendingDecomposeApprovalSurface(
+                    document.Blocks, "PLAN-RESTART", "revision-1"),
+                Is.True);
+            Assert.That(
+                TranscriptQuickReplyFactory.ContainsPendingDecomposeApprovalSurface(
+                    document.Blocks, "PLAN-RESTART", "obsolete-revision"),
+                Is.False);
+        });
+    }
+
+    [Test]
     public void RemoveDecomposeRecoveryContainers_RemovesEntireTaggedSurfaceRecursively()
     {
         var document = new FlowDocument();
@@ -242,5 +290,17 @@ internal sealed class TranscriptQuickReplyFactoryTests
             Assert.That(section.Blocks.Contains(narrative), Is.True);
             Assert.That(section.Blocks.Contains(jsonIndicator), Is.False);
         });
+    }
+
+    private static IEnumerable<Block> EnumerateBlocks(BlockCollection blocks)
+    {
+        foreach (var block in blocks)
+        {
+            yield return block;
+            if (block is not Section section)
+                continue;
+            foreach (var nested in EnumerateBlocks(section.Blocks))
+                yield return nested;
+        }
     }
 }

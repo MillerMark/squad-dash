@@ -334,11 +334,14 @@ internal sealed class TranscriptConversationManager {
         SquadDashTrace.Write(TraceCategory.Performance, $"THREAD_RESTORE: {threadRestoreSw.ElapsedMilliseconds}ms");
         var turns = _conversationState.Turns;
         // Render agent threads sequentially then the coordinator turn — all in one
-        // fire-and-forget Task.  Sequential execution eliminates the O(n²) dispatcher
+        // awaited Task.  Sequential execution eliminates the O(n²) dispatcher
         // queue stacking that occurred when every thread called InvokeAsync concurrently:
         // thread k used to wait for the combined render time of threads 0…k-1 before its
         // own work could start.
-        _ = RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);
+        // Callers restore live transcript controls immediately after this method returns.
+        // Do not return while the queued FlowDocument replacement is still outstanding,
+        // or those controls can be attached to the old document and silently discarded.
+        await RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);
         _syncAgentCardsWithThreads();
     }
 

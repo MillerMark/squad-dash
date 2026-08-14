@@ -9569,10 +9569,13 @@ public partial class MainWindow : Window
         {
             blocks.Remove(existing);
         }
-        blocks.Add(CreatePendingDecomposePlanLinkParagraph(plan));
+        var planLink = CreatePendingDecomposePlanLinkParagraph(plan);
 
         if (!includeActions)
+        {
+            blocks.Add(planLink);
             return;
+        }
 
         var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
@@ -9581,7 +9584,19 @@ public partial class MainWindow : Window
         var actionsContainer = TranscriptQuickReplyFactory.CreateContainer(
             panel,
             new PendingDecomposeApprovalTag(group.GroupId, plan.Revision));
-        blocks.Add(actionsContainer);
+        if (ownerView is null)
+        {
+            TranscriptQuickReplyFactory.ReplacePendingDecomposeApprovalSurface(
+                CoordinatorThread.Document.Blocks,
+                group.GroupId,
+                planLink,
+                actionsContainer);
+        }
+        else
+        {
+            blocks.Add(planLink);
+            blocks.Add(actionsContainer);
+        }
         ScrollToEndIfAtBottom(CoordinatorThread);
 
         void AddButton(DecomposePlanActionDefinition action)
@@ -9637,6 +9652,35 @@ public partial class MainWindow : Window
                     ? CreatePendingDecomposePlanLinkParagraph(plan)
                     : null;
             });
+    }
+
+    private void RestorePendingDecomposeApprovalSurfaces()
+    {
+        if (_currentWorkspace is null)
+            return;
+
+        var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+        foreach (var plan in store.LoadAll().OrderBy(candidate => candidate.CreatedAt))
+        {
+            if (IsDurablePlanArchived(plan.Group.GroupId))
+            {
+                store.Archive(plan.Group.GroupId);
+                continue;
+            }
+
+            // Explicit Inbox delivery and the automatic "conversation moved on"
+            // reminder already have a durable action surface of their own.
+            if (DecomposePlanInbox.RequestsInboxDelivery(plan.Group) ||
+                _inboxStore?.Exists(DecomposePlanInbox.BuildMessageId(plan), includeArchive: true) == true)
+            {
+                continue;
+            }
+
+            AppendPendingDecomposeApproval(plan);
+            SquadDashTrace.Write(
+                TraceCategory.UI,
+                $"Restored pending plan approval surface group={plan.Group.GroupId} revision={plan.Revision} after transcript hydration.");
+        }
     }
 
     private Paragraph CreatePendingDecomposePlanLinkParagraph(PendingDecomposePlan plan)
@@ -32296,6 +32340,11 @@ public partial class MainWindow : Window
         // Repair durable state only after the workspace-scoped execution envelope is loaded,
         // but before rebuilding approval/recovery controls from that state.
         RepairStalePlanExecutingState();
+        // TASKS_JSON can be followed by an empty/system turn, so the plan-producing turn
+        // is not necessarily the last persisted turn. Rebuild approval actions from the
+        // durable pending-plan store after hydration and state repair instead of inferring
+        // ownership from transcript position.
+        RestorePendingDecomposeApprovalSurfaces();
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
         RestoreAwaitingApprovalGateUI();
@@ -32331,13 +32380,9 @@ public partial class MainWindow : Window
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
 
-        // ── Yield to transcript render ─────────────────────────────────────────
-        // The transcript render was fire-and-forget queued at Normal priority inside
-        // LoadWorkspaceConversationAsync.  Everything below this point is panel init
-        // that does not need to complete before the transcript is visible.  Yield the
-        // UI thread so the dispatcher can process the Normal-priority transcript
-        // render before continuing with panel work.  This eliminates the multi-second
-        // DISPATCH_WAIT that was blocking the transcript from appearing.
+        // ── Yield to transcript layout ─────────────────────────────────────────
+        // Conversation hydration has completed, but WPF may still have layout/render
+        // work queued by FlowDocument.EndChange. Yield before continuing with panel work.
         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Background);
         SquadDashTrace.Write(TraceCategory.Performance, "PANEL_INIT_RESUME: transcript render yielded, resuming panel init");
 
@@ -36576,8 +36621,17 @@ public partial class MainWindow : Window
                 .Load(restoredGroup.GroupId);
             if (pendingPlan is not null &&
                 string.Equals(pendingPlan.Revision, PendingDecomposePlanStore.ComputeRevision(restoredGroup), StringComparison.Ordinal) &&
-                !DecomposePlanInbox.RequestsInboxDelivery(pendingPlan.Group))
-                AppendPendingDecomposeApproval(pendingPlan, view, includeActions: isLastTurn);
+                !DecomposePlanInbox.RequestsInboxDelivery(pendingPlan.Group) &&
+                !TranscriptQuickReplyFactory.ContainsPendingDecomposeApprovalSurface(
+                    CoordinatorThread.Document.Blocks,
+                    pendingPlan.Group.GroupId,
+                    pendingPlan.Revision))
+            {
+                // Historical turns retain a plan receipt/link only. Once all turns are
+                // hydrated, RestorePendingDecomposeApprovalSurfaces reconstructs the one
+                // actionable card from durable state at the true transcript end.
+                AppendPendingDecomposeApproval(pendingPlan, view, includeActions: false);
+            }
         }
         foreach (var block in view.ThinkingBlocks)
             block.Expander.IsExpanded = !turn.ThinkingCollapsed;

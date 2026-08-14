@@ -124,6 +124,71 @@ internal static class TranscriptQuickReplyFactory
         }
     }
 
+    /// <summary>
+    /// Replaces every historical link/action surface for one pending plan with a single
+    /// authoritative surface at the end of the transcript. This is used after restart,
+    /// when the durable pending-plan store—not the position of its original turn—owns
+    /// whether actions are still available.
+    /// </summary>
+    internal static void ReplacePendingDecomposeApprovalSurface(
+        BlockCollection blocks,
+        string groupId,
+        Block planLink,
+        BlockUIContainer actions)
+    {
+        RemovePendingDecomposeApprovalSurface(blocks, groupId);
+        blocks.Add(planLink);
+        blocks.Add(actions);
+    }
+
+    internal static bool ContainsPendingDecomposeApprovalSurface(
+        BlockCollection blocks,
+        string groupId,
+        string revision)
+    {
+        foreach (var block in blocks)
+        {
+            if (block.Tag is PendingDecomposePlanLinkTag linkTag &&
+                string.Equals(linkTag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(linkTag.Revision, revision, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            if (block.Tag is PendingDecomposeApprovalTag approvalTag &&
+                string.Equals(approvalTag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(approvalTag.Revision, revision, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            if (block is Section section &&
+                ContainsPendingDecomposeApprovalSurface(section.Blocks, groupId, revision))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void RemovePendingDecomposeApprovalSurface(BlockCollection blocks, string groupId)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            var isMatchingLink = block.Tag is PendingDecomposePlanLinkTag linkTag &&
+                                 string.Equals(linkTag.GroupId, groupId, StringComparison.Ordinal);
+            var isMatchingActions = block.Tag is PendingDecomposeApprovalTag approvalTag &&
+                                    string.Equals(approvalTag.GroupId, groupId, StringComparison.Ordinal);
+            if (isMatchingLink || isMatchingActions)
+            {
+                blocks.Remove(block);
+                continue;
+            }
+
+            if (block is Section section)
+                RemovePendingDecomposeApprovalSurface(section.Blocks, groupId);
+        }
+    }
+
     internal static void RemoveDecomposeRecoveryContainers(BlockCollection blocks)
     {
         foreach (var block in blocks.ToArray())
