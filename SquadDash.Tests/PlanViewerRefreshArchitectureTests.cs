@@ -29,6 +29,54 @@ internal sealed class PlanViewerRefreshArchitectureTests
         });
     }
 
+    [Test]
+    public void StagedEditing_RemainsInsideTheExistingInspectorAndGraphContextMenus()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private bool PopulateTaskEditor")
+                .And.Contain("private bool PopulateValidationEditor")
+                .And.Contain("private bool PopulateGateEditor"));
+            Assert.That(source, Does.Contain("new BlockUIContainer(panel)")
+                .And.Contain("AddButton(_isInspectorEditing ? \"Cancel edit\" : \"Edit\""),
+                "Editors must be hosted by the existing inspector and stay read-only until Edit.");
+            Assert.That(source, Does.Contain("Header = \"Add validation after this task\"")
+                .And.Contain("Header = \"Delete task\"")
+                .And.Contain("Header = \"Delete validation\""));
+            Assert.That(source, Does.Contain("AddButton(\"Undo\"")
+                .And.Contain("AddButton(\"Redo\"")
+                .And.Contain("Review with AI"));
+            Assert.That(source, Does.Contain("TourActionLabel = ReviewActionLabel(annotation)")
+                .And.Contain("TourPrevRequested")
+                .And.Contain("TourNextRequested")
+                .And.Contain("ApplyActiveReviewChange"));
+            Assert.That(source, Does.Not.Contain("new PlanEditorWindow")
+                .And.Not.Contain("new PlanReviewWindow"));
+        });
+    }
+
+    [Test]
+    public void AiReview_UsesSilentHostTurnAndDestructiveHighContrastAction()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var conversation = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
+        var overlay = File.ReadAllText(
+            FindRepoFile("SquadDash", "Callouts", "UI", "TourCalloutNavigationOverlay.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(main, Does.Contain("sourceTag: \"plan-visualizer-review\"")
+                .And.Contain("_pendingPromptSuppressTranscript")
+                .And.Contain("SuppressTranscript = suppressTranscript"));
+            Assert.That(conversation, Does.Contain("turn.SuppressTranscript"));
+            Assert.That(overlay, Does.Contain("DangerButtonBg")
+                .And.Contain("DangerButtonFg")
+                .And.Contain("ActionClicked"));
+        });
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);

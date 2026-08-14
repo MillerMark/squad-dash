@@ -51,9 +51,6 @@ internal static class PendingPlanGateEditor
             var existing = inboxStore.GetById(oldInboxMessageId);
             if (existing is not null)
             {
-                // Delete old message (its ID embeds the old revision).
-                inboxStore.Delete(oldInboxMessageId);
-
                 // Build a replacement message with the new revision-based ID, preserving
                 // the original timestamp and read state.
                 var replacement = DecomposePlanInbox.BuildMessage(
@@ -64,7 +61,7 @@ internal static class PendingPlanGateEditor
                 {
                     Read = existing.Read,
                 };
-                inboxStore.Save(replacement);
+                inboxStore.Replace(oldInboxMessageId, replacement);
                 newInboxMessageId = replacement.Id;
             }
         }

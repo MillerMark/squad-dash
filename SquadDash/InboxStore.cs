@@ -82,6 +82,23 @@ public class InboxStore
         }
     }
 
+    /// <summary>
+    /// Saves the replacement before removing the old revision-addressed message, so a write
+    /// failure can never leave the user without either Inbox action surface.
+    /// </summary>
+    public void Replace(string oldMessageId, InboxMessage replacement)
+    {
+        lock (_sync)
+        {
+            Save(replacement);
+            if (!string.Equals(oldMessageId, replacement.Id, StringComparison.Ordinal))
+            {
+                var oldPath = GetFilePath(oldMessageId);
+                if (File.Exists(oldPath)) File.Delete(oldPath);
+            }
+        }
+    }
+
     public InboxMessage? FindRecentSimilarMessage(InboxMessage message, TimeSpan window)
     {
         if (message is null)

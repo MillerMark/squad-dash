@@ -51,6 +51,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
+    private readonly Func<DecomposedTaskGroup, PendingDecomposePlan>? _savePendingEdit;
+    private readonly Action<PendingDecomposePlan>? _requestAiReview;
+    private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -76,6 +79,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _allocatedApprovalHeight;
     private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
     private bool _initialLayoutApplied;
+    private StagedPlanEditHistory? _editHistory;
+    private bool _isInspectorEditing;
+    private PlanVisualizerReviewPayload? _review;
+    private int _reviewIndex = -1;
+    private FrmUltimateCallout? _reviewCallout;
+    private bool _isAiReviewPending;
+    private string? _reviewStatusMessage;
 
     private enum AutomaticScrollTarget
     {
@@ -117,7 +127,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
         Action<Plan>? onContinueInterruptedTask = null,
-        Action<Plan>? onReplanRemainingWork = null)
+        Action<Plan>? onReplanRemainingWork = null,
+        Func<DecomposedTaskGroup, PendingDecomposePlan>? savePendingEdit = null,
+        Action<PendingDecomposePlan>? requestAiReview = null,
+        Action<PlanVisualizerReviewPayload?>? saveReviewState = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -154,6 +167,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
+        _savePendingEdit = savePendingEdit;
+        _requestAiReview = requestAiReview;
+        _saveReviewState = saveReviewState;
+        if (savePendingEdit is not null)
+            _editHistory = new StagedPlanEditHistory(plan.Group);
 
         Title     = $"Plan — {plan.Group.GroupTitle}";
         Width     = 1200;
@@ -166,7 +184,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
-        Closed += (_, _) => _preflightPollTimer?.Stop();
+        Closed += (_, _) =>
+        {
+            _preflightPollTimer?.Stop();
+            _reviewCallout?.Close();
+        };
 
         if (broker is not null && durablePlan is not null)
         {
@@ -285,7 +307,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var activeBranch       = _activeBranch;
         var quickReplyFontSize = _quickReplyFontSize;
         var applyAction        = _applyAction;
-        var onGatesChanged     = _onGatesChanged;
+        Action<Plan>? onGatesChanged = _savePendingEdit is not null
+            ? edited => ApplyStagedMutation(PendingDecomposePlanAdapter.FromPlan(edited).Group)
+            : _onGatesChanged;
         var onStartPlan        = _onStartPlan;
         var onResumePlan       = _onResumePlan;
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
@@ -1335,6 +1359,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 visual.Children.Add(titleBorder);
                 visual.Tag = $"validation:{validation.ValidationId}";
                 WireSelectionClick(visual);
+                if (_savePendingEdit is not null)
+                {
+                    var capturedValidationId = validation.ValidationId;
+                    var menu = new ContextMenu();
+                    var edit = new MenuItem { Header = "Edit validation" };
+                    edit.Click += (_, _) =>
+                    {
+                        _selectedElement = new SelectedElementIdentity("validation", capturedValidationId);
+                        _isInspectorEditing = true;
+                        ApplySelectionVisual();
+                        RefreshDetailPanel();
+                    };
+                    var remove = new MenuItem { Header = "Delete validation" };
+                    remove.Click += (_, _) =>
+                    {
+                        if (!ConfirmDestructivePlanEdit($"Delete validation {capturedValidationId}?")) return;
+                        ApplyStagedMutation(StagedPlanEditor.DeleteValidation(
+                            _plan!.Group, capturedValidationId));
+                    };
+                    menu.Items.Add(edit);
+                    menu.Items.Add(remove);
+                    visual.ContextMenu = menu;
+                }
 
                 var taskPositionMap = positions.ToDictionary(
                     entry => entry.Key,
@@ -2004,6 +2051,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task entry"));
                 addBeforeItem.Click += (_, _) =>
                 {
+                    if (_savePendingEdit is not null)
+                    {
+                        var stagedGatePlan = PlanGateManager.AddGateBefore(
+                            durablePlan,
+                            capturedTask.Id,
+                            $"Review before: {capturedTask.Title ?? capturedTask.Id}");
+                        var insertedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                            !durablePlan.ApprovalGates.Any(existing => existing.GateId == gate.GateId));
+                        if (insertedGate is not null)
+                            ApplyStagedMutation(
+                                PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
+                                selectKind: "humanapproval",
+                                selectId: insertedGate.GateId,
+                                beginEditingSelection: true);
+                        return;
+                    }
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current!.MainWindow!,
                         "Enter a message for this approval gate:",
                         "Require Approval Before",
@@ -2023,6 +2086,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task exit"));
                 addAfterItem.Click += (_, _) =>
                 {
+                    if (_savePendingEdit is not null)
+                    {
+                        var stagedGatePlan = PlanGateManager.AddGateAfter(
+                            durablePlan,
+                            capturedTask.Id,
+                            $"Review after: {capturedTask.Title ?? capturedTask.Id}");
+                        var insertedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                            !durablePlan.ApprovalGates.Any(existing => existing.GateId == gate.GateId));
+                        if (insertedGate is not null)
+                            ApplyStagedMutation(
+                                PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
+                                selectKind: "humanapproval",
+                                selectId: insertedGate.GateId,
+                                beginEditingSelection: true);
+                        return;
+                    }
                     var msg = SimpleInputDialog.Show(Window.GetWindow(border) ?? Application.Current!.MainWindow!,
                         "Enter a message for this approval gate:",
                         "Require Approval After",
@@ -2079,12 +2158,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (contextMenu.Items.Count > 0)
                     border.ContextMenu = contextMenu;
 
+                if (_savePendingEdit is not null)
+                {
+                    contextMenu.Items.Add(new Separator());
+                    var addValidation = new MenuItem { Header = "Add validation after this task" };
+                    addValidation.Click += (_, _) => ApplyStagedMutation(
+                        StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTask.Id),
+                        selectKind: "validation",
+                        beginEditingSelection: true);
+                    contextMenu.Items.Add(addValidation);
+
+                    var deleteTask = new MenuItem
+                    {
+                        Header = "Delete task",
+                        IsEnabled = group.Tasks.Count > 1,
+                    };
+                    deleteTask.Click += (_, _) =>
+                    {
+                        if (!ConfirmDestructivePlanEdit(
+                                $"Delete “{capturedTask.Title ?? capturedTask.Id}” and reconnect its dependents?"))
+                            return;
+                        ApplyStagedMutation(StagedPlanEditor.DeleteTask(_plan!.Group, capturedTask.Id));
+                    };
+                    contextMenu.Items.Add(deleteTask);
+                }
+
                 MenuItem CreateInsertTaskMenuItem(bool insertAfter, bool isEnabled)
                 {
                     var relativePosition = insertAfter ? "after" : "before";
                     var item = new MenuItem
                     {
-                        Header = $"Insert task {relativePosition}…",
+                        Header = _savePendingEdit is not null
+                            ? $"Insert task {relativePosition}"
+                            : $"Insert task {relativePosition}…",
                         IsEnabled = isEnabled,
                         ToolTip = isEnabled
                             ? ToolTipHelper.MakeThemedToolTip(
@@ -2094,6 +2200,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     };
                     item.Click += (_, _) =>
                     {
+                        if (_savePendingEdit is not null && _plan is not null)
+                        {
+                            var newId = StagedPlanEditor.NextTaskId(_plan.Group);
+                            ApplyStagedMutation(
+                                StagedPlanEditor.InsertTask(
+                                    _plan.Group, capturedTask.Id, before: !insertAfter),
+                                selectKind: "task",
+                                selectId: newId,
+                                beginEditingSelection: true);
+                            return;
+                        }
+
                         var owner = Window.GetWindow(border) ?? Application.Current.MainWindow;
                         var newTitle = SimpleInputDialog.Show(
                             owner,
@@ -2116,6 +2234,34 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     };
                     return item;
                 }
+            }
+
+            if (_savePendingEdit is not null && border.ContextMenu is null)
+            {
+                var capturedTaskId = task.Id;
+                var contextMenu = new ContextMenu();
+                contextMenu.Items.Add(CreateStagedInsertMenuItem(capturedTaskId, before: true));
+                contextMenu.Items.Add(CreateStagedInsertMenuItem(capturedTaskId, before: false));
+                contextMenu.Items.Add(new Separator());
+                var addValidation = new MenuItem { Header = "Add validation after this task" };
+                addValidation.Click += (_, _) => ApplyStagedMutation(
+                    StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTaskId),
+                    selectKind: "validation",
+                    beginEditingSelection: true);
+                contextMenu.Items.Add(addValidation);
+                var deleteTask = new MenuItem
+                {
+                    Header = "Delete task",
+                    IsEnabled = group.Tasks.Count > 1,
+                };
+                deleteTask.Click += (_, _) =>
+                {
+                    if (!ConfirmDestructivePlanEdit($"Delete task {capturedTaskId} and reconnect its dependents?"))
+                        return;
+                    ApplyStagedMutation(StagedPlanEditor.DeleteTask(_plan!.Group, capturedTaskId));
+                };
+                contextMenu.Items.Add(deleteTask);
+                border.ContextMenu = contextMenu;
             }
 
             // Hover: show glow on all connectors entering/exiting this task, bring them forward,
@@ -2877,9 +3023,113 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
     {
+        _editHistory?.ReplaceCurrent(plan.Group);
         RebuildPreservingScroll(plan, durablePlan);
         Title = $"Plan — {plan.Group.GroupTitle}";
     }
+
+    private bool ApplyStagedMutation(
+        DecomposedTaskGroup candidate,
+        bool recordHistory = true,
+        string? selectKind = null,
+        string? selectId = null,
+        bool beginEditingSelection = false,
+        bool preserveReview = false)
+    {
+        if (_savePendingEdit is null || _plan is null) return false;
+        if (!StagedPlanEditor.TryValidate(candidate, out var normalized, out var error) || normalized is null)
+        {
+            UIErrorHelper.ShowError("Edit Plan", error ?? "The edit would make the plan invalid.", this);
+            return false;
+        }
+        try
+        {
+            var saved = _savePendingEdit(normalized);
+            if (recordHistory)
+                _editHistory?.Record(normalized);
+            _editHistory?.ReplaceCurrent(saved.Group);
+            _plan = saved;
+            _durablePlan = PendingDecomposePlanAdapter.ToPlan(
+                saved, saved.CreatedAt ?? DateTimeOffset.UtcNow);
+            if (!preserveReview)
+            {
+                _reviewCallout?.Close();
+                _reviewCallout = null;
+                _review = null;
+                _reviewIndex = -1;
+            }
+            _isInspectorEditing = beginEditingSelection;
+
+            if (selectKind is not null)
+            {
+                selectId ??= selectKind switch
+                {
+                    "task" => saved.Group.Tasks.LastOrDefault()?.Id,
+                    "validation" => saved.Group.Validations?.LastOrDefault()?.ValidationId,
+                    "gate" => saved.Group.ApprovalGates?.LastOrDefault()?.GateId,
+                    _ => null,
+                };
+                _selectedElement = selectId is null ? null : new SelectedElementIdentity(selectKind, selectId);
+            }
+            else if (_selectedElement is { } selected && !ElementStillExists(saved.Group, selected))
+            {
+                _selectedElement = null;
+            }
+
+            RebuildPreservingScroll(saved, _durablePlan);
+            Title = $"Plan — {saved.Group.GroupTitle}";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            UIErrorHelper.ShowError("Edit Plan", exception.Message, this);
+            return false;
+        }
+    }
+
+    private void UndoStagedEdit()
+    {
+        var previous = _editHistory?.Undo();
+        if (previous is not null && !ApplyStagedMutation(previous, recordHistory: false))
+            _editHistory?.Redo();
+    }
+
+    private void RedoStagedEdit()
+    {
+        var next = _editHistory?.Redo();
+        if (next is not null && !ApplyStagedMutation(next, recordHistory: false))
+            _editHistory?.Undo();
+    }
+
+    private MenuItem CreateStagedInsertMenuItem(string anchorTaskId, bool before)
+    {
+        var item = new MenuItem { Header = before ? "Insert task before" : "Insert task after" };
+        item.Click += (_, _) =>
+        {
+            if (_plan is null) return;
+            var newId = StagedPlanEditor.NextTaskId(_plan.Group);
+            ApplyStagedMutation(
+                StagedPlanEditor.InsertTask(_plan.Group, anchorTaskId, before),
+                selectKind: "task",
+                selectId: newId,
+                beginEditingSelection: true);
+        };
+        return item;
+    }
+
+    private bool ConfirmDestructivePlanEdit(string message) =>
+        MessageBox.Show(this, message, "Edit Plan", MessageBoxButton.YesNo,
+            MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+
+    private static bool ElementStillExists(
+        DecomposedTaskGroup group,
+        SelectedElementIdentity selected) => selected.Kind switch
+    {
+        "task" => group.Tasks.Any(task => task.Id == selected.Id),
+        "validation" => (group.Validations ?? []).Any(value => value.ValidationId == selected.Id),
+        "gate" or "humanapproval" => (group.ApprovalGates ?? []).Any(value => value.GateId == selected.Id),
+        _ => true,
+    };
 
     internal void NotifyThemeChanged()
     {
@@ -4258,6 +4508,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void SelectElement(string kind, string id)
     {
         var identity = new SelectedElementIdentity(kind, id);
+        _isInspectorEditing = false;
         if (_selectedElement == identity)
         {
             _selectedElement = null;
@@ -4344,6 +4595,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        if (_isInspectorEditing && TryPopulateStagedEditor())
+        {
+            PrependInspectorToolbar();
+            return;
+        }
+
         if (_selectedElement is null)
         {
             _detailDocument.Blocks.Clear();
@@ -4351,6 +4608,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             placeholder.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             placeholder.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             _detailDocument.Blocks.Add(placeholder);
+            AppendActiveReviewNote();
+            PrependInspectorToolbar();
             return;
         }
 
@@ -4433,6 +4692,543 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             PopulateAgentDetail(_selectedElement.Id);
         }
+        AppendActiveReviewNote();
+        PrependInspectorToolbar();
+    }
+
+    private void PrependInspectorToolbar()
+    {
+        if (_detailDocument is null) return;
+        var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+
+        Button AddButton(string label, Action click, string? toolTip = null)
+        {
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label, _quickReplyFontSize,
+                toolTip: toolTip is null ? null : ToolTipHelper.MakeThemedToolTip(toolTip));
+            button.Margin = new Thickness(0, 0, 6, 4);
+            button.Click += (_, _) => click();
+            toolbar.Children.Add(button);
+            return button;
+        }
+
+        if (CanEditSelectedElement())
+        {
+            AddButton(_isInspectorEditing ? "Cancel edit" : "Edit", () =>
+            {
+                _isInspectorEditing = !_isInspectorEditing;
+                RefreshDetailPanel();
+            }, "Edit this staged-plan element in the inspector.");
+        }
+        if (_editHistory is not null)
+        {
+            var undo = AddButton("Undo", UndoStagedEdit, "Undo the most recent plan edit.");
+            undo.IsEnabled = _editHistory.CanUndo;
+            var redo = AddButton("Redo", RedoStagedEdit, "Redo the most recently undone plan edit.");
+            redo.IsEnabled = _editHistory.CanRedo;
+        }
+        if (_requestAiReview is not null && _plan is not null)
+        {
+            var review = AddButton(_isAiReviewPending ? "Reviewing…" : "Review with AI", () =>
+            {
+                if (_isAiReviewPending || _plan is null) return;
+                _isAiReviewPending = true;
+                _reviewStatusMessage = null;
+                _requestAiReview(_plan);
+                RefreshDetailPanel();
+            },
+                "Ask AI to review this staged revision and attach navigable notes.");
+            review.IsEnabled = !_isAiReviewPending;
+            if (_isAiReviewPending)
+            {
+                var spinner = new ActivitySpinner
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 4),
+                    AccentColor = ResolvePlanSpinnerColor(),
+                };
+                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                spinner.SetContinuousActive(true);
+                toolbar.Children.Add(spinner);
+            }
+            if (!string.IsNullOrWhiteSpace(_reviewStatusMessage))
+            {
+                var status = new TextBlock
+                {
+                    Text = _reviewStatusMessage,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 4),
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                toolbar.Children.Add(status);
+            }
+        }
+
+        if (_review?.Annotations is { Count: > 0 } annotations)
+        {
+            var previous = AddButton("← Prev", () => NavigateReview(_reviewIndex - 1));
+            previous.IsEnabled = _reviewIndex > 0;
+            var next = AddButton("Next →", () => NavigateReview(_reviewIndex + 1));
+            next.IsEnabled = _reviewIndex >= 0 && _reviewIndex < annotations.Count - 1;
+            var count = new TextBlock
+            {
+                Text = _reviewIndex >= 0
+                    ? $"Review {_reviewIndex + 1} of {annotations.Count}"
+                    : $"{annotations.Count} review notes",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 0, 4),
+            };
+            count.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            count.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            toolbar.Children.Add(count);
+        }
+
+        var container = new BlockUIContainer(toolbar) { Margin = new Thickness(0) };
+        if (_detailDocument.Blocks.FirstBlock is { } first)
+            _detailDocument.Blocks.InsertBefore(first, container);
+        else
+            _detailDocument.Blocks.Add(container);
+    }
+
+    private bool CanEditSelectedElement() =>
+        (_savePendingEdit is not null &&
+         (_selectedElement is null ||
+          _selectedElement.Kind is "task" or "validation" or "gate" or "humanapproval")) ||
+        (_onGatesChanged is not null &&
+         _selectedElement?.Kind is "gate" or "humanapproval");
+
+    internal void SetReviewAnnotations(PlanVisualizerReviewPayload review)
+    {
+        if (_plan is null ||
+            !string.Equals(review.GroupId, _plan.Group.GroupId, StringComparison.Ordinal) ||
+            !string.Equals(review.BaseRevision, _plan.Revision, StringComparison.Ordinal))
+            return;
+
+        _reviewCallout?.Close();
+        _reviewCallout = null;
+        _isAiReviewPending = false;
+        _reviewStatusMessage = null;
+        _review = review;
+        _reviewIndex = review.Annotations.Count > 0 ? 0 : -1;
+        if (_reviewIndex >= 0)
+            NavigateReview(_reviewIndex);
+        else
+            RefreshDetailPanel();
+    }
+
+    internal void SetReviewRequestError(string error)
+    {
+        _isAiReviewPending = false;
+        _reviewStatusMessage = error;
+        RefreshDetailPanel();
+    }
+
+    private void NavigateReview(int requestedIndex)
+    {
+        if (_review?.Annotations is not { Count: > 0 } annotations) return;
+        var index = Math.Clamp(requestedIndex, 0, annotations.Count - 1);
+        var annotation = annotations[index];
+        _reviewIndex = index;
+        _isInspectorEditing = false;
+        _selectedElement = annotation.TargetKind == "plan"
+            ? null
+            : new SelectedElementIdentity(
+                annotation.TargetKind == "gate" ? "humanapproval" : annotation.TargetKind,
+                annotation.TargetId);
+        ApplySelectionVisual();
+        RefreshDetailPanel();
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            var target = FindReviewTarget(annotation);
+            if (target is null) return;
+            target.BringIntoView();
+            _reviewCallout?.Close();
+            var severity = string.IsNullOrWhiteSpace(annotation.Severity)
+                ? "Suggestion"
+                : char.ToUpperInvariant(annotation.Severity[0]) + annotation.Severity[1..];
+            _reviewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                $"**{severity}: {annotation.Title}**\n\n{annotation.Note}",
+                target,
+                width: 380,
+                fontSize: _quickReplyFontSize + 1);
+            if (_reviewCallout is null) return;
+            _reviewCallout.IsTourFirstStep = index == 0;
+            _reviewCallout.IsTourLastStep = index == annotations.Count - 1;
+            _reviewCallout.TourActionLabel = ReviewActionLabel(annotation);
+            _reviewCallout.IsTourActionDestructive = IsDestructiveReviewChange(annotation);
+            _reviewCallout.TourPrevRequested += (_, _) => NavigateReview(_reviewIndex - 1);
+            _reviewCallout.TourNextRequested += (_, _) => NavigateReview(_reviewIndex + 1);
+            _reviewCallout.TourActionRequested += (_, _) => ApplyActiveReviewChange();
+            _reviewCallout.IsTourMode = true;
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private static bool IsDestructiveReviewChange(PlanVisualizerReviewAnnotation annotation) =>
+        annotation.Change?.Op is "removeTask" or "removeApprovalGate" or "removeValidation";
+
+    private static string? ReviewActionLabel(PlanVisualizerReviewAnnotation annotation)
+    {
+        if (annotation.Change is null) return null;
+        if (!string.IsNullOrWhiteSpace(annotation.ActionLabel)) return annotation.ActionLabel;
+        return IsDestructiveReviewChange(annotation) ? "Delete" : "Apply";
+    }
+
+    private void ApplyActiveReviewChange()
+    {
+        if (_plan is null || _review?.Annotations is not { Count: > 0 } annotations ||
+            _reviewIndex < 0 || _reviewIndex >= annotations.Count)
+            return;
+        var annotation = annotations[_reviewIndex];
+        if (annotation.Change is null) return;
+
+        var proposal = new StagedPlanRevisionProposalPayload(
+            _plan.Group.GroupId,
+            _plan.Revision,
+            annotation.Title,
+            [annotation.Change]);
+        var result = StagedPlanRevisionApplier.Apply(_plan, proposal);
+        if (result.Outcome is not (StagedPlanRevisionOutcome.Applied or StagedPlanRevisionOutcome.NoChanges) ||
+            result.RevisedGroup is null)
+        {
+            UIErrorHelper.ShowError("Apply Review Suggestion",
+                result.Error ?? "The suggested change is no longer valid.", this);
+            return;
+        }
+
+        var remaining = annotations.Where((_, index) => index != _reviewIndex).ToArray();
+        var nextIndex = Math.Min(_reviewIndex, remaining.Length - 1);
+        if (!ApplyStagedMutation(result.RevisedGroup, preserveReview: true)) return;
+        if (_plan is null) return;
+        _reviewCallout?.Close();
+        _reviewCallout = null;
+        _review = remaining.Length == 0
+            ? null
+            : _review with { BaseRevision = _plan.Revision, Annotations = remaining };
+        _reviewIndex = nextIndex;
+        _saveReviewState?.Invoke(_review);
+        if (_review is not null && nextIndex >= 0)
+            NavigateReview(nextIndex);
+        else
+            RefreshDetailPanel();
+    }
+
+    private FrameworkElement? FindReviewTarget(PlanVisualizerReviewAnnotation annotation)
+    {
+        if (annotation.TargetKind == "plan") return _header;
+        if (_graphCanvas is null) return null;
+        var tags = annotation.TargetKind == "gate"
+            ? new[] { $"humanapproval:{annotation.TargetId}", $"gate:{annotation.TargetId}" }
+            : new[] { $"{annotation.TargetKind}:{annotation.TargetId}" };
+        return _graphCanvas.Children.OfType<FrameworkElement>()
+            .FirstOrDefault(element => element.Tag is string tag &&
+                tags.Contains(tag, StringComparer.Ordinal));
+    }
+
+    private void AppendActiveReviewNote()
+    {
+        if (_detailDocument is null || _review?.Annotations is not { Count: > 0 } annotations ||
+            _reviewIndex < 0 || _reviewIndex >= annotations.Count)
+            return;
+        var annotation = annotations[_reviewIndex];
+        var heading = new Paragraph(new Run($"AI review — {annotation.Title}")
+        {
+            FontWeight = FontWeights.Bold,
+        }) { Margin = new Thickness(0, 12, 0, 3) };
+        heading.SetResourceReference(TextElement.ForegroundProperty,
+            annotation.Severity == "error" ? "PriorityHigh" : "ImportantText");
+        var note = new Paragraph(new Run(annotation.Note)) { Margin = new Thickness(0, 0, 0, 8) };
+        note.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        _detailDocument.Blocks.Add(heading);
+        _detailDocument.Blocks.Add(note);
+    }
+
+    private bool TryPopulateStagedEditor()
+    {
+        if (_detailDocument is null || _plan is null || _savePendingEdit is null)
+            return false;
+
+        if (_selectedElement is null) return PopulatePlanEditor();
+
+        return _selectedElement.Kind switch
+        {
+            "task" => PopulateTaskEditor(_selectedElement.Id),
+            "validation" => PopulateValidationEditor(_selectedElement.Id),
+            "gate" or "humanapproval" => PopulateGateEditor(_selectedElement.Id),
+            _ => false,
+        };
+    }
+
+    private bool PopulatePlanEditor()
+    {
+        if (_plan is null || _detailDocument is null) return false;
+        _detailDocument.Blocks.Clear();
+        var panel = CreateEditorPanel("Edit plan", out var status);
+        var title = AddEditorField(panel, "Plan title", _plan.Group.GroupTitle, 34);
+        var branch = AddEditorField(panel, "Branch", _plan.Group.Branch, 34);
+        var summary = AddEditorField(panel, "Summary", _plan.Group.Summary, 140);
+        var delivery = AddEditorField(panel, "Delivery", _plan.Group.Delivery, 70);
+        AddEditorActions(panel, status, () =>
+        {
+            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(branch.Text) ||
+                string.IsNullOrWhiteSpace(summary.Text))
+                return "Plan title, branch, and summary are required.";
+            ApplyStagedMutation(StagedPlanEditor.UpdatePlan(
+                _plan.Group, title.Text, branch.Text, summary.Text, delivery.Text));
+            return null;
+        });
+        _detailDocument.Blocks.Add(new BlockUIContainer(panel));
+        return true;
+    }
+
+    private bool PopulateTaskEditor(string taskId)
+    {
+        var task = _plan?.Group.Tasks.FirstOrDefault(value => value.Id == taskId);
+        if (task is null || _detailDocument is null) return false;
+        _detailDocument.Blocks.Clear();
+        var panel = CreateEditorPanel("Edit task", out var status);
+        var title = AddEditorField(panel, "Title", task.Title, 34);
+        var description = AddEditorField(panel, "Description", task.Description, 170);
+        var priority = AddEditorField(panel, "Priority", task.Priority, 34);
+        var dependencies = AddEditorField(
+            panel, "Dependencies (IDs separated by commas or lines)",
+            string.Join(Environment.NewLine, task.DependsOn), 70);
+        var routingMode = AddEditorField(panel, "Agent routing mode", task.AgentRoutingMode, 34);
+        var assignments = AddEditorField(
+            panel,
+            "Agent assignments (handle | role | allow generic children)",
+            string.Join(Environment.NewLine, (task.AgentAssignments ?? []).Select(value =>
+                $"{value.AgentHandle} | {value.Role} | {value.AllowGenericChildren}")),
+            80);
+        var genericReason = AddEditorField(panel, "Generic-agent reason", task.GenericAgentReason, 55);
+        var executionMode = AddEditorField(panel, "Execution mode", task.ExecutionMode, 34);
+        var parallel = new CheckBox
+        {
+            Content = "Parallel eligible (indeterminate means unspecified)",
+            IsThreeState = true,
+            IsChecked = task.ParallelEligible,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        parallel.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+        panel.Children.Add(parallel);
+        AddEditorActions(panel, status, () =>
+        {
+            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
+                return "Title and description are required.";
+            if (!TryParseAgentAssignments(assignments.Text, out var parsedAssignments, out var assignmentError))
+                return assignmentError;
+            var ids = ParseEditorList(dependencies.Text);
+            var updated = StagedPlanEditor.UpdateTask(
+                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids);
+            updated = StagedPlanEditor.UpdateTaskAdvanced(
+                updated, taskId, parsedAssignments, routingMode.Text, parallel.IsChecked,
+                genericReason.Text, executionMode.Text);
+            ApplyStagedMutation(updated);
+            return null;
+        });
+        _detailDocument.Blocks.Add(new BlockUIContainer(panel));
+        return true;
+    }
+
+    private bool PopulateValidationEditor(string validationId)
+    {
+        var validation = _plan?.Group.Validations?.FirstOrDefault(value =>
+            value.ValidationId == validationId);
+        if (validation is null || _detailDocument is null) return false;
+        _detailDocument.Blocks.Clear();
+        var panel = CreateEditorPanel("Edit validation", out var status);
+        var title = AddEditorField(panel, "Title", validation.Title, 34);
+        var description = AddEditorField(panel, "Description", validation.Description, 100);
+        var mode = AddEditorField(panel, "Mode", validation.Mode, 34);
+        var after = AddEditorField(panel, "After task IDs", string.Join(Environment.NewLine, validation.AfterTaskIds), 64);
+        var before = AddEditorField(panel, "Before task IDs", string.Join(Environment.NewLine, validation.BeforeTaskIds), 64);
+        var assertions = AddEditorField(panel, "Assertions (one per line)", string.Join(Environment.NewLine, validation.Assertions), 100);
+        var commands = AddEditorField(panel, "Commands (one per line)", string.Join(Environment.NewLine, validation.Commands ?? []), 80);
+        var outputIds = AddEditorField(panel, "Output IDs", string.Join(Environment.NewLine, validation.OutputIds ?? []), 64);
+        var revalidate = new CheckBox
+        {
+            Content = "Revalidate at completion",
+            IsChecked = validation.RevalidateAtCompletion,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        revalidate.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+        panel.Children.Add(revalidate);
+        AddEditorActions(panel, status, () =>
+        {
+            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text) ||
+                ParseEditorList(assertions.Text).Count == 0)
+                return "Title, description, and at least one assertion are required.";
+            ApplyStagedMutation(StagedPlanEditor.UpdateValidation(
+                _plan!.Group, validationId, title.Text, description.Text, mode.Text,
+                ParseEditorList(after.Text), ParseEditorList(before.Text),
+                ParseEditorLines(assertions.Text), ParseEditorLines(commands.Text),
+                revalidate.IsChecked != false, ParseEditorList(outputIds.Text)));
+            return null;
+        });
+        _detailDocument.Blocks.Add(new BlockUIContainer(panel));
+        return true;
+    }
+
+    private bool PopulateGateEditor(string gateIdentity)
+    {
+        if (_plan is null || _detailDocument is null) return false;
+        DecomposedGate? gate = null;
+        if (int.TryParse(gateIdentity, out var gateIndex) &&
+            gateIndex >= 0 && gateIndex < (_plan.Group.ApprovalGates?.Count ?? 0))
+            gate = _plan.Group.ApprovalGates![gateIndex];
+        gate ??= _plan.Group.ApprovalGates?.FirstOrDefault(value => value.GateId == gateIdentity);
+        if (gate is null) return false;
+
+        _detailDocument.Blocks.Clear();
+        var panel = CreateEditorPanel("Edit human approval", out var status);
+        var message = AddEditorField(panel, "Message", gate.Message, 75);
+        var question = AddEditorField(panel, "Approval question", gate.Question, 75);
+        var after = AddEditorField(panel, "After task IDs", string.Join(Environment.NewLine, gate.AfterTaskIds ?? []), 64);
+        var before = AddEditorField(panel, "Before task IDs", string.Join(Environment.NewLine, gate.BeforeTaskIds ?? []), 64);
+        var proofs = AddEditorField(
+            panel,
+            "Proof requirements (ID | type | description | question)",
+            string.Join(Environment.NewLine, (gate.ProofRequirements ?? []).Select(value =>
+                $"{value.RequirementId} | {value.ProofType} | {value.Description} | {value.Question}")),
+            100);
+        var gateId = gate.GateId;
+        AddEditorActions(panel, status, () =>
+        {
+            if (string.IsNullOrWhiteSpace(message.Text)) return "Message is required.";
+            if (!TryParseProofRequirements(proofs.Text, out var parsedProofs, out var proofError))
+                return proofError;
+            ApplyStagedMutation(StagedPlanEditor.UpdateGate(
+                _plan!.Group, gateId, message.Text, question.Text,
+                ParseEditorList(after.Text), ParseEditorList(before.Text), parsedProofs));
+            return null;
+        });
+        _detailDocument.Blocks.Add(new BlockUIContainer(panel));
+        return true;
+    }
+
+    private StackPanel CreateEditorPanel(string heading, out TextBlock status)
+    {
+        var panel = new StackPanel();
+        var title = new TextBlock { Text = heading, FontWeight = FontWeights.Bold };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        title.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+        panel.Children.Add(title);
+        status = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+        status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+        status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        return panel;
+    }
+
+    private static TextBox AddEditorField(
+        Panel panel, string labelText, string? value, double minHeight)
+    {
+        var label = new TextBlock
+        {
+            Text = labelText,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 3),
+        };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        label.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        var editor = new TextBox
+        {
+            Text = value ?? string.Empty,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = minHeight > 40,
+            MinHeight = minHeight,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(6, 4, 6, 4),
+        };
+        editor.SetResourceReference(TextBox.ForegroundProperty, "BodyText");
+        editor.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
+        editor.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
+        editor.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+        panel.Children.Add(label);
+        panel.Children.Add(editor);
+        return editor;
+    }
+
+    private void AddEditorActions(StackPanel panel, TextBlock status, Func<string?> save)
+    {
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        var saveButton = TranscriptQuickReplyFactory.CreateButton("Save changes", _quickReplyFontSize);
+        var cancelButton = TranscriptQuickReplyFactory.CreateButton("Cancel", _quickReplyFontSize);
+        cancelButton.Margin = new Thickness(6, 0, 0, 0);
+        saveButton.Click += (_, _) =>
+        {
+            var error = save();
+            if (error is not null) status.Text = error;
+        };
+        cancelButton.Click += (_, _) =>
+        {
+            _isInspectorEditing = false;
+            RefreshDetailPanel();
+        };
+        buttons.Children.Add(saveButton);
+        buttons.Children.Add(cancelButton);
+        panel.Children.Add(buttons);
+        panel.Children.Add(status);
+    }
+
+    private static IReadOnlyList<string> ParseEditorList(string value) =>
+        value.Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    private static IReadOnlyList<string> ParseEditorLines(string value) =>
+        value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+
+    private static bool TryParseAgentAssignments(
+        string value,
+        out IReadOnlyList<DecomposedAgentAssignment> assignments,
+        out string? error)
+    {
+        var result = new List<DecomposedAgentAssignment>();
+        foreach (var line in ParseEditorLines(value))
+        {
+            var parts = line.Split('|', StringSplitOptions.TrimEntries);
+            if (parts.Length is < 2 or > 3 || string.IsNullOrWhiteSpace(parts[0]) ||
+                string.IsNullOrWhiteSpace(parts[1]) ||
+                (parts.Length == 3 && !bool.TryParse(parts[2], out _)))
+            {
+                assignments = [];
+                error = "Each assignment must be: handle | role | true-or-false.";
+                return false;
+            }
+            result.Add(new DecomposedAgentAssignment(
+                parts[0], parts[1], parts.Length < 3 || bool.Parse(parts[2])));
+        }
+        assignments = result;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseProofRequirements(
+        string value,
+        out IReadOnlyList<DecomposedTaskProofRequirement> requirements,
+        out string? error)
+    {
+        var result = new List<DecomposedTaskProofRequirement>();
+        foreach (var line in ParseEditorLines(value))
+        {
+            var parts = line.Split('|', 4, StringSplitOptions.TrimEntries);
+            if (parts.Length < 3 || parts.Take(3).Any(string.IsNullOrWhiteSpace))
+            {
+                requirements = [];
+                error = "Each proof requirement must be: ID | type | description | optional question.";
+                return false;
+            }
+            result.Add(new DecomposedTaskProofRequirement(
+                parts[0], parts[1], parts[2],
+                parts.Length == 4 && !string.IsNullOrWhiteSpace(parts[3]) ? parts[3] : null));
+        }
+        requirements = result;
+        error = null;
+        return true;
     }
 
     private void PopulateTaskDetail(PlanTask task, Plan? plan)
@@ -5218,7 +6014,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void AppendApprovalContractEditor(PlanApprovalGate gate)
     {
         if (_detailDocument is null || _durablePlan is null || _onGatesChanged is null ||
-            !PlanGateManager.CanEditReviewContract(gate))
+            !_isInspectorEditing || !PlanGateManager.CanEditReviewContract(gate))
             return;
 
         var editor = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };

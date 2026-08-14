@@ -764,7 +764,7 @@ internal sealed class TranscriptConversationManager {
     }
 
     internal void SaveTranscriptTurnToConversation(TranscriptTurnView turn, DateTimeOffset completedAt, string reason = "turn") {
-        if (_getWorkspace() is null)
+        if (_getWorkspace() is null || turn.SuppressTranscript)
             return;
 
         var turnRecord = BuildTranscriptTurnRecordPreservingAgentReports(

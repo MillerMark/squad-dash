@@ -439,6 +439,7 @@ public partial class MainWindow : Window
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
+    private bool _pendingPromptSuppressTranscript;
     private const string SystemTranscriptStatusPrefix = "[SQUADDASH_SYSTEM_STATUS] ";
     private bool _bridgeRestartForSettingsPending;
     private readonly PromptQueueCoordinator _promptQueueCoordinator;
@@ -2683,7 +2684,11 @@ public partial class MainWindow : Window
 
     // ── Prompt Queue ──────────────────────────────────────────────────────────
 
-    private PromptQueueItem? EnqueuePrompt(string text, bool isSystemInjected, bool forceAtTail = false)
+    private PromptQueueItem? EnqueuePrompt(
+        string text,
+        bool isSystemInjected,
+        bool forceAtTail = false,
+        string? sourceTag = null)
     {
         if (string.IsNullOrWhiteSpace(text))
             return null;
@@ -2693,6 +2698,7 @@ public partial class MainWindow : Window
             SequenceNumber   = _promptQueueCoordinator.NextSequenceNumber(),
             QueueNumber      = NextQueueNumber(),
             IsSystemInjected = isSystemInjected,
+            SourceTag        = sourceTag,
         };
         if (isSystemInjected && !forceAtTail && _activeTabId is null && !_queueManuallyPaused) {
             _promptQueue.EnqueueItemAtFront(item);
@@ -2927,6 +2933,8 @@ public partial class MainWindow : Window
             ResetQueuePausedState();
             HandleOpenEditorsBeforeSend(id);
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            _pendingPromptSuppressTranscript = string.Equals(
+                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
                 addToHistory: !item.IsSystemInjected,
@@ -2940,6 +2948,7 @@ public partial class MainWindow : Window
         finally
         {
             _pendingPromptIsSystemInjected = false;
+            _pendingPromptSuppressTranscript = false;
         }
     }
 
@@ -2978,6 +2987,8 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("UI", $"Prompt sent: rightmost queued tab as quick-reply answer id={id}");
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            _pendingPromptSuppressTranscript = string.Equals(
+                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
                 addToHistory: !item.IsSystemInjected,
@@ -2991,6 +3002,7 @@ public partial class MainWindow : Window
         finally
         {
             _pendingPromptIsSystemInjected = false;
+            _pendingPromptSuppressTranscript = false;
             _loopFollowUpTcs?.TrySetResult(true);
         }
     }
@@ -3099,6 +3111,8 @@ public partial class MainWindow : Window
             AutoActivateCoordinatorTranscriptOnPromptSubmit();
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            _pendingPromptSuppressTranscript = string.Equals(
+                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                 addToHistory: !item.IsSystemInjected,
@@ -3113,6 +3127,7 @@ public partial class MainWindow : Window
         {
             _queueDrainActive = false;
             _pendingPromptIsSystemInjected = false;
+            _pendingPromptSuppressTranscript = false;
             _pec.PendingQueueItemCount = 0;
             _pec.CurrentDispatchedItem = null;
         }
@@ -3242,6 +3257,8 @@ public partial class MainWindow : Window
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
+                _pendingPromptSuppressTranscript = string.Equals(
+                    item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
                 await _pec.ExecutePromptAsync(
                     ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                     addToHistory: !item.IsSystemInjected,
@@ -3257,6 +3274,7 @@ public partial class MainWindow : Window
             {
                 _queueDrainActive = false;
                 _pendingPromptIsSystemInjected = false;
+                _pendingPromptSuppressTranscript = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -3353,6 +3371,8 @@ public partial class MainWindow : Window
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
+                _pendingPromptSuppressTranscript = string.Equals(
+                    item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
                 await _pec.ExecutePromptAsync(
                     ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                     addToHistory: !item.IsSystemInjected,
@@ -3368,6 +3388,7 @@ public partial class MainWindow : Window
             {
                 _queueDrainActive = false;
                 _pendingPromptIsSystemInjected = false;
+                _pendingPromptSuppressTranscript = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -5526,6 +5547,15 @@ public partial class MainWindow : Window
                     }
 
                     TrySaveInboxMessageFromResponse(rawResponse);
+                    var handledVisualizerReview = TryHandlePlanVisualizerReviewFromResponse(rawResponse);
+                    if (doneCurrentTurn?.SuppressTranscript == true && !handledVisualizerReview)
+                    {
+                        const string missingReview =
+                            "The AI review finished without returning plan-review annotations. Try Review with AI again.";
+                        SquadDashTrace.Write("PlanReview", missingReview);
+                        foreach (var entry in _openPlanViewerWindows)
+                            entry.Window.SetReviewRequestError(missingReview);
+                    }
 
                     // TASKS_JSON is a host payload, not a maintenance-only payload.  Normal
                     // coordinator turns can emit it too, so process it at the same response
@@ -6562,6 +6592,8 @@ public partial class MainWindow : Window
             _pec.CurrentDispatchedItem = item;
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
+            _pendingPromptSuppressTranscript = string.Equals(
+                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
             try
             {
                 await _pec.ExecutePromptAsync(
@@ -6574,6 +6606,7 @@ public partial class MainWindow : Window
             {
                 _queueDrainActive = false;
                 _pendingPromptIsSystemInjected = false;
+                _pendingPromptSuppressTranscript = false;
                 _pec.PendingQueueItemCount = 0;
                 _pec.CurrentDispatchedItem = null;
             }
@@ -10876,6 +10909,68 @@ public partial class MainWindow : Window
             window.Close();
     }
 
+    private bool TryHandlePlanVisualizerReviewFromResponse(string? rawResponse)
+    {
+        if (rawResponse?.Contains(PlanVisualizerReviewParser.Marker, StringComparison.Ordinal) != true)
+            return false;
+        if (!PlanVisualizerReviewParser.TryParse(rawResponse, out var review, out var error) || review is null)
+        {
+            NotifyReviewFailure(error ?? "The AI response did not contain a valid review payload.");
+            return true;
+        }
+        if (_currentWorkspace is null)
+        {
+            NotifyReviewFailure("The review could not be attached because no workspace is open.", review.GroupId);
+            return true;
+        }
+
+        var pending = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+            .Load(review.GroupId);
+        if (pending is null ||
+            !string.Equals(pending.Revision, review.BaseRevision, StringComparison.Ordinal))
+        {
+            NotifyReviewFailure("The AI review was stale and was not attached to the current plan revision.",
+                review.GroupId);
+            return true;
+        }
+
+        var invalidTarget = review.Annotations.FirstOrDefault(annotation => annotation.TargetKind switch
+        {
+            "plan" => !string.Equals(annotation.TargetId, pending.Group.GroupId, StringComparison.Ordinal),
+            "task" => !pending.Group.Tasks.Any(task =>
+                string.Equals(task.Id, annotation.TargetId, StringComparison.Ordinal)),
+            "validation" => !(pending.Group.Validations ?? []).Any(validation =>
+                string.Equals(validation.ValidationId, annotation.TargetId, StringComparison.Ordinal)),
+            "gate" => !(pending.Group.ApprovalGates ?? []).Any(gate =>
+                string.Equals(gate.GateId, annotation.TargetId, StringComparison.Ordinal)),
+            _ => true,
+        });
+        if (invalidTarget is not null)
+        {
+            NotifyReviewFailure(
+                $"The AI review referenced an unknown {invalidTarget.TargetKind} " +
+                $"'{invalidTarget.TargetId}' and was not attached.",
+                review.GroupId);
+            return true;
+        }
+
+        new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath).Save(review);
+        foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                     string.Equals(entry.GroupId, review.GroupId, StringComparison.Ordinal) &&
+                     string.Equals(entry.Window.CurrentRevision, review.BaseRevision, StringComparison.Ordinal)))
+            entry.Window.SetReviewAnnotations(review);
+        return true;
+
+        void NotifyReviewFailure(string message, string? targetGroupId = null)
+        {
+            SquadDashTrace.Write("PlanReview", message);
+            foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                         targetGroupId is null ||
+                         string.Equals(entry.GroupId, targetGroupId, StringComparison.Ordinal)))
+                entry.Window.SetReviewRequestError(message);
+        }
+    }
+
     private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
     {
         var groupId = plan.Group.GroupId;
@@ -11093,6 +11188,64 @@ public partial class MainWindow : Window
                   _ = UnapproveCurrentPlanAsync(p, gateId);
               }
             : null;
+        Func<DecomposedTaskGroup, PendingDecomposePlan>? savePendingEdit =
+            isPendingPlanEdit && _currentWorkspace is not null
+                ? editedGroup =>
+                  {
+                      var routingPolicy = PlanAgentRoutingPolicy.Normalize(
+                          _settingsSnapshot.PlanAgentRoutingPolicy);
+                      if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                              editedGroup,
+                              _currentWorkspace.SquadFolderPath,
+                              out var assignmentError,
+                              requireExplicitRouting: routingPolicy != PlanAgentRoutingPolicy.Off,
+                              enforceAssignments: routingPolicy != PlanAgentRoutingPolicy.Off))
+                          throw new InvalidOperationException(
+                              assignmentError ?? "The edited plan has invalid agent assignments.");
+                      var pendingStore = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+                      var result = PendingPlanEditor.Apply(
+                          editedGroup,
+                          latestLivePlan?.CreatedAt ?? displayedPlan.CreatedAt ?? DateTimeOffset.UtcNow,
+                          latestInboxMessageId,
+                          pendingStore,
+                          _inboxStore,
+                          ReadGitBranch(_currentWorkspace.FolderPath));
+                      latestLivePlan = result.UpdatedPlan;
+                      latestInboxMessageId = result.NewInboxMessageId ?? latestInboxMessageId;
+                      new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath).Delete(groupId);
+                      if (_inboxStore is not null)
+                          _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                      return result.UpdatedPlan;
+                  }
+                : null;
+        Action<PendingDecomposePlan>? requestAiReview =
+            isPendingPlanEdit && _currentWorkspace is not null
+                ? current =>
+                  {
+                      StagedPlanRevisionOutlineStore.Save(_currentWorkspace.SquadFolderPath, current);
+                      var queuedReview = EnqueuePrompt(
+                          PlanVisualizerReviewParser.BuildPrompt(current),
+                          isSystemInjected: true,
+                          sourceTag: "plan-visualizer-review");
+                      if (queuedReview is not null)
+                      {
+                          queuedReview.IsLocked = true;
+                          queuedReview.DisplayLabel = "Review plan";
+                          queuedReview.ReadOnlyDisplayText =
+                              "AI is reviewing the current staged-plan revision. Results will appear in the Plan Visualizer.";
+                          SyncQueuePanel();
+                      }
+                  }
+                : null;
+        Action<PlanVisualizerReviewPayload?>? saveReviewState =
+            isPendingPlanEdit && _currentWorkspace is not null
+                ? review =>
+                  {
+                      var store = new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath);
+                      if (review is null) store.Delete(groupId);
+                      else store.Save(review);
+                  }
+                : null;
         win = new PlanViewerWindow(
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
@@ -11116,7 +11269,10 @@ public partial class MainWindow : Window
             initializeRepository: InitializeRepositoryForPlanAsync,
             onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
             onContinueInterruptedTask: onContinueInterruptedTask,
-            onReplanRemainingWork: onReplanRemainingWork)
+            onReplanRemainingWork: onReplanRemainingWork,
+            savePendingEdit: savePendingEdit,
+            requestAiReview: requestAiReview,
+            saveReviewState: saveReviewState)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -11124,6 +11280,13 @@ public partial class MainWindow : Window
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
             ReferenceEquals(e.Window, win));
         win.Show();
+        if (_currentWorkspace is not null)
+        {
+            var existingReview = new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath)
+                .Load(displayedPlan.Group.GroupId, displayedPlan.Revision);
+            if (existingReview is not null)
+                win.SetReviewAnnotations(existingReview);
+        }
 
         async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
         {
@@ -36494,18 +36657,27 @@ public partial class MainWindow : Window
         prompt ??= string.Empty;
         if (ReferenceEquals(thread, CoordinatorThread))
         {
-            // Plan actions answer only the immediately preceding response. A newer turn makes
-            // the Inbox reminder the durable action surface, while the transcript link remains.
-            RemovePendingDecomposeApprovalButtons();
-            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
-            TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
-            var isOrdinaryUserTurn = !_pendingPromptIsSystemInjected &&
-                                     !_decomposeRepairPending &&
-                                     _activeDecomposeGroupId is null &&
-                                     _currentWorkspace is not null;
-            _pendingPlansAtCoordinatorTurnStart = isOrdinaryUserTurn
-                ? new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).LoadAll()
-                : [];
+            if (_pendingPromptSuppressTranscript)
+            {
+                // An in-visualizer AI review is host-owned background work. It must not consume
+                // or relocate the user's current transcript actions as if a new conversation turn began.
+                _pendingPlansAtCoordinatorTurnStart = [];
+            }
+            else
+            {
+                // Plan actions answer only the immediately preceding response. A newer turn makes
+                // the Inbox reminder the durable action surface, while the transcript link remains.
+                RemovePendingDecomposeApprovalButtons();
+                TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
+                TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
+                var isOrdinaryUserTurn = !_pendingPromptIsSystemInjected &&
+                                         !_decomposeRepairPending &&
+                                         _activeDecomposeGroupId is null &&
+                                         _currentWorkspace is not null;
+                _pendingPlansAtCoordinatorTurnStart = isOrdinaryUserTurn
+                    ? new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).LoadAll()
+                    : [];
+            }
         }
         var now = DateTimeOffset.Now;
         // For tour demo threads, suppress the separator and "Starting…" header on successive
@@ -36696,7 +36868,9 @@ public partial class MainWindow : Window
         // Capture the system-injected flag now, before the promptBody guard clears the field,
         // so it is also available for the TranscriptTurnView record (persisted → reload path).
         bool promptIsSystemInjected = isSystemInjected || _pendingPromptIsSystemInjected;
+        bool suppressTranscript = _pendingPromptSuppressTranscript;
         _pendingPromptIsSystemInjected = false;
+        _pendingPromptSuppressTranscript = false;
 
         if (!string.IsNullOrEmpty(promptBody))
         {
@@ -36807,7 +36981,14 @@ public partial class MainWindow : Window
             narrativeSection,
             topLevelBlocks) {
             IsSystemInjected = promptIsSystemInjected,
+            SuppressTranscript = suppressTranscript,
         };
+        if (suppressTranscript)
+        {
+            foreach (var block in topLevelBlocks.ToArray())
+                thread.Document.Blocks.Remove(block);
+            thread.PromptParagraphs.RemoveAll(entry => ReferenceEquals(entry.Paragraph, promptParagraph));
+        }
         return view;
     }
 

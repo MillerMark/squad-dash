@@ -35,6 +35,7 @@ internal sealed class TranscriptTurnView {
     public TranscriptThreadState OwnerThread { get; }
     public string Prompt { get; }
     public bool IsSystemInjected { get; set; }
+    public bool SuppressTranscript { get; set; }
     public DateTimeOffset StartedAt { get; }
     public Section NarrativeSection { get; }
     public IReadOnlyList<Block> TopLevelBlocks { get; }

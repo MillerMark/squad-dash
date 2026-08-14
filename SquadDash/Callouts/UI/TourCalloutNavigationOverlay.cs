@@ -17,6 +17,7 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     public event EventHandler? NextClicked;
     public event EventHandler? NextTourClicked;
     public event EventHandler? MoreToursClicked;
+    public event EventHandler? ActionClicked;
     // Reserved API surface for future tour-authoring actions; not yet wired to any controller.
 #pragma warning disable CS0067
     public event EventHandler? EditClicked;
@@ -36,6 +37,9 @@ internal sealed class TourCalloutNavigationOverlay : Window {
     private FrameworkElement? _nextTourGap;
     private Border? _moreTourButton;
     private FrameworkElement? _moreTourGap;
+    private Border? _actionButton;
+    private FrameworkElement? _actionGap;
+    private TextBlock? _actionLabelText;
     private bool _glowActive;
     private Func<int>? _getNextAdvanceCount;
     private Action? _recordNextAdvance;
@@ -101,6 +105,31 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         }
     }
 
+    private string? _actionLabel;
+    public string? ActionLabel
+    {
+        get => _actionLabel;
+        set
+        {
+            _actionLabel = value;
+            if (_actionLabelText is not null) _actionLabelText.Text = value ?? string.Empty;
+            var visibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
+            if (_actionButton is not null) _actionButton.Visibility = visibility;
+            if (_actionGap is not null) _actionGap.Visibility = visibility;
+        }
+    }
+
+    private bool _isActionDestructive;
+    public bool IsActionDestructive
+    {
+        get => _isActionDestructive;
+        set
+        {
+            _isActionDestructive = value;
+            RefreshActionButtonColors();
+        }
+    }
+
     private bool _isDevModeVisible;
     public bool IsDevModeVisible {
         get => _isDevModeVisible;
@@ -158,10 +187,14 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         _nextTourButton = BuildNextTourButton();
         _moreTourGap    = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
         _moreTourButton = BuildMoreToursButton();
+        _actionGap      = new FrameworkElement { Width = ButtonGap, Visibility = Visibility.Collapsed };
+        _actionButton   = BuildActionButton();
 
         panel.Children.Add(_prevButton);
         panel.Children.Add(new FrameworkElement { Width = ButtonGap });
         panel.Children.Add(_nextButton);
+        panel.Children.Add(_actionGap);
+        panel.Children.Add(_actionButton);
         panel.Children.Add(_nextTourGap);
         panel.Children.Add(_nextTourButton);
         panel.Children.Add(_moreTourGap);
@@ -178,6 +211,54 @@ internal sealed class TourCalloutNavigationOverlay : Window {
         };
 
         Content = container;
+    }
+
+    private Border BuildActionButton()
+    {
+        var border = new Border
+        {
+            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
+            IsHitTestVisible = true,
+            Cursor = Cursors.Hand,
+            Padding = new Thickness(12, 8, 12, 8),
+            Visibility = Visibility.Collapsed,
+            ToolTip = "Apply this suggested plan change.",
+        };
+        _actionLabelText = new TextBlock
+        {
+            Text = _actionLabel ?? string.Empty,
+            IsHitTestVisible = false,
+            FontWeight = FontWeights.SemiBold,
+        };
+        _actionLabelText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+        border.Child = _actionLabelText;
+        border.MouseEnter += (_, _) =>
+            border.SetResourceReference(Border.BackgroundProperty,
+                _isActionDestructive ? "DangerButtonHover" : "CalloutButtonHover");
+        border.MouseLeave += (_, _) => RefreshActionButtonColors();
+        border.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            ActionClicked?.Invoke(this, EventArgs.Empty);
+        };
+        RefreshActionButtonColors(border);
+        return border;
+    }
+
+    private void RefreshActionButtonColors(Border? candidate = null)
+    {
+        var border = candidate ?? _actionButton;
+        if (border is null || _actionLabelText is null) return;
+        border.SetResourceReference(Border.BackgroundProperty,
+            _isActionDestructive ? "DangerButtonBg" : "CalloutButtonBackground");
+        border.SetResourceReference(Border.BorderBrushProperty,
+            _isActionDestructive ? "DangerButtonHover" : "CalloutBorder");
+        _actionLabelText.SetResourceReference(TextBlock.ForegroundProperty,
+            _isActionDestructive ? "DangerButtonFg" : "CalloutText");
+        border.ToolTip = _isActionDestructive
+            ? "Apply this destructive suggested plan change."
+            : "Apply this suggested plan change.";
     }
 
     // Width of the panel margin on each side — used by PositionNear to flush the
