@@ -383,6 +383,7 @@
     <!-- Code Health Mode — Decompose Mode (Phase 2) (previously Maintenance Mode) -->
     <Compile Include="..\SquadDash\DecomposedTaskGroup.cs" Link="Source\DecomposedTaskGroup.cs" />
     <Compile Include="..\SquadDash\TasksJsonParser.cs" Link="Source\TasksJsonParser.cs" />
+    <Compile Include="..\SquadDash\TaskPlanRepairPromptBuilder.cs" Link="Source\TaskPlanRepairPromptBuilder.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />
     <Compile Include="..\SquadDash\DecomposeEnvelopeRepairPrompt.cs" Link="Source\DecomposeEnvelopeRepairPrompt.cs" />

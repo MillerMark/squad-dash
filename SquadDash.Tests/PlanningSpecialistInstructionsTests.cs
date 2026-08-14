@@ -17,6 +17,10 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("`.squad/routing.md`"));
             Assert.That(charter, Does.Contain("Never implement source changes"));
             Assert.That(charter, Does.Contain("tailored end-to-end proof"));
+            Assert.That(charter, Does.Contain("## Protocol Conformance Preflight"));
+            Assert.That(charter, Does.Contain("Read the live host-owned planning or revision protocol directly"));
+            Assert.That(charter, Does.Contain("Never treat a Coordinator-authored schema summary"));
+            Assert.That(charter, Does.Contain("exact property names"));
         });
     }
 
@@ -36,6 +40,13 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` for plan"));
             Assert.That(guidance, Does.Contain("same required marker at the top level"));
             Assert.That(guidance, Does.Contain("Never drop the\n   structured-output requirement"));
+            Assert.That(guidance, Does.Contain("read the live protocol directly"));
+            Assert.That(guidance, Does.Contain("`{groupId}-NNN`"));
+            Assert.That(guidance, Does.Contain("`{groupId}-VAL-NNN`"));
+            Assert.That(guidance, Does.Contain("`validationId` field"));
+            Assert.That(guidance, Does.Contain("`requirementId`, `proofType`, and `description`"));
+            Assert.That(guidance, Does.Contain("rejected candidate"));
+            Assert.That(guidance, Does.Contain("one complete corrected payload"));
         });
     }
 

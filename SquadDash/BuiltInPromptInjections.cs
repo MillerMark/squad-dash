@@ -77,7 +77,7 @@ internal static class BuiltInPromptInjections {
             Even if the work could fit in one turn, emit TASKS_JSON because the user explicitly asked for a plan — this preserves the human approval boundary before any implementation begins.
             Read `{workspaceFolder}\.squad\instructions\decompose-planning.md` for the exact TASKS_JSON schema and required fields.
             Follow the Planning specialist routing instructions in the supplemental planning context: prefer the workspace's active planning specialist, otherwise use SquadDash's shipped fallback Planning Architect charter.
-            After delegated planning finishes, the Coordinator must validate and emit TASKS_JSON at the top level; a nested agent response is not sufficient.
+            After delegated planning finishes, the Coordinator must validate the complete candidate against the live protocol before emitting TASKS_JSON at the top level; a nested agent response is not sufficient. Check exact task and validation ID grammar, property names, dependency references, validation boundaries, commands collections, and proof-contract fields. If validation fails, return the complete rejected candidate and exact diagnostics to the same planning specialist and request one complete corrected payload.
             Do not implement anything in this response — only propose the plan via TASKS_JSON.
             """);
 

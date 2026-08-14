@@ -8635,7 +8635,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General,
                 "TASKS_JSON detected in completed response but parsing or validation failed: " +
                 (parseDiagnostic?.Message ?? "unknown parser failure"));
-            QueueDecomposeRepair(parseDiagnostic?.Message);
+            QueueDecomposeRepair(parseDiagnostic?.Message, parserInput);
             return;
         }
 
@@ -8657,14 +8657,14 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("PlanRouting", assignmentCatalogError ?? "Invalid plan agent assignment.");
             AppendLine($"⚠ Could not stage plan {group.GroupId}: {assignmentCatalogError}");
-            QueueDecomposeRepair(assignmentCatalogError);
+            QueueDecomposeRepair(assignmentCatalogError, parserInput);
             return;
         }
 
         if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out _, out var persistedRevisionError))
         {
             AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {persistedRevisionError}");
-            QueueDecomposeRepair(persistedRevisionError);
+            QueueDecomposeRepair(persistedRevisionError, parserInput);
             return;
         }
 
@@ -8673,7 +8673,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected as an invalid revision: {revisionError}");
             AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {revisionError}");
-            QueueDecomposeRepair(revisionError);
+            QueueDecomposeRepair(revisionError, parserInput);
             return;
         }
         group = normalizedGroup;
@@ -8686,7 +8686,8 @@ public partial class MainWindow : Window
                 $"TASKS_JSON group '{group.GroupId}' rejected before staging due to dependency cycle: {string.Join(", ", cycleIds!)}");
             AppendLine($"⚠ Could not stage decompose group {group.GroupId}: its dependency graph contains a cycle.");
             QueueDecomposeRepair(
-                $"The task dependency graph contains a cycle involving: {string.Join(", ", cycleIds!)}");
+                $"The task dependency graph contains a cycle involving: {string.Join(", ", cycleIds!)}",
+                parserInput);
             return;
         }
         _decomposeRepairPending = false;
@@ -9408,7 +9409,7 @@ public partial class MainWindow : Window
             out error);
     }
 
-    private void QueueDecomposeRepair(string? validationError)
+    private void QueueDecomposeRepair(string? validationError, string? rejectedCandidate)
     {
         if (_decomposeRepairPending)
         {
@@ -9426,14 +9427,10 @@ public partial class MainWindow : Window
         }
 
         _decomposeRepairPending = true;
-        var diagnostic = string.IsNullOrWhiteSpace(validationError)
-            ? "The parser did not provide a more specific diagnostic."
-            : validationError.Trim();
-        var prompt = "Your previous TASKS_JSON proposal failed validation.\n\n" +
-                     "Specific validation failure:\n" + diagnostic + "\n\n" +
-                     "Correct the proposal and respond with the complete corrected TASKS_JSON block. " +
-                     "Do not execute any work and do not emit DECOMPOSE_DECISION_JSON. Follow this specification exactly:\n\n" +
-                     DecomposePlanningInstructions.LoadSpecification();
+        var prompt = TaskPlanRepairPromptBuilder.Build(
+            rejectedCandidate,
+            validationError,
+            DecomposePlanningInstructions.LoadSpecification());
         _promptQueue.EnqueueAtFront(
             prompt,
             _promptQueueCoordinator.NextSequenceNumber(),

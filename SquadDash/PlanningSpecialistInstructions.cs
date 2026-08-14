@@ -55,16 +55,25 @@ internal static class PlanningSpecialistInstructions
                the generic `task` tool as the planning specialist. Do not give that worker Rory's name or
                any roster identity. {{charterSource}}
             3. Give the specialist the user's complete request, the exact live planning or revision
-               instructions, relevant repository and decision context, and the current team and routing
-               files. Require `TASKS_JSON` for new plan creation or `PLAN_REVISION_JSON` for plan
-               revision, without implementing changes.
+               protocol path, relevant repository and decision context, and the current team and routing
+               files. Require the specialist to read the live protocol directly; a Coordinator-authored
+               summary is supplemental context and must never be presented as the authoritative schema.
+               Require `TASKS_JSON` for new plan creation or `PLAN_REVISION_JSON` for plan revision,
+               without implementing changes.
             4. After the specialist returns, the Coordinator remains responsible for checking the payload
-               against the live host protocol and emitting that same required marker at the top level. A
-               nested agent response alone cannot be collected by SquadDash. Do not merely summarize or
-               paraphrase the structured payload.
+               against the live host protocol before emitting that same required marker at the top level.
+               Check exact field names and these parser-critical contracts: task IDs are
+               `{groupId}-NNN`; validation IDs use the `validationId` field and
+               `{groupId}-VAL-NNN`; command or hybrid validations use `commands`; proof requirements
+               use `requirementId`, `proofType`, and `description`. Also check dependency references,
+               validation boundaries, and the final audit frontier. A nested agent response alone cannot
+               be collected by SquadDash. Do not merely summarize or paraphrase the structured payload.
             5. If delegation is unavailable after one reasonable attempt, apply the shipped Planning
                Architect charter yourself and still emit the required top-level payload. Never drop the
                structured-output requirement because a roster specialist is absent.
+            6. If the delegated candidate is invalid, re-engage the same specialist with the complete
+               rejected candidate, the exact validation diagnostics, and the live protocol path. Require
+               one complete corrected payload rather than a patch or a partial list of substitutions.
             """;
     }
 

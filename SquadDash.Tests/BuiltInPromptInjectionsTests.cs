@@ -48,7 +48,11 @@ internal sealed class BuiltInPromptInjectionsTests {
             Assert.That(BuiltInPromptInjections.Plans.InjectionText,
                 Does.Contain("shipped fallback Planning Architect charter"));
             Assert.That(BuiltInPromptInjections.Plans.InjectionText,
-                Does.Contain("Coordinator must validate and emit TASKS_JSON at the top level"));
+                Does.Contain("Coordinator must validate the complete candidate against the live protocol"));
+            Assert.That(BuiltInPromptInjections.Plans.InjectionText,
+                Does.Contain("exact task and validation ID grammar"));
+            Assert.That(BuiltInPromptInjections.Plans.InjectionText,
+                Does.Contain("complete rejected candidate and exact diagnostics"));
         });
     }
 

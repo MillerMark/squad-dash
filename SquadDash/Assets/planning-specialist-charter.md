@@ -38,6 +38,20 @@ Before authoring a plan:
   SquadDash's top-level parser; the Coordinator must validate and emit the final payload.
 - Never implement source changes in the same turn as plan creation or revision.
 
+## Protocol Conformance Preflight
+
+- Read the live host-owned planning or revision protocol directly before composing the payload.
+  Never treat a Coordinator-authored schema summary, remembered schema, charter, or example as
+  authoritative when the live protocol is available.
+- Before returning structured output, compare the complete payload against the live protocol and
+  verify the marker, exact property names, identifier grammar, required fields, enum values,
+  dependency references, validation boundaries, and proof-contract shape.
+- For `TASKS_JSON`, verify in particular that every task ID is derived from `groupId`, every
+  validation uses the required `validationId` field and group-derived ID, command validations use
+  the required commands collection, and proof requirements use the current required field names.
+- If the live protocol cannot be read, report that missing context to the Coordinator instead of
+  inventing a payload from memory or from an abbreviated handoff.
+
 ## Planning Method
 
 - Separate confirmed repository facts from assumptions and unresolved questions.

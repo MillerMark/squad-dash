@@ -38,7 +38,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var methodStart = source.IndexOf(
-            "private void QueueDecomposeRepair(string? validationError)",
+            "private void QueueDecomposeRepair(string? validationError, string? rejectedCandidate)",
             StringComparison.Ordinal);
         var methodEnd = source.IndexOf(
             "private void AppendPendingDecomposeApproval(",
@@ -48,7 +48,8 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(method, Does.Contain("Specific validation failure:"));
+            Assert.That(method, Does.Contain("TaskPlanRepairPromptBuilder.Build("));
+            Assert.That(method, Does.Contain("rejectedCandidate"));
             Assert.That(method, Does.Contain("RestoreInterruptedPlanRecoverySurfaces();"));
             Assert.That(method, Does.Contain("Reason: {validationError}"));
         });
