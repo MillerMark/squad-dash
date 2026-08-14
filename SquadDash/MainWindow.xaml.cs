@@ -41177,6 +41177,20 @@ public partial class MainWindow : Window
             _titleBarDragStart = null;
             if (sender is UIElement el)
                 el.ReleaseMouseCapture();
+
+            // When maximized, restore first and reposition so the cursor stays
+            // proportionally under the title bar — same as native caption drag.
+            if (WindowState == WindowState.Maximized)
+            {
+                var screenPos = PointToScreen(pos);
+                var restoredWidth = RestoreBounds.Width;
+                // Clamp the left edge so cursor lands proportionally within the restored width
+                var newLeft = screenPos.X - Math.Min(pos.X, restoredWidth * 0.75);
+                SystemCommands.RestoreWindow(this);
+                Left = newLeft;
+                Top = screenPos.Y - pos.Y;
+            }
+
             DragMove();
         }
     }
