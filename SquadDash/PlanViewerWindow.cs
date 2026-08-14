@@ -748,8 +748,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Grid.SetColumn(splitter, 1);
         splitGrid.Children.Add(splitter);
 
-        var detailDocument = new FlowDocument();
-        detailDocument.SetResourceReference(FlowDocument.FontSizeProperty, "FontSizeBody");
+        var detailDocument = new FlowDocument
+        {
+            FontFamily    = new FontFamily("Segoe UI, Segoe UI Emoji"),
+            TextAlignment = TextAlignment.Left,
+        };
+        detailDocument.SetResourceReference(FlowDocument.FontSizeProperty, "FontSizeMedium");
         var placeholder = new Paragraph(new Run("Click an element to view details"));
         placeholder.SetResourceReference(Paragraph.ForegroundProperty, "SubtleText");
         detailDocument.Blocks.Add(placeholder);
@@ -5419,7 +5423,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         _detailDocument.Blocks.Clear();
 
-        // Title
+        // Agent image (upper-left)
+        var avatarInfo = _resolveAgentAvatar?.Invoke(agentHandle);
+        var avatarSize = 64.0 * _scaleFactor;
+        var avatarElement = CreateAgentAvatarChip(avatarInfo, avatarSize, agentHandle);
+        avatarElement.HorizontalAlignment = HorizontalAlignment.Left;
+        _detailDocument.Blocks.Add(new BlockUIContainer(avatarElement) { Margin = new Thickness(0, 0, 0, 8) });
+
+        // Agent name heading (below image)
         var titlePara = new Paragraph(new Run(agentHandle) { FontWeight = FontWeights.Bold });
         titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
         titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
