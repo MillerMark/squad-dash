@@ -68,6 +68,9 @@ internal static class PlanningSpecialistInstructions
                use `requirementId`, `proofType`, and `description`. Also check dependency references,
                validation boundaries, and the final audit frontier. A nested agent response alone cannot
                be collected by SquadDash. Do not merely summarize or paraphrase the structured payload.
+               Describe the final handoff as submitting or proposing the plan. Never claim that the plan
+               was staged, added to the Plans panel, delivered to Inbox, or made available for approval;
+               only the host may report those outcomes after durable persistence and validation.
             5. If delegation is unavailable after one reasonable attempt, apply the shipped Planning
                Architect charter yourself and still emit the required top-level payload. Never drop the
                structured-output requirement because a roster specialist is absent.

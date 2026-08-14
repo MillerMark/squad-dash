@@ -66,7 +66,9 @@ internal static class DecomposePlanningInstructions
         "structured rework decision. If the user instead asks to discuss or directly correct reviewed " +
         "work conversationally while the plan remains paused, follow the injected PLAN_REVIEW_ACTIVITY_JSON " +
         "instructions; a direct conversational correction is not plan-managed rework. Emitting TASKS_JSON " +
-        "proposes a plan; it does not grant execution permission.";
+        "proposes a plan; it does not grant execution permission. Describe the handoff as submitting or " +
+        "proposing the plan. Never claim that it was staged, added to Plans, or delivered to Inbox; only " +
+        "SquadDash may report those host-owned outcomes after durable validation and persistence.";
 
     internal static string BuildPendingPlanContext(string squadFolderPath)
     {

@@ -31,6 +31,8 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("final `audit` validation"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
+        Assert.That(instruction, Does.Contain("Never claim that a plan was staged"));
+        Assert.That(instruction, Does.Contain("Submitting the plan proposal now."));
     }
 
     [Test]
@@ -44,7 +46,9 @@ internal sealed class DefaultPromptInstructionProviderTests
             var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
             Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
             Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 7"));
-            Assert.That(DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path), Does.Contain(path));
+            var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path);
+            Assert.That(pointer, Does.Contain(path));
+            Assert.That(pointer, Does.Contain("Never claim that it was staged"));
         }
         finally
         {

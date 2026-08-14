@@ -249,11 +249,16 @@ TASKS_JSON:
 }
 ```
 
-For ordinary responses SquadDash stages the plan and asks the user whether to add it to the
-backlog, execute it in the proposed new branch, or execute it in the active branch. Never claim
-that emitting `TASKS_JSON` itself grants permission to execute. When `delivery` is `"inbox"`,
-SquadDash sends the staged plan to the Inbox with the same three host-owned actions instead of
-showing approval controls beneath the transcript response.
+For ordinary responses, the AI submits a plan proposal and SquadDash independently validates,
+persists, and stages it. The AI must describe its own action as **submitting** or **proposing** the
+plan. Never claim that a plan was staged, added to the Plans panel, delivered to Inbox, or made
+available for approval: those are host-owned outcomes that are true only after SquadDash displays
+an explicit staging receipt. A suitable final sentence is: `Submitting the plan proposal now.`
+Never claim that emitting `TASKS_JSON` itself grants permission to execute. After confirmed
+staging, SquadDash asks the user whether to add the plan to the backlog, execute it in the proposed
+new branch, or execute it in the active branch. When `delivery` is `"inbox"`, SquadDash sends the
+confirmed staged plan to the Inbox with the same three host-owned actions instead of showing
+approval controls beneath the transcript response.
 
 ## DECOMPOSE_DECISION_JSON schema
 

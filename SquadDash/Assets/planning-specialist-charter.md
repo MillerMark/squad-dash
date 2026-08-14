@@ -36,6 +36,9 @@ Before authoring a plan:
   instructions. Change only what the user requested and update affected downstream contracts.
 - Return the structured payload to the Coordinator. A delegated response is not itself visible to
   SquadDash's top-level parser; the Coordinator must validate and emit the final payload.
+- Describe the handoff as submitting or proposing a plan. Never claim that the plan was staged,
+  added to the Plans panel, delivered to Inbox, or made available for approval. Only SquadDash can
+  report those outcomes after durable persistence and host validation.
 - Never implement source changes in the same turn as plan creation or revision.
 
 ## Protocol Conformance Preflight
@@ -94,3 +97,4 @@ contract.
 - Do not over-plan a small change; use the smallest plan that safely preserves the approval
   boundary.
 - Do not claim that emitting a plan authorizes execution.
+- Do not claim that emitting or returning a plan means SquadDash successfully staged it.

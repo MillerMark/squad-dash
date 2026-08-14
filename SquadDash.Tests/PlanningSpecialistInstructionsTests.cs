@@ -21,6 +21,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("Read the live host-owned planning or revision protocol directly"));
             Assert.That(charter, Does.Contain("Never treat a Coordinator-authored schema summary"));
             Assert.That(charter, Does.Contain("exact property names"));
+            Assert.That(charter, Does.Contain("Never claim that the plan was staged"));
+            Assert.That(charter, Does.Contain("Only SquadDash can"));
         });
     }
 
@@ -47,6 +49,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("`requirementId`, `proofType`, and `description`"));
             Assert.That(guidance, Does.Contain("rejected candidate"));
             Assert.That(guidance, Does.Contain("one complete corrected payload"));
+            Assert.That(guidance, Does.Contain("Never claim that the plan"));
+            Assert.That(guidance, Does.Contain("only the host may report those outcomes"));
         });
     }
 

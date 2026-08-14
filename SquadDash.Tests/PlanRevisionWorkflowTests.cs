@@ -200,6 +200,92 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ProtocolBlockFallback_IsResolvedWhenCombinedResponseOmitsPlan()
+    {
+        using var workspace = new TestWorkspace();
+        var group = MakeGroup();
+        var protocolBlock = new TranscriptProtocolJsonBlock(
+            "TASKS_JSON",
+            JsonSerializer.Serialize(group));
+
+        var resolved = TaskPlanResponseResolver.TryResolve(
+            "Submitting the plan proposal now.",
+            responseSegments: ["Submitting the plan proposal now."],
+            protocolJsonBlocks: [protocolBlock],
+            workspace.RootPath,
+            out var parserInput,
+            out var source,
+            out var diagnostic,
+            out var payloadDetected);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True);
+            Assert.That(payloadDetected, Is.True);
+            Assert.That(source, Is.EqualTo("protocol-block"));
+            Assert.That(diagnostic, Is.Null);
+            Assert.That(TasksJsonParser.TryParse(parserInput, out var parsed), Is.True);
+            Assert.That(parsed!.GroupId, Is.EqualTo(group.GroupId));
+        });
+    }
+
+    [Test]
+    public void ResponseSegmentFallback_IsResolvedWhenCombinedResponseOmitsPlan()
+    {
+        using var workspace = new TestWorkspace();
+        var group = MakeGroup();
+        var segment = "TASKS_JSON:\n" + JsonSerializer.Serialize(group);
+
+        var resolved = TaskPlanResponseResolver.TryResolve(
+            "Submitting the plan proposal now.",
+            responseSegments: [segment],
+            protocolJsonBlocks: null,
+            workspace.RootPath,
+            out var parserInput,
+            out var source,
+            out var diagnostic,
+            out var payloadDetected);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True);
+            Assert.That(payloadDetected, Is.True);
+            Assert.That(source, Is.EqualTo("response-segments"));
+            Assert.That(diagnostic, Is.Null);
+            Assert.That(TasksJsonParser.TryParse(parserInput, out var parsed), Is.True);
+            Assert.That(parsed!.GroupId, Is.EqualTo(group.GroupId));
+        });
+    }
+
+    [Test]
+    public void MissingArtifact_ReturnsActionableResolutionDiagnostic()
+    {
+        using var workspace = new TestWorkspace();
+        const string response = """
+            SQUADDASH_ARTIFACT_JSON:
+            { "path": ".squad/tmp/agent-artifacts/missing-plan.json", "language": "json" }
+            """;
+
+        var resolved = TaskPlanResponseResolver.TryResolve(
+            response,
+            responseSegments: null,
+            protocolJsonBlocks: null,
+            workspace.RootPath,
+            out _,
+            out _,
+            out var diagnostic,
+            out var payloadDetected);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.False);
+            Assert.That(payloadDetected, Is.True);
+            Assert.That(diagnostic, Does.Contain("was not found"));
+            Assert.That(diagnostic, Does.Contain("missing-plan.json"));
+        });
+    }
+
+    [Test]
     public void HistoryStore_SavesPreviousRevisionSnapshot()
     {
         using var workspace = new TestWorkspace();

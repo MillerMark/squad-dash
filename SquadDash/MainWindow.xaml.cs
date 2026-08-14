@@ -8621,13 +8621,44 @@ public partial class MainWindow : Window
     private void TryStartDecomposeGroupFromResponse(string? rawResponse, TranscriptTurnView? ownerView = null)
     {
         _lastResponseContainedTaskPlan = false;
-        if (_currentWorkspace is null ||
-            !TaskPlanResponseResolver.TryResolve(
+        if (_currentWorkspace is null)
+            return;
+
+        var responseSegments = ownerView?.ResponseEntries
+            .Select(entry => (string?)entry.RawTextBuilder.ToString())
+            .ToArray();
+        var protocolJsonBlocks = ownerView?.ResponseEntries
+            .SelectMany(entry => entry.ProtocolJsonBlocks ??
+                                 TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(
+                                     entry.RawTextBuilder.ToString()))
+            .ToArray();
+        if (!TaskPlanResponseResolver.TryResolve(
                 rawResponse,
+                responseSegments,
+                protocolJsonBlocks,
                 _currentWorkspace.FolderPath,
                 out var parserInput,
-                out var planResponseSource))
+                out var planResponseSource,
+                out var resolutionDiagnostic,
+                out var payloadDetected))
+        {
+            _lastResponseContainedTaskPlan = payloadDetected;
+            if (payloadDetected)
+            {
+                var reason = string.IsNullOrWhiteSpace(resolutionDiagnostic)
+                    ? "SquadDash could not resolve the submitted plan payload."
+                    : resolutionDiagnostic;
+                var retryResponse = !string.IsNullOrWhiteSpace(rawResponse)
+                    ? rawResponse
+                    : responseSegments is { Length: > 0 }
+                        ? string.Join("\n", responseSegments)
+                        : null;
+                AppendPlanStagingFailure(reason, retryResponse, ownerView);
+                SquadDashTrace.Write(TraceCategory.General,
+                    $"TASKS_JSON transport was detected but not resolved: {reason}");
+            }
             return;
+        }
         _lastResponseContainedTaskPlan = true;
 
         if (!TasksJsonParser.TryParse(parserInput, out var group, out var parseDiagnostic) || group is null)
@@ -8699,7 +8730,7 @@ public partial class MainWindow : Window
             ShowArchivedPlanRevisionRecovery(group, ownerView);
             return;
         }
-        StageValidatedDecomposeGroup(group, ownerView);
+        StageValidatedDecomposeGroup(group, ownerView, parserInput);
     }
 
     private void StageLegacyPlanRevisionResponse(
@@ -9205,17 +9236,100 @@ public partial class MainWindow : Window
 
     private void StageValidatedDecomposeGroup(
         DecomposedTaskGroup group,
-        TranscriptTurnView? ownerView)
+        TranscriptTurnView? ownerView,
+        string? retryResponse = null)
     {
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
-        var previousPlan = store.Load(group.GroupId);
-        var plan = store.Save(group);
+        PendingDecomposePlan? previousPlan;
+        PendingDecomposePlan plan;
+        try
+        {
+            previousPlan = store.Load(group.GroupId);
+            var revision = PendingDecomposePlanStore.ComputeRevision(group);
+            plan = previousPlan is not null &&
+                   string.Equals(previousPlan.Revision, revision, StringComparison.Ordinal)
+                ? previousPlan
+                : store.Save(group);
+
+            var persisted = store.Load(group.GroupId);
+            if (persisted is null ||
+                !string.Equals(persisted.Revision, plan.Revision, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException(
+                    "The pending plan could not be reloaded with the revision that was written.");
+            }
+            plan = persisted;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            var reason = $"Plan {group.GroupId} was validated but could not be persisted: {ex.Message}";
+            AppendPlanStagingFailure(reason, retryResponse, ownerView);
+            SquadDashTrace.Write(TraceCategory.General, reason);
+            return;
+        }
+
         if (previousPlan is not null && !string.Equals(previousPlan.Revision, plan.Revision, StringComparison.Ordinal))
             ArchiveDecomposePlanInboxReminder(previousPlan);
-        if (DecomposePlanInbox.RequestsInboxDelivery(group))
-            SaveDecomposePlanInboxReminder(plan, explicitlyRequested: true);
-        else
-            AppendPendingDecomposeApproval(plan, ownerView);
+        try
+        {
+            if (DecomposePlanInbox.RequestsInboxDelivery(group))
+                SaveDecomposePlanInboxReminder(plan, explicitlyRequested: true);
+            else
+                AppendPendingDecomposeApproval(plan, ownerView);
+        }
+        catch (Exception ex)
+        {
+            AppendLine($"⚠ Plan {group.GroupId} was persisted as revision {plan.Revision}, but SquadDash " +
+                       $"could not display its approval controls: {ex.Message}");
+            SquadDashTrace.Write(TraceCategory.General,
+                $"Plan {group.GroupId} persisted but presentation failed: {ex}");
+            return;
+        }
+
+        SquadDashTrace.Write(TraceCategory.General,
+            $"Plan {group.GroupId} staged and verified revision={plan.Revision} " +
+            $"delivery={(DecomposePlanInbox.RequestsInboxDelivery(group) ? "inbox" : "transcript")}.");
+    }
+
+    private void AppendPlanStagingFailure(
+        string reason,
+        string? retryResponse,
+        TranscriptTurnView? ownerView)
+    {
+        var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        var message = CreateTranscriptParagraph(bottomMargin: 6);
+        var warning = new Run("⚠ Plan was not staged. ") { FontWeight = FontWeights.SemiBold };
+        warning.SetResourceReference(TextElement.ForegroundProperty, "PlanPreflightWarningText");
+        message.Inlines.Add(warning);
+        message.Inlines.Add(new Run(reason));
+        blocks.Add(message);
+
+        if (string.IsNullOrWhiteSpace(retryResponse))
+            return;
+
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var button = TranscriptQuickReplyFactory.CreateButton(
+            "Retry staging",
+            _transcriptFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Retry the same submitted payload without asking the agent to rewrite the plan."));
+        panel.Children.Add(button);
+        var container = new BlockUIContainer(panel) { Margin = new Thickness(0, 0, 0, 10) };
+        blocks.Add(container);
+        button.Click += (_, _) =>
+        {
+            if (_isPromptRunning)
+            {
+                AppendLine("Wait for the current prompt to finish before retrying plan staging.");
+                return;
+            }
+
+            panel.IsEnabled = false;
+            if (blocks.Contains(container))
+                blocks.Remove(container);
+            TryStartDecomposeGroupFromResponse(retryResponse, ownerView);
+        };
+        ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
     private sealed record ArchivedPlanRevisionRecoveryTag(string GroupId, string Revision);
@@ -9447,6 +9561,14 @@ public partial class MainWindow : Window
     {
         var group = plan.Group;
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        foreach (var existing in blocks.OfType<Block>().Where(block =>
+                     (block.Tag is PendingDecomposePlanLinkTag linkTag &&
+                      string.Equals(linkTag.GroupId, group.GroupId, StringComparison.Ordinal)) ||
+                     (block.Tag is PendingDecomposeApprovalTag approvalTag &&
+                      string.Equals(approvalTag.GroupId, group.GroupId, StringComparison.Ordinal))).ToArray())
+        {
+            blocks.Remove(existing);
+        }
         blocks.Add(CreatePendingDecomposePlanLinkParagraph(plan));
 
         if (!includeActions)
@@ -9521,6 +9643,13 @@ public partial class MainWindow : Window
     {
         var intro = CreateTranscriptParagraph(bottomMargin: 4);
         intro.Tag = new PendingDecomposePlanLinkTag(plan.Group.GroupId, plan.Revision);
+        var receipt = new Run($"✓ Plan {plan.Group.GroupId} staged for approval.")
+        {
+            FontWeight = FontWeights.SemiBold,
+        };
+        receipt.SetResourceReference(TextElement.ForegroundProperty, "TaskSuccessText");
+        intro.Inlines.Add(receipt);
+        intro.Inlines.Add(new LineBreak());
         intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
         intro.Inlines.Add(new LineBreak());
         intro.Inlines.Add(new Run(plan.Group.Branch) { FontWeight = FontWeights.SemiBold });
@@ -36425,9 +36554,22 @@ public partial class MainWindow : Window
 
         view.ResponseTextBuilder.Clear();
         view.ResponseTextBuilder.Append(turn.ResponseText);
+        var persistedResponseSegments = turn.GetResponseSegments();
+        var restoredPlanParserInput = string.Empty;
+        var restoredPlanResponseResolved = _currentWorkspace is not null &&
+            TaskPlanResponseResolver.TryResolve(
+                turn.ResponseText,
+                persistedResponseSegments.Select(segment => (string?)segment.Text),
+                persistedResponseSegments.SelectMany(segment => segment.ProtocolJsonBlocks ?? []),
+                _currentWorkspace.FolderPath,
+                out restoredPlanParserInput,
+                out _,
+                out _,
+                out _);
         if (ReferenceEquals(thread, CoordinatorThread) &&
             _currentWorkspace is not null &&
-            TasksJsonParser.TryParse(turn.ResponseText, out var restoredGroup) &&
+            restoredPlanResponseResolved &&
+            TasksJsonParser.TryParse(restoredPlanParserInput, out var restoredGroup) &&
             restoredGroup is not null)
         {
             var pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
@@ -36761,8 +36903,11 @@ public partial class MainWindow : Window
         var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
             SanitizeResponseText(rawText),
             GetActiveArtifactWorkspaceRoot());
-        var protocolJsonBlocks = entry.ProtocolJsonBlocks ??
-                                 TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(rawText);
+        var protocolJsonBlocks = entry.ProtocolJsonBlocks is { Count: > 0 } existingProtocolJsonBlocks
+            ? existingProtocolJsonBlocks
+            : TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(rawText);
+        if (protocolJsonBlocks.Count > 0)
+            entry.ProtocolJsonBlocks = protocolJsonBlocks;
 
         var newBlocks = BuildResponseBlocks(entry, sanitizedText, entry.AllowQuickReplies).ToList();
         if (newBlocks.Count == 0)
