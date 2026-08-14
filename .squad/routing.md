@@ -22,6 +22,7 @@ How to decide who handles what.
 | Session logging | Scribe | Automatic — never needs routing |
 | Maintenance orchestration (idle tasks) | Argus Weld | `.squad/maintenance*.md` files — idle-window scheduling, session reports. Source files with "maintenance" in the name belong to domain specialists, not Argus Weld. |
 | Squad markdown files & configuration | Malik Graves | `.squad/*.md` files, `maintenance.md` task blocks, `loop*.md` options, `tasks.md` structure, frontmatter correctness |
+| Plan creation & plan revision | Rory | New TASKS_JSON plans, PLAN_REVISION_JSON deltas, dependency graph corrections, proof requirement design |
 
 ## Issue Routing
 

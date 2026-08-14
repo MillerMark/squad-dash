@@ -369,7 +369,8 @@ internal static class DecomposePlanningInstructions
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
-            var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath);
+            var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath) +
+                          "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance();
             var revisionContext = PlanRevisionPromptInjection.Build(
                 squadFolderPath,
                 includeExecutingPlan: allowExecutingPlanRevision);

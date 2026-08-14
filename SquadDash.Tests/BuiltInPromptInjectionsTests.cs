@@ -41,6 +41,18 @@ internal sealed class BuiltInPromptInjectionsTests {
     }
 
     [Test]
+    public void Plans_PreservesTopLevelTasksJsonAfterPlanningDelegation() {
+        Assert.Multiple(() => {
+            Assert.That(BuiltInPromptInjections.Plans.InjectionText,
+                Does.Contain("prefer the workspace's active planning specialist"));
+            Assert.That(BuiltInPromptInjections.Plans.InjectionText,
+                Does.Contain("shipped fallback Planning Architect charter"));
+            Assert.That(BuiltInPromptInjections.Plans.InjectionText,
+                Does.Contain("Coordinator must validate and emit TASKS_JSON at the top level"));
+        });
+    }
+
+    [Test]
     public void All_HasNoEntriesWithDuplicateIds() {
         var ids = BuiltInPromptInjections.All.Select(i => i.Id).ToList();
         Assert.That(ids, Is.Unique);

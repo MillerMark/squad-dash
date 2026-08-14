@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
@@ -38,7 +39,12 @@ internal sealed class SquadCliAdapter {
     }
 
     public void LaunchPowerShellCommandWindow(WorkspaceIssueAction action) {
-        var appRoot = _workspacePaths.ApplicationRoot;
+        Process.Start(CreatePowerShellCommandStartInfo(_workspacePaths.ApplicationRoot, action));
+    }
+
+    internal static ProcessStartInfo CreatePowerShellCommandStartInfo(
+        string appRoot,
+        WorkspaceIssueAction action) {
         var completionMessage = action.Label switch {
             "Run Build in PowerShell" => "Build check completed successfully.",
             "Install PowerShell 7" => "PowerShell install command completed.",
@@ -59,13 +65,14 @@ internal sealed class SquadCliAdapter {
             "Write-Host ''",
             $"if ($LASTEXITCODE -eq 0) {{ Write-Host {ToPowerShellSingleQuotedLiteral(completionMessage)} -ForegroundColor Green }} else {{ Write-Host ({ToPowerShellSingleQuotedLiteral(failureMessage)} + $LASTEXITCODE + '.') -ForegroundColor Red }}"
         ]);
+        var encodedScript = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
 
-        Process.Start(new ProcessStartInfo {
+        return new ProcessStartInfo {
             FileName = "powershell.exe",
-            Arguments = $"-NoExit -Command \"& {{ {EscapePowerShellCommandArgument(script)} }}\"",
+            Arguments = $"-NoExit -EncodedCommand {encodedScript}",
             WorkingDirectory = appRoot,
             UseShellExecute = true
-        });
+        };
     }
 
     public void OpenFolderInExplorer(string? folderPath, string dialogTitle) {
@@ -172,8 +179,4 @@ internal sealed class SquadCliAdapter {
         return $"'{value.Replace("'", "''")}'";
     }
 
-    private static string EscapePowerShellCommandArgument(string value) {
-        // Single-quoted PS strings are fully literal — no variable/backtick expansion
-        return "'" + value.Replace("'", "''") + "'";
-    }
 }

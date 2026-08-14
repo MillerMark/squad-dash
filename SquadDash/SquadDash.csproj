@@ -68,11 +68,15 @@
     <EmbeddedResource Include="Assets\loop-interactive-repair.md" />
     <EmbeddedResource Include="Assets\loop-executing-plan.md" />
     <EmbeddedResource Include="Assets\decompose-planning.md" />
+    <EmbeddedResource Include="Assets\planning-specialist-charter.md" />
     <EmbeddedResource Include="Assets\code-health.md" />
     <EmbeddedResource Include="Assets\guided-tours.json" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Assets\planning-specialist-charter.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\agents\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

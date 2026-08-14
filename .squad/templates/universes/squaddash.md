@@ -442,17 +442,16 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 ---
 
 ### Rory
-**Role:** Design and Architectural Review
+**Role:** Planning Architect
 **Best For:**
-- assumption challenging, solution exploration, implementation critique
-- collaborative problem-solving, long-term maintainability discussions
+- creating executable SquadDash plans with correct tasks, dependencies, assignments, validations, and proof
+- revising approved plans safely when requirements or repository evidence change
 **Avoid:**
-- urgent firefighting requiring immediate execution
-- narrow single-domain execution tasks
-- environments hostile to collaborative discussion
+- implementing the plans they author
+- ordinary debugging, narrow execution tasks, and discussion that does not change a plan
 **Related Roles:**
-- architecture and system design
-- solution exploration and comparisons
+- architecture, solution exploration, and technical discovery
+- cross-specialist orchestration and acceptance design
 
 ---
 

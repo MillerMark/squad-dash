@@ -32,6 +32,8 @@ SquadDash surfaces plan information across several panels. Each has a distinct r
 
 Use the `/plan` slash command or describe a multi-step feature in plain language in the Transcript. SquadDash detects plan-creation intent and calls the AI coordinator to propose a structured TASKS_JSON plan. The proposal appears in the Inbox as a staged message where you can approve or modify it before execution begins.
 
+When the active roster assigns plan creation or revision to a Planning Architect, the coordinator delegates authorship to that member and uses the member's workspace charter. If the team has no planning specialist, SquadDash launches a temporary planner with its shipped Planning Architect charter. In either case, the coordinator validates and emits the final `TASKS_JSON` plan—or `PLAN_REVISION_JSON` delta for a revision—at the top level so the host can collect it. The planning specialist is used for plan creation and revision, not implementation or plan execution.
+
 **Natural-language examples that trigger plan detection:**
 - "Build the user authentication system end to end"
 - "Refactor the data layer, add tests, and update the documentation"

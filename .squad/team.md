@@ -27,6 +27,7 @@
 | Verity Cross | Fact Checker | agents/fact-checker/charter.md | active |
 | Argus Weld | Continuous Improvement | agents/argus-weld/charter.md | 🌙 Background |
 | Malik Graves | Markdown Specialist | agents/malik-graves/charter.md | active |
+| Rory | Planning Architect | agents/rory/charter.md | active |
 
 ## Project Context
 

@@ -27,6 +27,13 @@
       "role": "Markdown Specialist",
       "project": "SquadUI",
       "hired_at": "2026-05-20"
+    },
+    {
+      "universe": "SquadDash Universe",
+      "character": "Rory",
+      "role": "Planning Architect",
+      "project": "SquadDash",
+      "hired_at": "2026-08-14"
     }
   ],
   "assignment_cast_snapshots": {
@@ -44,6 +51,9 @@
     },
     "2026-05-20": {
       "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill", "Sorin Pyre", "Atlas Wren", "Malik Graves"]
+    },
+    "2026-08-14": {
+      "SquadDash Universe": ["Orion Vale", "Lyra Morn", "Arjun Sen", "Talia Rune", "Jae Min Kade", "Vesper Knox", "Mira Quill", "Sorin Pyre", "Atlas Wren", "Malik Graves", "Rory"]
     }
   }
 }

@@ -187,6 +187,7 @@
     <Compile Include="..\SquadDash\AgentImageCustomizationMigration.cs" Link="Source\AgentImageCustomizationMigration.cs" />
     <Compile Include="..\SquadDash\BulletedTextBox.cs" Link="Source\BulletedTextBox.cs" />
     <Compile Include="..\SquadDash\HireAgentWindow.cs" Link="Source\HireAgentWindow.cs" />
+    <Compile Include="..\SquadDash\PlanningSpecialistInstructions.cs" Link="Source\PlanningSpecialistInstructions.cs" />
     <Compile Include="..\SquadDash\ISpeechRecognitionService.cs" Link="Source\ISpeechRecognitionService.cs" />
     <Compile Include="..\SquadDash\SpeechRecognitionService.cs" Link="Source\SpeechRecognitionService.cs" />
     <Compile Include="..\SquadDash\WhisperSpeechRecognitionService.cs" Link="Source\WhisperSpeechRecognitionService.cs" />
@@ -561,7 +562,9 @@
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />
+    <EmbeddedResource Include="..\SquadDash\Assets\squaddash-profiles.md" Link="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\decompose-planning.md" Link="Assets\decompose-planning.md" />
+    <EmbeddedResource Include="..\SquadDash\Assets\planning-specialist-charter.md" Link="Assets\planning-specialist-charter.md" />
   </ItemGroup>
 
 </Project>

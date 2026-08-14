@@ -1478,7 +1478,7 @@ internal sealed class PromptExecutionController {
         }
 
         var planPrompt =
-            "The user has requested an explicit plan. Emit TASKS_JSON for the following. " +
+            "The user has explicitly asked you to create a plan. Emit TASKS_JSON for the following. " +
             "Even if the work could fit in one turn, emit TASKS_JSON because the user explicitly " +
             "asked for a plan — this preserves the human approval boundary before execution begins. " +
             "Do not implement anything in this response.\n\n" +

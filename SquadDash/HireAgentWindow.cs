@@ -21,6 +21,7 @@ internal sealed class HireAgentWindow : Window {
         "Frontend Engineer",
         "Full-Stack Engineer",
         "Lead Architect",
+        "Planning Architect",
         "Database Specialist",
         "DevOps Engineer",
         "SRE / Reliability Engineer",
@@ -1225,6 +1226,15 @@ internal sealed class HireAgentWindow : Window {
         if (!string.IsNullOrWhiteSpace(_extraGuidanceBox.Text)) {
             builder.AppendLine("Extra Guidance:");
             builder.AppendLine(_extraGuidanceBox.Text.Trim());
+            builder.AppendLine();
+        }
+
+        var planningCharterGuidance = PlanningSpecialistInstructions.BuildHireCharterGuidance(
+            universeName,
+            name);
+        if (!string.IsNullOrWhiteSpace(planningCharterGuidance)) {
+            builder.AppendLine("Shipped Role Contract:");
+            builder.AppendLine(planningCharterGuidance);
             builder.AppendLine();
         }
 

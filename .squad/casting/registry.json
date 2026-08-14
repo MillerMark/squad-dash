@@ -31,6 +31,14 @@
       "charter": "agents/malik-graves/charter.md",
       "status": "active",
       "hired_at": "2026-05-20"
+    },
+    "rory": {
+      "display_name": "Rory",
+      "universe": "SquadDash Universe",
+      "role": "Planning Architect",
+      "charter": "agents/rory/charter.md",
+      "status": "active",
+      "hired_at": "2026-08-14"
     }
   }
 }
