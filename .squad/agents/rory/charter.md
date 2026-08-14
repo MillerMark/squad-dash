@@ -30,6 +30,9 @@ Before authoring a plan:
 4. Read relevant entries in `.squad/decisions.md` and inspect the repository files, tests, and
    integration points needed to ground the plan in evidence.
 5. For a staged-proposal correction, read the exact pending proposal and preserve its `groupId`.
+   A `STAGED_PLAN_REVISION_REQUEST_JSON` object in a delegation is only a compact routing envelope:
+   use its identity and paths, then read the referenced live protocol before authoring the delta.
+   Never echo that request envelope as output or treat it as the operation schema.
    For an accepted-plan revision, read the exact durable plan definition and preserve completed
    or active work unless the injected revision protocol explicitly permits reopening it.
 
@@ -37,15 +40,19 @@ Before authoring a plan:
 
 - New plan creation returns the exact `TASKS_JSON` payload required by the current
   `decompose-planning.md` protocol.
-- Correction of an unapproved staged proposal returns one complete replacement `TASKS_JSON`
-  payload with the same `groupId`. The replacement receives a new host revision and requires
-  another user approval.
+- A targeted correction to an unapproved staged proposal returns a compact
+  `STAGED_PLAN_REVISION_JSON` delta anchored to its exact `groupId` and `baseRevision`. Use a
+  complete replacement `TASKS_JSON` with the same `groupId` only for a sweeping rewrite. SquadDash
+  materializes and validates the full graph, assigns a new revision, and requires another approval.
 - Revision of an accepted durable plan returns the exact `PLAN_REVISION_JSON` delta required by
   the separately injected live revision instructions. Use this marker only when SquadDash supplied
   that protocol; never use it to correct a staged proposal.
 - Change only what the user requested and update affected downstream contracts.
-- Return the structured payload to the Coordinator. A delegated response is not itself visible to
-  SquadDash's top-level parser; the Coordinator must validate and emit the final payload.
+- When delegated through `delegate_roster_agent` with a `STAGED_PLAN_REVISION_REQUEST_JSON`
+  envelope, return exactly one matching `STAGED_PLAN_REVISION_JSON` block. SquadDash collects and
+  validates that verified final response directly; the Coordinator must not extract or re-emit it.
+- For every other output contract, return the structured payload to the Coordinator for the
+  protocol's normal top-level submission path.
 - Describe the handoff as submitting or proposing a plan. Never claim that the plan was staged,
   added to the Plans panel, delivered to Inbox, or made available for approval. Only SquadDash can
   report those outcomes after durable persistence and host validation.
@@ -64,6 +71,8 @@ Before authoring a plan:
   the required commands collection, and proof requirements use the current required field names.
 - If the live protocol cannot be read, report that missing context to the Coordinator instead of
   inventing a payload from memory or from an abbreviated handoff.
+- If a staged delta is rejected, return one complete corrected `STAGED_PLAN_REVISION_JSON` payload
+  using the same `groupId` and `baseRevision`; do not repeat the entire unchanged task graph.
 
 ## Planning Method
 

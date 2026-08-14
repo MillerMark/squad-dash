@@ -387,8 +387,12 @@ public partial class MainWindow : Window
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
     private bool                     _planRevisionRepairPending;
+    private bool                     _stagedPlanRevisionRepairPending;
+    private StagedPlanRevisionProposalPayload? _stagedPlanRevisionRepairProposal;
     private PlanRevisionProposalPayload? _planRevisionRepairProposal;
     private readonly HashSet<string> _renderedPlanRevisionProposalIds = new(StringComparer.Ordinal);
+    private readonly StagedPlanRevisionCollectionLedger _stagedPlanRevisionCollectionLedger = new();
+    private readonly StagedPlanRevisionTurnCollectionState _stagedPlanRevisionTurnCollectionState = new();
     private PlanExecutionLog?        _planExecutionLog;
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
@@ -5523,9 +5527,12 @@ public partial class MainWindow : Window
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
                     {
-                        var hasRevisionPayload = TryStagePlanRevisionProposalFromResponse(
-                            rawResponse,
-                            doneCurrentTurn);
+                        _lastResponseContainedTaskPlan = false;
+                        var hasStagedRevisionPayload = _stagedPlanRevisionTurnCollectionState.Handled ||
+                            TryApplyStagedPlanRevisionFromResponse(rawResponse, doneCurrentTurn);
+                        var hasAcceptedRevisionPayload = !hasStagedRevisionPayload &&
+                            TryStagePlanRevisionProposalFromResponse(rawResponse, doneCurrentTurn);
+                        var hasRevisionPayload = hasStagedRevisionPayload || hasAcceptedRevisionPayload;
                         if (!hasRevisionPayload)
                             TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
                         var hasTasksPayload = _lastResponseContainedTaskPlan;
@@ -5533,7 +5540,9 @@ public partial class MainWindow : Window
                         if (hasRevisionPayload)
                         {
                             SquadDashTrace.Write("PlanRevision",
-                                "Plan revision protocol response was handled before ordinary plan protocols.");
+                                hasStagedRevisionPayload
+                                    ? "Staged-plan revision protocol response was handled before ordinary plan protocols."
+                                    : "Accepted-plan revision protocol response was handled before ordinary plan protocols.");
                         }
                         else if (hasTasksPayload && hasDecisionPayload)
                         {
@@ -5562,12 +5571,20 @@ public partial class MainWindow : Window
                             AppendLine("⚠ The automatic task-plan repair response did not contain TASKS_JSON. " +
                                        "The plan was not staged; please ask the AI to try again.");
                         }
-                        if (_planRevisionRepairPending && !hasRevisionPayload)
+                        if (_planRevisionRepairPending && !hasAcceptedRevisionPayload)
                         {
                             _planRevisionRepairPending = false;
                             _planRevisionRepairProposal = null;
                             AppendLine("⚠ The automatic plan-revision repair response did not contain PLAN_REVISION_JSON. " +
                                        "The plan remains unchanged.");
+                        }
+                        if (_stagedPlanRevisionRepairPending && !hasStagedRevisionPayload)
+                        {
+                            _stagedPlanRevisionRepairPending = false;
+                            _stagedPlanRevisionRepairProposal = null;
+                            AppendLine("⚠ The automatic staged-plan repair response did not contain " +
+                                       "STAGED_PLAN_REVISION_JSON. The staged proposal remains unchanged.");
+                            RestorePendingDecomposeApprovalSurfaces();
                         }
                     }
 
@@ -6121,6 +6138,7 @@ public partial class MainWindow : Window
 
     private void HandleSubagentCompleted(SquadSdkEvent evt)
     {
+        TryCollectStagedPlanRevisionFromVerifiedAgent(evt);
         if (ShouldSuppressSilentBackgroundAgent(evt))
         {
             SquadDashTrace.Write("UI", $"Silent background agent completed agent={evt.AgentDisplayName ?? evt.AgentName ?? evt.AgentId ?? "(unknown)"}");
@@ -8733,6 +8751,43 @@ public partial class MainWindow : Window
         StageValidatedDecomposeGroup(group, ownerView, parserInput);
     }
 
+    private void TryCollectStagedPlanRevisionFromVerifiedAgent(SquadSdkEvent evt)
+    {
+        if (evt.HostProtocolVerified != true ||
+            !string.Equals(evt.HostProtocol, StagedPlanRevisionHostCollection.Protocol, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _stagedPlanRevisionTurnCollectionState.MarkHandled(
+            evt.HostProtocolGroupId ?? string.Empty,
+            evt.HostProtocolBaseRevision ?? string.Empty);
+
+        if (!StagedPlanRevisionHostCollection.TryCreateCandidate(evt, out var candidate, out var error) ||
+            candidate is null)
+        {
+            SquadDashTrace.Write("PlanRevision",
+                $"Rejected direct staged-plan collection toolCallId={evt.ToolCallId ?? "(none)"}: {error ?? "invalid correlation"}");
+            QueueStagedPlanRevisionRepair(
+                error ?? "The verified planning-agent response could not be correlated to its request.",
+                null);
+            return;
+        }
+
+        if (!_stagedPlanRevisionCollectionLedger.TryReserve(candidate.ToolCallId))
+        {
+            SquadDashTrace.Write("PlanRevision",
+                $"Ignored duplicate direct staged-plan collection toolCallId={candidate.ToolCallId}.");
+            return;
+        }
+
+        SquadDashTrace.Write("PlanRevision",
+            $"Collecting verified staged-plan delta directly agent={candidate.AgentName} " +
+            $"toolCallId={candidate.ToolCallId} group={candidate.Payload.GroupId} " +
+            $"base={candidate.Payload.BaseRevision}.");
+        TryApplyStagedPlanRevisionFromResponse(candidate.RawResponse, ownerView: null);
+    }
+
     private void StageLegacyPlanRevisionResponse(
         DecomposedTaskGroup proposal,
         PlanRevisionPromptContext context,
@@ -8831,6 +8886,125 @@ public partial class MainWindow : Window
             SquadDashTrace.Write("PlanRevision",
                 $"Requested safe loop stop for proposal={pending.ProposalId} plan={payload.PlanId}.");
         }
+    }
+
+    private bool TryApplyStagedPlanRevisionFromResponse(
+        string? rawResponse,
+        TranscriptTurnView? ownerView)
+    {
+        if (rawResponse?.Contains(StagedPlanRevisionProposalParser.Marker, StringComparison.Ordinal) != true)
+            return false;
+
+        if (!StagedPlanRevisionProposalParser.TryParse(
+                rawResponse, out var payload, out var parseError) || payload is null)
+        {
+            QueueStagedPlanRevisionRepair(
+                parseError ?? "The staged-plan revision response was invalid.", null);
+            return true;
+        }
+        if (_currentWorkspace is null)
+        {
+            _stagedPlanRevisionRepairPending = false;
+            _stagedPlanRevisionRepairProposal = null;
+            AppendLine("⚠ The staged plan could not be revised because no workspace is open.");
+            return true;
+        }
+
+        var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+        var current = store.Load(payload.GroupId);
+        if (current is null)
+        {
+            _stagedPlanRevisionRepairPending = false;
+            _stagedPlanRevisionRepairProposal = null;
+            AppendLine($"⚠ Staged plan {payload.GroupId} is no longer pending. No plan state changed.");
+            return true;
+        }
+
+        var result = StagedPlanRevisionApplier.Apply(current, payload);
+        switch (result.Outcome)
+        {
+            case StagedPlanRevisionOutcome.Stale:
+                _stagedPlanRevisionRepairPending = false;
+                _stagedPlanRevisionRepairProposal = null;
+                AppendLine($"⚠ The staged-plan correction is stale. {result.Error} No plan state changed.");
+                RestorePendingDecomposeApprovalSurfaces();
+                return true;
+
+            case StagedPlanRevisionOutcome.NoChanges:
+                _stagedPlanRevisionRepairPending = false;
+                _stagedPlanRevisionRepairProposal = null;
+                AppendLine("No changes found in the staged-plan correction. The current proposal remains available for approval.");
+                RestorePendingDecomposeApprovalSurfaces();
+                return true;
+
+            case StagedPlanRevisionOutcome.Invalid:
+                QueueStagedPlanRevisionRepair(
+                    result.Error ?? "The materialized staged-plan graph was invalid.", payload);
+                return true;
+
+            case StagedPlanRevisionOutcome.Applied:
+                break;
+        }
+
+        var revised = result.RevisedGroup!;
+        if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                revised,
+                _currentWorkspace.SquadFolderPath,
+                out var assignmentError,
+                requireExplicitRouting:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off,
+                enforceAssignments:
+                    PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
+        {
+            QueueStagedPlanRevisionRepair(
+                assignmentError ?? "The materialized staged-plan assignments were invalid.", payload);
+            return true;
+        }
+        if (!TryValidateDecomposeRevisionAgainstWorkspace(revised, out _, out var workspaceError))
+        {
+            QueueStagedPlanRevisionRepair(
+                workspaceError ?? "The materialized staged plan did not match workspace state.", payload);
+            return true;
+        }
+
+        _stagedPlanRevisionRepairPending = false;
+        _stagedPlanRevisionRepairProposal = null;
+        var fullProposal = "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(revised);
+        if (StageValidatedDecomposeGroup(revised, ownerView, fullProposal))
+        {
+            SquadDashTrace.Write(
+                "PlanRevision",
+                $"Applied staged-plan delta group={payload.GroupId} base={payload.BaseRevision} " +
+                $"revision={result.Revision} operations={payload.Operations.Count}.");
+        }
+        return true;
+    }
+
+    private void QueueStagedPlanRevisionRepair(
+        string error,
+        StagedPlanRevisionProposalPayload? payload)
+    {
+        if (_stagedPlanRevisionRepairPending)
+        {
+            _stagedPlanRevisionRepairPending = false;
+            _stagedPlanRevisionRepairProposal = null;
+            AppendLine("⚠ The staged-plan correction was still invalid after one repair attempt. " +
+                       "The current proposal remains unchanged. Reason: " + error);
+            RestorePendingDecomposeApprovalSurfaces();
+            return;
+        }
+
+        _stagedPlanRevisionRepairPending = true;
+        _stagedPlanRevisionRepairProposal = payload;
+        _promptQueue.EnqueueAtFront(
+            StagedPlanRevisionProposalParser.BuildRepairPrompt(error, payload),
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "staged-plan-revision-repair",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        SyncSendButton();
+        AppendLine("The staged-plan correction was invalid. SquadDash is asking the coordinator " +
+                   "to correct the delta; the current proposal remains unchanged.");
     }
 
     private bool TryStagePlanRevisionProposalFromResponse(
@@ -9234,7 +9408,7 @@ public partial class MainWindow : Window
             $"Promoted active execution plan={planId} revision={revision} at a safe task boundary.");
     }
 
-    private void StageValidatedDecomposeGroup(
+    private bool StageValidatedDecomposeGroup(
         DecomposedTaskGroup group,
         TranscriptTurnView? ownerView,
         string? retryResponse = null)
@@ -9265,7 +9439,7 @@ public partial class MainWindow : Window
             var reason = $"Plan {group.GroupId} was validated but could not be persisted: {ex.Message}";
             AppendPlanStagingFailure(reason, retryResponse, ownerView);
             SquadDashTrace.Write(TraceCategory.General, reason);
-            return;
+            return false;
         }
 
         if (previousPlan is not null && !string.Equals(previousPlan.Revision, plan.Revision, StringComparison.Ordinal))
@@ -9283,12 +9457,13 @@ public partial class MainWindow : Window
                        $"could not display its approval controls: {ex.Message}");
             SquadDashTrace.Write(TraceCategory.General,
                 $"Plan {group.GroupId} persisted but presentation failed: {ex}");
-            return;
+            return false;
         }
 
         SquadDashTrace.Write(TraceCategory.General,
             $"Plan {group.GroupId} staged and verified revision={plan.Revision} " +
             $"delivery={(DecomposePlanInbox.RequestsInboxDelivery(group) ? "inbox" : "transcript")}.");
+        return true;
     }
 
     private void AppendPlanStagingFailure(
@@ -10548,25 +10723,35 @@ public partial class MainWindow : Window
     {
         var captured = _pendingPlansAtCoordinatorTurnStart;
         _pendingPlansAtCoordinatorTurnStart = [];
-        if (captured.Count == 0 || _currentWorkspace is null)
-            return;
-
-        var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
-        foreach (var plan in captured)
+        try
         {
-            if (IsDurablePlanArchived(plan.Group.GroupId))
-            {
-                store.Archive(plan.Group.GroupId);
-                SquadDashTrace.Write(TraceCategory.Inbox,
-                    $"Discarded bypassed proposal for archived plan '{plan.Group.GroupId}'.");
-                continue;
-            }
-            if (DecomposePlanInbox.ResponseAddressesPlan(plan, rawResponse))
-                continue;
+            if (captured.Count == 0 || _currentWorkspace is null)
+                return;
 
-            var current = store.Load(plan.Group.GroupId);
-            if (current is not null && string.Equals(current.Revision, plan.Revision, StringComparison.Ordinal))
-                SaveDecomposePlanInboxReminder(plan, explicitlyRequested: false);
+            var store = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+            foreach (var plan in captured)
+            {
+                if (IsDurablePlanArchived(plan.Group.GroupId))
+                {
+                    store.Archive(plan.Group.GroupId);
+                    SquadDashTrace.Write(TraceCategory.Inbox,
+                        $"Discarded bypassed proposal for archived plan '{plan.Group.GroupId}'.");
+                    continue;
+                }
+                if (_stagedPlanRevisionTurnCollectionState.Addresses(plan) ||
+                    DecomposePlanInbox.ResponseAddressesPlan(plan, rawResponse))
+                {
+                    continue;
+                }
+
+                var current = store.Load(plan.Group.GroupId);
+                if (current is not null && string.Equals(current.Revision, plan.Revision, StringComparison.Ordinal))
+                    SaveDecomposePlanInboxReminder(plan, explicitlyRequested: false);
+            }
+        }
+        finally
+        {
+            _stagedPlanRevisionTurnCollectionState.Reset();
         }
     }
 

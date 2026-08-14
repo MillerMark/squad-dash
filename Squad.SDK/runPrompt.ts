@@ -253,6 +253,11 @@ function emitSubagentLifecycle(
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
         workingDirectory: subagent.workingDirectory,
+        latestResponse: subagent.latestResponse,
+        hostProtocolVerified: subagent.hostProtocolVerified,
+        hostProtocol: subagent.hostProtocol,
+        hostProtocolGroupId: subagent.hostProtocolGroupId,
+        hostProtocolBaseRevision: subagent.hostProtocolBaseRevision,
         ...extras
     });
 }

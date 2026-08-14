@@ -41,6 +41,11 @@ internal static class DecomposePlanInbox
             string.Equals(decision.GroupId, plan.Group.GroupId, StringComparison.Ordinal) &&
             string.Equals(decision.Revision, plan.Revision, StringComparison.Ordinal))
             return true;
+        if (StagedPlanRevisionProposalParser.TryParse(rawResponse, out var stagedRevision, out _) &&
+            stagedRevision is not null &&
+            string.Equals(stagedRevision.GroupId, plan.Group.GroupId, StringComparison.Ordinal) &&
+            string.Equals(stagedRevision.BaseRevision, plan.Revision, StringComparison.Ordinal))
+            return true;
         return TasksJsonParser.TryParse(rawResponse ?? string.Empty, out var replacement) &&
                replacement is not null &&
                string.Equals(replacement.GroupId, plan.Group.GroupId, StringComparison.Ordinal);

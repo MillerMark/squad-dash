@@ -71,6 +71,10 @@ public sealed class SquadSdkEvent {
     public string? Status { get; set; }
     public string? Prompt { get; set; }
     public string? LatestResponse { get; set; }
+    public bool? HostProtocolVerified { get; set; }
+    public string? HostProtocol { get; set; }
+    public string? HostProtocolGroupId { get; set; }
+    public string? HostProtocolBaseRevision { get; set; }
     public string? LatestIntent { get; set; }
     public string[]? RecentActivity { get; set; }
     public string? Model { get; set; }

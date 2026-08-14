@@ -420,7 +420,7 @@ internal sealed class SquadSdkProcessTests {
         var events = new List<SquadSdkEvent>();
 
         await using var sut = new SquadSdkProcess(BuildStartInfo("""
-            echo {"type":"subagent_completed","agentName":"wanda-review","agentDisplayName":"WandaMaximoff","agentDescription":"Review options page changes"}
+            echo {"type":"subagent_completed","toolCallId":"tool-wanda","agentName":"wanda-review","agentDisplayName":"WandaMaximoff","agentDescription":"Review options page changes","latestResponse":"done","hostProtocolVerified":true,"hostProtocol":"staged_plan_revision","hostProtocolGroupId":"PLAN-1","hostProtocolBaseRevision":"rev-1"}
             echo {"type":"done","message":""}
             """));
         sut.EventReceived += (_, e) => events.Add(e);
@@ -432,6 +432,11 @@ internal sealed class SquadSdkProcessTests {
             Assert.That(completionEvent.AgentName, Is.EqualTo("wanda-review"));
             Assert.That(completionEvent.AgentDisplayName, Is.EqualTo("WandaMaximoff"));
             Assert.That(completionEvent.AgentDescription, Is.EqualTo("Review options page changes"));
+            Assert.That(completionEvent.LatestResponse, Is.EqualTo("done"));
+            Assert.That(completionEvent.HostProtocolVerified, Is.True);
+            Assert.That(completionEvent.HostProtocol, Is.EqualTo("staged_plan_revision"));
+            Assert.That(completionEvent.HostProtocolGroupId, Is.EqualTo("PLAN-1"));
+            Assert.That(completionEvent.HostProtocolBaseRevision, Is.EqualTo("rev-1"));
         });
     }
 

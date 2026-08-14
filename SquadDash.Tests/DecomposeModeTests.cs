@@ -640,6 +640,10 @@ internal sealed class DecomposePlanInboxTests
                 "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"revision\":\"abc123\",\"action\":\"add-to-backlog\"}"), Is.True);
             Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending,
                 "DECOMPOSE_DECISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"revision\":\"stale\",\"action\":\"add-to-backlog\"}"), Is.False);
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending,
+                "STAGED_PLAN_REVISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"baseRevision\":\"abc123\",\"summary\":\"Revise title\",\"operations\":[{\"op\":\"updateTask\",\"targetId\":\"PLAN-20260725-001\",\"patch\":{\"title\":\"Revised\"}}]}"), Is.True);
+            Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending,
+                "STAGED_PLAN_REVISION_JSON:\n{\"groupId\":\"PLAN-20260725\",\"baseRevision\":\"stale\",\"summary\":\"Revise title\",\"operations\":[{\"op\":\"updateTask\",\"targetId\":\"PLAN-20260725-001\",\"patch\":{\"title\":\"Revised\"}}]}"), Is.False);
             Assert.That(DecomposePlanInbox.ResponseAddressesPlan(pending, """
                 TASKS_JSON:
                 {

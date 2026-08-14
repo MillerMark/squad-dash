@@ -9,10 +9,13 @@ import {
     findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
+    matchesStagedPlanRevisionCandidate,
     normalizeAssistantResponseContent,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
-    SquadBridgeService
+    SquadBridgeService,
+    StagedPlanRevisionHostProtocol,
+    tryParseStagedPlanRevisionRequest
 } from "./squadService.js";
 
 test("permission approval supports legacy Copilot runtime response shape", () => {
@@ -171,6 +174,97 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(started[0].agent.providerType, "openai");
     assert.equal(started[0].agent.wireApi, "responses");
     assert.equal(completed[0].agent.agentName, "lyra-morn");
+});
+
+test("staged plan revision request correlation requires one complete routing envelope", () => {
+    const prompt = `Revise the plan.\nSTAGED_PLAN_REVISION_REQUEST_JSON:\n\`\`\`json
+    {
+      "groupId": "CLIDETECT-20260814",
+      "baseRevision": "base-1",
+      "definition": ".squad/tmp/decompose/CLIDETECT-20260814.json",
+      "protocol": ".squad/instructions/decompose-planning.md"
+    }
+    \`\`\``;
+
+    assert.deepEqual(tryParseStagedPlanRevisionRequest(prompt), {
+        groupId: "CLIDETECT-20260814",
+        baseRevision: "base-1"
+    });
+    assert.equal(tryParseStagedPlanRevisionRequest(prompt + "\n" + prompt), undefined);
+    assert.equal(tryParseStagedPlanRevisionRequest("No routing envelope"), undefined);
+});
+
+test("staged plan revision candidate must match the routed group and base revision", () => {
+    const request = { groupId: "CLIDETECT-20260814", baseRevision: "base-1" };
+    const matching = `STAGED_PLAN_REVISION_JSON:\n{
+      "groupId": "CLIDETECT-20260814",
+      "baseRevision": "base-1",
+      "summary": "Update one task",
+      "operations": [{"op":"updateTask","targetId":"CLIDETECT-20260814-001","patch":{"title":"Updated"}}]
+    }`;
+
+    assert.equal(matchesStagedPlanRevisionCandidate(matching, request), true);
+    assert.equal(matchesStagedPlanRevisionCandidate(
+        matching.replace('"base-1"', '"base-2"'), request), false);
+    assert.equal(matchesStagedPlanRevisionCandidate(matching + "\n" + matching, request), false);
+});
+
+test("verified roster revision is emitted to the host and replaced with a compact coordinator receipt", async () => {
+    const configs = [];
+    const completed = [];
+    let sessionNumber = 0;
+    const revision = `STAGED_PLAN_REVISION_JSON:\n{
+      "groupId": "CLIDETECT-20260814",
+      "baseRevision": "base-1",
+      "summary": "Update one task",
+      "operations": [{"op":"updateTask","targetId":"CLIDETECT-20260814-001","patch":{"title":"Updated"}}]
+    }`;
+    const service = new SquadBridgeService({
+        onSubagentCompleted(sessionId, agent) {
+            completed.push({ sessionId, agent });
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            return {
+                sessionId: `session-${sessionNumber}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({ content: sessionNumber === 1 ? "Coordinator done" : revision })
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate the revision", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{ handle: "rory", displayName: "Rory", role: "Planning Architect" }]
+    });
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    const receipt = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: `Apply the requested changes.\nSTAGED_PLAN_REVISION_REQUEST_JSON:\n{
+          "groupId": "CLIDETECT-20260814",
+          "baseRevision": "base-1",
+          "definition": ".squad/tmp/decompose/CLIDETECT-20260814.json",
+          "protocol": ".squad/instructions/decompose-planning.md"
+        }`
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-revision",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.match(receipt, /received @rory's staged-plan revision candidate/);
+    assert.doesNotMatch(receipt, /"operations"/);
+    assert.equal(completed[0].agent.hostProtocolVerified, true);
+    assert.equal(completed[0].agent.hostProtocol, StagedPlanRevisionHostProtocol);
+    assert.equal(completed[0].agent.hostProtocolGroupId, "CLIDETECT-20260814");
+    assert.equal(completed[0].agent.hostProtocolBaseRevision, "base-1");
+    assert.equal(completed[0].agent.latestResponse, revision);
 });
 
 test("counterfeit roster detection rejects roster-like and plan-bearing generic tasks", () => {

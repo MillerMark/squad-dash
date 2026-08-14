@@ -260,6 +260,59 @@ new branch, or execute it in the active branch. When `delivery` is `"inbox"`, Sq
 confirmed staged plan to the Inbox with the same three host-owned actions instead of showing
 approval controls beneath the transcript response.
 
+## STAGED_PLAN_REVISION_JSON schema
+
+Use this protocol only to correct an unapproved proposal that SquadDash has already staged. Read
+the exact pending definition and use the exact `groupId` and `baseRevision` supplied by SquadDash.
+For a targeted correction, emit one compact delta instead of repeating the complete task graph:
+
+`STAGED_PLAN_REVISION_JSON:`
+
+```json
+{
+  "groupId": "GROUP-YYYYMMDD",
+  "baseRevision": "revision supplied by SquadDash for the pending proposal",
+  "summary": "concise description of the requested correction",
+  "operations": [
+    {
+      "op": "updateTask",
+      "targetId": "GROUP-YYYYMMDD-002",
+      "patch": {
+        "description": "Only fields named in patch are replaced."
+      }
+    },
+    {
+      "op": "addValidation",
+      "validation": {
+        "validationId": "GROUP-YYYYMMDD-V02",
+        "description": "Complete validation object required for an add operation.",
+        "afterTaskIds": ["GROUP-YYYYMMDD-002"],
+        "beforeTaskIds": [],
+        "assertions": ["The requested contract is proven."],
+        "outputIds": [],
+        "mode": "audit",
+        "revalidateAtCompletion": true
+      }
+    }
+  ]
+}
+```
+
+Allowed operations are `updatePlan`, `updateTask`, `addTask`, `removeTask`,
+`updateApprovalGate`, `addApprovalGate`, `removeApprovalGate`, `updateValidation`,
+`addValidation`, and `removeValidation`. Update operations require `targetId` except
+`updatePlan`, plus a `patch` containing only changed fields. Array-valued fields in a patch replace
+the complete array; they are not appended. Add operations require one complete `task`,
+`approvalGate`, or `validation` object. Remove operations require `targetId`. Do not use
+`reopenTask`: an unapproved proposal has no execution history to reopen.
+
+SquadDash rejects a stale `baseRevision`, applies the operations locally, validates the complete
+materialized graph, computes a new revision, and presents the revised full plan for approval. A
+delta never approves or executes the plan. Use a complete replacement `TASKS_JSON` with the same
+`groupId` only for a sweeping rewrite where a delta would be harder to review. Never emit
+`PLAN_REVISION_JSON` for a staged proposal; that marker is reserved for an accepted durable plan
+when SquadDash separately injects its live revision protocol.
+
 ## DECOMPOSE_DECISION_JSON schema
 
 If the user later approves a staged plan or chooses one of its host-owned execution actions in
@@ -278,10 +331,7 @@ free text, emit:
 
 Only emit a decision for a group already staged by SquadDash. If the user changes an unapproved
 staged proposal's tasks, dependencies, validations, assignments, or other graph content, do not
-emit this decision and do not emit `PLAN_REVISION_JSON`. Submit one complete replacement
-`TASKS_JSON` with the same `groupId`; SquadDash assigns a new revision and requires another
-approval. `PLAN_REVISION_JSON` is reserved for an accepted durable plan when SquadDash separately
-injects its live revision protocol. `action` must be exactly one of `add-to-backlog`,
+emit this decision; follow `STAGED_PLAN_REVISION_JSON` above. `action` must be exactly one of `add-to-backlog`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
 The `revision` must exactly match the revision supplied by SquadDash for that pending group.
 

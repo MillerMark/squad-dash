@@ -59,8 +59,9 @@ internal static class DecomposePlanningInstructions
         "If the user gives free-text approval or chooses how to execute a staged decomposition plan, " +
         "you MUST read the same file and follow its DECOMPOSE_DECISION_JSON protocol. If the user " +
         "changes an unapproved staged plan's tasks, dependencies, validations, assignments, or other " +
-        "graph content, submit one complete replacement TASKS_JSON with the same groupId; do not emit " +
-        "DECOMPOSE_DECISION_JSON or PLAN_REVISION_JSON for that correction. PLAN_REVISION_JSON is only " +
+        "graph content, follow the injected STAGED_PLAN_REVISION_JSON delta protocol; use a complete " +
+        "replacement TASKS_JSON with the same groupId only for a sweeping rewrite. Do not emit " +
+        "DECOMPOSE_DECISION_JSON or PLAN_REVISION_JSON for a staged correction. PLAN_REVISION_JSON is only " +
         "for an accepted durable plan when SquadDash separately injects its live revision protocol. " +
         "Do not invent any format from memory. If the user asks to retry or replan a blocked approved plan, follow the " +
         "file's DECOMPOSE_RECOVERY_JSON protocol. If SquadDash has paused an executing plan at a " +
@@ -79,9 +80,46 @@ internal static class DecomposePlanningInstructions
         var plans = new PendingDecomposePlanStore(squadFolderPath).LoadAll();
         var sections = new List<string>();
         if (plans.Count > 0)
-            sections.Add("\nPending decomposition plans (use the exact revision in DECOMPOSE_DECISION_JSON):\n" +
-                         string.Join("\n", plans.Select(p =>
-                             $"- groupId={p.Group.GroupId}; revision={p.Revision}; proposedBranch={p.Group.Branch}")));
+        {
+            var planLines = string.Join("\n", plans.Select(p =>
+                $"- groupId={p.Group.GroupId}; baseRevision={p.Revision}; proposedBranch={p.Group.Branch}; " +
+                $"definition=.squad/tmp/decompose/{p.Group.GroupId}.json"));
+            sections.Add($$"""
+
+                ## Pending staged proposals
+
+                For approval or an execution choice, use the exact groupId and revision in
+                DECOMPOSE_DECISION_JSON. For a targeted correction to an unapproved proposal, read its
+                exact definition and the host-owned protocol at
+                `.squad/instructions/decompose-planning.md`, then emit one compact
+                STAGED_PLAN_REVISION_JSON delta. Do not copy unaffected tasks. When delegating this work
+                to Rory, pass the compact routing envelope shown below plus the user's requested changes;
+                Rory's charter requires reading the authoritative protocol. A verified roster-agent result
+                that matches this envelope is collected and applied directly by SquadDash; after the tool
+                returns its short receipt, do not extract or re-emit Rory's JSON. The envelope is not an
+                output protocol and must not appear in the final response. For a small mechanical change
+                whose exact patch is already established, the Coordinator may emit the compact delta
+                directly. Use a complete replacement TASKS_JSON
+                with the same groupId only when the requested rewrite is so broad that a delta would be
+                less clear.
+
+                {{planLines}}
+
+                STAGED_PLAN_REVISION_REQUEST_JSON:
+                ```json
+                {
+                  "groupId": "exact pending group ID",
+                  "baseRevision": "exact current pending revision",
+                  "definition": ".squad/tmp/decompose/GROUP-YYYYMMDD.json",
+                  "protocol": ".squad/instructions/decompose-planning.md"
+                }
+                ```
+
+                Do not invent or expand a second private schema in the delegation prompt. The live protocol
+                file is the single source of truth for allowed operations and patch fields. Do not emit
+                PLAN_REVISION_JSON; that protocol is reserved for accepted durable plans.
+                """);
+        }
 
         var tasksPath = Path.Combine(squadFolderPath, "tasks.md");
         if (File.Exists(tasksPath))

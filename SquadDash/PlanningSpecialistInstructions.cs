@@ -51,7 +51,9 @@ internal static class PlanningSpecialistInstructions
             1. Read `.squad/team.md` and `.squad/routing.md`. If an active roster member is explicitly
                assigned plan creation or revision work (for example, a Planning Architect), delegate
                plan authorship to that member with `delegate_roster_agent`. The member's workspace
-               charter is authoritative so user customizations are preserved.
+               charter is authoritative so user customizations are preserved. For a small mechanical
+               staged correction whose exact patch is already established by the user, the Coordinator
+               may author the compact delta directly instead of paying for a second planning pass.
             2. If no active roster planning specialist exists, launch exactly one temporary worker with
                the generic `task` tool as the planning specialist. Do not give that worker Rory's name or
                any roster identity. {{charterSource}}
@@ -59,18 +61,27 @@ internal static class PlanningSpecialistInstructions
                protocol path, relevant repository and decision context, and the current team and routing
                files. Require the specialist to read the live protocol directly; a Coordinator-authored
                summary is supplemental context and must never be presented as the authoritative schema.
-               Require a complete replacement `TASKS_JSON` with the same `groupId` when correcting
-               an unapproved staged proposal. Require `PLAN_REVISION_JSON` only when revising an
-               accepted durable plan and SquadDash supplied the live revision protocol. Do not
-               substitute one protocol for the other, and do not implement changes.
-            4. After the specialist returns, the Coordinator remains responsible for checking the payload
-               against the live host protocol before emitting that same required marker at the top level.
-               Check exact field names and these parser-critical contracts: task IDs are
+               For a staged correction, pass the compact STAGED_PLAN_REVISION_REQUEST_JSON routing
+               envelope from the pending-plan context, the user's requested changes, and no invented
+               operation schema; the specialist expands that request by reading the host-owned protocol.
+               Require `STAGED_PLAN_REVISION_JSON` for a targeted correction to an unapproved staged
+               proposal; allow a complete replacement `TASKS_JSON` with the same `groupId` only for a
+               sweeping rewrite. Require `PLAN_REVISION_JSON` only when revising an accepted durable
+               plan and SquadDash supplied the live revision protocol. Do not substitute one protocol
+               for another, and do not implement changes.
+            4. A verified `delegate_roster_agent` staged-revision response is collected, validated, and
+               applied directly by SquadDash when its request envelope and returned identity match. If
+               the tool returns a direct-collection receipt, do not run shell extraction, copy the JSON,
+               or re-emit the marker; report the short receipt and allow the host to present approval
+               controls. For new plans, accepted-plan revisions, generic workers, and any fallback response
+               without that receipt, the Coordinator remains responsible for checking the payload against
+               the live host protocol before emitting the required marker at the top level. Check exact
+               field names and these parser-critical contracts: task IDs are
                `{groupId}-NNN`; validation IDs use the `validationId` field and
                `{groupId}-VAL-NNN`; command or hybrid validations use `commands`; proof requirements
                use `requirementId`, `proofType`, and `description`. Also check dependency references,
-               validation boundaries, and the final audit frontier. A nested agent response alone cannot
-               be collected by SquadDash. Do not merely summarize or paraphrase the structured payload.
+               validation boundaries, and the final audit frontier. Do not merely summarize or paraphrase
+               a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan
                was staged, added to the Plans panel, delivered to Inbox, or made available for approval;
                only the host may report those outcomes after durable persistence and validation.
@@ -79,7 +90,8 @@ internal static class PlanningSpecialistInstructions
                structured-output requirement because a roster specialist is absent.
             6. If the delegated candidate is invalid, re-engage the same specialist with the complete
                rejected candidate, the exact validation diagnostics, and the live protocol path. Require
-               one complete corrected payload rather than a patch or a partial list of substitutions.
+               one complete corrected payload of the same protocol type. A corrected staged delta remains
+               `STAGED_PLAN_REVISION_JSON`; do not turn it into a full graph unless the rewrite is sweeping.
             """;
     }
 

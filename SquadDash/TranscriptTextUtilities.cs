@@ -9,6 +9,7 @@ internal static class TranscriptTextUtilities
     private static readonly string[] InspectableProtocolMarkers =
     [
         "TASKS_JSON:",
+        StagedPlanRevisionProposalParser.Marker,
         PlanRevisionProposalParser.Marker,
         DecomposeStepResultParser.Marker,
         DecomposeRecoveryDecisionParser.Marker,
@@ -54,6 +55,13 @@ internal static class TranscriptTextUtilities
         {
             var markerIndex = FindInspectableSentinelIndex(text, marker);
             if (markerIndex < 0)
+                continue;
+            if (string.Equals(marker, PlanRevisionProposalParser.Marker, StringComparison.Ordinal) &&
+                markerIndex >= "STAGED_".Length &&
+                string.Equals(
+                    text.Substring(markerIndex - "STAGED_".Length, "STAGED_".Length),
+                    "STAGED_",
+                    StringComparison.Ordinal))
                 continue;
 
             var braceStart = text.IndexOf('{', markerIndex + marker.Length);

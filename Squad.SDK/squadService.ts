@@ -155,6 +155,11 @@ export type SubagentLifecycleInfo = {
     totalTokens?: number;
     durationMs?: number;
     workingDirectory?: string;
+    latestResponse?: string;
+    hostProtocolVerified?: boolean;
+    hostProtocol?: string;
+    hostProtocolGroupId?: string;
+    hostProtocolBaseRevision?: string;
 };
 
 export type SubagentTranscriptInfo = {
@@ -288,6 +293,106 @@ const GenericIdentityKeys = new Set([
 function normalizeOptionalString(value: string | undefined): string | undefined {
     const trimmed = value?.trim();
     return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+export type StagedPlanRevisionRequestCorrelation = {
+    groupId: string;
+    baseRevision: string;
+};
+
+const StagedPlanRevisionRequestMarker = "STAGED_PLAN_REVISION_REQUEST_JSON:";
+const StagedPlanRevisionResponseMarker = "STAGED_PLAN_REVISION_JSON:";
+export const StagedPlanRevisionHostProtocol = "staged_plan_revision";
+
+function countOccurrences(text: string, value: string): number {
+    let count = 0;
+    let index = 0;
+    while ((index = text.indexOf(value, index)) >= 0) {
+        count++;
+        index += value.length;
+    }
+    return count;
+}
+
+function extractJsonObjectAfterMarker(text: string, marker: string): Record<string, unknown> | undefined {
+    if (countOccurrences(text, marker) !== 1)
+        return undefined;
+
+    const markerIndex = text.indexOf(marker);
+    const objectStart = text.indexOf("{", markerIndex + marker.length);
+    if (objectStart < 0)
+        return undefined;
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = objectStart; index < text.length; index++) {
+        const current = text[index];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            }
+            else if (current === "\\") {
+                escaped = true;
+            }
+            else if (current === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (current === '"') {
+            inString = true;
+            continue;
+        }
+        if (current === "{") {
+            depth++;
+            continue;
+        }
+        if (current !== "}")
+            continue;
+
+        depth--;
+        if (depth !== 0)
+            continue;
+
+        try {
+            const parsed = JSON.parse(text.slice(objectStart, index + 1));
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? parsed as Record<string, unknown>
+                : undefined;
+        }
+        catch {
+            return undefined;
+        }
+    }
+
+    return undefined;
+}
+
+export function tryParseStagedPlanRevisionRequest(
+    prompt: string | undefined
+): StagedPlanRevisionRequestCorrelation | undefined {
+    if (!prompt)
+        return undefined;
+
+    const payload = extractJsonObjectAfterMarker(prompt, StagedPlanRevisionRequestMarker);
+    const groupId = typeof payload?.groupId === "string" ? payload.groupId.trim() : "";
+    const baseRevision = typeof payload?.baseRevision === "string" ? payload.baseRevision.trim() : "";
+    return groupId && baseRevision ? { groupId, baseRevision } : undefined;
+}
+
+export function matchesStagedPlanRevisionCandidate(
+    response: string | undefined,
+    request: StagedPlanRevisionRequestCorrelation | undefined
+): boolean {
+    if (!response || !request)
+        return false;
+
+    const payload = extractJsonObjectAfterMarker(response, StagedPlanRevisionResponseMarker);
+    const groupId = typeof payload?.groupId === "string" ? payload.groupId.trim() : "";
+    const baseRevision = typeof payload?.baseRevision === "string" ? payload.baseRevision.trim() : "";
+    return groupId === request.groupId && baseRevision === request.baseRevision;
 }
 
 export function normalizeAssistantResponseContent(content: string | undefined): string | undefined {
@@ -2299,6 +2404,7 @@ export class SquadBridgeService {
         outerOptions: SquadSessionRequest
     ): Promise<string> {
         const handle = normalizeAgentHandle(route.handle);
+        const stagedRevisionRequest = tryParseStagedPlanRevisionRequest(prompt);
         const startedAt = Date.now();
         let totalToolCalls = 0;
         let totalTokens = 0;
@@ -2380,13 +2486,27 @@ export class SquadBridgeService {
                     requireSameSession: false
                 });
 
+            const finalResponse = response || `@${handle} completed the delegated task without a textual report.`;
+            const isDirectStagedRevision = matchesStagedPlanRevisionCandidate(
+                response,
+                stagedRevisionRequest);
             this.bridgeHandlers.onSubagentCompleted?.(invocation.sessionId, {
                 ...lifecycle,
                 totalToolCalls,
                 totalTokens,
-                durationMs: Date.now() - startedAt
+                durationMs: Date.now() - startedAt,
+                latestResponse: finalResponse,
+                hostProtocolVerified: isDirectStagedRevision,
+                hostProtocol: isDirectStagedRevision ? StagedPlanRevisionHostProtocol : undefined,
+                hostProtocolGroupId: isDirectStagedRevision ? stagedRevisionRequest?.groupId : undefined,
+                hostProtocolBaseRevision: isDirectStagedRevision ? stagedRevisionRequest?.baseRevision : undefined
             });
-            return response || `@${handle} completed the delegated task without a textual report.`;
+            if (isDirectStagedRevision) {
+                return `SquadDash received @${handle}'s staged-plan revision candidate for ` +
+                    `${stagedRevisionRequest!.groupId} at base revision ${stagedRevisionRequest!.baseRevision} ` +
+                    "and will validate and apply it directly. Do not extract or re-emit the JSON.";
+            }
+            return finalResponse;
         }
         catch (error) {
             const message = extractErrorMessage(error) ?? String(error);

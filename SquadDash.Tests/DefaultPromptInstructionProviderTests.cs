@@ -33,8 +33,47 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
         Assert.That(instruction, Does.Contain("Never claim that a plan was staged"));
         Assert.That(instruction, Does.Contain("Submitting the plan proposal now."));
-        Assert.That(instruction, Does.Contain("complete replacement\n`TASKS_JSON` with the same `groupId`"));
-        Assert.That(instruction, Does.Contain("`PLAN_REVISION_JSON` is reserved for an accepted durable plan"));
+        Assert.That(instruction, Does.Contain("## STAGED_PLAN_REVISION_JSON schema"));
+        Assert.That(instruction, Does.Contain("one compact delta instead of repeating the complete task graph"));
+        Assert.That(instruction, Does.Contain("Allowed operations are `updatePlan`, `updateTask`, `addTask`, `removeTask`"));
+        Assert.That(instruction, Does.Contain("Array-valued fields in a patch replace"));
+        Assert.That(instruction, Does.Contain("rejects a stale `baseRevision`"));
+        Assert.That(instruction, Does.Contain("`PLAN_REVISION_JSON` for a staged proposal"));
+    }
+
+    [Test]
+    public void PendingPlanContext_UsesCompactDelegationEnvelopeAndHostOwnedProtocolPointer()
+    {
+        var squadFolder = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            "pending-context-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var group = new DecomposedTaskGroup(
+                "CONTEXT-20260814", "Context plan", "feature/context-plan", "Context summary",
+                [new DecomposedSubTask("CONTEXT-20260814-001", "First task", [], "high", "First task")]);
+            var pending = new PendingDecomposePlanStore(squadFolder).Save(group);
+
+            var context = DecomposePlanningInstructions.BuildPendingPlanContext(squadFolder);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(context, Does.Contain("STAGED_PLAN_REVISION_REQUEST_JSON:"));
+                Assert.That(context, Does.Contain(pending.Revision));
+                Assert.That(context, Does.Contain(".squad/tmp/decompose/CONTEXT-20260814.json"));
+                Assert.That(context, Does.Contain(".squad/instructions/decompose-planning.md"));
+                Assert.That(context, Does.Contain("The envelope is not an\noutput"));
+                Assert.That(context, Does.Contain("must not appear in the final response"));
+                Assert.That(context, Does.Contain("collected and applied directly by SquadDash"));
+                Assert.That(context, Does.Contain("do not extract or re-emit Rory's JSON"));
+                Assert.That(context, Does.Contain("small mechanical change"));
+                Assert.That(context, Does.Not.Contain("\"operations\""));
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
     }
 
     [Test]

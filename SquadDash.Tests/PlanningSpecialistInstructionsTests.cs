@@ -14,6 +14,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("`TASKS_JSON`"));
             Assert.That(charter, Does.Contain("`PLAN_REVISION_JSON`"));
             Assert.That(charter, Does.Contain("unapproved staged proposal"));
+            Assert.That(charter, Does.Contain("`STAGED_PLAN_REVISION_JSON`"));
+            Assert.That(charter, Does.Contain("`STAGED_PLAN_REVISION_REQUEST_JSON`"));
             Assert.That(charter, Does.Contain("complete replacement `TASKS_JSON`"));
             Assert.That(charter, Does.Contain("accepted durable plan"));
             Assert.That(charter, Does.Contain("never use it to correct a staged proposal"));
@@ -27,6 +29,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("exact property names"));
             Assert.That(charter, Does.Contain("Never claim that the plan was staged"));
             Assert.That(charter, Does.Contain("Only SquadDash can"));
+            Assert.That(charter, Does.Contain("collects and\n  validates that verified final response directly"));
+            Assert.That(charter, Does.Contain("must not extract or re-emit it"));
         });
     }
 
@@ -43,9 +47,14 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("generic `task` tool"));
             Assert.That(guidance, Does.Contain("Do not give that worker Rory's name"));
             Assert.That(guidance, Does.Contain("complete replacement `TASKS_JSON` with the same `groupId`"));
-            Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` only when revising an\n   accepted durable plan"));
-            Assert.That(guidance, Does.Contain("Do not\n   substitute one protocol for the other"));
-            Assert.That(guidance, Does.Contain("same required marker at the top level"));
+            Assert.That(guidance, Does.Contain("STAGED_PLAN_REVISION_REQUEST_JSON routing"));
+            Assert.That(guidance, Does.Contain("no invented\n   operation schema"));
+            Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` only when revising an accepted durable\n   plan"));
+            Assert.That(guidance, Does.Contain("Do not substitute one protocol\n   for another"));
+            Assert.That(guidance, Does.Contain("small mechanical\n   staged correction"));
+            Assert.That(guidance, Does.Contain("collected, validated, and\n   applied directly by SquadDash"));
+            Assert.That(guidance, Does.Contain("do not run shell extraction"));
+            Assert.That(guidance, Does.Contain("required marker at the top level"));
             Assert.That(guidance, Does.Contain("Never drop the\n   structured-output requirement"));
             Assert.That(guidance, Does.Contain("read the live protocol directly"));
             Assert.That(guidance, Does.Contain("`{groupId}-NNN`"));
@@ -91,7 +100,8 @@ internal sealed class PlanningSpecialistInstructionsTests
         {
             Assert.That(universe, Does.Contain("### Rory\n**Role:** Planning Architect"));
             Assert.That(profiles, Does.Contain("SquadDash plan creation using the live `TASKS_JSON` protocol"));
-            Assert.That(profiles, Does.Contain("Staged-proposal correction using a complete replacement `TASKS_JSON`"));
+            Assert.That(universe, Does.Contain("correcting staged proposals with compact revision-anchored deltas"));
+            Assert.That(profiles, Does.Contain("Staged-proposal correction using compact, revision-anchored `STAGED_PLAN_REVISION_JSON` deltas"));
             Assert.That(profiles, Does.Contain("Accepted-plan revision using the separately injected live `PLAN_REVISION_JSON` protocol"));
         });
     }
