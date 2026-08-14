@@ -1,4 +1,67 @@
-﻿<!-- decompose-group: JOININSPCTR-20260806 | branch: feature/plan-viewer-inspector | revision: 1bf26ce1ac12432e -->
+﻿<!-- decompose-group: MODELPROF-20260810 | branch: feature/multi-model-profiles | revision: 852ababff2d25a64 -->
+**[MODELPROF-20260810] Multi-Model Profile Support**
+> Introduce named model profiles with deterministic agent-category assignment so the coordinator, spawned named agents, temporary agents, and built-in helpers (RAI, Scribe, Ralph, Fact Checker) can each use a different LLM provider/model. The current single-provider path (GitHub Copilot XOR Custom BYOK) becomes the default profile, and new profiles can be added, assigned, and overridden per agent. Settings persistence uses the existing encrypted JSON store, the Options UI adds a profile grid with exclusivity checkboxes, and the SDK bridge selects environment variables based on the resolved profile.
+
+- [x] **[MODELPROF-20260810-001]** Introduce ModelProfile record and ModelProfileStore
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: critical
+  description: Create a ModelProfile record type with stable string Id, user-facing Alias, ProviderType (copilot|openai|azure|anthropic), ProviderUrl, Model, encrypted ApiKey reference, OfflineMode, and IsDefault flag. Create ModelProfileStore that persists a List<ModelProfile> inside the existing ApplicationSettingsStore JSON file alongside existing settings. Migrate the current single ByokProviderSettings + CopilotDefaultModel into one default profile on first load so existing users see no behavior change. Observable outcome: loading settings with the old single-provider format produces a profiles list with one default profile whose values match the legacy fields. Production consumer: ModelProfileResolver (task 002) reads profiles from this store, and PreferencesWindow (task 005) binds to it.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement ModelProfile record, ModelProfileStore, and legacy migration","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-002]** Implement ModelProfileResolver with deterministic precedence
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: critical
+  description: Create ModelProfileResolver that resolves the effective profile for a given agent context using this precedence: (1) explicit per-agent override, (2) agent-category assignment, (3) default profile. Agent categories are: Coordinator, SpawnedNamedAgents, TemporaryAgents, RAI, Scribe, Ralph, FactChecker. Store category-to-profileId assignments in ModelProfileStore as a Dictionary<string, string>. The resolver is a pure function: given profiles list, assignments map, optional per-agent override, and agent category string, it returns the resolved ModelProfile. Observable outcome: unit tests prove each precedence level overrides the one below and missing assignments fall through to default. Production consumer: SquadSdkProcess (task 003) calls this resolver before launching each agent process.
+  dependsOn: MODELPROF-20260810-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement the pure resolution function and precedence tests","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-003]** Wire profile resolution into SquadSdkProcess launch
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: critical
+  description: Modify SquadSdkProcess to accept a ModelProfile (resolved by caller) instead of raw ByokProviderSettings and CopilotDefaultModel. Update environment variable population to derive COPILOT_PROVIDER_BASE_URL, COPILOT_PROVIDER_MODEL_ID, COPILOT_PROVIDER_TYPE, COPILOT_PROVIDER_WIRE_API, COPILOT_PROVIDER_API_KEY, and COPILOT_OFFLINE from the resolved ModelProfile. Update MainWindow.xaml.cs callers (BuildByokSettings/BuildCopilotDefaultModel) to call ModelProfileResolver instead, passing the agent category derived from the agent's AgentType. Observable outcome: launching the SDK process with a non-default profile produces the correct environment variables for that profile's provider. Production consumer: every agent spawn and coordinator prompt in MainWindow.xaml.cs uses this path.
+  dependsOn: MODELPROF-20260810-002
+  agentAssignments: [{"agentHandle":"talia-rune","role":"Wire profile resolution into SquadSdkProcess and update MainWindow callers","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-004]** Backward-compatible single-profile behavior validation
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: high
+  description: After tasks 001–003, validate that a fresh install and an upgraded install both behave identically to the pre-profile code path when only one default profile exists. Run the existing test suite plus manual verification that the coordinator and spawned agents receive the same provider configuration as before. Observable outcome: all existing tests pass and the SDK process launches with identical environment variables to the pre-change baseline. Production consumer: this validation gates all UI work.
+  dependsOn: MODELPROF-20260810-003
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Validate backward compatibility of profile resolution with existing tests","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-005]** Add profile grid and assignment checkboxes to Options UI
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: high
+  description: In PreferencesWindow, replace the current single-provider radio buttons and BYOK fields with a profile grid (DataGrid or custom panel) at the top of the Model section. Each row shows Alias, Provider, Model/Deployment, and a Default indicator. Below the grid, show provider-specific detail fields for the selected row. Add assignment checkboxes for each category: Coordinator, Spawned Named Agents, Temporary Agents, RAI, Scribe, Ralph, Fact Checker. With one profile all checkboxes are checked and disabled. With multiple profiles, checking an assignment on one row clears it from the previous row and shows a FormUltimate callout explaining the reassignment. Profile creation, deletion, assignment changes, and default changes are staged as dialog-scoped undoable transactions committed on OK/Apply. Observable outcome: the Options dialog shows a profile grid, the user can add a second profile with different provider settings and assign it to a category, and clicking OK persists the changes. Production consumer: ModelProfileStore.Save is called on dialog commit, and ModelProfileResolver uses the persisted assignments at next agent launch.
+  dependsOn: MODELPROF-20260810-004
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Build the profile grid, assignment checkboxes, exclusivity logic, and dialog-scoped undo in PreferencesWindow","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-006]** Add per-agent model override and Agent Info explanation
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: mid
+  description: Add a right-click context menu item 'Model override…' on agent thread headers that opens a small dialog to select or clear an explicit profile override for that agent handle. Store overrides in ModelProfileStore keyed by agent handle. In the existing Agent Info panel or tooltip, show the effective profile, the reason it was selected (override / category assignment / default), and any explicit override. Observable outcome: right-clicking an agent header and selecting 'Model override' lets the user pick a profile, and subsequent prompts for that agent use the overridden profile. The Agent Info surface explains which profile is active and why. Production consumer: ModelProfileResolver checks per-agent overrides at highest precedence, and SquadSdkProcess passes the resolved profile to the SDK bridge.
+  dependsOn: MODELPROF-20260810-005
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Build the override dialog, context menu item, Agent Info explanation, and wire to ModelProfileStore","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-007]** Show model alias in completion footer for all agent completions
+  (SquadDash status: Completed by SquadDash — commit bd4e166: Human accepted commit range 3ae71cc..bd4e166 (50 commits).)
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: mid
+  description: Append ' · using {alias}' to the completion footer rendered at the end of every spawned agent's turn — always, regardless of whether the profile is default or non-default. Style it with SubtleText foreground at FontSizeSmall so it is visually subordinate. Do NOT use square brackets around the alias; the format is ' · using {alias}' with no brackets. Do NOT append this text to thread.CurrentTurn.ResponseTextBuilder and do NOT include it in any text indexed for transcript search — it must be a visual-only WPF annotation on the footer element. Do not include endpoint, model ID, or credentials — only the profile alias. The alias must be persisted in the thread snapshot or per-thread report file (e.g. AgentReportStore or equivalent session state) so it is restored correctly when the app restarts and reloads transcript history. On app restart, the footer must show ' · using {alias}' for any previously completed agent turn where an alias was recorded, reconstructing the footer paragraph from persisted state. Remove any remaining default-profile gating or >1-profile gating in the CompletionFooterProfileAlias assignment path. The tooltip 'Using: {alias}' line (already implemented) should likewise show for all agents, not just non-default. Observable outcomes: (1) every completed spawned agent turn shows ' · using {alias}' in SubtleText at the end of its completion footer; (2) the annotation is absent from transcript body text and not indexed for search; (3) after app restart the annotation is still visible for previously completed turns.
+  dependsOn: MODELPROF-20260810-005
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Replace any existing transcript-body attribution with a completion-footer \u0027under [alias]\u0027 visual annotation; ensure it is not added to ResponseTextBuilder or the transcript search index","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+
+- [x] **[MODELPROF-20260810-008]** End-to-end multi-profile verification
+  (SquadDash status: Completed by SquadDash — commit 04d0e5c43b871b3057a60239beb7ffc308486444: Vesper Knox executed the automated verification for MODELPROF-20260810-008 against the current worktree (verification-only step — no source changes or commit made). Full test suite: 5,241 tests passed, 0 failed, 0 skipped, exit code 0. Build compiled cleanly with 4 pre-existing CS0067 warnings in TourCalloutNavigationOverlay.cs. Live UI verification requirements (creating profiles in Options, observing ' · using {alias}' footer on spawned agents, confirming alias absent from search, applying per-agent override, and restart persistence) cannot be performed by an automated agent and require human observation of the running WPF application.)
+  Group: MODELPROF-20260810 | Branch: feature/multi-model-profiles | Priority: high
+  description: Verify the complete multi-model profile feature end-to-end: (1) create two profiles in Options — one GitHub Copilot, one custom BYOK, (2) assign the custom profile to 'Spawned Named Agents', (3) launch a prompt that spawns agents, (4) confirm spawned agents show ' · using {alias}' (no brackets) in the completion footer of every completed turn (NOT an inline transcript body line), (5) confirm that searching the profile alias in transcript search does NOT return spawned-agent turns, (6) apply a per-agent override via Agent Info and confirm it takes precedence and the footer shows the overridden alias, (7) restart the app and confirm all settings persist AND previously completed agent turns still show ' · using {alias}' in the footer. Run `dotnet test SquadDash.Tests\SquadDash.Tests.csproj -c Debug --no-restore` and confirm all tests pass.
+  dependsOn: MODELPROF-20260810-006, MODELPROF-20260810-007
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Execute full end-to-end verification scenario including footer attribution, search exclusion, per-agent override, and restart persistence; report findings","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+
+<!-- decompose-group: JOININSPCTR-20260806 | branch: feature/plan-viewer-inspector | revision: 1bf26ce1ac12432e -->
 **[JOININSPCTR-20260806] Inspector Panel: ALL Join, Human Approval & Agent Avatar Detail**
 > Enhance the Plan Viewer Inspector with three new clickable element types: (1) ALL join badges show a convergence detail listing the incoming tasks that must complete, (2) pulsing question-mark human-approval icons show the approval requirement details, (3) agent avatar chips show a summary of all tasks that agent is assigned to in the plan with their statuses. Octagons keep their existing toggle behavior and are not selectable.
 
@@ -783,6 +846,19 @@ Do NOT commit tasks.md. Commit only the doc files. Build verification is not req
 - [x] **[Notes] Convert inbox message to note via right-click** *(Owner: Lyra Morn)* — commit 95fa27c
 
 - [x] **[Notes] Add New Shared Note from notes panel right-click** *(Owner: Lyra Morn)* — commit fd5aab5
+
+- [ ] **[Plan Visualizer] Right-click approval/unapproval on human-gate icons** *(Owner: Lyra Morn)*
+  In the Plan Visualizer, the pulsing question-mark icon represents a pending human approval gate.
+  Right-clicking it should show a context menu with:
+  - **Approve** — if the gate requires AI processing (e.g. PLAN_GATE_APPROVAL_JSON must be sent to
+    the coordinator), queue a prompt item. If the gate is local-only state (no AI needed), update
+    the gate status in-memory and on-file immediately.
+  - **Unapprove** (when already approved) — if approval was local-only, revert the gate to pending
+    immediately. If approval went through a queued AI prompt that is still queued, remove that queue
+    item and reset the gate to pending. If the AI already processed it, the option is either disabled
+    or shows a warning that unapproval may require re-running the plan task.
+  All state changes should also persist to the durable plan JSON file so they survive restart.
+  The context menu should appear at the cursor position and match the existing SquadDash context-menu style.
 
 - [ ] **[Shared data] Shared-item indicator icon across panels** *(Owner: Lyra Morn)*
   Tasks, notes, code-health entries, and loop files that live in `.squad/` (shared/version-controlled)
