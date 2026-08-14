@@ -263,7 +263,8 @@ approval controls beneath the transcript response.
 ## STAGED_PLAN_REVISION_JSON schema
 
 Use this protocol only to correct an unapproved proposal that SquadDash has already staged. Read
-the exact pending definition and use the exact `groupId` and `baseRevision` supplied by SquadDash.
+the revision-locked compact outline first, retrieve only affected entities from the exact pending
+definition using its source selectors, and use the exact `groupId` and `baseRevision` supplied by SquadDash.
 For a targeted correction, emit one compact delta instead of repeating the complete task graph:
 
 `STAGED_PLAN_REVISION_JSON:`
@@ -276,10 +277,24 @@ For a targeted correction, emit one compact delta instead of repeating the compl
   "operations": [
     {
       "op": "updateTask",
-      "targetId": "GROUP-YYYYMMDD-002",
+      "targetRef": "T2",
       "patch": {
-        "description": "Only fields named in patch are replaced."
+        "priority": "high"
       }
+    },
+    {
+      "op": "editTaskText",
+      "targetRef": "T2",
+      "path": "/description",
+      "oldText": "one exact clause from the current description",
+      "newText": "the corrected clause"
+    },
+    {
+      "op": "editValidationText",
+      "targetRef": "V1",
+      "path": "/assertions/2",
+      "oldText": "one exact clause from the current assertion",
+      "newText": "the corrected clause"
     },
     {
       "op": "addValidation",
@@ -298,18 +313,36 @@ For a targeted correction, emit one compact delta instead of repeating the compl
 }
 ```
 
-Allowed operations are `updatePlan`, `updateTask`, `addTask`, `removeTask`,
-`updateApprovalGate`, `addApprovalGate`, `removeApprovalGate`, `updateValidation`,
-`addValidation`, and `removeValidation`. Update operations require `targetId` except
+Allowed operations are `updatePlan`, `editPlanText`, `updateTask`, `editTaskText`, `addTask`,
+`removeTask`, `updateApprovalGate`, `editApprovalGateText`, `addApprovalGate`,
+`removeApprovalGate`, `updateValidation`, `editValidationText`, `addValidation`, and
+`removeValidation`. Update operations require `targetId` except
 `updatePlan`, plus a `patch` containing only changed fields. Array-valued fields in a patch replace
 the complete array; they are not appended. Add operations require one complete `task`,
 `approvalGate`, or `validation` object. Remove operations require `targetId`. Do not use
 `reopenTask`: an unapproved proposal has no execution history to reopen.
 
+For an existing outlined entity, use its short revision-local `targetRef` (`T1`, `T2`, `G1`,
+`V1`, and so on) instead of reproducing its canonical `targetId`. Never supply both. SquadDash maps
+the short reference to the exact canonical ID before applying the delta. Add operations still require
+complete schema-compliant objects and IDs because the new entity does not yet exist in the outline.
+
+Text-edit operations make small, stale-safe changes inside an existing string. They require a
+JSON Pointer `path`, a non-empty `oldText` that occurs exactly once at that path, and `newText`
+(which may be empty to delete the match). Use `editPlanText` for plan metadata,
+`editTaskText` for a task, `editApprovalGateText` for a gate, and `editValidationText` for a
+validation. Paths can address a direct string such as `/description`, an array entry such as
+`/assertions/2`, or a nested string such as `/proofRequirements/0/description`. Prefer these
+operations when changing a clause in a long description, assertion, proof requirement, assignment
+role, or similar text. Use a whole-property patch only when the complete property is intentionally
+being replaced. SquadDash rejects a missing or repeated `oldText` rather than guessing.
+
 SquadDash rejects a stale `baseRevision`, applies the operations locally, validates the complete
 materialized graph, computes a new revision, and presents the revised full plan for approval. A
-delta never approves or executes the plan. Use a complete replacement `TASKS_JSON` with the same
-`groupId` only for a sweeping rewrite where a delta would be harder to review. Never emit
+delta never approves or executes the plan. Follow the outline's `revisionStrategy`: a small plan may
+use a complete replacement `TASKS_JSON` when a broad rewrite affects most of the graph; medium and
+large plans strongly prefer deltas, and a large plan is replaced only for a genuine near-total rewrite.
+Never emit
 `PLAN_REVISION_JSON` for a staged proposal; that marker is reserved for an accepted durable plan
 when SquadDash separately injects its live revision protocol.
 

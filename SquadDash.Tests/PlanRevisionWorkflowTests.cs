@@ -423,6 +423,8 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(whileLoopRuns, Is.Empty);
             Assert.That(afterLoopYields, Does.Contain(plan.PlanId));
             Assert.That(afterLoopYields, Does.Contain(PlanRevisionProposalParser.Marker));
+            Assert.That(afterLoopYields, Does.Contain("editTaskText"));
+            Assert.That(afterLoopYields, Does.Contain("oldText` that occurs exactly once"));
             Assert.That(afterLoopYields, Does.Contain("human must approve"));
         });
     }
@@ -635,6 +637,43 @@ internal sealed class PlanRevisionWorkflowTests
         {
             Assert.That(materialized, Is.False);
             Assert.That(error, Does.Contain("must be reopened"));
+        });
+    }
+
+    [Test]
+    public void DeltaMaterializer_ReopensCompletedTaskForPropertyLevelTextEdit()
+    {
+        var original = MakePlan();
+        var completed = original.Tasks[1] with
+        {
+            Status = PlanTaskStatus.Complete,
+            Description = "Implement the complete model profile workflow and preserve provider settings.",
+        };
+        var plan = original with
+        {
+            Tasks = original.Tasks.Select((task, index) => index == 1 ? completed : task).ToArray(),
+        };
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Refine one completed-task clause",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation("reopenTask", completed.TaskId),
+                new PlanRevisionOperation("editTaskText", completed.TaskId, Path: "/description",
+                    OldText: "complete model profile workflow", NewText: "multi-provider model profile workflow"),
+            ]);
+
+        var materialized = PlanRevisionDeltaApplier.TryMaterialize(
+            plan, payload, out var revised, out var reopened, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(materialized, Is.True, error);
+            Assert.That(reopened, Does.Contain(completed.TaskId));
+            Assert.That(revised!.Tasks[1].Description,
+                Is.EqualTo("Implement the multi-provider model profile workflow and preserve provider settings."));
         });
     }
 

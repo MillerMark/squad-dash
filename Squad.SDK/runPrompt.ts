@@ -258,6 +258,7 @@ function emitSubagentLifecycle(
         hostProtocol: subagent.hostProtocol,
         hostProtocolGroupId: subagent.hostProtocolGroupId,
         hostProtocolBaseRevision: subagent.hostProtocolBaseRevision,
+        hostProtocolCorrelationSource: subagent.hostProtocolCorrelationSource,
         ...extras
     });
 }

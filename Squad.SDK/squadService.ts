@@ -160,6 +160,7 @@ export type SubagentLifecycleInfo = {
     hostProtocol?: string;
     hostProtocolGroupId?: string;
     hostProtocolBaseRevision?: string;
+    hostProtocolCorrelationSource?: string;
 };
 
 export type SubagentTranscriptInfo = {
@@ -300,6 +301,20 @@ export type StagedPlanRevisionRequestCorrelation = {
     baseRevision: string;
 };
 
+type StagedPlanRevisionRequestEnvelope = StagedPlanRevisionRequestCorrelation & {
+    definition: string;
+    protocol: string;
+    outline?: string;
+    sizeClass?: "small" | "medium" | "large";
+};
+
+type StagedPlanRevisionCorrelationSource = "tool_metadata" | "marked_envelope" | "structural_envelope";
+
+type StagedPlanRevisionCorrelation = {
+    request: StagedPlanRevisionRequestCorrelation;
+    source: StagedPlanRevisionCorrelationSource;
+};
+
 const StagedPlanRevisionRequestMarker = "STAGED_PLAN_REVISION_REQUEST_JSON:";
 const StagedPlanRevisionResponseMarker = "STAGED_PLAN_REVISION_JSON:";
 export const StagedPlanRevisionHostProtocol = "staged_plan_revision";
@@ -370,16 +385,134 @@ function extractJsonObjectAfterMarker(text: string, marker: string): Record<stri
     return undefined;
 }
 
+function extractTopLevelJsonObjects(text: string): Record<string, unknown>[] {
+    const objects: Record<string, unknown>[] = [];
+    let objectStart = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < text.length; index++) {
+        const current = text[index];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (current === "\\") {
+                escaped = true;
+                continue;
+            }
+            if (current === '"')
+                inString = false;
+            continue;
+        }
+
+        if (current === '"') {
+            inString = true;
+            continue;
+        }
+        if (current === "{") {
+            if (depth === 0)
+                objectStart = index;
+            depth++;
+            continue;
+        }
+        if (current !== "}" || depth === 0)
+            continue;
+
+        depth--;
+        if (depth !== 0 || objectStart < 0)
+            continue;
+
+        try {
+            const parsed = JSON.parse(text.slice(objectStart, index + 1));
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+                objects.push(parsed as Record<string, unknown>);
+        }
+        catch {
+            // A prose brace is not a routing envelope.
+        }
+        objectStart = -1;
+    }
+
+    return objects;
+}
+
+function parseStagedPlanRevisionEnvelope(
+    value: unknown,
+    requireRoutingFields: boolean
+): StagedPlanRevisionRequestEnvelope | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return undefined;
+
+    const record = value as Record<string, unknown>;
+    const groupId = typeof record.groupId === "string" ? record.groupId.trim() : "";
+    const baseRevision = typeof record.baseRevision === "string" ? record.baseRevision.trim() : "";
+    const definition = typeof record.definition === "string" ? record.definition.trim() : "";
+    const protocol = typeof record.protocol === "string" ? record.protocol.trim() : "";
+    const outline = typeof record.outline === "string" ? record.outline.trim() : undefined;
+    const sizeClass = record.sizeClass === "small" || record.sizeClass === "medium" || record.sizeClass === "large"
+        ? record.sizeClass
+        : undefined;
+    if (!groupId || !baseRevision)
+        return undefined;
+    if (!requireRoutingFields)
+        return { groupId, baseRevision, definition, protocol, outline, sizeClass };
+
+    const normalizedDefinition = definition.replaceAll("\\", "/").toLowerCase();
+    const normalizedProtocol = protocol.replaceAll("\\", "/").toLowerCase();
+    if (normalizedDefinition !== `.squad/tmp/decompose/${groupId.toLowerCase()}.json` ||
+        normalizedProtocol !== ".squad/instructions/decompose-planning.md") {
+        return undefined;
+    }
+    if (outline) {
+        const normalizedOutline = outline.replaceAll("\\", "/").toLowerCase();
+        if (normalizedOutline !== `.squad/tmp/decompose/outlines/${groupId.toLowerCase()}.json`)
+            return undefined;
+    }
+    return { groupId, baseRevision, definition, protocol, outline, sizeClass };
+}
+
+function resolveStagedPlanRevisionCorrelation(
+    prompt: string | undefined,
+    metadata: unknown
+): StagedPlanRevisionCorrelation | undefined {
+    const metadataEnvelope = parseStagedPlanRevisionEnvelope(metadata, true);
+    if (metadataEnvelope) {
+        return {
+            request: { groupId: metadataEnvelope.groupId, baseRevision: metadataEnvelope.baseRevision },
+            source: "tool_metadata"
+        };
+    }
+
+    if (!prompt)
+        return undefined;
+    const marked = parseStagedPlanRevisionEnvelope(
+        extractJsonObjectAfterMarker(prompt, StagedPlanRevisionRequestMarker),
+        false);
+    if (marked) {
+        return {
+            request: { groupId: marked.groupId, baseRevision: marked.baseRevision },
+            source: "marked_envelope"
+        };
+    }
+
+    const structural = extractTopLevelJsonObjects(prompt)
+        .map(candidate => parseStagedPlanRevisionEnvelope(candidate, true))
+        .filter((candidate): candidate is StagedPlanRevisionRequestEnvelope => candidate !== undefined);
+    if (structural.length !== 1)
+        return undefined;
+    return {
+        request: { groupId: structural[0].groupId, baseRevision: structural[0].baseRevision },
+        source: "structural_envelope"
+    };
+}
+
 export function tryParseStagedPlanRevisionRequest(
     prompt: string | undefined
 ): StagedPlanRevisionRequestCorrelation | undefined {
-    if (!prompt)
-        return undefined;
-
-    const payload = extractJsonObjectAfterMarker(prompt, StagedPlanRevisionRequestMarker);
-    const groupId = typeof payload?.groupId === "string" ? payload.groupId.trim() : "";
-    const baseRevision = typeof payload?.baseRevision === "string" ? payload.baseRevision.trim() : "";
-    return groupId && baseRevision ? { groupId, baseRevision } : undefined;
+    return resolveStagedPlanRevisionCorrelation(prompt, undefined)?.request;
 }
 
 export function matchesStagedPlanRevisionCandidate(
@@ -625,6 +758,7 @@ type NamedAgentToolArgs = {
     name?: string;
     description?: string;
     mode?: string;
+    staged_plan_revision_request?: StagedPlanRevisionRequestEnvelope;
 };
 
 function findNamedAgentRoute(routes: readonly SquadNamedAgentRoute[], requestedHandle: string | undefined): SquadNamedAgentRoute | undefined {
@@ -2373,6 +2507,27 @@ export class SquadBridgeService {
                         type: "string",
                         enum: ["background", "sync"],
                         description: "Optional monitoring hint. The tool always waits for the named agent result."
+                    },
+                    staged_plan_revision_request: {
+                        type: "object",
+                        additionalProperties: false,
+                        description: "Host correlation for a staged-plan revision. Supply this with the same values included in the handoff prompt.",
+                        properties: {
+                            groupId: { type: "string" },
+                            baseRevision: { type: "string" },
+                            definition: { type: "string" },
+                            protocol: { type: "string" },
+                            outline: {
+                                type: "string",
+                                description: "Revision-locked compact outline path for selective entity retrieval."
+                            },
+                            sizeClass: {
+                                type: "string",
+                                enum: ["small", "medium", "large"],
+                                description: "Host-computed plan size used for adaptive delta-versus-replacement guidance."
+                            }
+                        },
+                        required: ["groupId", "baseRevision", "definition", "protocol"]
                     }
                 },
                 required: ["agent_handle", "prompt"]
@@ -2404,7 +2559,10 @@ export class SquadBridgeService {
         outerOptions: SquadSessionRequest
     ): Promise<string> {
         const handle = normalizeAgentHandle(route.handle);
-        const stagedRevisionRequest = tryParseStagedPlanRevisionRequest(prompt);
+        const stagedRevisionCorrelation = resolveStagedPlanRevisionCorrelation(
+            prompt,
+            args.staged_plan_revision_request);
+        const stagedRevisionRequest = stagedRevisionCorrelation?.request;
         const startedAt = Date.now();
         let totalToolCalls = 0;
         let totalTokens = 0;
@@ -2486,10 +2644,26 @@ export class SquadBridgeService {
                     requireSameSession: false
                 });
 
-            const finalResponse = response || `@${handle} completed the delegated task without a textual report.`;
+            const responseText = response ?? "";
+            const finalResponse = responseText || `@${handle} completed the delegated task without a textual report.`;
             const isDirectStagedRevision = matchesStagedPlanRevisionCandidate(
-                response,
+                responseText,
                 stagedRevisionRequest);
+            if (responseText.includes(StagedPlanRevisionResponseMarker) && !stagedRevisionRequest) {
+                bridgeDiagnostic("stagedRevisionDirectCollection:missing-correlation", {
+                    toolCallId: invocation.toolCallId,
+                    agent: handle,
+                    responseChars: responseText.length
+                });
+            }
+            else if (responseText.includes(StagedPlanRevisionResponseMarker) && !isDirectStagedRevision) {
+                bridgeDiagnostic("stagedRevisionDirectCollection:identity-mismatch", {
+                    toolCallId: invocation.toolCallId,
+                    agent: handle,
+                    groupId: stagedRevisionRequest?.groupId,
+                    baseRevision: stagedRevisionRequest?.baseRevision
+                });
+            }
             this.bridgeHandlers.onSubagentCompleted?.(invocation.sessionId, {
                 ...lifecycle,
                 totalToolCalls,
@@ -2499,7 +2673,10 @@ export class SquadBridgeService {
                 hostProtocolVerified: isDirectStagedRevision,
                 hostProtocol: isDirectStagedRevision ? StagedPlanRevisionHostProtocol : undefined,
                 hostProtocolGroupId: isDirectStagedRevision ? stagedRevisionRequest?.groupId : undefined,
-                hostProtocolBaseRevision: isDirectStagedRevision ? stagedRevisionRequest?.baseRevision : undefined
+                hostProtocolBaseRevision: isDirectStagedRevision ? stagedRevisionRequest?.baseRevision : undefined,
+                hostProtocolCorrelationSource: isDirectStagedRevision
+                    ? stagedRevisionCorrelation?.source
+                    : undefined
             });
             if (isDirectStagedRevision) {
                 return `SquadDash received @${handle}'s staged-plan revision candidate for ` +

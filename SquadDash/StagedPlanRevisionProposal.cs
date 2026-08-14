@@ -70,6 +70,12 @@ internal static class StagedPlanRevisionProposalParser
                 TargetId = string.IsNullOrWhiteSpace(operation.TargetId)
                     ? null
                     : operation.TargetId.Trim(),
+                TargetRef = string.IsNullOrWhiteSpace(operation.TargetRef)
+                    ? null
+                    : operation.TargetRef.Trim().ToUpperInvariant(),
+                Path = string.IsNullOrWhiteSpace(operation.Path)
+                    ? null
+                    : operation.Path.Trim(),
             }).ToArray(),
         };
         return true;
@@ -95,10 +101,14 @@ internal static class StagedPlanRevisionProposalParser
             {{identity}}
             Return exactly one corrected STAGED_PLAN_REVISION_JSON block. Do not return TASKS_JSON,
             PLAN_REVISION_JSON, commentary, or source changes. The object must contain groupId,
-            baseRevision, summary, and a non-empty operations array. Use only updatePlan, updateTask,
-            addTask, removeTask, updateApprovalGate, addApprovalGate, removeApprovalGate,
-            updateValidation, addValidation, and removeValidation. Update operations require targetId
-            and a patch containing only changed fields. Add operations require the complete task,
+            baseRevision, summary, and a non-empty operations array. Use only updatePlan, editPlanText,
+            updateTask, editTaskText, addTask, removeTask, updateApprovalGate, editApprovalGateText,
+            addApprovalGate, removeApprovalGate, updateValidation, editValidationText, addValidation,
+            and removeValidation. Existing task, gate, and validation operations may use the current
+            outline's short targetRef (T1, G1, or V1) instead of targetId; never supply both. Update
+            operations require a target and a patch containing only changed fields. Text-edit operations
+            require path, non-empty oldText that occurs exactly once, and
+            newText; prefer them over replacing a long description or assertion array. Add operations require the complete task,
             approvalGate, or validation. Remove operations require targetId. Keep groupId and
             baseRevision unchanged and do not use reopenTask.
             """;
@@ -153,12 +163,37 @@ internal static class StagedPlanRevisionApplier
         var syntheticPlan = PendingDecomposePlanAdapter.ToPlan(
             current,
             current.CreatedAt ?? DateTimeOffset.UtcNow);
+        var resolvedOperations = new List<PlanRevisionOperation>(payload.Operations.Count);
+        foreach (var operation in payload.Operations)
+        {
+            if (string.IsNullOrWhiteSpace(operation.TargetRef))
+            {
+                resolvedOperations.Add(operation);
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(operation.TargetId))
+            {
+                return new StagedPlanRevisionResult(
+                    StagedPlanRevisionOutcome.Invalid,
+                    Error: $"Operation '{operation.Op}' must use either targetId or targetRef, not both.");
+            }
+            if (!StagedPlanRevisionOutlineStore.TryResolveTargetRef(
+                    current.Group, operation.TargetRef, operation.Op,
+                    out var resolvedTargetId, out var referenceError))
+            {
+                return new StagedPlanRevisionResult(
+                    StagedPlanRevisionOutcome.Invalid,
+                    Error: referenceError);
+            }
+            resolvedOperations.Add(operation with { TargetId = resolvedTargetId, TargetRef = null });
+        }
+
         var durablePayload = new PlanRevisionProposalPayload(
             payload.GroupId,
             payload.BaseRevision,
             payload.Summary,
             ReopenTaskIds: null,
-            Operations: payload.Operations);
+            Operations: resolvedOperations);
         if (!PlanRevisionDeltaApplier.TryMaterialize(
                 syntheticPlan,
                 durablePayload,

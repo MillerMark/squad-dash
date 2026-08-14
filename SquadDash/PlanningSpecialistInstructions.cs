@@ -61,12 +61,22 @@ internal static class PlanningSpecialistInstructions
                protocol path, relevant repository and decision context, and the current team and routing
                files. Require the specialist to read the live protocol directly; a Coordinator-authored
                summary is supplemental context and must never be presented as the authoritative schema.
-               For a staged correction, pass the compact STAGED_PLAN_REVISION_REQUEST_JSON routing
-               envelope from the pending-plan context, the user's requested changes, and no invented
-               operation schema; the specialist expands that request by reading the host-owned protocol.
+               For a staged correction, infer casual references such as "this plan" from the conversation
+               and pending-plan context; never require the user to provide an internal ID or protocol.
+               Pass the compact STAGED_PLAN_REVISION_REQUEST_JSON routing envelope from the pending-plan
+               context, copy its identity, outline, and size fields into the tool's structured
+               `staged_plan_revision_request` argument, include the user's requested changes, and add no
+               invented operation schema; the specialist expands that request by reading the host-owned
+               protocol. Require the specialist to read the compact revision-locked outline first, use
+               its short T/G/V references and source selectors to retrieve only affected entities, and
+               avoid printing the complete definition into model context. Prefer exact-match text-edit
+               operations for clause-level corrections instead of replacing complete long descriptions,
+               assertions, or nested text properties.
                Require `STAGED_PLAN_REVISION_JSON` for a targeted correction to an unapproved staged
-               proposal; allow a complete replacement `TASKS_JSON` with the same `groupId` only for a
-               sweeping rewrite. Require `PLAN_REVISION_JSON` only when revising an accepted durable
+               proposal. Apply the injected size-aware revisionStrategy: a small plan may be replaced for
+               a broad rewrite affecting most of its graph, while medium and large plans strongly prefer
+               deltas and a large plan is replaced only for a genuine near-total rewrite. Require
+               `PLAN_REVISION_JSON` only when revising an accepted durable
                plan and SquadDash supplied the live revision protocol. Do not substitute one protocol
                for another, and do not implement changes.
             4. A verified `delegate_roster_agent` staged-revision response is collected, validated, and

@@ -463,10 +463,16 @@ internal sealed class PendingDecomposePlanStoreTests
                 Assert.That(loaded.CreatedAt, Is.Not.Null);
                 Assert.That(loaded.Group.GroupId, Is.EqualTo(group.GroupId));
                 Assert.That(loaded.Group.Tasks.Select(t => t.Id), Is.EqualTo(group.Tasks.Select(t => t.Id)));
+                Assert.That(File.Exists(StagedPlanRevisionOutlineStore.GetPath(squadFolder, group.GroupId)), Is.True);
+                var outline = System.Text.Json.JsonSerializer.Deserialize<StagedPlanRevisionOutline>(
+                    File.ReadAllText(StagedPlanRevisionOutlineStore.GetPath(squadFolder, group.GroupId)));
+                Assert.That(outline!.BaseRevision, Is.EqualTo(saved.Revision));
+                Assert.That(outline.Tasks.Single().Ref, Is.EqualTo("T1"));
             });
             Assert.That(store.LoadAll(), Has.Count.EqualTo(1));
             store.Delete(group.GroupId);
             Assert.That(store.Load(group.GroupId), Is.Null);
+            Assert.That(File.Exists(StagedPlanRevisionOutlineStore.GetPath(squadFolder, group.GroupId)), Is.False);
         }
         finally
         {

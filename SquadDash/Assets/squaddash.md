@@ -445,7 +445,7 @@ Use this file for hiring and team composition. Keep entries short, operational, 
 **Role:** Planning Architect
 **Best For:**
 - creating executable SquadDash plans with correct tasks, dependencies, assignments, validations, and proof
-- correcting staged proposals with compact revision-anchored deltas before approval
+- correcting staged proposals with compact revision-anchored, property-level deltas before approval
 - revising accepted plans safely when requirements or repository evidence change
 **Avoid:**
 - implementing the plans they author

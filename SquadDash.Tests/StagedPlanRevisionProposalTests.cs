@@ -82,6 +82,40 @@ internal sealed class StagedPlanRevisionProposalTests
         Assert.That(error, Does.Contain("null entries"));
     }
 
+    [Test]
+    public void Parser_NormalizesTextEditPathAndPreservesExactMatchText()
+    {
+        var pending = MakePending();
+        var text = $$"""
+            STAGED_PLAN_REVISION_JSON:
+            {
+              "groupId": "{{pending.Group.GroupId}}",
+              "baseRevision": "{{pending.Revision}}",
+              "summary": "Refine one clause",
+              "operations": [{
+                "op": " editTaskText ",
+                "targetRef": " t3 ",
+                "path": " /description ",
+                "oldText": "Verify",
+                "newText": "Prove"
+              }]
+            }
+            """;
+
+        var parsed = StagedPlanRevisionProposalParser.TryParse(text, out var proposal, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(proposal!.Operations.Single().Op, Is.EqualTo("editTaskText"));
+            Assert.That(proposal.Operations.Single().TargetId, Is.Null);
+            Assert.That(proposal.Operations.Single().TargetRef, Is.EqualTo("T3"));
+            Assert.That(proposal.Operations.Single().Path, Is.EqualTo("/description"));
+            Assert.That(proposal.Operations.Single().OldText, Is.EqualTo("Verify"));
+            Assert.That(proposal.Operations.Single().NewText, Is.EqualTo("Prove"));
+        });
+    }
+
     [TestCase("description", "{\"description\":\"Revised implementation contract\"}")]
     [TestCase("title", "{\"title\":\"Revised title\"}")]
     [TestCase("priority", "{\"priority\":\"medium\"}")]
@@ -140,6 +174,228 @@ internal sealed class StagedPlanRevisionProposalTests
             var task = result.RevisedGroup!.Tasks.Single(candidate => candidate.Id == Id("003"));
             Assert.That(task.AgentRoutingMode, Is.EqualTo("assigned"));
             Assert.That(task.AgentAssignments!.Single().AgentHandle, Is.EqualTo("sam"));
+        });
+    }
+
+    [Test]
+    public void Apply_EditsOneTaskClauseWithoutReplacingLongDescription()
+    {
+        var pending = MakePending();
+        const string original = "Inspect the workspace-local CLI, preserve existing configuration, and report the selected executable.";
+        var tasks = pending.Group.Tasks.Select(task => task.Id == Id("003")
+            ? task with { Description = original }
+            : task).ToArray();
+        pending = WithGroup(pending, pending.Group with { Tasks = tasks });
+
+        var result = Apply(pending, new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description",
+            OldText: "preserve existing configuration",
+            NewText: "preserve existing version and configuration"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(result.RevisedGroup!.Tasks.Single(task => task.Id == Id("003")).Description,
+                Is.EqualTo("Inspect the workspace-local CLI, preserve existing version and configuration, and report the selected executable."));
+            Assert.That(result.RevisedGroup.Tasks.Single(task => task.Id == Id("002")).Description,
+                Is.EqualTo(pending.Group.Tasks.Single(task => task.Id == Id("002")).Description));
+        });
+    }
+
+    [Test]
+    public void Apply_ResolvesShortTaskGateAndValidationReferences()
+    {
+        var pending = MakePending();
+
+        var result = Apply(pending,
+            new PlanRevisionOperation("editTaskText", Path: "/description",
+                OldText: "Verify", NewText: "Prove", TargetRef: "T3"),
+            new PlanRevisionOperation("editApprovalGateText", Path: "/question",
+                OldText: "requested contract", NewText: "revised contract", TargetRef: "G1"),
+            new PlanRevisionOperation("editValidationText", Path: "/assertions/0",
+                OldText: "Validate feature boundary", NewText: "Validate revised boundary", TargetRef: "V1"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(result.RevisedGroup!.Tasks[2].Description, Is.EqualTo("Prove behavior"));
+            Assert.That(result.RevisedGroup.ApprovalGates!.Single().Question,
+                Is.EqualTo("Does the foundation meet the revised contract?"));
+            Assert.That(result.RevisedGroup.Validations!.Single().Assertions.Single(),
+                Is.EqualTo("Validate revised boundary passes"));
+        });
+    }
+
+    [TestCase("T99", "does not exist")]
+    [TestCase("V1", "requires a T-reference")]
+    [TestCase("task-three", "is invalid")]
+    public void Apply_RejectsInvalidShortTargetReference(string targetRef, string expectedError)
+    {
+        var result = Apply(MakePending(), new PlanRevisionOperation(
+            "editTaskText", Path: "/description", OldText: "Verify", NewText: "Prove",
+            TargetRef: targetRef));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+        Assert.That(result.Error, Does.Contain(expectedError));
+    }
+
+    [Test]
+    public void Apply_RejectsTargetIdAndTargetRefTogether()
+    {
+        var result = Apply(MakePending(), new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description", OldText: "Verify", NewText: "Prove",
+            TargetRef: "T3"));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+        Assert.That(result.Error, Does.Contain("either targetId or targetRef"));
+    }
+
+    [Test]
+    public void Apply_RejectsTargetRefOnAddOperation()
+    {
+        var result = Apply(MakePending(), new PlanRevisionOperation(
+            "addTask", Task: MakeTask("005", "Added task", []), TargetRef: "T1"));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+        Assert.That(result.Error, Does.Contain("does not accept targetRef"));
+    }
+
+    [Test]
+    public void Apply_SupportsMultipleIndependentTextEditsWithinOneTask()
+    {
+        var pending = MakePending();
+        var tasks = pending.Group.Tasks.Select(task => task.Id == Id("003")
+            ? task with { Description = "First clause; middle clause; final clause." }
+            : task).ToArray();
+        pending = WithGroup(pending, pending.Group with { Tasks = tasks });
+
+        var result = Apply(pending,
+            new PlanRevisionOperation("editTaskText", Id("003"), Path: "/description",
+                OldText: "First clause", NewText: "Opening clause"),
+            new PlanRevisionOperation("editTaskText", Id("003"), Path: "/description",
+                OldText: "final clause", NewText: "closing clause"));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+        Assert.That(result.RevisedGroup!.Tasks.Single(task => task.Id == Id("003")).Description,
+            Is.EqualTo("Opening clause; middle clause; closing clause."));
+    }
+
+    [Test]
+    public void Apply_AllowsEmptyNewTextToDeleteOneExactClause()
+    {
+        var pending = MakePending();
+        var tasks = pending.Group.Tasks.Select(task => task.Id == Id("003")
+            ? task with { Description = "Keep this clause. Remove this obsolete clause." }
+            : task).ToArray();
+        pending = WithGroup(pending, pending.Group with { Tasks = tasks });
+
+        var result = Apply(pending, new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description",
+            OldText: " Remove this obsolete clause.", NewText: string.Empty));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+        Assert.That(result.RevisedGroup!.Tasks.Single(task => task.Id == Id("003")).Description,
+            Is.EqualTo("Keep this clause."));
+    }
+
+    [Test]
+    public void Apply_EditsNestedTaskOutputAndValidationAssertion()
+    {
+        var pending = MakePending();
+        var tasks = pending.Group.Tasks.Select(task => task.Id == Id("003")
+            ? task with
+            {
+                Outputs =
+                [
+                    new DecomposedTaskOutput(
+                        "result-1", "Produce the focused report and retain its complete output.")
+                ]
+            }
+            : task).ToArray();
+        pending = WithGroup(pending, pending.Group with { Tasks = tasks });
+
+        var result = Apply(pending,
+            new PlanRevisionOperation("editTaskText", Id("003"), Path: "/outputs/0/description",
+                OldText: "focused report", NewText: "focused integration report"),
+            new PlanRevisionOperation("editValidationText", ValidationId("001"), Path: "/assertions/0",
+                OldText: "Validate feature boundary", NewText: "Validate the revised feature boundary"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(result.RevisedGroup!.Tasks.Single(task => task.Id == Id("003"))
+                .Outputs!.Single().Description,
+                Is.EqualTo("Produce the focused integration report and retain its complete output."));
+            Assert.That(result.RevisedGroup.Validations!.Single().Assertions.Single(),
+                Is.EqualTo("Validate the revised feature boundary passes"));
+        });
+    }
+
+    [Test]
+    public void Apply_EditsPlanAndApprovalGateText()
+    {
+        var pending = MakePending();
+
+        var result = Apply(pending,
+            new PlanRevisionOperation("editPlanText", Path: "/summary",
+                OldText: "compact staged plan corrections", NewText: "compact property-level plan corrections"),
+            new PlanRevisionOperation("editApprovalGateText", "review-one", Path: "/question",
+                OldText: "requested contract", NewText: "revised contract"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(result.RevisedGroup!.Summary, Is.EqualTo("Exercise compact property-level plan corrections"));
+            Assert.That(result.RevisedGroup.ApprovalGates!.Single().Question,
+                Is.EqualTo("Does the foundation meet the revised contract?"));
+        });
+    }
+
+    [TestCase("missing clause", 0)]
+    [TestCase("repeat", 2)]
+    public void Apply_RejectsStaleOrAmbiguousOldText(string oldText, int expectedOccurrences)
+    {
+        var pending = MakePending();
+        var tasks = pending.Group.Tasks.Select(task => task.Id == Id("003")
+            ? task with { Description = "repeat once and repeat twice" }
+            : task).ToArray();
+        pending = WithGroup(pending, pending.Group with { Tasks = tasks });
+
+        var result = Apply(pending, new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description", OldText: oldText, NewText: "replacement"));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+        Assert.That(result.Error, Does.Contain($"occurred {expectedOccurrences} times"));
+    }
+
+    [TestCase("/dependsOn", "does not identify a string")]
+    [TestCase("/id", "cannot edit 'id'")]
+    [TestCase("description", "beginning with '/'")]
+    [TestCase("/description~2", "not a valid JSON pointer")]
+    [TestCase("/proofRequirements/9/description", "could not resolve")]
+    public void Apply_RejectsInvalidOrForbiddenTextPaths(string path, string expectedError)
+    {
+        var result = Apply(MakePending(), new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: path, OldText: "anything", NewText: "replacement"));
+
+        Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+        Assert.That(result.Error, Does.Contain(expectedError));
+    }
+
+    [Test]
+    public void Apply_RequiresBothOldTextAndNewText()
+    {
+        var missingOld = Apply(MakePending(), new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description", OldText: string.Empty, NewText: "replacement"));
+        var missingNew = Apply(MakePending(), new PlanRevisionOperation(
+            "editTaskText", Id("003"), Path: "/description", OldText: "Verify", NewText: null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(missingOld.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+            Assert.That(missingOld.Error, Does.Contain("non-empty oldText"));
+            Assert.That(missingNew.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
+            Assert.That(missingNew.Error, Does.Contain("requires newText"));
         });
     }
 
@@ -456,6 +712,9 @@ internal sealed class StagedPlanRevisionProposalTests
             group,
             new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero));
     }
+
+    private static PendingDecomposePlan WithGroup(PendingDecomposePlan pending, DecomposedTaskGroup group) =>
+        pending with { Group = group, Revision = PendingDecomposePlanStore.ComputeRevision(group) };
 
     private static DecomposedSubTask MakeTask(
         string suffix,

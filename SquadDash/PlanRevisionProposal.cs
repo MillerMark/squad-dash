@@ -36,7 +36,19 @@ internal sealed record PlanRevisionOperation(
     DecomposedGate? ApprovalGate = null,
     [property: JsonPropertyName("validation")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    DecomposedValidationNode? Validation = null);
+    DecomposedValidationNode? Validation = null,
+    [property: JsonPropertyName("path")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Path = null,
+    [property: JsonPropertyName("oldText")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? OldText = null,
+    [property: JsonPropertyName("newText")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? NewText = null,
+    [property: JsonPropertyName("targetRef")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? TargetRef = null);
 
 internal sealed record PendingPlanRevisionProposal(
     [property: JsonPropertyName("proposalId")] string ProposalId,
@@ -94,6 +106,8 @@ internal static class PlanRevisionProposalParser
             {
                 Op = operation.Op?.Trim() ?? string.Empty,
                 TargetId = string.IsNullOrWhiteSpace(operation.TargetId) ? null : operation.TargetId.Trim(),
+                TargetRef = string.IsNullOrWhiteSpace(operation.TargetRef) ? null : operation.TargetRef.Trim(),
+                Path = string.IsNullOrWhiteSpace(operation.Path) ? null : operation.Path.Trim(),
             }).ToArray(),
         };
         return true;
@@ -129,9 +143,13 @@ internal static class PlanRevisionProposalParser
             {{identity}}
             Return exactly one corrected PLAN_REVISION_JSON block. Do not add commentary, return a complete plan, or make source changes.
             The object must contain planId, baseRevision, summary, and a non-empty operations array.
-            Use only these delta operations: updatePlan, reopenTask, updateTask, addTask, removeTask,
+            Use only these delta operations: updatePlan, editPlanText, reopenTask, updateTask,
+            editTaskText, addTask, removeTask,
             updateApprovalGate, addApprovalGate, removeApprovalGate, updateValidation, addValidation,
-            and removeValidation. Update operations require targetId and a patch containing only changed fields.
+            removeValidation, editApprovalGateText, and editValidationText. Update operations require
+            targetId and a patch containing only changed fields. Text-edit operations require a JSON
+            pointer path, non-empty oldText that occurs exactly once, and newText; prefer them over
+            replacing a long description or assertion array.
             Add operations require the complete task, approvalGate, or validation being added. Remove and reopen
             operations require targetId. Keep planId and baseRevision unchanged.
             """;
@@ -241,15 +259,20 @@ internal static class PlanRevisionPromptInjection
               "summary": "short user-facing description of the proposed change",
               "operations": [
                 { "op": "reopenTask", "targetId": "completed task ID whose specification must change" },
-                { "op": "updateTask", "targetId": "task ID", "patch": { "description": "only changed fields" } },
-                { "op": "updateValidation", "targetId": "validation ID", "patch": { "assertions": ["replacement assertions"] } }
+                { "op": "updateTask", "targetId": "task ID", "patch": { "priority": "high" } },
+                { "op": "editTaskText", "targetId": "task ID", "path": "/description", "oldText": "exact existing clause", "newText": "replacement clause" },
+                { "op": "editValidationText", "targetId": "validation ID", "path": "/assertions/0", "oldText": "exact existing clause", "newText": "replacement clause" }
               ]
             }
             ```
 
-            Allowed operations are updatePlan, reopenTask, updateTask, addTask, removeTask, updateApprovalGate,
-            addApprovalGate, removeApprovalGate, updateValidation, addValidation, and removeValidation. Update operations
-            require `targetId` and `patch`; include only fields that change. Add operations require one complete `task`,
+            Allowed operations are updatePlan, editPlanText, reopenTask, updateTask, editTaskText, addTask,
+            removeTask, updateApprovalGate, editApprovalGateText, addApprovalGate, removeApprovalGate,
+            updateValidation, editValidationText, addValidation, and removeValidation. Update operations
+            require `targetId` and `patch`; include only fields that change. Text-edit operations require a
+            JSON Pointer `path`, non-empty `oldText` that occurs exactly once at that path, and `newText`.
+            Prefer a text edit for a clause-level correction within a long string or string array instead of
+            replacing the complete property. Add operations require one complete `task`,
             `approvalGate`, or `validation`. Remove and reopen operations require `targetId`. Never return `revisedPlan`
             or copy unaffected definitions. A completed task can change only when preceded by a reopenTask operation;
             its accepted execution history remains preserved. Update downstream pending tasks and validations when the new

@@ -27,6 +27,7 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         var tempPath = path + ".tmp";
         File.WriteAllText(tempPath, JsonSerializer.Serialize(plan, Options));
         File.Move(tempPath, path, overwrite: true);
+        StagedPlanRevisionOutlineStore.Save(squadFolderPath, plan);
         return plan;
     }
 
@@ -64,6 +65,7 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
     {
         var path = Path.Combine(_folder, groupId + ".json");
         if (File.Exists(path)) File.Delete(path);
+        StagedPlanRevisionOutlineStore.Delete(squadFolderPath, groupId);
     }
 
     /// <summary>
@@ -83,6 +85,7 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
             : revision;
         var archivePath = Path.Combine(archiveFolder, $"{groupId}-{suffix}.json");
         File.Move(path, archivePath, overwrite: true);
+        StagedPlanRevisionOutlineStore.Delete(squadFolderPath, groupId);
         return true;
     }
 

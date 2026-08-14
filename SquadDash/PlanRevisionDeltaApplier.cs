@@ -96,11 +96,15 @@ internal static class PlanRevisionDeltaApplier
             var mutationKey = op switch
             {
                 "updatePlan" => "plan",
+                "editPlanText" => "plan:text:" + operation.Path + ":" + operation.OldText,
                 "updateTask" or "removeTask" => "task:" + targetId,
+                "editTaskText" => "task:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
                 "addTask" => "task:" + operation.Task?.Id,
                 "updateApprovalGate" or "removeApprovalGate" => "gate:" + targetId,
+                "editApprovalGateText" => "gate:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
                 "addApprovalGate" => "gate:" + operation.ApprovalGate?.GateId,
                 "updateValidation" or "removeValidation" => "validation:" + targetId,
+                "editValidationText" => "validation:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
                 "addValidation" => "validation:" + operation.Validation?.ValidationId,
                 _ => string.Empty,
             };
@@ -120,6 +124,15 @@ internal static class PlanRevisionDeltaApplier
                     group = updatedGroup;
                     break;
 
+                case "editPlanText":
+                    if (!TryEditText(group, operation, PlanPatchFields, op, out DecomposedTaskGroup? editedGroup, out error) ||
+                        editedGroup is null)
+                        return false;
+                    if (!string.Equals(editedGroup.GroupId, current.PlanId, StringComparison.Ordinal))
+                        return Fail("editPlanText cannot change groupId.", out revisedPlan, out error);
+                    group = editedGroup;
+                    break;
+
                 case "updateTask":
                 {
                     if (!RequireTarget(targetId, op, out error)) return false;
@@ -131,6 +144,22 @@ internal static class PlanRevisionDeltaApplier
                     if (!string.Equals(updated!.Id, targetId, StringComparison.Ordinal))
                         return Fail("updateTask cannot change a task ID.", out revisedPlan, out error);
                     tasks[index] = updated;
+                    break;
+                }
+
+                case "editTaskText":
+                {
+                    if (!RequireTarget(targetId, op, out error)) return false;
+                    var index = tasks.FindIndex(task => task.Id == targetId);
+                    if (index < 0)
+                        return Fail($"editTaskText target '{targetId}' does not exist.", out revisedPlan, out error);
+                    if (!CanChangeTask(current, targetId!, reopened, removing: false, out error)) return false;
+                    if (!TryEditText(tasks[index], operation, TaskPatchFields, op, out DecomposedSubTask? edited, out error) ||
+                        edited is null)
+                        return false;
+                    if (!string.Equals(edited.Id, targetId, StringComparison.Ordinal))
+                        return Fail("editTaskText cannot change a task ID.", out revisedPlan, out error);
+                    tasks[index] = edited;
                     break;
                 }
 
@@ -166,6 +195,21 @@ internal static class PlanRevisionDeltaApplier
                     break;
                 }
 
+                case "editApprovalGateText":
+                {
+                    if (!RequireTarget(targetId, op, out error)) return false;
+                    var index = gates.FindIndex(gate => gate.GateId == targetId);
+                    if (index < 0)
+                        return Fail($"editApprovalGateText target '{targetId}' does not exist.", out revisedPlan, out error);
+                    if (!TryEditText(gates[index], operation, GatePatchFields, op, out DecomposedGate? edited, out error) ||
+                        edited is null)
+                        return false;
+                    if (!string.Equals(edited.GateId, targetId, StringComparison.Ordinal))
+                        return Fail("editApprovalGateText cannot change a gate ID.", out revisedPlan, out error);
+                    gates[index] = edited;
+                    break;
+                }
+
                 case "addApprovalGate":
                     if (operation.ApprovalGate is null)
                         return Fail("addApprovalGate requires approvalGate.", out revisedPlan, out error);
@@ -190,6 +234,21 @@ internal static class PlanRevisionDeltaApplier
                     if (!string.Equals(updated!.ValidationId, targetId, StringComparison.Ordinal))
                         return Fail("updateValidation cannot change a validation ID.", out revisedPlan, out error);
                     validations[index] = updated;
+                    break;
+                }
+
+                case "editValidationText":
+                {
+                    if (!RequireTarget(targetId, op, out error)) return false;
+                    var index = validations.FindIndex(validation => validation.ValidationId == targetId);
+                    if (index < 0)
+                        return Fail($"editValidationText target '{targetId}' does not exist.", out revisedPlan, out error);
+                    if (!TryEditText(validations[index], operation, ValidationPatchFields, op, out DecomposedValidationNode? edited, out error) ||
+                        edited is null)
+                        return false;
+                    if (!string.Equals(edited.ValidationId, targetId, StringComparison.Ordinal))
+                        return Fail("editValidationText cannot change a validation ID.", out revisedPlan, out error);
+                    validations[index] = edited;
                     break;
                 }
 
@@ -307,6 +366,160 @@ internal static class PlanRevisionDeltaApplier
 
             target[property.Name] = JsonNode.Parse(property.Value.GetRawText());
         }
+    }
+
+    private static bool TryEditText<T>(
+        T source,
+        PlanRevisionOperation operation,
+        IReadOnlySet<string> allowedRootFields,
+        string operationName,
+        out T? updated,
+        out string? error)
+    {
+        updated = default;
+        error = null;
+        var path = operation.Path;
+        if (string.IsNullOrWhiteSpace(path) || !path.StartsWith("/", StringComparison.Ordinal))
+        {
+            error = $"{operationName} requires a JSON pointer path beginning with '/'.";
+            return false;
+        }
+        if (string.IsNullOrEmpty(operation.OldText))
+        {
+            error = $"{operationName} requires non-empty oldText.";
+            return false;
+        }
+        if (operation.NewText is null)
+        {
+            error = $"{operationName} requires newText; use an empty string to delete matched text.";
+            return false;
+        }
+
+        var segments = path.Split('/').Skip(1).Select(DecodePointerSegment).ToArray();
+        if (segments.Length == 0 || segments.Any(segment => segment is null))
+        {
+            error = $"{operationName} path '{path}' is not a valid JSON pointer.";
+            return false;
+        }
+        var decoded = segments.Cast<string>().ToArray();
+        if (!allowedRootFields.Contains(decoded[0]))
+        {
+            error = $"{operationName} cannot edit '{decoded[0]}'. Allowed roots: {string.Join(", ", allowedRootFields)}.";
+            return false;
+        }
+
+        var root = JsonSerializer.SerializeToNode(source, JsonOptions);
+        if (root is null || !TryResolvePointerParent(root, decoded, out var parent, out var leaf, out error))
+            return false;
+
+        string? currentText;
+        Action<string> assign;
+        if (parent is JsonObject objectParent)
+        {
+            if (!objectParent.TryGetPropertyValue(leaf, out var value) ||
+                value is not JsonValue jsonValue ||
+                !jsonValue.TryGetValue<string>(out currentText))
+            {
+                error = $"{operationName} path '{path}' does not identify a string property.";
+                return false;
+            }
+            assign = value => objectParent[leaf] = value;
+        }
+        else if (parent is JsonArray arrayParent &&
+                 int.TryParse(leaf, out var index) &&
+                 index >= 0 && index < arrayParent.Count &&
+                 arrayParent[index] is JsonValue arrayValue &&
+                 arrayValue.TryGetValue<string>(out currentText))
+        {
+            assign = value => arrayParent[index] = value;
+        }
+        else
+        {
+            error = $"{operationName} path '{path}' does not identify a string value.";
+            return false;
+        }
+
+        var occurrences = CountOccurrences(currentText!, operation.OldText);
+        if (occurrences != 1)
+        {
+            error = $"{operationName} oldText must occur exactly once at '{path}', but occurred {occurrences} times.";
+            return false;
+        }
+        assign(currentText!.Replace(operation.OldText, operation.NewText, StringComparison.Ordinal));
+        try
+        {
+            updated = root.Deserialize<T>(JsonOptions);
+            if (updated is not null) return true;
+            error = $"{operationName} produced an empty target.";
+            return false;
+        }
+        catch (JsonException exception)
+        {
+            error = $"{operationName} edit was invalid: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static bool TryResolvePointerParent(
+        JsonNode root,
+        IReadOnlyList<string> segments,
+        out JsonNode? parent,
+        out string leaf,
+        out string? error)
+    {
+        parent = root;
+        leaf = segments[^1];
+        error = null;
+        for (var index = 0; index < segments.Count - 1; index++)
+        {
+            var segment = segments[index];
+            parent = parent switch
+            {
+                JsonObject currentObject when currentObject.TryGetPropertyValue(segment, out var child) => child,
+                JsonArray currentArray when int.TryParse(segment, out var arrayIndex) &&
+                                            arrayIndex >= 0 && arrayIndex < currentArray.Count => currentArray[arrayIndex],
+                _ => null,
+            };
+            if (parent is not null) continue;
+            error = $"Text edit path could not resolve segment '{segment}'.";
+            return false;
+        }
+        return true;
+    }
+
+    private static string? DecodePointerSegment(string segment)
+    {
+        var builder = new System.Text.StringBuilder(segment.Length);
+        for (var index = 0; index < segment.Length; index++)
+        {
+            if (segment[index] != '~')
+            {
+                builder.Append(segment[index]);
+                continue;
+            }
+            if (++index >= segment.Length) return null;
+            var decoded = segment[index] switch
+            {
+                '0' => '~',
+                '1' => '/',
+                _ => '\0',
+            };
+            if (decoded == '\0') return null;
+            builder.Append(decoded);
+        }
+        return builder.ToString();
+    }
+
+    private static int CountOccurrences(string value, string search)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = value.IndexOf(search, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += search.Length;
+        }
+        return count;
     }
 
     private static bool RequireTarget(string? targetId, string operation, out string? error)

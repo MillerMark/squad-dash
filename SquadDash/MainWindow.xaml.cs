@@ -8790,7 +8790,8 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("PlanRevision",
             $"Collecting verified staged-plan delta directly agent={candidate.AgentName} " +
             $"toolCallId={candidate.ToolCallId} group={candidate.Payload.GroupId} " +
-            $"base={candidate.Payload.BaseRevision}.");
+            $"base={candidate.Payload.BaseRevision} " +
+            $"correlation={evt.HostProtocolCorrelationSource ?? "unknown"}.");
         TryApplyStagedPlanRevisionFromResponse(candidate.RawResponse, ownerView: null);
     }
 

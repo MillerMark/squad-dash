@@ -19,6 +19,7 @@ internal sealed class StagedPlanRevisionHostCollectionTests
             Assert.That(candidate.AgentName, Is.EqualTo("rory"));
             Assert.That(candidate.Payload.GroupId, Is.EqualTo("CLIDETECT-20260814"));
             Assert.That(candidate.Payload.BaseRevision, Is.EqualTo("base-1"));
+            Assert.That(candidate.Payload.Operations.Single().TargetRef, Is.EqualTo("T1"));
             Assert.That(error, Is.Null);
         });
     }
@@ -158,7 +159,7 @@ internal sealed class StagedPlanRevisionHostCollectionTests
               "operations": [
                 {
                   "op": "updateTask",
-                  "targetId": "CLIDETECT-20260814-001",
+                  "targetRef": "T1",
                   "patch": { "title": "Clarify CLI discovery" }
                 }
               ]

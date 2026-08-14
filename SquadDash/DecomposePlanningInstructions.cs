@@ -81,27 +81,57 @@ internal static class DecomposePlanningInstructions
         var sections = new List<string>();
         if (plans.Count > 0)
         {
-            var planLines = string.Join("\n", plans.Select(p =>
-                $"- groupId={p.Group.GroupId}; baseRevision={p.Revision}; proposedBranch={p.Group.Branch}; " +
-                $"definition=.squad/tmp/decompose/{p.Group.GroupId}.json"));
+            var orderedPlans = plans
+                .OrderByDescending(plan => plan.CreatedAt ?? DateTimeOffset.MinValue)
+                .ToArray();
+            var planLines = string.Join("\n", orderedPlans.Select(p =>
+            {
+                StagedPlanRevisionOutlineStore.Save(squadFolderPath, p);
+                var outline = StagedPlanRevisionOutlineStore.Build(p);
+                return $"- groupId={p.Group.GroupId}; title={p.Group.GroupTitle}; baseRevision={p.Revision}; " +
+                       $"sizeClass={outline.SizeClass}; proposedBranch={p.Group.Branch}; " +
+                       $"definition=.squad/tmp/decompose/{p.Group.GroupId}.json; " +
+                       $"outline={StagedPlanRevisionOutlineStore.GetRelativePath(p.Group.GroupId)}; " +
+                       $"revisionStrategy={outline.RevisionStrategy}";
+            }));
             sections.Add($$"""
 
                 ## Pending staged proposals
 
+                The user may refer conversationally to "this plan", "that plan", "fix it", or
+                "revise the plan" without naming an ID. Resolve that reference from the conversation.
+                When exactly one pending proposal exists, treat it as the referenced plan unless the
+                user clearly means something else. When several exist, use the conversation and the
+                most-recent-first list below; ask for clarification only when the target is genuinely
+                ambiguous. Never require the user to provide a groupId, revision, protocol marker, or
+                instructions such as "do not implement".
+
                 For approval or an execution choice, use the exact groupId and revision in
                 DECOMPOSE_DECISION_JSON. For a targeted correction to an unapproved proposal, read its
-                exact definition and the host-owned protocol at
-                `.squad/instructions/decompose-planning.md`, then emit one compact
-                STAGED_PLAN_REVISION_JSON delta. Do not copy unaffected tasks. When delegating this work
-                to Rory, pass the compact routing envelope shown below plus the user's requested changes;
-                Rory's charter requires reading the authoritative protocol. A verified roster-agent result
+                compact outline first and the host-owned protocol at
+                `.squad/instructions/decompose-planning.md`. The outline uses revision-local references
+                `T1`, `T2`, `G1`, and `V1`, shows dependencies and downstream boundaries with those short
+                references, and supplies a `source` selector for each exact entity. Use narrowly scoped
+                tooling queries against the definition to retrieve only the selected entities; do not
+                print the complete definition into model context. With PowerShell, parse the file into a
+                local variable and emit only the selected object (for example,
+                `$plan.Group.tasks[1] | ConvertTo-Json -Depth 20` for `Group.tasks[1]`). Then emit one compact
+                STAGED_PLAN_REVISION_JSON delta using `targetRef` for existing outlined entities. Do not
+                copy unaffected tasks. A staged-plan correction is planning work only: do not implement
+                source changes in the same turn. When delegating this work
+                to Rory, pass the compact routing envelope shown below plus the user's requested changes,
+                and copy the routing fields into the `delegate_roster_agent` tool's structured
+                `staged_plan_revision_request` argument. This first-class tool metadata is the preferred
+                correlation path; the prompt envelope remains a compatibility fallback. Rory's charter
+                requires reading the authoritative protocol. A verified roster-agent result
                 that matches this envelope is collected and applied directly by SquadDash; after the tool
                 returns its short receipt, do not extract or re-emit Rory's JSON. The envelope is not an
                 output protocol and must not appear in the final response. For a small mechanical change
                 whose exact patch is already established, the Coordinator may emit the compact delta
-                directly. Use a complete replacement TASKS_JSON
-                with the same groupId only when the requested rewrite is so broad that a delta would be
-                less clear.
+                directly. Apply the per-plan revisionStrategy below. Small plans may use a complete
+                replacement TASKS_JSON when a broad rewrite affects most of the graph. Medium and large
+                plans should strongly prefer deltas; a large plan may be replaced only for a genuine
+                near-total rewrite, never merely because several targeted corrections were requested.
 
                 {{planLines}}
 
@@ -111,9 +141,15 @@ internal static class DecomposePlanningInstructions
                   "groupId": "exact pending group ID",
                   "baseRevision": "exact current pending revision",
                   "definition": ".squad/tmp/decompose/GROUP-YYYYMMDD.json",
-                  "protocol": ".squad/instructions/decompose-planning.md"
+                  "protocol": ".squad/instructions/decompose-planning.md",
+                  "outline": ".squad/tmp/decompose/outlines/GROUP-YYYYMMDD.json",
+                  "sizeClass": "small | medium | large"
                 }
                 ```
+
+                In the delegation tool call, set `staged_plan_revision_request` to that object's exact
+                identity and paths; do not rename fields or substitute prose. Prefer `targetRef` and the
+                protocol's text-edit operations for changing a clause within a long existing property.
 
                 Do not invent or expand a second private schema in the delegation prompt. The live protocol
                 file is the single source of truth for allowed operations and patch fields. Do not emit

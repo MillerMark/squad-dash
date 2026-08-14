@@ -176,13 +176,15 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(completed[0].agent.agentName, "lyra-morn");
 });
 
-test("staged plan revision request correlation requires one complete routing envelope", () => {
+test("staged plan revision request correlation accepts marked and unmarked routing envelopes", () => {
     const prompt = `Revise the plan.\nSTAGED_PLAN_REVISION_REQUEST_JSON:\n\`\`\`json
     {
       "groupId": "CLIDETECT-20260814",
       "baseRevision": "base-1",
       "definition": ".squad/tmp/decompose/CLIDETECT-20260814.json",
-      "protocol": ".squad/instructions/decompose-planning.md"
+      "protocol": ".squad/instructions/decompose-planning.md",
+      "outline": ".squad/tmp/decompose/outlines/CLIDETECT-20260814.json",
+      "sizeClass": "large"
     }
     \`\`\``;
 
@@ -190,7 +192,26 @@ test("staged plan revision request correlation requires one complete routing env
         groupId: "CLIDETECT-20260814",
         baseRevision: "base-1"
     });
+    const unmarked = `Revise the plan using this routing envelope:\n{
+      "groupId": "CLIDETECT-20260814",
+      "baseRevision": "base-1",
+      "definition": ".squad/tmp/decompose/CLIDETECT-20260814.json",
+      "protocol": ".squad/instructions/decompose-planning.md",
+      "outline": ".squad/tmp/decompose/outlines/CLIDETECT-20260814.json",
+      "sizeClass": "large"
+    }`;
+    assert.deepEqual(tryParseStagedPlanRevisionRequest(unmarked), {
+        groupId: "CLIDETECT-20260814",
+        baseRevision: "base-1"
+    });
     assert.equal(tryParseStagedPlanRevisionRequest(prompt + "\n" + prompt), undefined);
+    assert.equal(tryParseStagedPlanRevisionRequest(unmarked + "\n" + unmarked), undefined);
+    assert.equal(tryParseStagedPlanRevisionRequest(unmarked.replace(
+        ".squad/instructions/decompose-planning.md", ".squad/instructions/other.md")), undefined);
+    assert.equal(tryParseStagedPlanRevisionRequest(unmarked.replace(
+        "CLIDETECT-20260814.json", "OTHER-20260814.json")), undefined);
+    assert.equal(tryParseStagedPlanRevisionRequest(unmarked.replace(
+        "outlines/CLIDETECT-20260814.json", "outlines/OTHER-20260814.json")), undefined);
     assert.equal(tryParseStagedPlanRevisionRequest("No routing envelope"), undefined);
 });
 
@@ -209,7 +230,7 @@ test("staged plan revision candidate must match the routed group and base revisi
     assert.equal(matchesStagedPlanRevisionCandidate(matching + "\n" + matching, request), false);
 });
 
-test("verified roster revision is emitted to the host and replaced with a compact coordinator receipt", async () => {
+test("verified roster revisions use structural or tool-metadata correlation and bypass coordinator JSON", async () => {
     const configs = [];
     const completed = [];
     let sessionNumber = 0;
@@ -245,11 +266,13 @@ test("verified roster revision is emitted to the host and replaced with a compac
     const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
     const receipt = await rosterTool.handler({
         agent_handle: "rory",
-        prompt: `Apply the requested changes.\nSTAGED_PLAN_REVISION_REQUEST_JSON:\n{
+        prompt: `Apply the requested changes using this routing envelope:\n{
           "groupId": "CLIDETECT-20260814",
           "baseRevision": "base-1",
           "definition": ".squad/tmp/decompose/CLIDETECT-20260814.json",
-          "protocol": ".squad/instructions/decompose-planning.md"
+          "protocol": ".squad/instructions/decompose-planning.md",
+          "outline": ".squad/tmp/decompose/outlines/CLIDETECT-20260814.json",
+          "sizeClass": "large"
         }`
     }, {
         sessionId: "session-1",
@@ -264,7 +287,32 @@ test("verified roster revision is emitted to the host and replaced with a compac
     assert.equal(completed[0].agent.hostProtocol, StagedPlanRevisionHostProtocol);
     assert.equal(completed[0].agent.hostProtocolGroupId, "CLIDETECT-20260814");
     assert.equal(completed[0].agent.hostProtocolBaseRevision, "base-1");
+    assert.equal(completed[0].agent.hostProtocolCorrelationSource, "structural_envelope");
     assert.equal(completed[0].agent.latestResponse, revision);
+
+    const metadataReceipt = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: "Apply the requested staged-plan changes.",
+        staged_plan_revision_request: {
+            groupId: "CLIDETECT-20260814",
+            baseRevision: "base-1",
+            definition: ".squad/tmp/decompose/CLIDETECT-20260814.json",
+            protocol: ".squad/instructions/decompose-planning.md",
+            outline: ".squad/tmp/decompose/outlines/CLIDETECT-20260814.json",
+            sizeClass: "large"
+        }
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-metadata-revision",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.match(metadataReceipt, /received @rory's staged-plan revision candidate/);
+    assert.doesNotMatch(metadataReceipt, /"operations"/);
+    assert.equal(completed[1].agent.hostProtocolVerified, true);
+    assert.equal(completed[1].agent.hostProtocolCorrelationSource, "tool_metadata");
+    assert.equal(completed[1].agent.latestResponse, revision);
 });
 
 test("counterfeit roster detection rejects roster-like and plan-bearing generic tasks", () => {

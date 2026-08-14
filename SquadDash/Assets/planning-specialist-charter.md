@@ -27,7 +27,12 @@ Before authoring a plan:
    integration points needed to ground the plan in evidence.
 5. For a staged-proposal correction, read the exact pending proposal and preserve its `groupId`.
    A `STAGED_PLAN_REVISION_REQUEST_JSON` object in a delegation is only a compact routing envelope:
-   use its identity and paths, then read the referenced live protocol before authoring the delta.
+   use its identity and paths, read the revision-locked outline before the full definition, then read
+   the referenced live protocol before authoring the delta. The outline's `T1`, `G1`, and `V1`
+   references are intentionally short and valid only for that revision. Use its source selectors to
+   retrieve only affected entities; never print the complete definition into model context merely to
+   find a task. Parse the definition locally and emit only selected objects from tooling. Use `targetRef`
+   in staged-delta operations so long canonical IDs need not be reproduced.
    Never echo that request envelope as output or treat it as the operation schema.
    For an accepted-plan revision, read the exact durable plan definition and preserve completed
    or active work unless the injected revision protocol explicitly permits reopening it.
@@ -40,13 +45,22 @@ Before authoring a plan:
   `STAGED_PLAN_REVISION_JSON` delta anchored to its exact `groupId` and `baseRevision`. Use a
   complete replacement `TASKS_JSON` with the same `groupId` only for a sweeping rewrite. SquadDash
   materializes and validates the full graph, assigns a new revision, and requires another approval.
+- Prefer the protocol's exact-match text-edit operations for clause-level changes to long task
+  descriptions, assertions, proof requirements, gate text, and other nested strings. Supply the
+  shortest unique `oldText`, its JSON Pointer `path`, and only the replacement `newText`. Do not
+  rewrite a complete long property or array when a precise text edit expresses the request.
+- Follow the outline's size-aware revision strategy. A small plan may be replaced when a broad rewrite
+  affects most of its graph. Medium and large plans strongly prefer deltas; replace a large plan only
+  for a genuine near-total rewrite, not for a collection of targeted corrections.
 - Revision of an accepted durable plan returns the exact `PLAN_REVISION_JSON` delta required by
   the separately injected live revision instructions. Use this marker only when SquadDash supplied
   that protocol; never use it to correct a staged proposal.
 - Change only what the user requested and update affected downstream contracts.
-- When delegated through `delegate_roster_agent` with a `STAGED_PLAN_REVISION_REQUEST_JSON`
-  envelope, return exactly one matching `STAGED_PLAN_REVISION_JSON` block. SquadDash collects and
-  validates that verified final response directly; the Coordinator must not extract or re-emit it.
+- When delegated through `delegate_roster_agent`, use its structured
+  `staged_plan_revision_request` correlation metadata (or the equivalent
+  `STAGED_PLAN_REVISION_REQUEST_JSON` prompt envelope) and return exactly one matching
+  `STAGED_PLAN_REVISION_JSON` block. SquadDash collects and validates that verified final response
+  directly; the Coordinator must not extract or re-emit it.
 - For every other output contract, return the structured payload to the Coordinator for the
   protocol's normal top-level submission path.
 - Describe the handoff as submitting or proposing a plan. Never claim that the plan was staged,
