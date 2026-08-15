@@ -5,8 +5,75 @@ using System.Text.Json;
 
 namespace SquadDash;
 
+internal sealed record PlanDefinitionEditResult(
+    PendingDecomposePlan DisplayedPlan,
+    Plan DurablePlan);
+
+internal sealed class PlanEditPauseRequiredException(string message) : InvalidOperationException(message);
+
 internal static class StagedPlanEditor
 {
+    internal static bool TryValidateUnlockedChanges(
+        Plan current,
+        DecomposedTaskGroup candidate,
+        out string? error)
+    {
+        error = null;
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(current).Group;
+        var currentTasks = currentGroup.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var candidateTasks = candidate.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var lockedTaskIds = current.Tasks
+            .Where(task => task.Status != PlanTaskStatus.Pending ||
+                           string.Equals(task.TaskId, current.Progress.ExecutingTaskId, StringComparison.Ordinal))
+            .Select(task => task.TaskId)
+            .ToArray();
+        var changedLockedTask = lockedTaskIds.FirstOrDefault(taskId =>
+            !currentTasks.TryGetValue(taskId, out var before) ||
+            !candidateTasks.TryGetValue(taskId, out var after) ||
+            !Same(before, after));
+        if (changedLockedTask is not null)
+        {
+            error = $"Task '{changedLockedTask}' has started or already produced execution history. " +
+                    "Its definition is frozen; only future pending tasks can be changed.";
+            return false;
+        }
+
+        var currentGates = (currentGroup.ApprovalGates ?? [])
+            .ToDictionary(gate => gate.GateId, StringComparer.Ordinal);
+        var candidateGates = (candidate.ApprovalGates ?? [])
+            .ToDictionary(gate => gate.GateId, StringComparer.Ordinal);
+        var changedLockedGate = current.ApprovalGates
+            .Where(gate => gate.Status != PlanGateStatus.Pending)
+            .Select(gate => gate.GateId)
+            .FirstOrDefault(gateId =>
+                !currentGates.TryGetValue(gateId, out var before) ||
+                !candidateGates.TryGetValue(gateId, out var after) ||
+                !Same(before, after));
+        if (changedLockedGate is not null)
+        {
+            error = $"Approval gate '{changedLockedGate}' has already been reached and is frozen.";
+            return false;
+        }
+
+        var currentValidations = (currentGroup.Validations ?? [])
+            .ToDictionary(validation => validation.ValidationId, StringComparer.Ordinal);
+        var candidateValidations = (candidate.Validations ?? [])
+            .ToDictionary(validation => validation.ValidationId, StringComparer.Ordinal);
+        var changedLockedValidation = (current.Validations ?? [])
+            .Where(validation => validation.Status != PlanValidationStatus.Pending)
+            .Select(validation => validation.ValidationId)
+            .FirstOrDefault(validationId =>
+                !currentValidations.TryGetValue(validationId, out var before) ||
+                !candidateValidations.TryGetValue(validationId, out var after) ||
+                !Same(before, after));
+        if (changedLockedValidation is not null)
+        {
+            error = $"Validation '{changedLockedValidation}' has already started or completed and is frozen.";
+            return false;
+        }
+        return true;
+    }
+
     internal static DecomposedTaskGroup UpdatePlan(
         DecomposedTaskGroup group,
         string groupTitle,
@@ -295,6 +362,9 @@ internal static class StagedPlanEditor
             .Max();
         return string.Format(System.Globalization.CultureInfo.InvariantCulture, format, max + 1);
     }
+
+    private static bool Same<T>(T left, T right) =>
+        string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
 }
 
 internal sealed class StagedPlanEditHistory(DecomposedTaskGroup initial)
@@ -305,6 +375,8 @@ internal sealed class StagedPlanEditHistory(DecomposedTaskGroup initial)
     internal DecomposedTaskGroup Current { get; private set; } = initial;
     internal bool CanUndo => _undo.Count > 0;
     internal bool CanRedo => _redo.Count > 0;
+    internal DecomposedTaskGroup? PeekUndo => _undo.TryPeek(out var value) ? value : null;
+    internal DecomposedTaskGroup? PeekRedo => _redo.TryPeek(out var value) ? value : null;
 
     internal bool Record(DecomposedTaskGroup next)
     {

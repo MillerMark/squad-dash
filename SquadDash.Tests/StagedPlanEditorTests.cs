@@ -242,7 +242,129 @@ internal sealed class StagedPlanEditorTests
         });
     }
 
+    [Test]
+    public void UnlockedChangeValidation_RejectsChangesToCompletedAndExecutingTasks()
+    {
+        var current = MakeDurablePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = MakeDurablePlan().Tasks.Select(task => task.TaskId switch
+            {
+                var id when id == Id(1) => task with { Status = PlanTaskStatus.Complete },
+                var id when id == Id(2) => task with { Status = PlanTaskStatus.Executing },
+                _ => task,
+            }).ToArray(),
+            Progress = new PlanProgress(1, 3, Id(2)),
+        };
+        var completedEdit = StagedPlanEditor.UpdateTask(
+            MakeGroup(), Id(1), "Changed", "Changed", "mid", []);
+        var executingEdit = StagedPlanEditor.UpdateTask(
+            MakeGroup(), Id(2), "Changed", "Changed", "mid", [Id(1)]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, completedEdit, out var completedError), Is.False);
+            Assert.That(completedError, Does.Contain(Id(1)));
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, executingEdit, out var executingError), Is.False);
+            Assert.That(executingError, Does.Contain(Id(2)));
+        });
+    }
+
+    [Test]
+    public void UnlockedChangeValidation_AllowsAChangeToFuturePendingWork()
+    {
+        var current = MakeDurablePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = MakeDurablePlan().Tasks.Select(task => task.TaskId == Id(1)
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            Progress = new PlanProgress(1, 3),
+        };
+        var candidate = StagedPlanEditor.UpdateTask(
+            MakeGroup(), Id(3), "Better future task", "Better future outcome", "high", [Id(2)]);
+
+        Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+            current, candidate, out var error), Is.True, error);
+    }
+
+    [Test]
+    public void UnlockedChangeValidation_RejectsDeletingCompletedTask()
+    {
+        var current = MakeDurablePlan() with
+        {
+            Tasks = MakeDurablePlan().Tasks.Select(task => task.TaskId == Id(1)
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+            Progress = new PlanProgress(1, 3),
+        };
+
+        Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+            current, StagedPlanEditor.DeleteTask(MakeGroup(), Id(1)), out var error), Is.False);
+        Assert.That(error, Does.Contain(Id(1)));
+    }
+
+    [Test]
+    public void UnlockedChangeValidation_RejectsResolvedGateAndCompletedValidationChanges()
+    {
+        var group = MakeGroup() with
+        {
+            ApprovalGates = [new DecomposedGate(
+                GroupId + "-GATE-001", "Original gate", [Id(1)], [Id(2)])],
+            Validations = [new DecomposedValidationNode(
+                GroupId + "-VAL-001", "Original", "Original validation", [Id(1)], [Id(2)], ["Original assertion"])],
+        };
+        var projected = MakeDurablePlan(group);
+        var current = projected with
+        {
+            ApprovalGates = projected.ApprovalGates.Select(gate => gate with
+                { Status = PlanGateStatus.Approved }).ToArray(),
+            Validations = projected.Validations!.Select(validation => validation with
+                { Status = PlanValidationStatus.Passed }).ToArray(),
+        };
+        var gateEdit = StagedPlanEditor.UpdateGate(
+            group, GroupId + "-GATE-001", "Changed gate", null, [Id(1)], [Id(2)]);
+        var validationEdit = StagedPlanEditor.UpdateValidation(
+            group, GroupId + "-VAL-001", "Changed", "Changed validation", "evidence",
+            [Id(1)], [Id(2)], ["Changed assertion"], [], false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, gateEdit, out var gateError), Is.False);
+            Assert.That(gateError, Does.Contain("GATE-001"));
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, validationEdit, out var validationError), Is.False);
+            Assert.That(validationError, Does.Contain("VAL-001"));
+        });
+    }
+
+    [Test]
+    public void EditHistory_PeekDoesNotMoveTheUndoOrRedoCursor()
+    {
+        var first = MakeGroup();
+        var second = StagedPlanEditor.UpdateTask(first, Id(3), "Changed", "Changed", "mid", [Id(2)]);
+        var history = new StagedPlanEditHistory(first);
+        history.Record(second);
+
+        Assert.That(history.PeekUndo, Is.EqualTo(first));
+        Assert.That(history.Current, Is.EqualTo(second));
+        history.Undo();
+        Assert.That(history.PeekRedo, Is.EqualTo(second));
+        Assert.That(history.Current, Is.EqualTo(first));
+    }
+
     private static string Id(int number) => $"{GroupId}-{number:000}";
+
+    private static Plan MakeDurablePlan(DecomposedTaskGroup? group = null)
+    {
+        group ??= MakeGroup();
+        var pending = new PendingDecomposePlan(
+            PendingDecomposePlanStore.ComputeRevision(group), group, DateTimeOffset.UtcNow);
+        return PendingDecomposePlanAdapter.ToPlan(pending, pending.CreatedAt!.Value);
+    }
 
     internal static DecomposedTaskGroup MakeGroup() => new(
         GroupId,

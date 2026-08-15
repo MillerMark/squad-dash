@@ -37,6 +37,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("`T1`, `G1`, and `V1`"));
             Assert.That(charter, Does.Contain("Use `targetRef`"));
             Assert.That(charter, Does.Contain("size-aware revision strategy"));
+            Assert.That(charter, Does.Contain("Calibrate detail to the approval decision"));
+            Assert.That(charter, Does.Contain("number of tests"));
+            Assert.That(charter, Does.Contain("bounded execution contract"));
         });
     }
 
@@ -76,6 +79,7 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("one complete corrected payload"));
             Assert.That(guidance, Does.Contain("Never claim that the plan"));
             Assert.That(guidance, Does.Contain("only the host may report those outcomes"));
+            Assert.That(guidance, Does.Contain("Calibrate plan detail to the approval decision"));
         });
     }
 

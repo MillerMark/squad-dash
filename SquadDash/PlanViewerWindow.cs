@@ -51,7 +51,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
-    private readonly Func<DecomposedTaskGroup, PendingDecomposePlan>? _savePendingEdit;
+    private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
@@ -86,6 +86,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private FrmUltimateCallout? _reviewCallout;
     private bool _isAiReviewPending;
     private string? _reviewStatusMessage;
+    private DecomposedTaskGroup? _deferredDefinitionEdit;
 
     private enum AutomaticScrollTarget
     {
@@ -128,7 +129,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
         Action<Plan>? onContinueInterruptedTask = null,
         Action<Plan>? onReplanRemainingWork = null,
-        Func<DecomposedTaskGroup, PendingDecomposePlan>? savePendingEdit = null,
+        Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null)
         : base(
@@ -167,10 +168,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
-        _savePendingEdit = savePendingEdit;
+        _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
-        if (savePendingEdit is not null)
+        if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
 
         Title     = $"Plan — {plan.Group.GroupTitle}";
@@ -276,8 +277,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
         _plan = updatedDefinition;
         _durablePlan = updatedPlan;
+        _editHistory?.ReplaceCurrent(updatedDefinition.Group);
+        if (!CanEditSelectedElement())
+            _isInspectorEditing = false;
         RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForPlanProgress);
         Title = $"Plan — {updatedDefinition.Group.GroupTitle}";
+        if (_deferredDefinitionEdit is not null &&
+            updatedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
+        {
+            var deferred = _deferredDefinitionEdit;
+            _deferredDefinitionEdit = null;
+            Dispatcher.BeginInvoke(() => ApplyStagedMutation(deferred));
+        }
     }
 
     internal void NotifyFontSizeChanged()
@@ -307,7 +318,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var activeBranch       = _activeBranch;
         var quickReplyFontSize = _quickReplyFontSize;
         var applyAction        = _applyAction;
-        Action<Plan>? onGatesChanged = _savePendingEdit is not null
+        Action<Plan>? onGatesChanged = _saveDefinitionEdit is not null
             ? edited => ApplyStagedMutation(PendingDecomposePlanAdapter.FromPlan(edited).Group)
             : _onGatesChanged;
         var onStartPlan        = _onStartPlan;
@@ -1359,11 +1370,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 visual.Children.Add(titleBorder);
                 visual.Tag = $"validation:{validation.ValidationId}";
                 WireSelectionClick(visual);
-                if (_savePendingEdit is not null)
+                if (_saveDefinitionEdit is not null)
                 {
                     var capturedValidationId = validation.ValidationId;
+                    var definitionEditable = IsValidationDefinitionEditable(capturedValidationId);
                     var menu = new ContextMenu();
-                    var edit = new MenuItem { Header = "Edit validation" };
+                    var edit = new MenuItem
+                    {
+                        Header = "Edit validation",
+                        IsEnabled = definitionEditable,
+                    };
                     edit.Click += (_, _) =>
                     {
                         _selectedElement = new SelectedElementIdentity("validation", capturedValidationId);
@@ -1371,7 +1387,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ApplySelectionVisual();
                         RefreshDetailPanel();
                     };
-                    var remove = new MenuItem { Header = "Delete validation" };
+                    var remove = new MenuItem
+                    {
+                        Header = "Delete validation",
+                        IsEnabled = definitionEditable,
+                    };
                     remove.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit($"Delete validation {capturedValidationId}?")) return;
@@ -2051,7 +2071,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task entry"));
                 addBeforeItem.Click += (_, _) =>
                 {
-                    if (_savePendingEdit is not null)
+                    if (_saveDefinitionEdit is not null)
                     {
                         var stagedGatePlan = PlanGateManager.AddGateBefore(
                             durablePlan,
@@ -2086,7 +2106,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanApprovalControlLockPolicy.LockedTooltip("Task exit"));
                 addAfterItem.Click += (_, _) =>
                 {
-                    if (_savePendingEdit is not null)
+                    if (_saveDefinitionEdit is not null)
                     {
                         var stagedGatePlan = PlanGateManager.AddGateAfter(
                             durablePlan,
@@ -2158,10 +2178,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (contextMenu.Items.Count > 0)
                     border.ContextMenu = contextMenu;
 
-                if (_savePendingEdit is not null)
+                if (_saveDefinitionEdit is not null)
                 {
+                    var definitionEditable = IsTaskDefinitionEditable(capturedTask.Id);
                     contextMenu.Items.Add(new Separator());
-                    var addValidation = new MenuItem { Header = "Add validation after this task" };
+                    var addValidation = new MenuItem
+                    {
+                        Header = "Add validation after this task",
+                        IsEnabled = definitionEditable,
+                    };
                     addValidation.Click += (_, _) => ApplyStagedMutation(
                         StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTask.Id),
                         selectKind: "validation",
@@ -2171,7 +2196,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var deleteTask = new MenuItem
                     {
                         Header = "Delete task",
-                        IsEnabled = group.Tasks.Count > 1,
+                        IsEnabled = group.Tasks.Count > 1 && definitionEditable,
                     };
                     deleteTask.Click += (_, _) =>
                     {
@@ -2188,7 +2213,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var relativePosition = insertAfter ? "after" : "before";
                     var item = new MenuItem
                     {
-                        Header = _savePendingEdit is not null
+                        Header = _saveDefinitionEdit is not null
                             ? $"Insert task {relativePosition}"
                             : $"Insert task {relativePosition}…",
                         IsEnabled = isEnabled,
@@ -2200,7 +2225,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     };
                     item.Click += (_, _) =>
                     {
-                        if (_savePendingEdit is not null && _plan is not null)
+                        if (_saveDefinitionEdit is not null && _plan is not null)
                         {
                             var newId = StagedPlanEditor.NextTaskId(_plan.Group);
                             ApplyStagedMutation(
@@ -2236,14 +2261,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
             }
 
-            if (_savePendingEdit is not null && border.ContextMenu is null)
+            if (_saveDefinitionEdit is not null && border.ContextMenu is null)
             {
                 var capturedTaskId = task.Id;
+                var definitionEditable = IsTaskDefinitionEditable(capturedTaskId);
                 var contextMenu = new ContextMenu();
-                contextMenu.Items.Add(CreateStagedInsertMenuItem(capturedTaskId, before: true));
-                contextMenu.Items.Add(CreateStagedInsertMenuItem(capturedTaskId, before: false));
+                var insertBefore = CreateStagedInsertMenuItem(capturedTaskId, before: true);
+                insertBefore.IsEnabled = definitionEditable;
+                contextMenu.Items.Add(insertBefore);
+                var insertAfter = CreateStagedInsertMenuItem(capturedTaskId, before: false);
+                insertAfter.IsEnabled = definitionEditable;
+                contextMenu.Items.Add(insertAfter);
                 contextMenu.Items.Add(new Separator());
-                var addValidation = new MenuItem { Header = "Add validation after this task" };
+                var addValidation = new MenuItem
+                {
+                    Header = "Add validation after this task",
+                    IsEnabled = definitionEditable,
+                };
                 addValidation.Click += (_, _) => ApplyStagedMutation(
                     StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTaskId),
                     selectKind: "validation",
@@ -2252,7 +2286,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var deleteTask = new MenuItem
                 {
                     Header = "Delete task",
-                    IsEnabled = group.Tasks.Count > 1,
+                    IsEnabled = group.Tasks.Count > 1 && definitionEditable,
                 };
                 deleteTask.Click += (_, _) =>
                 {
@@ -3036,21 +3070,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
         bool beginEditingSelection = false,
         bool preserveReview = false)
     {
-        if (_savePendingEdit is null || _plan is null) return false;
+        if (_saveDefinitionEdit is null || _plan is null) return false;
         if (!StagedPlanEditor.TryValidate(candidate, out var normalized, out var error) || normalized is null)
         {
             UIErrorHelper.ShowError("Edit Plan", error ?? "The edit would make the plan invalid.", this);
             return false;
         }
+        if (_durablePlan is not null &&
+            _durablePlan.LifecycleStatus != PlanLifecycleStatus.Staged &&
+            !StagedPlanEditor.TryValidateUnlockedChanges(_durablePlan, normalized, out error))
+        {
+            UIErrorHelper.ShowError("Edit Plan", error ??
+                "The edit would change work that has already started.", this);
+            return false;
+        }
         try
         {
-            var saved = _savePendingEdit(normalized);
+            var result = _saveDefinitionEdit(normalized);
+            var saved = result.DisplayedPlan;
             if (recordHistory)
                 _editHistory?.Record(normalized);
             _editHistory?.ReplaceCurrent(saved.Group);
             _plan = saved;
-            _durablePlan = PendingDecomposePlanAdapter.ToPlan(
-                saved, saved.CreatedAt ?? DateTimeOffset.UtcNow);
+            _durablePlan = result.DurablePlan;
             if (!preserveReview)
             {
                 _reviewCallout?.Close();
@@ -3080,6 +3122,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Title = $"Plan — {saved.Group.GroupTitle}";
             return true;
         }
+        catch (PlanEditPauseRequiredException exception)
+        {
+            _deferredDefinitionEdit = normalized;
+            MessageBox.Show(this, exception.Message, "Plan edit queued",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return false;
+        }
         catch (Exception exception)
         {
             UIErrorHelper.ShowError("Edit Plan", exception.Message, this);
@@ -3089,6 +3138,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void UndoStagedEdit()
     {
+        if (!CanApplyHistoryCandidate(_editHistory?.PeekUndo, out var error))
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                UIErrorHelper.ShowError("Undo plan edit", error, this);
+            return;
+        }
         var previous = _editHistory?.Undo();
         if (previous is not null && !ApplyStagedMutation(previous, recordHistory: false))
             _editHistory?.Redo();
@@ -3096,6 +3151,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void RedoStagedEdit()
     {
+        if (!CanApplyHistoryCandidate(_editHistory?.PeekRedo, out var error))
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+                UIErrorHelper.ShowError("Redo plan edit", error, this);
+            return;
+        }
         var next = _editHistory?.Redo();
         if (next is not null && !ApplyStagedMutation(next, recordHistory: false))
             _editHistory?.Undo();
@@ -4720,12 +4781,41 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RefreshDetailPanel();
             }, "Edit this staged-plan element in the inspector.");
         }
+        else if (_saveDefinitionEdit is not null && _selectedElement is not null &&
+                 _selectedElement.Kind is "task" or "validation" or "gate" or "humanapproval")
+        {
+            var locked = new TextBlock
+            {
+                Text = "This definition is frozen because its work has started or its checkpoint has been reached. " +
+                       "Only future pending work can be edited.",
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 4),
+            };
+            locked.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            locked.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            toolbar.Children.Add(locked);
+        }
         if (_editHistory is not null)
         {
             var undo = AddButton("Undo", UndoStagedEdit, "Undo the most recent plan edit.");
-            undo.IsEnabled = _editHistory.CanUndo;
+            undo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekUndo, out var undoError);
             var redo = AddButton("Redo", RedoStagedEdit, "Redo the most recently undone plan edit.");
-            redo.IsEnabled = _editHistory.CanRedo;
+            redo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekRedo, out var redoError);
+            var historyError = undoError ?? redoError;
+            if (!string.IsNullOrWhiteSpace(historyError))
+            {
+                var status = new TextBlock
+                {
+                    Text = "Undo/redo is blocked at the execution boundary. " + historyError,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(2, 0, 0, 4),
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                toolbar.Children.Add(status);
+            }
         }
         if (_requestAiReview is not null && _plan is not null)
         {
@@ -4793,11 +4883,63 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private bool CanEditSelectedElement() =>
-        (_savePendingEdit is not null &&
-         (_selectedElement is null ||
-          _selectedElement.Kind is "task" or "validation" or "gate" or "humanapproval")) ||
-        (_onGatesChanged is not null &&
+        (_saveDefinitionEdit is not null && IsSelectedDefinitionEditable()) ||
+        (_saveDefinitionEdit is null && _onGatesChanged is not null &&
          _selectedElement?.Kind is "gate" or "humanapproval");
+
+    private bool CanApplyHistoryCandidate(
+        DecomposedTaskGroup? candidate,
+        out string? error)
+    {
+        error = null;
+        if (candidate is null) return false;
+        if (_durablePlan is null || _durablePlan.LifecycleStatus == PlanLifecycleStatus.Staged)
+            return true;
+        return StagedPlanEditor.TryValidateUnlockedChanges(_durablePlan, candidate, out error);
+    }
+
+    private bool IsSelectedDefinitionEditable()
+    {
+        if (_selectedElement is null) return DefinitionEditingAvailable;
+        return _selectedElement.Kind switch
+        {
+            "task" => IsTaskDefinitionEditable(_selectedElement.Id),
+            "validation" => IsValidationDefinitionEditable(_selectedElement.Id),
+            "gate" or "humanapproval" => IsGateDefinitionEditable(_selectedElement.Id),
+            _ => false,
+        };
+    }
+
+    private bool DefinitionEditingAvailable =>
+        _saveDefinitionEdit is not null &&
+        (_durablePlan is null || !PlanLifecycleStatus.IsTerminal(_durablePlan.LifecycleStatus));
+
+    private bool IsTaskDefinitionEditable(string taskId)
+    {
+        if (!DefinitionEditingAvailable || _durablePlan is null) return DefinitionEditingAvailable;
+        var task = _durablePlan.Tasks.FirstOrDefault(value => value.TaskId == taskId);
+        return task is null ||
+               (task.Status == PlanTaskStatus.Pending &&
+                !string.Equals(taskId, _durablePlan.Progress.ExecutingTaskId, StringComparison.Ordinal));
+    }
+
+    private bool IsValidationDefinitionEditable(string validationId)
+    {
+        if (!DefinitionEditingAvailable || _durablePlan is null) return DefinitionEditingAvailable;
+        var validation = (_durablePlan.Validations ?? []).FirstOrDefault(value =>
+            value.ValidationId == validationId);
+        return validation is null || validation.Status == PlanValidationStatus.Pending;
+    }
+
+    private bool IsGateDefinitionEditable(string gateId)
+    {
+        if (!DefinitionEditingAvailable || _durablePlan is null) return DefinitionEditingAvailable;
+        if (int.TryParse(gateId, out var gateIndex) &&
+            gateIndex >= 0 && gateIndex < (_plan?.Group.ApprovalGates?.Count ?? 0))
+            gateId = _plan!.Group.ApprovalGates![gateIndex].GateId;
+        var gate = _durablePlan.ApprovalGates.FirstOrDefault(value => value.GateId == gateId);
+        return gate is null || gate.Status == PlanGateStatus.Pending;
+    }
 
     internal void SetReviewAnnotations(PlanVisualizerReviewPayload review)
     {
@@ -4947,7 +5089,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private bool TryPopulateStagedEditor()
     {
-        if (_detailDocument is null || _plan is null || _savePendingEdit is null)
+        if (_detailDocument is null || _plan is null || _saveDefinitionEdit is null ||
+            !IsSelectedDefinitionEditable())
             return false;
 
         if (_selectedElement is null) return PopulatePlanEditor();

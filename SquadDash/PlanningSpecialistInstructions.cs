@@ -72,6 +72,12 @@ internal static class PlanningSpecialistInstructions
                avoid printing the complete definition into model context. Prefer exact-match text-edit
                operations for clause-level corrections instead of replacing complete long descriptions,
                assertions, or nested text properties.
+               Calibrate plan detail to the approval decision: capture observable outcomes, constraints,
+               cross-task contracts, risks, and validation boundaries. Leave local implementation choices
+               to the executing agent unless a verified compatibility or safety boundary requires them.
+               Do not prescribe speculative class names, helper breakdowns, file-by-file edits, exact test
+               counts, or exhaustive test-case inventories; describe the behaviors and failure modes that
+               must be proven. Treat each task as a bounded execution contract, not a pseudo-implementation.
                Require `STAGED_PLAN_REVISION_JSON` for a targeted correction to an unapproved staged
                proposal. Apply the injected size-aware revisionStrategy: a small plan may be replaced for
                a broad rewrite affecting most of its graph, while medium and large plans strongly prefer

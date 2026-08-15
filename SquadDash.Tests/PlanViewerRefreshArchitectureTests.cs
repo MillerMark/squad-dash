@@ -77,6 +77,60 @@ internal sealed class PlanViewerRefreshArchitectureTests
         });
     }
 
+    [Test]
+    public void DurableEditing_FreezesExecutedWorkAndDefersSavesAcrossTheActiveTaskBoundary()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(main, Does.Contain("Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit")
+                .And.Contain("PlanRevisionApplier.Apply(")
+                .And.Contain("RequestPlanPauseAfterCurrentStep(current)")
+                .And.Contain("PlanEditPauseRequiredException"),
+                "Plans-panel viewers must receive a durable edit path that pauses active execution before saving.");
+            Assert.That(viewer, Does.Contain("IsTaskDefinitionEditable")
+                .And.Contain("IsValidationDefinitionEditable")
+                .And.Contain("IsGateDefinitionEditable")
+                .And.Contain("TryValidateUnlockedChanges")
+                .And.Contain("_deferredDefinitionEdit"),
+                "The inspector, context menus, persistence boundary, and deferred Save must share lifecycle locks.");
+            Assert.That(viewer, Does.Contain("Undo/redo is blocked at the execution boundary")
+                .And.Contain("_editHistory?.ReplaceCurrent(updatedDefinition.Group)"),
+                "Live execution updates must advance the history lock boundary for an already-open viewer.");
+        });
+    }
+
+    [Test]
+    public void CollectAction_CleansPendingStateAndStartupReconcilesLegacyMatches()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var normalizedMain = main.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var collectStart = main.IndexOf(
+            "if (action == \"collect\")",
+            StringComparison.Ordinal);
+        var collectEnd = main.IndexOf(
+            "if (action != \"add-to-backlog\"",
+            collectStart,
+            StringComparison.Ordinal);
+
+        Assert.That(collectStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(collectEnd, Is.GreaterThan(collectStart));
+        var collectPath = main[collectStart..collectEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(collectPath, Does.Contain(
+                    "new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)")
+                .And.Contain("new PlanCollectionService(")
+                .And.Contain("pendingStore)"),
+                "The Add to Plans host action must supply the transient store so collection removes its proposal.");
+            Assert.That(normalizedMain, Does.Contain("RepairStalePlanExecutingState();\n        ReconcileCollectedPendingPlans();")
+                .And.Contain("PendingPlanCollectionReconciler.Reconcile("),
+                "Workspace hydration must remove legacy same-revision pending proposals before rebuilding cards.");
+        });
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);

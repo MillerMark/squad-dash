@@ -146,3 +146,29 @@ internal enum CollectionOutcome
     /// <summary>An active (executing/interrupted/blocked) plan prevents collection.</summary>
     ActivePlanBlocked,
 }
+
+/// <summary>
+/// Removes legacy pending proposals that were already collected under the same durable revision.
+/// A different durable revision is deliberately left alone because it may represent a real pending
+/// revision that still needs the user's decision.
+/// </summary>
+internal static class PendingPlanCollectionReconciler
+{
+    internal static IReadOnlyList<PendingDecomposePlan> Reconcile(
+        PlanStore planStore,
+        PendingDecomposePlanStore pendingStore)
+    {
+        var removed = new List<PendingDecomposePlan>();
+        foreach (var pending in pendingStore.LoadAll())
+        {
+            var durable = planStore.Load(pending.Group.GroupId);
+            if (durable is null ||
+                !string.Equals(durable.Revision, pending.Revision, StringComparison.Ordinal))
+                continue;
+
+            pendingStore.Delete(pending.Group.GroupId);
+            removed.Add(pending);
+        }
+        return removed;
+    }
+}

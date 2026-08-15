@@ -281,6 +281,64 @@ internal sealed class PlanCollectionServiceTests
         Assert.That(_pendingStore.Load("COLLECT-001"), Is.Null);
     }
 
+    [Test]
+    public void StartupReconciliation_RemovesPendingPlanAlreadyCollectedAtSameRevision()
+    {
+        var group = MakeGroup();
+        var pending = _pendingStore.Save(group);
+        var durable = PendingDecomposePlanAdapter.ToPlan(pending, DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Approved,
+        };
+        _planStore.Save(durable);
+
+        var removed = PendingPlanCollectionReconciler.Reconcile(_planStore, _pendingStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(removed.Select(value => value.Group.GroupId),
+                Is.EqualTo(new[] { "COLLECT-001" }));
+            Assert.That(_pendingStore.Load("COLLECT-001"), Is.Null);
+            Assert.That(_planStore.Load("COLLECT-001"), Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void StartupReconciliation_PreservesPendingPlanWhenDurableRevisionDiffers()
+    {
+        var durableGroup = MakeGroup(taskCount: 2);
+        var durablePending = MakePending(durableGroup);
+        _planStore.Save(PendingDecomposePlanAdapter.ToPlan(
+            durablePending, DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Approved,
+        });
+        var pending = _pendingStore.Save(MakeGroup(taskCount: 4));
+        Assert.That(pending.Revision, Is.Not.EqualTo(durablePending.Revision));
+
+        var removed = PendingPlanCollectionReconciler.Reconcile(_planStore, _pendingStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(removed, Is.Empty);
+            Assert.That(_pendingStore.Load("COLLECT-001")?.Revision, Is.EqualTo(pending.Revision));
+        });
+    }
+
+    [Test]
+    public void StartupReconciliation_PreservesProposalWithoutDurablePlan()
+    {
+        var pending = _pendingStore.Save(MakeGroup());
+
+        var removed = PendingPlanCollectionReconciler.Reconcile(_planStore, _pendingStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(removed, Is.Empty);
+            Assert.That(_pendingStore.Load("COLLECT-001")?.Revision, Is.EqualTo(pending.Revision));
+        });
+    }
+
     // ── 9. Active plan protection ─────────────────────────────────────────────
 
     [Test]

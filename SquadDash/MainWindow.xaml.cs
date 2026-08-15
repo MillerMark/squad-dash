@@ -10748,7 +10748,10 @@ public partial class MainWindow : Window
                 "This revised plan no longer matches the accepted plan state. " + revisionError);
         if (action == "collect")
         {
-            var collectionService = new PlanCollectionService(_planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath));
+            var pendingStore = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+            var collectionService = new PlanCollectionService(
+                _planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath),
+                pendingStore);
             var result = collectionService.Collect(plan, DateTimeOffset.UtcNow);
             switch (result.Outcome)
             {
@@ -11188,7 +11191,7 @@ public partial class MainWindow : Window
                   _ = UnapproveCurrentPlanAsync(p, gateId);
               }
             : null;
-        Func<DecomposedTaskGroup, PendingDecomposePlan>? savePendingEdit =
+        Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit =
             isPendingPlanEdit && _currentWorkspace is not null
                 ? editedGroup =>
                   {
@@ -11215,9 +11218,70 @@ public partial class MainWindow : Window
                       new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath).Delete(groupId);
                       if (_inboxStore is not null)
                           _inboxPanel?.Refresh(_inboxStore.LoadAll());
-                      return result.UpdatedPlan;
+                      return new PlanDefinitionEditResult(
+                          result.UpdatedPlan,
+                          result.SyntheticDurablePlan);
                   }
-                : null;
+                : durablePlan is not null &&
+                  !isInteractiveVisualizationFixture &&
+                  !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
+                  _currentWorkspace is not null &&
+                  _planStore is not null
+                    ? editedGroup =>
+                      {
+                          var current = _planStore.Load(groupId)
+                              ?? throw new InvalidOperationException(
+                                  "The plan is no longer available. Reopen it from the Plans panel.");
+                          if (PlanLifecycleStatus.IsTerminal(current.LifecycleStatus))
+                              throw new InvalidOperationException(
+                                  "Completed, stopped, or archived plans cannot be edited.");
+                          if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
+                          {
+                              if (string.Equals(_activeDecomposeGroupId, current.PlanId, StringComparison.Ordinal) &&
+                                  IsLoopRunning)
+                              {
+                                  RequestPlanPauseAfterCurrentStep(current);
+                                  throw new PlanEditPauseRequiredException(
+                                      "The change is waiting to be saved. SquadDash will pause after the current " +
+                                      "task is accepted, then apply the edit before later work starts.");
+                              }
+                              throw new InvalidOperationException(
+                                  "This plan is still marked as executing but has no active runner. " +
+                                  "Reopen it after SquadDash repairs the interrupted state.");
+                          }
+                          if (!StagedPlanEditor.TryValidateUnlockedChanges(current, editedGroup, out var lockError))
+                              throw new InvalidOperationException(lockError ??
+                                  "The edit would change work that has already started.");
+                          var routingPolicy = PlanAgentRoutingPolicy.Normalize(
+                              _settingsSnapshot.PlanAgentRoutingPolicy);
+                          if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                                  editedGroup,
+                                  _currentWorkspace.SquadFolderPath,
+                                  out var assignmentError,
+                                  requireExplicitRouting: routingPolicy != PlanAgentRoutingPolicy.Off,
+                                  enforceAssignments: routingPolicy != PlanAgentRoutingPolicy.Off))
+                              throw new InvalidOperationException(
+                                  assignmentError ?? "The edited plan has invalid agent assignments.");
+
+                          var applied = PlanRevisionApplier.Apply(
+                              current,
+                              editedGroup,
+                              current.Revision,
+                              DateTimeOffset.UtcNow);
+                          if (applied.Outcome == PlanRevisionApplyOutcome.NoChanges)
+                              return new PlanDefinitionEditResult(
+                                  PendingDecomposePlanAdapter.FromPlan(current), current);
+                          if (applied.Outcome != PlanRevisionApplyOutcome.Applied || applied.UpdatedPlan is null)
+                              throw new InvalidOperationException(
+                                  applied.Error ?? "The plan edit could not be applied.");
+                          if (!TryPublishPlanProgress(applied.UpdatedPlan, out var publishError))
+                              throw new InvalidOperationException(
+                                  publishError ?? "The edited plan could not be saved.");
+                          return new PlanDefinitionEditResult(
+                              PendingDecomposePlanAdapter.FromPlan(applied.UpdatedPlan),
+                              applied.UpdatedPlan);
+                      }
+                    : null;
         Action<PendingDecomposePlan>? requestAiReview =
             isPendingPlanEdit && _currentWorkspace is not null
                 ? current =>
@@ -11270,7 +11334,7 @@ public partial class MainWindow : Window
             onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
-            savePendingEdit: savePendingEdit,
+            saveDefinitionEdit: saveDefinitionEdit,
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState)
         {
@@ -32950,6 +33014,7 @@ public partial class MainWindow : Window
         // Repair durable state only after the workspace-scoped execution envelope is loaded,
         // but before rebuilding approval/recovery controls from that state.
         RepairStalePlanExecutingState();
+        ReconcileCollectedPendingPlans();
         // TASKS_JSON can be followed by an empty/system turn, so the plan-producing turn
         // is not necessarily the last persisted turn. Rebuild approval actions from the
         // durable pending-plan store after hydration and state repair instead of inferring
@@ -50093,6 +50158,36 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             SquadDashTrace.Write(TraceCategory.General, $"RepairStalePlanExecutingState: {ex.Message}");
+        }
+    }
+
+    private void ReconcileCollectedPendingPlans()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+        try
+        {
+            var removed = PendingPlanCollectionReconciler.Reconcile(
+                _planStore,
+                new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath));
+            if (removed.Count == 0) return;
+
+            foreach (var pending in removed)
+            {
+                _inboxStore?.MarkActionUsed(
+                    DecomposePlanInbox.BuildMessageId(pending),
+                    "Add to Plans");
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    $"Removed already-collected pending plan group={pending.Group.GroupId} revision={pending.Revision} during workspace hydration.");
+            }
+            _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
+            RemovePendingDecomposeApprovalButtons();
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"ReconcileCollectedPendingPlans: {ex.Message}");
         }
     }
 
