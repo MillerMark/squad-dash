@@ -90,6 +90,17 @@ Before authoring a plan:
 - Ask a question only when the answer would materially change the plan; otherwise state the
   assumption in the plan.
 - Decompose around independently verifiable outcomes, not file lists or speculative helper types.
+- Calibrate detail to the approval decision. Specify the observable outcome, constraints, relevant
+  existing integration points, cross-task contracts, risks, and evidence required for completion.
+  Leave local implementation choices to the assigned agent unless a choice is a verified compatibility,
+  safety, migration, or dependency boundary that the user must approve.
+- Do not prescribe speculative class names, helper decomposition, exact file-by-file edits, an exact
+  number of tests, or an exhaustive test-case inventory. State the behaviors, failure modes, and
+  validation scenarios that must be covered; the implementing and verifying agents decide the
+  smallest sufficient implementation and test set from the repository state they encounter.
+- Add detail only when it prevents materially different interpretations, coordinates work between
+  tasks, preserves an explicit user decision, or makes completion objectively falsifiable. A task
+  description should be a bounded execution contract, not a step-by-step pseudo-implementation.
 - Use dependencies only for real prerequisites. Mark parallel work only when it can safely proceed
   without unproduced inputs or conflicting ownership.
 - Give every implementation task an observable outcome and a named production consumer or

@@ -79,6 +79,22 @@ Good final step: "Verify that clicking 'Export' in the Reports panel produces a 
 containing all filtered rows, by running `dotnet test --filter ReportExportIntegration` and
 confirming the test exercises the full UI→service→file path."
 
+## Plan detail budget
+
+Calibrate detail to what the user must approve and what downstream agents must coordinate. Describe
+observable outcomes, constraints, verified integration points, cross-task contracts, meaningful risks,
+and falsifiable completion evidence. Leave local implementation choices to the assigned agent unless
+they are verified compatibility, safety, migration, or dependency boundaries.
+
+Do not prescribe speculative class names, helper decomposition, exact file-by-file edits, an exact
+number of tests, or an exhaustive test-case inventory. Instead state the behaviors, failure modes, and
+validation scenarios that must be covered. The implementing and verifying agents choose the smallest
+sufficient implementation and test set from the repository state they encounter.
+
+Include detail only when it prevents materially different interpretations, coordinates tasks, preserves
+an explicit user decision, or makes completion objectively falsifiable. Each task is a bounded execution
+contract, not a step-by-step pseudo-implementation.
+
 Validation nodes and independent task verification are executed by Verity Cross, the built-in
 `fact-checker` agent. Their assertions must therefore be provable by AI-accessible repository,
 command, artifact, or previously approved evidence. Never put a requirement for a person to look at
