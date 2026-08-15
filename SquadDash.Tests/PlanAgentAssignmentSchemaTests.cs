@@ -37,7 +37,7 @@ internal sealed class PlanAgentAssignmentSchemaTests
     }
 
     [Test]
-    public void TasksJsonParser_AcceptsMultipleStructuredAssignments()
+    public void TasksJsonParser_RejectsMultiplePrimaryAssignments()
     {
         const string text = """
             TASKS_JSON:
@@ -61,11 +61,88 @@ internal sealed class PlanAgentAssignmentSchemaTests
             }
             """;
 
-        Assert.That(TasksJsonParser.TryParse(text, out var group), Is.True);
-        Assert.Multiple(() => {
-            Assert.That(group!.Tasks[0].AgentAssignments, Has.Count.EqualTo(2));
-            Assert.That(group.Tasks[0].ParallelEligible, Is.True);
+        Assert.That(TasksJsonParser.TryParse(text, out _, out var diagnostic), Is.False);
+        Assert.That(diagnostic?.Code, Is.EqualTo("too-many-agent-assignments"));
+    }
+
+    [Test]
+    public void TasksJsonParser_NormalizesUnambiguousAssignmentAndGateAliases()
+    {
+        const string text = """
+            TASKS_JSON:
+            {
+              "groupId":"ROUTE-20260815",
+              "groupTitle":"Routing",
+              "branch":"feature/routing",
+              "summary":"Verify routing",
+              "tasks":[
+                {
+                  "id":"ROUTE-20260815-001",
+                  "title":"Implement routing",
+                  "description":"Implement routing. Observable outcome: routing exists. Production consumer: task 002 uses it.",
+                  "dependsOn":[],
+                  "priority":"high",
+                  "executionMode":"implementation",
+                  "agentRoutingMode":"assigned",
+                  "assignedTo":"talia-rune"
+                },
+                {
+                  "id":"ROUTE-20260815-002",
+                  "title":"Use routing",
+                  "description":"Use routing. Observable outcome: routing is exercised. Production consumer: the application uses it.",
+                  "dependsOn":["ROUTE-20260815-001"],
+                  "priority":"mid",
+                  "executionMode":"implementation",
+                  "agentRoutingMode":"generic",
+                  "genericAgentReason":"Fixture"
+                }
+              ],
+              "approvalGates":[{
+                "gateId":"ROUTE-20260815-GATE-001",
+                "title":"Review routing",
+                "question":"Does the routing contract look correct?",
+                "afterTaskIds":["ROUTE-20260815-001"],
+                "beforeTaskIds":["ROUTE-20260815-002"]
+              }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(text, out var group, out var diagnostic), Is.True, diagnostic?.Message);
+        Assert.Multiple(() =>
+        {
+            Assert.That(group!.Tasks[0].AgentAssignments, Has.Count.EqualTo(1));
+            Assert.That(group.Tasks[0].AgentAssignments![0].AgentHandle, Is.EqualTo("talia-rune"));
+            Assert.That(group.Tasks[0].AgentAssignments![0].Role, Is.EqualTo("Implement routing"));
+            Assert.That(group.ApprovalGates![0].Message, Is.EqualTo("Review routing"));
         });
+    }
+
+    [Test]
+    public void TasksJsonParser_RejectsConflictingAssignmentShapes()
+    {
+        const string text = """
+            TASKS_JSON:
+            {
+              "groupId":"ROUTE-20260815",
+              "groupTitle":"Routing",
+              "branch":"feature/routing",
+              "summary":"Verify routing",
+              "tasks":[{
+                "id":"ROUTE-20260815-001",
+                "title":"Implement routing",
+                "description":"Implement and test routing",
+                "dependsOn":[],
+                "priority":"high",
+                "executionMode":"implementation",
+                "agentRoutingMode":"assigned",
+                "assignedTo":"talia-rune",
+                "agentAssignments":[{"agentHandle":"arjun-sen","role":"Implement routing","allowGenericChildren":true}]
+              }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(text, out _, out var diagnostic), Is.False);
+        Assert.That(diagnostic?.Code, Is.EqualTo("conflicting-agent-assignment-shapes"));
     }
 
     [Test]

@@ -56,6 +56,8 @@ internal static class DecomposePlanningInstructions
         "or if the user explicitly requests plan creation (using verbs like create, draft, devise, " +
         "design, write, make, propose, outline, or the /plan command), " +
         $"you MUST read `{specificationPath}` before responding, then follow its TASKS_JSON protocol. " +
+        "Use TASKS_JSON_FILE only for the specification's file-backed size escape hatch; never use " +
+        "SQUADDASH_ARTIFACT_JSON for a machine-consumed plan. " +
         "If the user gives free-text approval or chooses how to execute a staged decomposition plan, " +
         "you MUST read the same file and follow its DECOMPOSE_DECISION_JSON protocol. If the user " +
         "changes an unapproved staged plan's tasks, dependencies, validations, assignments, or other " +

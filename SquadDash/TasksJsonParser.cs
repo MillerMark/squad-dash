@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace SquadDash;
@@ -111,6 +112,9 @@ internal static class TasksJsonParser
 
         var jsonText = normalized[braceStart..(braceEnd + 1)];
 
+        if (!TryNormalizeRecoverableSchemaVariations(jsonText, out jsonText, out var normalizationError))
+            return Fail(normalizationError!.Code, normalizationError.Message);
+
         DecomposedTaskGroup? parsed;
         try
         {
@@ -130,6 +134,9 @@ internal static class TasksJsonParser
         {
             return Fail("missing-plan-metadata", "groupTitle, branch, and summary must be non-empty");
         }
+
+        if (parsed.Delivery is not null && parsed.Delivery is not ("transcript" or "inbox"))
+            return Fail("invalid-delivery", "delivery must be transcript or inbox when supplied");
 
         // Validate groupId format.
         if (!GroupIdPattern.IsMatch(parsed.GroupId ?? string.Empty))
@@ -180,10 +187,16 @@ internal static class TasksJsonParser
                 return Fail("missing-task-description", $"task '{task.Id}' has an empty description");
             }
 
-            if (task.AgentAssignments is { Count: > 4 })
+            if (task.Priority is not ("critical" or "high" or "mid" or "low"))
+            {
+                return Fail("invalid-task-priority",
+                    $"task '{task.Id}' priority must be critical, high, mid, or low");
+            }
+
+            if (task.AgentAssignments is { Count: > 1 })
             {
                 return Fail("too-many-agent-assignments",
-                    $"task '{task.Id}' has more than four primary agent assignments");
+                    $"task '{task.Id}' has more than one primary agent assignment; use generic children beneath that owner");
             }
 
             var assignedHandles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -205,7 +218,7 @@ internal static class TasksJsonParser
                 return Fail("invalid-agent-routing-mode",
                     $"task '{task.Id}' has invalid agentRoutingMode '{routingMode}'");
             }
-            if (routingMode == "assigned" && task.AgentAssignments is not { Count: > 0 })
+            if (routingMode == "assigned" && task.AgentAssignments is not { Count: 1 })
             {
                 return Fail("missing-assigned-agent",
                     $"task '{task.Id}' selects assigned routing without an assignment");
@@ -442,15 +455,15 @@ internal static class TasksJsonParser
                     return Fail("incomplete-validation",
                         $"validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
                 }
-                if (validation.AfterTaskIds.Concat(validation.BeforeTaskIds).Any(id => !validIds.Contains(id)) ||
-                    validation.AfterTaskIds.Intersect(validation.BeforeTaskIds, StringComparer.Ordinal).Any())
+                if ((validation.AfterTaskIds ?? []).Concat(validation.BeforeTaskIds ?? []).Any(id => !validIds.Contains(id)) ||
+                    (validation.AfterTaskIds ?? []).Intersect(validation.BeforeTaskIds ?? [], StringComparer.Ordinal).Any())
                 {
                     return Fail("invalid-validation-boundary",
                         $"validation '{validation.ValidationId}' has an unknown or overlapping task boundary");
                 }
                 if ((validation.OutputIds ?? []).Any(outputId =>
                         !outputOwners.TryGetValue(outputId, out var ownerId) ||
-                        !validation.AfterTaskIds.Any(afterId =>
+                        !(validation.AfterTaskIds ?? []).Any(afterId =>
                             string.Equals(afterId, ownerId, StringComparison.Ordinal) ||
                             DependsTransitivelyOn(tasksById, afterId, ownerId))))
                 {
@@ -463,7 +476,7 @@ internal static class TasksJsonParser
                     return Fail("invalid-validation-mode",
                         $"validation '{validation.ValidationId}' has an invalid mode or no command");
                 }
-                if (validation.BeforeTaskIds.Any(beforeId => validation.AfterTaskIds.Any(afterId =>
+                if ((validation.BeforeTaskIds ?? []).Any(beforeId => (validation.AfterTaskIds ?? []).Any(afterId =>
                         DependsTransitivelyOn(tasksById, afterId, beforeId))))
                 {
                     return Fail("validation-dependency-cycle",
@@ -536,6 +549,111 @@ internal static class TasksJsonParser
 
         group = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(parsed);
         return true;
+    }
+
+    /// <summary>
+    /// Applies only lossless, unambiguous compatibility repairs. The live specification continues
+    /// to require canonical property names; these aliases prevent a costly second model turn when
+    /// intent is already explicit. Conflicting canonical and compatibility shapes remain failures.
+    /// </summary>
+    private static bool TryNormalizeRecoverableSchemaVariations(
+        string jsonText,
+        out string normalizedJson,
+        out TasksJsonParseDiagnostic? diagnostic)
+    {
+        normalizedJson = jsonText;
+        diagnostic = null;
+
+        JsonObject? root;
+        try
+        {
+            root = JsonNode.Parse(
+                jsonText,
+                new JsonNodeOptions { PropertyNameCaseInsensitive = true },
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip,
+                }) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            // Preserve the original parser's detailed JSON exception.
+            return true;
+        }
+
+        if (root is null)
+            return true;
+
+        var changed = false;
+        if (root["tasks"] is JsonArray tasks)
+        {
+            foreach (var node in tasks)
+            {
+                if (node is not JsonObject task)
+                    continue;
+
+                var taskId = ReadString(task, "id") ?? "(unknown task)";
+                var assignedTo = ReadString(task, "assignedTo");
+                var hasCanonicalAssignments = task["agentAssignments"] is JsonArray;
+                if (!string.IsNullOrWhiteSpace(assignedTo) && hasCanonicalAssignments)
+                {
+                    diagnostic = new TasksJsonParseDiagnostic(
+                        "conflicting-agent-assignment-shapes",
+                        $"task '{taskId}' contains both assignedTo and agentAssignments; remove assignedTo and keep one canonical assignment");
+                    return false;
+                }
+
+                if (!string.IsNullOrWhiteSpace(assignedTo))
+                {
+                    task["agentAssignments"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["agentHandle"] = assignedTo,
+                            ["role"] = ReadString(task, "title") ?? "Primary task owner",
+                            ["allowGenericChildren"] = true,
+                        },
+                    };
+                    task["agentRoutingMode"] ??= "assigned";
+                    task.Remove("assignedTo");
+                    changed = true;
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"TasksJsonParser: normalized assignedTo compatibility alias for '{taskId}'");
+                }
+            }
+        }
+
+        if (root["approvalGates"] is JsonArray gates)
+        {
+            foreach (var node in gates)
+            {
+                if (node is not JsonObject gate)
+                    continue;
+
+                var gateId = ReadString(gate, "gateId") ?? "(unknown gate)";
+                if (string.IsNullOrWhiteSpace(ReadString(gate, "message")))
+                {
+                    var fallback = ReadString(gate, "title") ?? ReadString(gate, "question");
+                    if (!string.IsNullOrWhiteSpace(fallback))
+                    {
+                        gate["message"] = fallback;
+                        changed = true;
+                        SquadDashTrace.Write(TraceCategory.General,
+                            $"TasksJsonParser: normalized missing message for '{gateId}' from its title or question");
+                    }
+                }
+            }
+        }
+
+        if (changed)
+            normalizedJson = root.ToJsonString();
+        return true;
+
+        static string? ReadString(JsonObject value, string propertyName) =>
+            value[propertyName] is JsonValue property && property.TryGetValue<string>(out var text)
+                ? text
+                : null;
     }
 
     private static bool DependsTransitivelyOn(

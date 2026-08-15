@@ -200,6 +200,31 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void HiddenPlanFileResponse_IsResolvedAsTasksJson()
+    {
+        using var workspace = new TestWorkspace();
+        var group = MakeGroup();
+        var relativePath = Path.Combine(".squad", "tmp", "agent-artifacts", "hidden-plan.json");
+        workspace.CreateFile(relativePath, JsonSerializer.Serialize(group));
+        var response = $$"""
+            TASKS_JSON_FILE:
+            { "path": "{{relativePath.Replace('\\', '/')}}" }
+            """;
+
+        var resolved = TaskPlanResponseResolver.TryResolve(
+            response, workspace.RootPath, out var parserInput, out var source);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True);
+            Assert.That(parserInput, Does.StartWith("TASKS_JSON:"));
+            Assert.That(source, Is.EqualTo(relativePath));
+            Assert.That(TasksJsonParser.TryParse(parserInput, out var parsed), Is.True);
+            Assert.That(parsed!.GroupId, Is.EqualTo(group.GroupId));
+        });
+    }
+
+    [Test]
     public void ProtocolBlockFallback_IsResolvedWhenCombinedResponseOmitsPlan()
     {
         using var workspace = new TestWorkspace();

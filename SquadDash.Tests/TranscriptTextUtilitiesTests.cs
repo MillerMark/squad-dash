@@ -415,6 +415,26 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_TaskPlanFileTransport_StripsCompleteAndStreamingPayloads()
+    {
+        const string complete = """
+            Submitting the plan proposal now.
+
+            TASKS_JSON_FILE:
+            {"path":".squad/tmp/agent-artifacts/plan.json","sha256":"abc"}
+            """;
+        const string streaming = "Submitting the plan proposal now.\n\nTASKS_JSON_FILE:\n{\"path\":";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(complete),
+                Is.EqualTo("Submitting the plan proposal now."));
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(streaming),
+                Is.EqualTo("Submitting the plan proposal now."));
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_StagedPlanRevision_UsesDistinctInspectableMarker()
     {
         const string text = "Staged correction proposed.\n\nSTAGED_PLAN_REVISION_JSON:\n" +

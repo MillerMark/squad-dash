@@ -82,6 +82,30 @@ internal sealed class AgentArtifactStoreTests
     }
 
     [Test]
+    public void ExpandDisplayArtifacts_PlanShapedArtifact_RemainsHidden()
+    {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(
+            Path.Combine(".squad", "tmp", "agent-artifacts", "plan.json"),
+            """{"groupId":"HIDDEN-20260815","tasks":[]}""");
+        const string response = """
+            Submitting the plan proposal now.
+
+            SQUADDASH_ARTIFACT_JSON:
+            { "path": ".squad/tmp/agent-artifacts/plan.json", "language": "json", "display": "code_block" }
+            """;
+
+        var expanded = AgentArtifactBlockExpander.ExpandDisplayArtifacts(response, workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(expanded, Is.EqualTo("Submitting the plan proposal now."));
+            Assert.That(expanded, Does.Not.Contain("groupId"));
+            Assert.That(expanded, Does.Not.Contain("```"));
+        });
+    }
+
+    [Test]
     public void ResolveActiveWorkspaceRoot_PrefersWorkspaceOverApplicationRoot()
     {
         using var application = new TestWorkspace();

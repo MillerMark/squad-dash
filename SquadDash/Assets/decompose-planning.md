@@ -1,5 +1,5 @@
 ---
-schema-version: 7
+schema-version: 8
 host-owned: true
 ---
 
@@ -29,7 +29,7 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 - Attributive references: "the plan is to…", "plan A vs plan B"
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
-`summary`, and 2–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
+`summary`, and 1–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
 `delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, an explicit
 `agentRoutingMode`, and an explicit `executionMode` (`implementation` or `verification`).
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
@@ -102,10 +102,23 @@ the UI, hear audio, judge visual quality, or observe a restart directly into a v
 Declare it as a `proofRequirements` entry with `live-ui-observation`, `restart-observation`, or
 `human-observation`; SquadDash will promote it to an explicit human approval checkpoint.
 
+If the complete object is too large to return inline, write only that JSON object to
+`.squad/tmp/agent-artifacts/<file>.json` and return this top-level hidden transport instead:
+
+```text
+TASKS_JSON_FILE:
+{"path":".squad/tmp/agent-artifacts/<file>.json","sha256":"optional sha256"}
+```
+
+Never use `SQUADDASH_ARTIFACT_JSON` for a plan. That protocol displays its contents to the user;
+`TASKS_JSON_FILE` is consumed privately and SquadDash renders the compact plan receipt.
+
 ## TASKS_JSON schema
 
-All fields shown below except `delivery` are required. Emit the marker on a bare top-level line. A Markdown JSON
-fence around the object is accepted but not required.
+Every field explicitly labeled required below is required. Fields labeled optional may be omitted.
+Emit the marker on a bare top-level line. A Markdown JSON fence around the object is accepted but
+not required. Use the exact property names below; do not substitute familiar shorthand such as
+`assignedTo`, `owner`, or an approval-gate `title` for the canonical properties.
 
 - `groupId`: uppercase letters followed by `-YYYYMMDD`; pattern `^[A-Z]+-\d{8}$`.
 - `groupTitle`: short user-facing title.
@@ -115,7 +128,7 @@ fence around the object is accepted but not required.
   verification, rework, and human-review turn, so write it to remain useful outside the proposal conversation.
 - `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
   to their Inbox. Otherwise omit it or use `"transcript"`.
-- `tasks`: 2–25 task objects.
+- `tasks`: required array containing 1–25 task objects.
 - `tasks[].id`: exactly `{groupId}-NNN`, with a three-digit suffix.
 - `tasks[].title`: concise, action-oriented, human-readable task name. Do not use only a phase
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
@@ -127,12 +140,17 @@ fence around the object is accepted but not required.
   work or `"verification"` for non-mutating proof work. Verification tasks must declare at least one
   `proofRequirements` entry and must not create a commit merely to satisfy plan bookkeeping.
 - `tasks[].agentRoutingMode`: required; either `"assigned"` or `"generic"`. Never omit this to obtain a fallback.
-- `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments remain unavailable until SquadDash can isolate writers in separate worktrees.
+- `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. `agentHandle` and `role` are required non-empty strings; `allowGenericChildren` is a required boolean. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments remain unavailable until SquadDash can isolate writers in separate worktrees. Exact example: `"agentAssignments":[{"agentHandle":"arjun-sen","role":"Implement the persistence service","allowGenericChildren":true}]`.
+- `tasks[].agentAssignments[].agentHandle`: required exact active roster handle.
+- `tasks[].agentAssignments[].role`: required concise description of the assigned responsibility.
+- `tasks[].agentAssignments[].allowGenericChildren`: required boolean controlling subordinate generic helpers.
 - `tasks[].genericAgentReason`: required only with `agentRoutingMode: "generic"`; explain why no roster specialist is appropriate.
 - `tasks[].parallelEligible`: optional boolean. Set true only when the task may run concurrently with other dependency-ready tasks; dependencies still control readiness and SquadDash may serialize work when scopes conflict.
 - `tasks[].outputs`: optional list of stable `{ "outputId", "description" }` contracts produced by
   this task for later tasks. Use lowercase kebab-case IDs that describe capabilities rather than
   provisional class names.
+- `tasks[].outputs[].outputId`: required globally unique lowercase kebab-case capability ID.
+- `tasks[].outputs[].description`: required non-empty description of the produced contract.
 - `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
   A consumer may name several outputs, and one output may have several consumers.
 - `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description", "question" }`
@@ -147,6 +165,22 @@ fence around the object is accepted but not required.
   verifiable true/false claim, where true means the check passed and false means it failed. If a
   reviewer must check three outcomes, emit three proof requirements with three stable IDs; never
   bundle them into one question. Example: `Does clicking an item show a selection highlight?`.
+- `tasks[].proofRequirements[].requirementId`: required unique lowercase kebab-case identifier.
+- `tasks[].proofRequirements[].proofType`: required supported proof type listed above.
+- `tasks[].proofRequirements[].description`: required non-empty evidence contract.
+- `tasks[].proofRequirements[].question`: optional except that every human-only requirement should
+  supply one atomic true/false question.
+- `approvalGates`: optional array of explicit human checkpoints. Do not add a gate before every
+  root task or after the final task merely to duplicate plan start/completion controls.
+- `approvalGates[].gateId`: required non-empty stable identifier unique within the plan; use
+  `{groupId}-GATE-NNN` for newly-authored plans.
+- `approvalGates[].message`: required concise user-facing reason for the checkpoint, such as
+  `Review the dry-run summary before applying workspace changes`. This is not a title property.
+- `approvalGates[].afterTaskIds`: required array of task IDs that must all complete before the gate
+  becomes ready; use `[]` only when the boundary is expressed entirely by `beforeTaskIds` and is
+  not before every root task.
+- `approvalGates[].beforeTaskIds`: required array of task IDs whose work must wait for approval;
+  use `[]` only for a final human proof checkpoint with explicit `proofRequirements`.
 - `approvalGates[].question`: required in every newly proposed explicit human approval gate (the
   host only treats it as optional while reading older stored plans). Ask the concrete approval question in plain language;
   do not merely restate the gate message or say “Confirm this works.” SquadDash features this
@@ -155,10 +189,14 @@ fence around the object is accepted but not required.
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
   Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.
   Each entry must likewise be one atomic true/false verification item.
+- `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.description`, and `.question`:
+  use the same exact fields and rules as task proof requirements; every gate proof must be human-only.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.
-- `validations`: optional array of first-class, non-mutating cross-task validation nodes. Include these
+- `tasks[].amendmentGateId`: host-owned compatibility metadata for a dynamically inserted amendment;
+  never emit it in an ordinary new plan.
+- `validations`: optional array of at most 16 first-class, non-mutating cross-task validation nodes. Include these
   when correctness depends on outputs from multiple tasks communicating, being consumed, replacing a
   placeholder, or jointly satisfying an observable scenario. Do not add ceremonial validations to a
   simple plan whose task-level acceptance already proves the result.
@@ -189,7 +227,8 @@ not silently rewrite production code.
 
 The dependency graph must be acyclic. Use dependencies only for real prerequisites; independent
 tasks should remain independent so a future scheduler may run them concurrently. Each task must
-leave the build usable. `TASKS_JSON` must be the final machine-readable payload in the response.
+leave the build usable. `TASKS_JSON` or `TASKS_JSON_FILE` must be the final machine-readable payload
+in the response.
 
 ## Complete valid TASKS_JSON example
 
@@ -243,6 +282,15 @@ TASKS_JSON:
       ],
       "agentRoutingMode": "generic",
       "genericAgentReason": "No active roster specialist covers this UI integration."
+    }
+  ],
+  "approvalGates": [
+    {
+      "gateId": "SEARCH-20260725-GATE-001",
+      "message": "Review the migrated indexing path before connecting the search UI",
+      "afterTaskIds": ["SEARCH-20260725-002"],
+      "beforeTaskIds": ["SEARCH-20260725-003"],
+      "question": "Does the migrated document-indexing path preserve existing indexing behavior?"
     }
   ],
   "validations": [

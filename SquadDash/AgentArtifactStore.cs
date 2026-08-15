@@ -156,6 +156,13 @@ internal static class AgentArtifactStore
         SQUADDASH_ARTIFACT_JSON:
         {"path":".squad/tmp/agent-artifacts/<file>","language":"json","display":"code_block","label":"optional label","sha256":"optional sha256"}
 
+        Never use SQUADDASH_ARTIFACT_JSON for TASKS_JSON or another machine-consumed host protocol.
+        For a task plan that is too large to return inline, write the complete JSON object to
+        `.squad/tmp/agent-artifacts/<file>.json` and append this hidden transport instead:
+        TASKS_JSON_FILE:
+        {"path":".squad/tmp/agent-artifacts/<file>.json","sha256":"optional sha256"}
+        SquadDash consumes that file and shows its own compact plan receipt; the JSON is not displayed.
+
         Inline fenced code is fine when the code snippet is a supporting detail inside a conversational answer — not when the response itself is the deliverable. Also use artifact files when the content includes nested JSON/Markdown/code fences or markers such as `INBOX_MESSAGE_JSON:`, `HOST_COMMAND_JSON:`, `QUICK_REPLIES_JSON:`, or `<system_notification>`.
 
         For complex inbox messages, write the complete inbox JSON object to `.squad/tmp/agent-artifacts/<file>.json` and append:

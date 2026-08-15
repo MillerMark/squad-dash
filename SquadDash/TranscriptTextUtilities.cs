@@ -36,7 +36,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        RepairFusedProseBoundaries(StripHostOwnedJsonBlocks(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))))))).TrimEnd();
+        RepairFusedProseBoundaries(StripHostOwnedJsonBlocks(StripTaskPlanFileBlock(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -337,6 +337,9 @@ internal static class TranscriptTextUtilities
 
     private static string StripTasksJsonBlock(string text)
         => StripTopLevelJsonBlock(text, "TASKS_JSON:");
+
+    private static string StripTaskPlanFileBlock(string text)
+        => StripInspectableJsonBlock(text, TaskPlanResponseResolver.FileMarker);
 
     private static string StripHostOwnedJsonBlocks(string text)
     {

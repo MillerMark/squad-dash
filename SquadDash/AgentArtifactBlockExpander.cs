@@ -44,6 +44,13 @@ internal static class AgentArtifactBlockExpander
             return $"> Artifact could not be loaded: {error}";
         }
 
+        // A plan is a host-owned protocol payload, never a transcript deliverable. Older
+        // model responses sometimes used SQUADDASH_ARTIFACT_JSON with display=code_block for
+        // plans; suppress those payloads here while TaskPlanResponseResolver still consumes
+        // them through its backward-compatible transport path.
+        if (TaskPlanResponseResolver.LooksLikeTaskPlanArtifactContent(artifact.Content))
+            return string.Empty;
+
         var language = AgentArtifactStore.NormalizeLanguage(reference.Language);
         var fence = BuildFence(artifact.Content);
         var builder = new StringBuilder();

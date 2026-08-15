@@ -3,6 +3,8 @@ namespace SquadDash;
 /// <summary>Normalizes inline and file-backed task-plan responses into one parser input.</summary>
 internal static class TaskPlanResponseResolver
 {
+    internal const string FileMarker = "TASKS_JSON_FILE:";
+
     internal static bool TryResolve(
         string? rawResponse,
         string workspaceRoot,
@@ -60,45 +62,49 @@ internal static class TaskPlanResponseResolver
                 firstMalformedInlineSource ??= candidate.Source;
             }
 
+            if (candidate.Text.Contains(FileMarker, StringComparison.Ordinal))
+            {
+                payloadDetected = true;
+                if (TryResolveArtifact(
+                        candidate.Text,
+                        FileMarker,
+                        workspaceRoot,
+                        requirePlanShape: false,
+                        out parserInput,
+                        out source,
+                        out var fileDiagnostic))
+                {
+                    return true;
+                }
+
+                diagnostic ??= fileDiagnostic;
+            }
+
+            // Backward-compatible recovery for model responses that incorrectly used the
+            // user-visible artifact protocol for a machine-consumed task plan. New prompts
+            // explicitly require TASKS_JSON_FILE so this path can remain tolerant without
+            // teaching the obsolete transport back to the model.
             if (!candidate.Text.Contains(AgentArtifactStore.DisplayArtifactMarker, StringComparison.Ordinal))
                 continue;
 
-            payloadDetected = true;
-            if (!StructuredJsonBlockParser.TryExtractObject<AgentArtifactReference>(
+            if (TryResolveArtifact(
                     candidate.Text,
                     AgentArtifactStore.DisplayArtifactMarker,
-                    out var extraction) ||
-                extraction is null)
-            {
-                diagnostic ??= "The plan artifact reference was malformed.";
-                continue;
-            }
-
-            if (!AgentArtifactStore.TryMaterialize(
                     workspaceRoot,
-                    extraction.Payload,
-                    AgentArtifactStore.DefaultMaxInboxBytes,
-                    archive: true,
-                    out var artifact,
-                    out var artifactError) ||
-                artifact is null)
+                    requirePlanShape: true,
+                    out parserInput,
+                    out source,
+                    out var displayDiagnostic))
             {
-                diagnostic ??= artifactError;
-                continue;
+                payloadDetected = true;
+                return true;
             }
 
-            var artifactCandidate = artifact.Content.Contains("TASKS_JSON:", StringComparison.Ordinal)
-                ? artifact.Content
-                : "TASKS_JSON:\n" + artifact.Content;
-            if (!TasksJsonParser.TryParse(artifactCandidate, out var artifactGroup) || artifactGroup is null)
+            if (!string.IsNullOrWhiteSpace(displayDiagnostic))
             {
-                diagnostic ??= $"The plan artifact at {artifact.SourceRelativePath} did not contain a valid TASKS_JSON plan.";
-                continue;
+                payloadDetected = true;
+                diagnostic ??= displayDiagnostic;
             }
-
-            parserInput = artifactCandidate;
-            source = artifact.SourceRelativePath;
-            return true;
         }
 
         // Preserve the existing automatic-repair path for an inline payload that was detected
@@ -111,6 +117,81 @@ internal static class TaskPlanResponseResolver
         }
 
         return false;
+    }
+
+    internal static bool LooksLikeTaskPlanArtifactContent(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return false;
+
+        StructuredJsonBlockExtraction<System.Text.Json.JsonElement>? extraction;
+        if (content.Contains("TASKS_JSON:", StringComparison.Ordinal))
+        {
+            if (!StructuredJsonBlockParser.TryExtractObject(content, "TASKS_JSON:", out extraction))
+                return false;
+        }
+        else if (!StructuredJsonBlockParser.TryExtractSingleObject(content, out extraction))
+        {
+            return false;
+        }
+
+        var root = extraction!.Payload;
+        return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
+               root.TryGetProperty("groupId", out var groupId) &&
+               groupId.ValueKind == System.Text.Json.JsonValueKind.String &&
+               root.TryGetProperty("tasks", out var tasks) &&
+               tasks.ValueKind == System.Text.Json.JsonValueKind.Array;
+    }
+
+    private static bool TryResolveArtifact(
+        string candidateText,
+        string marker,
+        string workspaceRoot,
+        bool requirePlanShape,
+        out string parserInput,
+        out string? source,
+        out string diagnostic)
+    {
+        parserInput = string.Empty;
+        source = null;
+        diagnostic = string.Empty;
+
+        if (!StructuredJsonBlockParser.TryExtractObject<AgentArtifactReference>(
+                candidateText,
+                marker,
+                out var extraction) ||
+            extraction is null)
+        {
+            diagnostic = "The plan artifact reference was malformed.";
+            return false;
+        }
+
+        if (!AgentArtifactStore.TryMaterialize(
+                workspaceRoot,
+                extraction.Payload,
+                AgentArtifactStore.DefaultMaxInboxBytes,
+                archive: true,
+                out var artifact,
+                out var artifactError) ||
+            artifact is null)
+        {
+            diagnostic = artifactError;
+            return false;
+        }
+
+        if (requirePlanShape && !LooksLikeTaskPlanArtifactContent(artifact.Content))
+        {
+            // This is an ordinary user-visible artifact, not a plan transport.
+            diagnostic = string.Empty;
+            return false;
+        }
+
+        var artifactCandidate = artifact.Content.Contains("TASKS_JSON:", StringComparison.Ordinal)
+            ? artifact.Content
+            : "TASKS_JSON:\n" + artifact.Content;
+        parserInput = artifactCandidate;
+        source = artifact.SourceRelativePath;
+        return true;
     }
 
     private static IReadOnlyList<ResponseCandidate> BuildCandidates(

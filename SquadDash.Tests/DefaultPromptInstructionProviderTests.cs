@@ -26,7 +26,17 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("DECOMPOSE_RECOVERY_JSON:"));
         Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON"));
         Assert.That(instruction, Does.Contain("SEARCH-20260725-003"));
-        Assert.That(instruction, Does.Contain("schema-version: 7"));
+        Assert.That(instruction, Does.Contain("schema-version: 8"));
+        Assert.That(instruction, Does.Contain("1–25 task objects"));
+        Assert.That(instruction, Does.Contain("TASKS_JSON_FILE:"));
+        Assert.That(instruction, Does.Contain("Never use `SQUADDASH_ARTIFACT_JSON` for a plan"));
+        Assert.That(instruction, Does.Contain("`approvalGates[].gateId`"));
+        Assert.That(instruction, Does.Contain("`approvalGates[].message`"));
+        Assert.That(instruction, Does.Contain("`approvalGates[].afterTaskIds`"));
+        Assert.That(instruction, Does.Contain("`approvalGates[].beforeTaskIds`"));
+        Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].agentHandle`"));
+        Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].role`"));
+        Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].allowGenericChildren`"));
         Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
         Assert.That(instruction, Does.Contain("final `audit` validation"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
@@ -187,7 +197,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
             Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
-            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 7"));
+            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 8"));
             var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path);
             Assert.That(pointer, Does.Contain(path));
             Assert.That(pointer, Does.Contain("Never claim that it was staged"));
