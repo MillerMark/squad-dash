@@ -128,6 +128,17 @@ internal static class TasksJsonParser
         if (parsed is null)
             return Fail("null-plan", "TASKS_JSON deserialized to null");
 
+        var independentDiagnostics = CollectIndependentConformanceDiagnostics(parsed);
+        if (independentDiagnostics.Count > 0)
+        {
+            var first = independentDiagnostics[0];
+            var detail = independentDiagnostics.Count == 1
+                ? first.Message
+                : $"{independentDiagnostics.Count} independent schema problems were found:\n- " +
+                  string.Join("\n- ", independentDiagnostics.Select(value => $"{value.Code}: {value.Message}"));
+            return Fail(first.Code, detail);
+        }
+
         if (string.IsNullOrWhiteSpace(parsed.GroupTitle) ||
             string.IsNullOrWhiteSpace(parsed.Branch) ||
             string.IsNullOrWhiteSpace(parsed.Summary))
@@ -187,7 +198,8 @@ internal static class TasksJsonParser
                 return Fail("missing-task-description", $"task '{task.Id}' has an empty description");
             }
 
-            if (task.Priority is not ("critical" or "high" or "mid" or "low"))
+            // "mid" is canonical; retain the older "medium" spelling when reading durable plans.
+            if (task.Priority is not ("critical" or "high" or "mid" or "medium" or "low"))
             {
                 return Fail("invalid-task-priority",
                     $"task '{task.Id}' priority must be critical, high, mid, or low");
@@ -654,6 +666,122 @@ internal static class TasksJsonParser
             value[propertyName] is JsonValue property && property.TryGetValue<string>(out var text)
                 ? text
                 : null;
+    }
+
+    /// <summary>
+    /// Collects independent, locally decidable schema defects in one pass. Relational checks such as
+    /// dependency cycles and proof-boundary semantics remain in the ordered validator below because
+    /// later diagnostics may depend on earlier identities being valid. Returning all shape defects at
+    /// once lets the single automatic repair turn correct the whole object instead of playing
+    /// one-error-at-a-time whack-a-mole.
+    /// </summary>
+    private static IReadOnlyList<TasksJsonParseDiagnostic> CollectIndependentConformanceDiagnostics(
+        DecomposedTaskGroup parsed)
+    {
+        var diagnostics = new List<TasksJsonParseDiagnostic>();
+
+        void Add(string code, string message) => diagnostics.Add(new TasksJsonParseDiagnostic(code, message));
+
+        if (string.IsNullOrWhiteSpace(parsed.GroupTitle) ||
+            string.IsNullOrWhiteSpace(parsed.Branch) ||
+            string.IsNullOrWhiteSpace(parsed.Summary))
+        {
+            Add("missing-plan-metadata", "groupTitle, branch, and summary must be non-empty");
+        }
+
+        if (parsed.Delivery is not null && parsed.Delivery is not ("transcript" or "inbox"))
+            Add("invalid-delivery", "delivery must be transcript or inbox when supplied");
+
+        if (!GroupIdPattern.IsMatch(parsed.GroupId ?? string.Empty))
+            Add("invalid-group-id", $"invalid groupId '{parsed.GroupId}' — must match [A-Z]+-\\d{{8}}");
+
+        if (parsed.Tasks is null || parsed.Tasks.Count == 0)
+        {
+            Add("missing-tasks", "tasks array is null or empty");
+            return diagnostics;
+        }
+
+        if (parsed.Tasks.Count > 25)
+            Add("too-many-tasks", $"{parsed.Tasks.Count} tasks exceeds maximum of 25");
+
+        var taskIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var task in parsed.Tasks)
+        {
+            var taskId = string.IsNullOrWhiteSpace(task.Id) ? "(unknown task)" : task.Id;
+            if (string.IsNullOrWhiteSpace(task.Id))
+                Add("missing-task-id", "a task has a null or empty id");
+            else
+            {
+                var match = TaskIdPattern.Match(task.Id);
+                if (!match.Success || match.Groups[1].Value != parsed.GroupId)
+                    Add("invalid-task-id", $"task id '{task.Id}' does not match {{groupId}}-NNN or {{groupId}}-AMD-NNN pattern");
+                if (!taskIds.Add(task.Id))
+                    Add("duplicate-task-id", $"duplicate task id '{task.Id}'");
+            }
+
+            if (string.IsNullOrWhiteSpace(task.Title))
+                Add("missing-task-title", $"task '{taskId}' has an empty title");
+            if (string.IsNullOrWhiteSpace(task.Description))
+                Add("missing-task-description", $"task '{taskId}' has an empty description");
+            if (task.Priority is not ("critical" or "high" or "mid" or "medium" or "low"))
+                Add("invalid-task-priority", $"task '{taskId}' priority must be critical, high, mid, or low");
+            if (task.AgentAssignments is { Count: > 1 })
+                Add("too-many-agent-assignments", $"task '{taskId}' has more than one primary agent assignment; use generic children beneath that owner");
+
+            var routingMode = task.AgentRoutingMode?.Trim();
+            if (routingMode is not null && routingMode is not ("assigned" or "generic"))
+                Add("invalid-agent-routing-mode", $"task '{taskId}' has invalid agentRoutingMode '{routingMode}'");
+            else if (routingMode == "assigned" && task.AgentAssignments is not { Count: 1 })
+                Add("missing-assigned-agent", $"task '{taskId}' selects assigned routing without an assignment");
+            else if (routingMode == "generic" &&
+                     (task.AgentAssignments is { Count: > 0 } || string.IsNullOrWhiteSpace(task.GenericAgentReason)))
+                Add("invalid-generic-routing", $"task '{taskId}' must explain its explicit generic routing and omit assignments");
+
+            var executionMode = task.ExecutionMode?.Trim();
+            if (executionMode is not null &&
+                executionMode is not (PlanTaskExecutionMode.Implementation or PlanTaskExecutionMode.Verification))
+                Add("invalid-task-execution-mode", $"task '{taskId}' executionMode must be implementation or verification");
+            else if (executionMode == PlanTaskExecutionMode.Verification &&
+                     task.ProofRequirements is not { Count: > 0 })
+                Add("verification-task-without-proof", $"verification task '{taskId}' must declare at least one proof requirement");
+        }
+
+        var gateIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var gate in parsed.ApprovalGates ?? [])
+        {
+            var gateId = string.IsNullOrWhiteSpace(gate.GateId) ? "(unknown gate)" : gate.GateId;
+            if (string.IsNullOrWhiteSpace(gate.GateId))
+                Add("missing-gate-id", "a gate has a null or empty gateId");
+            else if (!gateIds.Add(gate.GateId))
+                Add("duplicate-gate-id", $"duplicate gate id '{gate.GateId}'");
+            if (string.IsNullOrWhiteSpace(gate.Message))
+                Add("missing-gate-message", $"gate '{gateId}' has an empty message");
+            if (string.IsNullOrWhiteSpace(gate.Question))
+                Add("missing-gate-question", $"gate '{gateId}' must tell the reviewer exactly what to verify or decide");
+        }
+
+        if (parsed.Validations is { Count: > 16 })
+            Add("too-many-validations", "validations exceeds maximum of 16");
+
+        var validationIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var validation in parsed.Validations ?? [])
+        {
+            var validationId = validation.ValidationId ?? string.Empty;
+            var match = ValidationIdPattern.Match(validationId);
+            if (!match.Success || match.Groups[1].Value != parsed.GroupId ||
+                !validationIds.Add(validationId))
+                Add("invalid-validation-id", $"invalid or duplicate validation id '{validation.ValidationId}'");
+            if (string.IsNullOrWhiteSpace(validation.Title) ||
+                string.IsNullOrWhiteSpace(validation.Description) ||
+                validation.Assertions is not { Count: > 0 } ||
+                validation.AfterTaskIds is not { Count: > 0 })
+                Add("incomplete-validation", $"validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
+            if (validation.Mode is not ("command" or "evidence" or "hybrid" or "audit") ||
+                (validation.Mode is "command" or "hybrid") && validation.Commands is not { Count: > 0 })
+                Add("invalid-validation-mode", $"validation '{validation.ValidationId}' has an invalid mode or no command");
+        }
+
+        return diagnostics;
     }
 
     private static bool DependsTransitivelyOn(

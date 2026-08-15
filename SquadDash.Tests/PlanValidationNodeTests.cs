@@ -140,6 +140,13 @@ internal sealed class PlanValidationNodeTests
             Assert.That(group.Tasks[0].Outputs, Has.Count.EqualTo(1));
             Assert.That(group.Tasks[1].Inputs, Is.EqualTo(new[] { "component-a-contract" }));
         });
+
+        var withNullOptionalBoundary = response.Replace(
+            "\"beforeTaskIds\":[\"VALIDATION-20260803-002\"]",
+            "\"beforeTaskIds\":null",
+            StringComparison.Ordinal);
+        Assert.That(TasksJsonParser.TryParse(withNullOptionalBoundary, out _), Is.True,
+            "A model-supplied null for an optional validation boundary must behave like an empty array, not crash parsing.");
     }
 
     [Test]

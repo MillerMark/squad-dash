@@ -61,6 +61,50 @@ internal sealed class TaskPlanRepairPromptBuilderTests
     }
 
     [Test]
+    public void Build_ReportsIndependentSchemaProblemsInOneRepairTurn()
+    {
+        const string candidate = """
+            TASKS_JSON:
+            {
+              "groupId": "REPAIR-20260815",
+              "groupTitle": "Repair fixture",
+              "branch": "feature/repair-fixture",
+              "summary": "Exercise complete diagnostics.",
+              "tasks": [
+                {
+                  "id": "bad-task-id",
+                  "title": "Implement fixture",
+                  "description": "Implement the fixture.",
+                  "dependsOn": [],
+                  "priority": "urgent",
+                  "executionMode": "implementation",
+                  "agentRoutingMode": "generic",
+                  "genericAgentReason": "No roster specialist applies."
+                }
+              ],
+              "approvalGates": [
+                {
+                  "gateId": "REPAIR-20260815-GATE-001",
+                  "message": "Review the fixture.",
+                  "afterTaskIds": ["bad-task-id"],
+                  "beforeTaskIds": []
+                }
+              ]
+            }
+            """;
+
+        var prompt = TaskPlanRepairPromptBuilder.Build(candidate, null, "LIVE SPECIFICATION");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("3 independent schema problems were found"));
+            Assert.That(prompt, Does.Contain("invalid-task-id"));
+            Assert.That(prompt, Does.Contain("invalid-task-priority"));
+            Assert.That(prompt, Does.Contain("missing-gate-question"));
+        });
+    }
+
+    [Test]
     public void Build_HandlesUnavailableCandidateWithoutDroppingRepairContract()
     {
         var prompt = TaskPlanRepairPromptBuilder.Build(

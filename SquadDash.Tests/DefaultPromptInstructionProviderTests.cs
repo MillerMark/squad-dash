@@ -56,6 +56,40 @@ internal sealed class DefaultPromptInstructionProviderTests
     }
 
     [Test]
+    public void DecomposePlanningSpecification_DocumentsEverySerializedPlanProperty()
+    {
+        var instruction = DecomposePlanningInstructions.LoadSpecification();
+
+        AssertSerializedProperties<DecomposedTaskGroup>(instruction, string.Empty, nameof(DecomposedTaskGroup.HostRevision));
+        AssertSerializedProperties<DecomposedSubTask>(instruction, "tasks[]");
+        AssertSerializedProperties<DecomposedAgentAssignment>(instruction, "tasks[].agentAssignments[]");
+        AssertSerializedProperties<DecomposedTaskOutput>(instruction, "tasks[].outputs[]");
+        AssertSerializedProperties<DecomposedTaskProofRequirement>(instruction, "tasks[].proofRequirements[]");
+        AssertSerializedProperties<DecomposedGate>(instruction, "approvalGates[]");
+        AssertSerializedProperties<DecomposedValidationNode>(instruction, "validations[]");
+    }
+
+    private static void AssertSerializedProperties<T>(
+        string instruction,
+        string prefix,
+        params string[] excludedProperties)
+    {
+        var excluded = excludedProperties.ToHashSet(StringComparer.Ordinal);
+        foreach (var property in typeof(T).GetProperties().Where(value => !excluded.Contains(value.Name)))
+        {
+            var attribute = property.GetCustomAttributes(
+                    typeof(System.Text.Json.Serialization.JsonPropertyNameAttribute), inherit: false)
+                .Cast<System.Text.Json.Serialization.JsonPropertyNameAttribute>()
+                .Single();
+            var path = string.IsNullOrEmpty(prefix)
+                ? attribute.Name
+                : $"{prefix}.{attribute.Name}";
+            Assert.That(instruction, Does.Contain($"`{path}`"),
+                $"The live planning specification must document serialized property {typeof(T).Name}.{property.Name} as {path}.");
+        }
+    }
+
+    [Test]
     public void PendingPlanContext_UsesCompactDelegationEnvelopeAndHostOwnedProtocolPointer()
     {
         var squadFolder = Path.Combine(

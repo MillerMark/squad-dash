@@ -844,6 +844,56 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void BuildTranscriptTurnRecord_DoesNotPersistPlanShapedDisplayArtifactContent()
+    {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(
+            Path.Combine(".squad", "tmp", "agent-artifacts", "plan.json"),
+            """
+            {
+              "groupId": "HIDDEN-20260815",
+              "groupTitle": "Hidden plan",
+              "branch": "feature/hidden-plan",
+              "summary": "The plan remains host-consumed.",
+              "tasks": []
+            }
+            """);
+
+        var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
+        var turn = new TranscriptTurnView(
+            thread,
+            "prompt",
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            new Section(),
+            Array.Empty<Block>());
+        var response = new TranscriptResponseEntry(turn, 1, new Section());
+        response.RawTextBuilder.Append("""
+            Submitting the plan proposal now.
+
+            SQUADDASH_ARTIFACT_JSON:
+            { "path": ".squad/tmp/agent-artifacts/plan.json", "language": "json", "display": "code_block", "label": "Task plan" }
+            """);
+        turn.ResponseEntries.Add(response);
+
+        var manager = MakeManager(workspace: sessionWorkspace, coordinatorThread: thread);
+        var record = manager.BuildTranscriptTurnRecord(turn, DateTimeOffset.UtcNow);
+        var segment = record.GetResponseSegments().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segment.Text, Does.Contain("Submitting the plan proposal now."));
+            Assert.That(segment.Text, Does.Not.Contain("SQUADDASH_ARTIFACT_JSON:"));
+            Assert.That(segment.Text, Does.Not.Contain("HIDDEN-20260815"));
+            Assert.That(segment.Text, Does.Not.Contain("```json"));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void ReplaceLatestCoordinatorResponse_ReplacesStaleRecoveryAndDropsProtocolButtons() {
         using var workspace = new TestWorkspace();
         var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);

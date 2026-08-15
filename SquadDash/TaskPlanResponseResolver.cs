@@ -137,10 +137,27 @@ internal static class TaskPlanResponseResolver
 
         var root = extraction!.Payload;
         return root.ValueKind == System.Text.Json.JsonValueKind.Object &&
-               root.TryGetProperty("groupId", out var groupId) &&
+               TryGetProperty(root, "groupId", out var groupId) &&
                groupId.ValueKind == System.Text.Json.JsonValueKind.String &&
-               root.TryGetProperty("tasks", out var tasks) &&
+               TryGetProperty(root, "tasks", out var tasks) &&
                tasks.ValueKind == System.Text.Json.JsonValueKind.Array;
+
+        static bool TryGetProperty(
+            System.Text.Json.JsonElement value,
+            string name,
+            out System.Text.Json.JsonElement property)
+        {
+            foreach (var candidate in value.EnumerateObject())
+            {
+                if (!string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                property = candidate.Value;
+                return true;
+            }
+
+            property = default;
+            return false;
+        }
     }
 
     private static bool TryResolveArtifact(
