@@ -118,7 +118,51 @@ internal sealed class PlanGateManagerTests
             Assert.That(gate.AfterTaskIds,  Is.EquivalentTo(new[] { "TEST-20260101-001" }));
             Assert.That(gate.BeforeTaskIds, Is.EquivalentTo(new[] { "TEST-20260101-002" }));
             Assert.That(gate.Message,       Is.EqualTo("Review before 002"));
+            Assert.That(gate.Question,      Is.Not.Null.And.Not.Empty);
             Assert.That(gate.Status,        Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(StagedPlanEditor.TryValidate(
+                PendingDecomposePlanAdapter.FromPlan(result).Group,
+                out _, out var error), Is.True, error);
+        });
+    }
+
+    [Test]
+    public void AddGateBefore_CompatibleSiblingBoundary_ExtendsExistingGate()
+    {
+        var plan = MakePlan(
+            ("TEST-20260101-001", []),
+            ("TEST-20260101-002", ["TEST-20260101-001"]),
+            ("TEST-20260101-004", ["TEST-20260101-001"]),
+            ("TEST-20260101-006", ["TEST-20260101-001"]));
+        var authored = new PlanApprovalGate(
+            "TEST-20260101-GATE-001",
+            "Review the SDK capability assessment.",
+            ["TEST-20260101-001"],
+            ["TEST-20260101-002"],
+            PlanGateStatus.Pending,
+            PlanRevision: plan.Revision,
+            PresentationAnchor: "task-after:TEST-20260101-001",
+            Question: "Does the SDK assessment support the proposed downstream implementation?");
+        plan = plan with { ApprovalGates = [authored] };
+
+        var updated = PlanGateManager.AddGateBefore(
+            plan, "TEST-20260101-004", "Review before 004");
+
+        Assert.That(updated.ApprovalGates, Has.Count.EqualTo(1));
+        var gate = updated.ApprovalGates.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.GateId, Is.EqualTo(authored.GateId));
+            Assert.That(gate.BeforeTaskIds, Is.EquivalentTo(new[]
+            {
+                "TEST-20260101-002", "TEST-20260101-004",
+            }));
+            Assert.That(gate.Message, Is.EqualTo(authored.Message));
+            Assert.That(gate.Question, Is.EqualTo(authored.Question));
+            Assert.That(gate.PresentationAnchor, Is.EqualTo(authored.PresentationAnchor));
+            Assert.That(StagedPlanEditor.TryValidate(
+                PendingDecomposePlanAdapter.FromPlan(updated).Group,
+                out _, out var error), Is.True, error);
         });
     }
 
@@ -155,8 +199,39 @@ internal sealed class PlanGateManagerTests
             Assert.That(gate.AfterTaskIds,  Is.EquivalentTo(new[] { "TEST-20260101-001" }));
             Assert.That(gate.BeforeTaskIds, Is.EquivalentTo(new[] { "TEST-20260101-002" }));
             Assert.That(gate.Message,       Is.EqualTo("Review after 001"));
+            Assert.That(gate.Question,      Is.Not.Null.And.Not.Empty);
             Assert.That(gate.Status,        Is.EqualTo(PlanGateStatus.Pending));
         });
+    }
+
+    [Test]
+    public void AddGateAfter_CompatiblePartialBoundary_ExtendsExistingGate()
+    {
+        var plan = MakePlan(
+            ("TEST-20260101-001", []),
+            ("TEST-20260101-002", ["TEST-20260101-001"]),
+            ("TEST-20260101-004", ["TEST-20260101-001"]),
+            ("TEST-20260101-006", ["TEST-20260101-001"]));
+        plan = plan with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "TEST-20260101-GATE-001", "Review assessment",
+                    ["TEST-20260101-001"], ["TEST-20260101-002"],
+                    PlanGateStatus.Pending,
+                    Question: "Is the assessment ready for review?"),
+            ],
+        };
+
+        var updated = PlanGateManager.AddGateAfter(
+            plan, "TEST-20260101-001", "Review after 001");
+
+        Assert.That(updated.ApprovalGates, Has.Count.EqualTo(1));
+        Assert.That(updated.ApprovalGates.Single().BeforeTaskIds, Is.EquivalentTo(new[]
+        {
+            "TEST-20260101-002", "TEST-20260101-004", "TEST-20260101-006",
+        }));
     }
 
     [Test]
@@ -363,6 +438,7 @@ internal sealed class PlanGateManagerTests
             Assert.That(result.ApprovalGates[0].BeforeTaskIds, Is.Empty);
             Assert.That(result.ApprovalGates[0].PresentationAnchor,
                 Is.EqualTo("task-after:TEST-20260101-002"));
+            Assert.That(result.ApprovalGates[0].Question, Is.Not.Null.And.Not.Empty);
         });
     }
 

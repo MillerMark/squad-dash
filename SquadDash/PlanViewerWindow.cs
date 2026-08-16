@@ -2103,13 +2103,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             durablePlan,
                             capturedTask.Id,
                             $"Review before: {capturedTask.Title ?? capturedTask.Id}");
-                        var insertedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
-                            !durablePlan.ApprovalGates.Any(existing => existing.GateId == gate.GateId));
-                        if (insertedGate is not null)
+                        var changedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                            durablePlan.ApprovalGates.FirstOrDefault(existing =>
+                                existing.GateId == gate.GateId) is not { } existing ||
+                            !Equals(existing, gate));
+                        if (changedGate is not null)
                             ApplyStagedMutation(
                                 PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
                                 selectKind: "humanapproval",
-                                selectId: insertedGate.GateId,
+                                selectId: changedGate.GateId,
                                 beginEditingSelection: true);
                         return;
                     }
@@ -2138,13 +2140,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             durablePlan,
                             capturedTask.Id,
                             $"Review after: {capturedTask.Title ?? capturedTask.Id}");
-                        var insertedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
-                            !durablePlan.ApprovalGates.Any(existing => existing.GateId == gate.GateId));
-                        if (insertedGate is not null)
+                        var changedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                            durablePlan.ApprovalGates.FirstOrDefault(existing =>
+                                existing.GateId == gate.GateId) is not { } existing ||
+                            !Equals(existing, gate));
+                        if (changedGate is not null)
                             ApplyStagedMutation(
                                 PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
                                 selectKind: "humanapproval",
-                                selectId: insertedGate.GateId,
+                                selectId: changedGate.GateId,
                                 beginEditingSelection: true);
                         return;
                     }

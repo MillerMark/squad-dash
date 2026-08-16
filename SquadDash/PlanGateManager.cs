@@ -174,6 +174,8 @@ internal static class PlanGateManager
             Status = PlanGateStatus.Pending,
             PlanRevision = plan.Revision,
             PresentationAnchor = presentationAnchor ?? gate.PresentationAnchor,
+            Question = ResolveReviewQuestion(
+                plan, afterIds, beforeIds, gate.Message, gate.Question),
         };
         var remaining = suppressed
             .Where(candidate => !string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal))
@@ -191,12 +193,15 @@ internal static class PlanGateManager
     /// </summary>
     internal static Plan AddBoundaryGate(Plan plan,
         IReadOnlyList<string> afterIds, IReadOnlyList<string> beforeIds, string message,
-        string? presentationAnchor = null, bool removeSubsumedTaskGates = false)
+        string? presentationAnchor = null, bool removeSubsumedTaskGates = false,
+        string? question = null)
     {
         var knownIds = plan.Tasks.Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal);
         var normalizedAfter = afterIds.Distinct(StringComparer.Ordinal).ToArray();
         var normalizedBefore = beforeIds.Distinct(StringComparer.Ordinal).ToArray();
-        if (normalizedAfter.Length == 0 || normalizedBefore.Length == 0 ||
+        var normalizedMessage = message.Trim();
+        if (normalizedMessage.Length == 0 ||
+            normalizedAfter.Length == 0 || normalizedBefore.Length == 0 ||
             normalizedAfter.Any(id => !knownIds.Contains(id)) ||
             normalizedBefore.Any(id => !knownIds.Contains(id)) ||
             normalizedAfter.Intersect(normalizedBefore, StringComparer.Ordinal).Any() ||
@@ -213,17 +218,89 @@ internal static class PlanGateManager
 
         var gate = new PlanApprovalGate(
             GateId:        NewGateId(plan),
-            Message:       message,
+            Message:       normalizedMessage,
             AfterTaskIds:  normalizedAfter,
             BeforeTaskIds: normalizedBefore,
             Status:        PlanGateStatus.Pending,
             PlanRevision:  plan.Revision,
-            PresentationAnchor: presentationAnchor);
+            PresentationAnchor: presentationAnchor,
+            AfterTaskIdsSpecified: true,
+            BeforeTaskIdsSpecified: true,
+            Question: ResolveReviewQuestion(
+                plan, normalizedAfter, normalizedBefore, normalizedMessage, question));
 
         var withGate = plan with { ApprovalGates = [..plan.ApprovalGates, gate] };
         return removeSubsumedTaskGates
             ? SuppressSubsumedTaskGates(withGate, normalizedAfter, normalizedBefore, gate.GateId)
             : withGate;
+    }
+
+    /// <summary>
+    /// Extends one pending gate that already controls the same upstream boundary. Entry octagons
+    /// for sibling tasks are alternate views of one checkpoint, not independent approval requests.
+    /// Ambiguous boundaries with multiple authored gates are deliberately left unchanged.
+    /// </summary>
+    private static Plan? ExpandCompatiblePendingGate(
+        Plan plan,
+        IReadOnlyList<string> afterIds,
+        IReadOnlyList<string> beforeIds,
+        IReadOnlySet<string> eligibleBeforeIds)
+    {
+        var candidates = plan.ApprovalGates
+            .Where(CanEditGate)
+            .Where(gate => gate.AfterTaskIds.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(afterIds))
+            .Where(gate => gate.BeforeTaskIds.Count > 0 &&
+                           gate.BeforeTaskIds.All(eligibleBeforeIds.Contains))
+            .ToArray();
+        if (candidates.Length != 1) return null;
+
+        var candidate = candidates[0];
+        var mergedBefore = candidate.BeforeTaskIds
+            .Concat(beforeIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (candidate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal).SetEquals(mergedBefore))
+            return plan;
+
+        var expanded = candidate with
+        {
+            BeforeTaskIds = mergedBefore,
+            PlanRevision = plan.Revision,
+            BeforeTaskIdsSpecified = true,
+            Question = ResolveReviewQuestion(
+                plan, candidate.AfterTaskIds, mergedBefore, candidate.Message, candidate.Question),
+        };
+        return plan with
+        {
+            ApprovalGates = plan.ApprovalGates
+                .Select(gate => string.Equals(gate.GateId, candidate.GateId, StringComparison.Ordinal)
+                    ? expanded
+                    : gate)
+                .ToArray(),
+        };
+    }
+
+    private static string ResolveReviewQuestion(
+        Plan plan,
+        IReadOnlyList<string> afterIds,
+        IReadOnlyList<string> beforeIds,
+        string message,
+        string? question)
+    {
+        if (!string.IsNullOrWhiteSpace(question)) return question.Trim();
+
+        static string QuoteTitles(Plan source, IReadOnlyList<string> ids) => string.Join(
+            ", ",
+            ids.Select(id => $"\"{source.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, id, StringComparison.Ordinal))?.Title ?? id}\""));
+
+        var completed = QuoteTitles(plan, afterIds);
+        if (beforeIds.Count == 0)
+            return $"Do you approve the completed work for {completed}?";
+
+        var upcoming = QuoteTitles(plan, beforeIds);
+        return $"Is the completed work for {completed} ready for work to begin on {upcoming}?";
     }
 
     private static Plan SuppressSubsumedTaskGates(
@@ -320,6 +397,16 @@ internal static class PlanGateManager
         IReadOnlyList<string> afterIds  = task.DependsOn ?? [];
         IReadOnlyList<string> beforeIds = [taskId];
 
+        if (HasEquivalentGate(plan, afterIds, beforeIds)) return plan;
+        var eligibleBeforeIds = plan.Tasks
+            .Where(candidate => candidate.DependsOn.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(afterIds))
+            .Select(candidate => candidate.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
+        var expanded = ExpandCompatiblePendingGate(
+            plan, afterIds, beforeIds, eligibleBeforeIds);
+        if (expanded is not null) return expanded;
+
         return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-before:{taskId}");
     }
 
@@ -351,14 +438,23 @@ internal static class PlanGateManager
 
             var terminalGate = new PlanApprovalGate(
                 GateId: NewGateId(plan),
-                Message: message,
+                Message: message.Trim(),
                 AfterTaskIds: afterIds,
                 BeforeTaskIds: beforeIds,
                 Status: PlanGateStatus.Pending,
                 PlanRevision: plan.Revision,
-                PresentationAnchor: $"task-after:{taskId}");
+                PresentationAnchor: $"task-after:{taskId}",
+                AfterTaskIdsSpecified: true,
+                BeforeTaskIdsSpecified: true,
+                Question: ResolveReviewQuestion(plan, afterIds, beforeIds, message, null));
             return plan with { ApprovalGates = [..plan.ApprovalGates, terminalGate] };
         }
+
+        if (HasEquivalentGate(plan, afterIds, beforeIds)) return plan;
+        var eligibleBeforeIds = beforeIds.ToHashSet(StringComparer.Ordinal);
+        var expanded = ExpandCompatiblePendingGate(
+            plan, afterIds, beforeIds, eligibleBeforeIds);
+        if (expanded is not null) return expanded;
 
         return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}");
     }
