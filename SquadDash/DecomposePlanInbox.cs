@@ -243,13 +243,13 @@ internal static class DecomposePlanInbox
                 $"Execute in {group.Branch} Branch",
                 "execute-new-branch",
                 group.Branch,
-                $"Switch to or create {group.Branch}, then start the dependency-aware loop."));
+                $"Let SquadDash prepare {group.Branch}, then start the dependency-aware loop. Workers cannot switch branches."));
         }
         actions.Add(new DecomposePlanActionDefinition(
             "Execute in Active Branch",
             "execute-active-branch",
             null,
-            "Start the dependency-aware loop on the currently active branch."));
+            "Make the current branch the host-owned plan branch, then start the dependency-aware loop."));
         return actions;
     }
 

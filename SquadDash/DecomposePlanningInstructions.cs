@@ -282,7 +282,8 @@ internal static class DecomposePlanningInstructions
         IReadOnlyList<DecomposedAgentAssignment>? explicitAssignments = null,
         string? planRevision = null,
         PlanExecutionAttemptState? executionAttempt = null,
-        string? explicitGenericReason = null)
+        string? explicitGenericReason = null,
+        string? canonicalBranch = null)
     {
         try
         {
@@ -299,7 +300,7 @@ internal static class DecomposePlanningInstructions
                     throw new InvalidOperationException(
                         $"Plan task {stepId} has assignments but no host-owned execution attempt.");
                 return BuildExplicitAssignmentContext(
-                    squadFolderPath, stepId, planRevision, explicitAssignments, agents, executionAttempt);
+                    squadFolderPath, stepId, planRevision, explicitAssignments, agents, executionAttempt, canonicalBranch);
             }
 
             if (!string.IsNullOrWhiteSpace(explicitGenericReason))
@@ -310,8 +311,12 @@ internal static class DecomposePlanningInstructions
                 return "## Explicit Generic Routing for This Step\n\n" +
                        $"Task [{stepId}] explicitly authorizes one generic primary worker.\n" +
                        $"Execution attempt: `{executionAttempt.AttemptId}`. Include this exact value as `executionAttemptId` in the step result.\n" +
+                       (string.IsNullOrWhiteSpace(canonicalBranch)
+                           ? string.Empty
+                           : $"Canonical branch: `{canonicalBranch.Trim()}`. SquadDash already prepared it; do not create or switch branches.\n") +
                        $"Reason: {explicitGenericReason.Trim()}\n" +
-                       "Launch at most one primary worker. It may not spawn child workers, and all writes remain serialized in the active plan worktree.";
+                       "Launch at most one primary worker. Its prompt must repeat the host-owned Git branch lease from this turn verbatim. " +
+                       "It may not create or switch branches, may not spawn child workers, and all writes remain serialized in the active plan worktree.";
             }
 
             if (string.IsNullOrWhiteSpace(routingContent))
@@ -369,7 +374,8 @@ internal static class DecomposePlanningInstructions
         string? planRevision,
         IReadOnlyList<DecomposedAgentAssignment> assignments,
         IReadOnlyList<RosterAgent> roster,
-        PlanExecutionAttemptState executionAttempt)
+        PlanExecutionAttemptState executionAttempt,
+        string? canonicalBranch)
     {
         var builder = new StringBuilder();
         builder.AppendLine("## Verified Agent Assignments for This Step");
@@ -377,6 +383,7 @@ internal static class DecomposePlanningInstructions
         builder.AppendLine($"Task [{stepId}] has {assignments.Count} host-authorized primary assignment(s).");
         builder.AppendLine($"Execution attempt: `{executionAttempt.AttemptId}`.");
         builder.AppendLine("Launch exactly the assigned worker and wait for its result. Do not launch an additional coordinator-owned primary worker.");
+        builder.AppendLine("Copy the host-owned Git branch lease from this turn into the assigned worker prompt verbatim. Explicitly tell the worker that SquadDash already prepared the branch and that the worker must not create or switch branches.");
         builder.AppendLine("Use the host-provided `delegate_roster_agent` tool with the exact assigned `agent_handle`; it preserves native monitoring and waits for the roster agent result.");
         builder.AppendLine("Do not use the generic `task` tool for an assigned roster agent. SquadDash reserves it for temporary workers and will reject a roster-like or assignment-bearing generic launch.");
         builder.AppendLine();
@@ -411,7 +418,8 @@ internal static class DecomposePlanningInstructions
                 role = assignment.Role,
                 allowGenericChildren = assignment.AllowGenericChildren,
                 capability = authorization.Capability,
-                charterSha256 = authorization.CharterSha256
+                charterSha256 = authorization.CharterSha256,
+                canonicalBranch = string.IsNullOrWhiteSpace(canonicalBranch) ? null : canonicalBranch.Trim()
             });
 
             builder.AppendLine($"### {agent.Name} — {assignment.Role}");

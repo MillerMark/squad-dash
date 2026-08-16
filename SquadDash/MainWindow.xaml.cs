@@ -413,6 +413,7 @@ public partial class MainWindow : Window
     private bool                    _loopResumeSuppressed;
     private bool                    _pausePlanAfterCurrentStepRequested;
     private bool                    _planAbortRequestedByUser;
+    private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
@@ -6801,6 +6802,7 @@ public partial class MainWindow : Window
     private void OnNativeLoopError(string msg)
     {
         DiscardObsoletePlanQueueItems("native-loop-error");
+        var branchLeasePause = _planBranchLeasePausePending;
         var failedRound = _loopRoundExecutionIdentity;
         var failureIdentity = LoopRoundExecutionIdentity.ResolveFailure(
             failedRound,
@@ -6812,7 +6814,7 @@ public partial class MainWindow : Window
         var blockedTaskId = failureIdentity.TaskId;
         var blockedRevision = failureIdentity.Revision;
         var failedIteration = _loopCurrentIteration;
-        if (!_planAbortRequestedByUser && blockedTaskId is not null && string.Equals(
+        if (!_planAbortRequestedByUser && !branchLeasePause && blockedTaskId is not null && string.Equals(
                 _CodeHealthGroupRunner?.CurrentStepId,
                 blockedTaskId,
                 StringComparison.Ordinal))
@@ -6846,13 +6848,17 @@ public partial class MainWindow : Window
         AppendLoopOutputLine(
             _planAbortRequestedByUser
                 ? "⏹ Plan work aborted; recovery evidence was preserved."
+                : branchLeasePause
+                    ? "⏸ Plan paused before dispatch; the canonical branch needs attention."
                 : $"❌ Loop error: {msg}",
-            _planAbortRequestedByUser ? LoopLifecycleBrush : ThemeBrush("SystemErrorText"));
+            _planAbortRequestedByUser || branchLeasePause ? LoopLifecycleBrush : ThemeBrush("SystemErrorText"));
         AppendLine(
             _planAbortRequestedByUser
                 ? "⏹ Plan work aborted; recovery is available."
+                : branchLeasePause
+                    ? "⏸ Plan paused before dispatch. No task was started or failed."
                 : $"❌ Loop error: {msg}",
-            _planAbortRequestedByUser ? null : ThemeBrush("SystemErrorText"));
+            _planAbortRequestedByUser || branchLeasePause ? null : ThemeBrush("SystemErrorText"));
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
             Kind: "plan_error",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
@@ -6870,6 +6876,8 @@ public partial class MainWindow : Window
             ScheduleDecomposeSystemEntry(
                 _planAbortRequestedByUser
                     ? $"Plan work was aborted at {blockedTaskId}. Assess the preserved work before continuing."
+                    : branchLeasePause
+                        ? $"Plan {blockedGroupId} paused before {blockedTaskId} started. {msg}"
                     : $"Plan {blockedGroupId} stopped at {blockedTaskId}: {msg}",
                 blockedGroupId,
                 blockedRevision,
@@ -6881,6 +6889,7 @@ public partial class MainWindow : Window
                 interruptionReason);
         }
         _planAbortRequestedByUser = false;
+        _planBranchLeasePausePending = false;
         if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
             ScheduleDecomposeSystemEntry(
@@ -8587,6 +8596,7 @@ public partial class MainWindow : Window
         }
 
         _loopResumeSuppressed = false;
+        _planBranchLeasePausePending = false;
         _activeDecomposeGroupId = groupId;
         _planExecutionLog = new PlanExecutionLog(_currentWorkspace.FolderPath);
         _planExecutionLog.Append(new PlanExecutionLogEntry(
@@ -8602,6 +8612,18 @@ public partial class MainWindow : Window
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
         var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var branchHead = (await RunGitAsync(
+            _currentWorkspace.FolderPath,
+            "rev-parse HEAD")).Trim();
+        var executionBranch = executionGroup?.Branch?.Trim();
+        if (string.IsNullOrWhiteSpace(executionBranch))
+            throw new InvalidOperationException($"Plan {groupId} has no canonical branch.");
+        var branchLease = new PlanBranchLease(
+            groupId,
+            revision,
+            executionBranch,
+            branchHead,
+            DateTimeOffset.UtcNow);
         _conversationManager.UpdateActiveLoopExecutionState(
             PlanExecutionResumeEnvelope.Create(
                 loopPath,
@@ -8610,7 +8632,10 @@ public partial class MainWindow : Window
                 resumeFromIteration,
                 priorExecution,
                 reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision),
-                assessedRecoveryContinuation));
+                assessedRecoveryContinuation) with
+            {
+                BranchLease = branchLease,
+            });
 
         // A reconstructed verification envelope has no in-memory runner identity from the
         // implementation round. Re-track the same pending task before the verifier starts so
@@ -11481,6 +11506,35 @@ public partial class MainWindow : Window
         _capturedTaskVerificationResultError = null;
 
         var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExec?.IsExecutingPlan == true)
+        {
+            var phasePlan = _planStore?.Load(_activeDecomposeGroupId)
+                ?? throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} could not be loaded for branch verification.");
+            var phaseLease = activeExec.BranchLease;
+            if (phaseLease is null)
+            {
+                var canonicalHead = (await RunGitAsync(
+                    _currentWorkspace.FolderPath,
+                    $"rev-parse --verify \"refs/heads/{phasePlan.Branch.Replace("\"", "\\\"")}^{{commit}}\"")).Trim();
+                phaseLease = new PlanBranchLease(
+                    phasePlan.PlanId,
+                    phasePlan.Revision,
+                    phasePlan.Branch,
+                    activeExec.TaskBaselineCommit ?? canonicalHead,
+                    DateTimeOffset.UtcNow);
+            }
+            var phaseBranch = await EnforcePlanBranchLeaseAsync(
+                phaseLease,
+                candidateCommit: null,
+                mutationAllowed: false);
+            if (!phaseBranch.CanContinue)
+            {
+                _planBranchLeasePausePending = true;
+                throw new PlanBranchLeaseViolationException(phaseBranch.Message);
+            }
+            if (phaseBranch.Repaired)
+                ScheduleDecomposeSystemEntry(phaseBranch.Message);
+        }
         if (activeExec?.VerificationEnvelopeRepairCount is not > 0)
             _capturedTaskVerificationRawResponse = null;
         if (activeExec?.ActiveVerificationTaskId is { } verificationTaskId)
@@ -11576,10 +11630,31 @@ public partial class MainWindow : Window
             : persisted.DecomposeGroups.TryGetValue(_activeDecomposeGroupId, out var projectedGroup)
                 ? projectedGroup
                 : throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing from tasks.md.");
-        var activeBranch = ReadGitBranch(_currentWorkspace.FolderPath);
-        if (!string.Equals(activeBranch, group.Branch, StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"Plan {_activeDecomposeGroupId} requires branch '{group.Branch}', but '{activeBranch}' is active.");
+        var dispatchLease = activeExec?.BranchLease;
+        if (dispatchLease is null ||
+            !string.Equals(dispatchLease.PlanId, _activeDecomposeGroupId, StringComparison.Ordinal) ||
+            !string.Equals(dispatchLease.Revision, group.HostRevision, StringComparison.Ordinal) ||
+            !string.Equals(dispatchLease.CanonicalBranch, group.Branch, StringComparison.Ordinal))
+        {
+            var canonicalHead = (await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                $"rev-parse --verify \"refs/heads/{group.Branch.Replace("\"", "\\\"")}^{{commit}}\"")).Trim();
+            dispatchLease = new PlanBranchLease(
+                _activeDecomposeGroupId,
+                group.HostRevision ?? _CodeHealthGroupRunner.CurrentRevision ?? string.Empty,
+                group.Branch,
+                canonicalHead,
+                DateTimeOffset.UtcNow);
+        }
+        var dispatchBranch = await EnforcePlanBranchLeaseAsync(
+            dispatchLease,
+            candidateCommit: null,
+            mutationAllowed: false);
+        if (!dispatchBranch.CanContinue)
+        {
+            _planBranchLeasePausePending = true;
+            throw new PlanBranchLeaseViolationException(dispatchBranch.Message);
+        }
 
         string? continuationContext = null;
         if (_decomposeContinuationTaskId is not null)
@@ -11717,7 +11792,12 @@ public partial class MainWindow : Window
                 FreshAttemptCount = sameRecoveryTask ? execution.FreshAttemptCount : 0,
                 TaskBaselineCommit = sameRecoveryTask
                     ? execution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit
-                    : _decomposeIterationBaselineCommit
+                    : _decomposeIterationBaselineCommit,
+                BranchLease = dispatchLease with
+                {
+                    BaselineCommit = _decomposeIterationBaselineCommit!,
+                    AcquiredAt = DateTimeOffset.UtcNow,
+                },
             });
         var routingContext = policy == PlanAgentRoutingPolicy.Off
             ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
@@ -11732,7 +11812,8 @@ public partial class MainWindow : Window
                 attempt,
                 string.Equals(currentTask.AgentRoutingMode, "generic", StringComparison.Ordinal)
                     ? currentTask.GenericAgentReason
-                    : null);
+                    : null,
+                group.Branch);
         string? assessedRecoveryContext = null;
         if (execution.AssessedRecoveryContinuation is { } assessed)
         {
@@ -11908,6 +11989,43 @@ public partial class MainWindow : Window
 
         // Candidate task work is verified before it can become accepted plan progress.
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution is not null &&
+            (activeExecution.ActiveVerificationTaskId is not null || activeExecution.ActiveValidationId is not null))
+        {
+            var phasePlan = _planStore?.Load(groupId);
+            var phaseLease = activeExecution.BranchLease;
+            if (phaseLease is null && phasePlan is not null)
+            {
+                var canonicalHead = (await RunGitAsync(
+                    _currentWorkspace.FolderPath,
+                    $"rev-parse --verify \"refs/heads/{phasePlan.Branch.Replace("\"", "\\\"")}^{{commit}}\"")).Trim();
+                phaseLease = new PlanBranchLease(
+                    groupId,
+                    phasePlan.Revision,
+                    phasePlan.Branch,
+                    activeExecution.TaskBaselineCommit ?? canonicalHead,
+                    DateTimeOffset.UtcNow);
+            }
+
+            if (phaseLease is not null)
+            {
+                var phaseBranch = await EnforcePlanBranchLeaseAsync(
+                    phaseLease,
+                    candidateCommit: null,
+                    mutationAllowed: false);
+                if (!phaseBranch.CanContinue)
+                {
+                    StopAndOfferDecomposeRecovery(
+                        groupId,
+                        activeExecution.ActiveVerificationTaskId ?? _CodeHealthGroupRunner.CurrentStepId ?? "validation",
+                        activeExecution.DecomposeRevision ?? string.Empty,
+                        phaseBranch.Message);
+                    return;
+                }
+                if (phaseBranch.Repaired)
+                    ScheduleDecomposeSystemEntry(phaseBranch.Message);
+            }
+        }
         if (activeExecution?.ActiveVerificationTaskId is { } activeVerificationTaskId)
         {
             await FinalizeTaskVerificationTurnAsync(groupId, activeVerificationTaskId, activeExecution);
@@ -11976,6 +12094,7 @@ public partial class MainWindow : Window
         DecomposedSubTask? persistedTask = null;
         string? assignmentError = null;
         string? assignmentEvidenceError = null;
+        var branchLeaseFailure = false;
 
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var canonicalPlan = _planStore?.Load(groupId);
@@ -12058,6 +12177,35 @@ public partial class MainWindow : Window
         if (error is null && result is not null && persistedTask is not null)
             error = PlanStepProofPolicy.Validate(persistedTask, result);
 
+        if (canonicalPlan is not null)
+        {
+            var leaseBaseline = activeExecution.BranchLease?.BaselineCommit ??
+                                activeExecution.TaskBaselineCommit ??
+                                _decomposeIterationBaselineCommit;
+            if (!string.IsNullOrWhiteSpace(leaseBaseline))
+            {
+                var branchLease = activeExecution.BranchLease ?? new PlanBranchLease(
+                    groupId,
+                    revision,
+                    canonicalPlan.Branch,
+                    leaseBaseline,
+                    DateTimeOffset.UtcNow);
+                var branchEnforcement = await EnforcePlanBranchLeaseAsync(
+                    branchLease,
+                    result?.Commit,
+                    mutationAllowed: !verificationOnly);
+                if (!branchEnforcement.CanContinue)
+                {
+                    branchLeaseFailure = true;
+                    error = branchEnforcement.Message;
+                }
+                else if (branchEnforcement.Repaired)
+                {
+                    ScheduleDecomposeSystemEntry(branchEnforcement.Message);
+                }
+            }
+        }
+
         PlanTaskCommitEvidence? taskCommitEvidence = null;
         if (result is not null &&
             !string.IsNullOrWhiteSpace(result.Commit) &&
@@ -12106,6 +12254,8 @@ public partial class MainWindow : Window
                 routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
                 activeExecution.RepairRequestCount,
                 activeExecution.FreshAttemptCount);
+            if (branchLeaseFailure)
+                recoveryAction = PlanExecutionRecoveryAction.Block;
             var repairError = error ?? "no result envelope was returned";
             if (recoveryAction == PlanExecutionRecoveryAction.StartFreshAttempt &&
                 persistedTask is not null && executionAttempt is not null)
@@ -12158,7 +12308,8 @@ public partial class MainWindow : Window
                         freshAttempt,
                         string.Equals(persistedTask.AgentRoutingMode, "generic", StringComparison.Ordinal)
                             ? persistedTask.GenericAgentReason
-                            : null);
+                            : null,
+                        canonicalPlan?.Branch);
                     ScheduleDecomposeSystemEntry(
                         $"⚙ SquadDash closed contaminated execution attempt {executionAttempt.AttemptId} and created fresh attempt {freshAttempt.AttemptId}. Existing commits and work were preserved.");
                     EnqueuePrompt(
@@ -12229,7 +12380,8 @@ public partial class MainWindow : Window
                         stepDescription,
                         expectedAssignments,
                         revision,
-                        executionAttempt);
+                        executionAttempt,
+                        canonicalBranch: canonicalPlan?.Branch);
                     repairPrompt = PlanAssignmentRepairPrompt.Build(
                         groupId, taskId, revision, expectedAssignments, routingContext, repairError);
                     ScheduleDecomposeSystemEntry(
@@ -12273,7 +12425,8 @@ public partial class MainWindow : Window
                             null,
                             revision,
                             executionAttempt,
-                            persistedTask!.GenericAgentReason);
+                            persistedTask!.GenericAgentReason,
+                            canonicalPlan?.Branch);
                         repairPrompt = PlanGenericAssignmentRepairPrompt.Build(
                             groupId, taskId, revision, repairError, routingContext);
                         ScheduleDecomposeSystemEntry(
@@ -12309,7 +12462,8 @@ public partial class MainWindow : Window
             // A repeated repair failure or repeated evidence contamination is terminal
             // for this automatic run. Preserve the attempt history and offer recovery.
             handleBlock:
-            _CodeHealthGroupRunner.MarkCurrentStepFailed();
+            if (!branchLeaseFailure)
+                _CodeHealthGroupRunner.MarkCurrentStepFailed();
             StopAndOfferDecomposeRecovery(
                 groupId,
                 taskId,
@@ -14991,6 +15145,33 @@ public partial class MainWindow : Window
             : null;
     }
 
+    private async Task RestorePlanBranchAndResumeAsync(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("No workspace is active.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
+        var escapedBranch = plan.Branch.Replace("\"", "\\\"");
+        var existing = (await RunGitAsync(
+            workspace,
+            $"branch --list --format=\"%(refname:short)\" \"{escapedBranch}\"")).Trim();
+        if (!string.Equals(existing, plan.Branch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"The host-owned plan branch '{plan.Branch}' no longer exists. SquadDash left repository history unchanged.");
+
+        var priorBranch = ReadGitBranch(workspace);
+        if (!string.Equals(priorBranch, plan.Branch, StringComparison.Ordinal))
+            await RunGitAsync(workspace, $"checkout \"{escapedBranch}\"");
+        UpdateBranchIndicator();
+        ScheduleDecomposeSystemEntry(
+            string.Equals(priorBranch, plan.Branch, StringComparison.Ordinal)
+                ? $"The host-owned plan branch '{plan.Branch}' is active. Resuming the pending task."
+                : $"SquadDash restored the host-owned plan branch '{plan.Branch}'. " +
+                  $"Work on '{priorBranch}' remains preserved there. Resuming the pending task.");
+        await StartOrResumeDurablePlanAsync(_planStore?.Load(plan.PlanId) ?? plan);
+    }
+
     private void RestoreInterruptedPlanRecoverySurfaces()
     {
         if (_currentWorkspace is null || _planStore is null) return;
@@ -14998,7 +15179,10 @@ public partial class MainWindow : Window
         var plan = _planStore.LoadAll()
             .Where(candidate =>
                 (candidate.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) &&
-                string.Equals(candidate.Branch, branch, StringComparison.Ordinal))
+                (string.Equals(candidate.Branch, branch, StringComparison.Ordinal) ||
+                 candidate.InterruptionData?.Reason?.Contains(
+                     "host-owned plan branch",
+                     StringComparison.OrdinalIgnoreCase) == true))
             .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
             .FirstOrDefault();
         if (plan is null) return;
@@ -15166,6 +15350,9 @@ public partial class MainWindow : Window
         var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
         var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var isBranchLeaseRecovery = durablePlan?.InterruptionData?.Reason?.Contains(
+            "host-owned plan branch",
+            StringComparison.OrdinalIgnoreCase) == true;
         var humanReview = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
@@ -15441,6 +15628,18 @@ public partial class MainWindow : Window
         var review = durablePlan is null
             ? null
             : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
+
+        if (isBranchLeaseRecovery && durablePlan is not null)
+        {
+            AddAsyncAction(
+                "Restore Plan Branch & Resume",
+                $"Switch back to the host-owned branch '{durablePlan.Branch}' and resume the pending task. " +
+                "Any divergent commit remains preserved on its existing branch; SquadDash does not delete or rewrite it.",
+                async () => await RestorePlanBranchAndResumeAsync(durablePlan));
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
 
         if (assessmentEvidence is not null &&
             string.Equals(durablePlan?.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
@@ -52758,6 +52957,129 @@ public partial class MainWindow : Window
                 ? $"checkout \"{escapedBranch}\""
                 : $"checkout -b \"{escapedBranch}\"");
         UpdateBranchIndicator();
+    }
+
+    private async Task<PlanBranchEnforcementResult> EnforcePlanBranchLeaseAsync(
+        PlanBranchLease lease,
+        string? candidateCommit,
+        bool mutationAllowed)
+    {
+        if (_currentWorkspace is null)
+            return new(false, false, false, "No workspace is active.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (string.Equals(activeBranch, lease.CanonicalBranch, StringComparison.Ordinal))
+            return new(true, false, false, "The canonical plan branch is active.");
+
+        try
+        {
+            var escapedCanonical = lease.CanonicalBranch.Replace("\"", "\\\"");
+            var canonicalHead = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"refs/heads/{escapedCanonical}^{{commit}}\"")).Trim();
+            var activeHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+
+            string? resolvedCandidate = null;
+            if (!string.IsNullOrWhiteSpace(candidateCommit) &&
+                Regex.IsMatch(candidateCommit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
+            {
+                resolvedCandidate = (await RunGitAsync(
+                    workspace,
+                    $"rev-parse --verify \"{candidateCommit}^{{commit}}\"")).Trim();
+            }
+
+            var worktreeIsSafe = true;
+            var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+            var allowed = await GetAllowedPlanPathsAsync(workspace, lease.PlanId);
+            if (!DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var candidates))
+            {
+                var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                    candidates,
+                    command => RunGitAsync(workspace, command));
+                worktreeIsSafe = genuinelyDirty.Count == 0;
+            }
+
+            var canonicalIsAncestor = false;
+            var commitCount = -1;
+            if (resolvedCandidate is not null)
+            {
+                try
+                {
+                    await RunGitAsync(
+                        workspace,
+                        $"merge-base --is-ancestor \"{canonicalHead}\" \"{resolvedCandidate}\"");
+                    canonicalIsAncestor = true;
+                    var countText = (await RunGitAsync(
+                        workspace,
+                        $"rev-list --count \"{canonicalHead}..{resolvedCandidate}\"")).Trim();
+                    _ = int.TryParse(countText, out commitCount);
+                }
+                catch
+                {
+                    canonicalIsAncestor = false;
+                }
+            }
+
+            var assessment = PlanBranchLeasePolicy.Assess(
+                lease,
+                activeBranch,
+                canonicalHead,
+                activeHead,
+                resolvedCandidate,
+                canonicalIsAncestor,
+                commitCount,
+                worktreeIsSafe,
+                mutationAllowed);
+            if (!assessment.CanContinue)
+            {
+                var message =
+                    $"SquadDash detected that plan work left the host-owned branch '{lease.CanonicalBranch}' " +
+                    $"and is now on '{activeBranch}'. {assessment.Explanation} No downstream task was started or failed.";
+                SquadDashTrace.Write("PlanBranchLease", message);
+                return new(false, false, false, message);
+            }
+
+            if (assessment.Action == PlanBranchRepairAction.RestoreCanonicalBranch)
+            {
+                await RunGitAsync(workspace, $"checkout \"{escapedCanonical}\"");
+                UpdateBranchIndicator();
+                var message =
+                    $"SquadDash restored the host-owned plan branch '{lease.CanonicalBranch}'. No commit movement was required.";
+                SquadDashTrace.Write("PlanBranchLease", message);
+                return new(true, true, false, message);
+            }
+
+            if (assessment.Action == PlanBranchRepairAction.AdoptCandidateCommit && resolvedCandidate is not null)
+            {
+                await RunGitAsync(
+                    workspace,
+                    $"branch -f \"{escapedCanonical}\" \"{resolvedCandidate}\"");
+                await RunGitAsync(workspace, $"checkout \"{escapedCanonical}\"");
+                var repairedBranch = ReadGitBranch(workspace);
+                var repairedHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+                if (!string.Equals(repairedBranch, lease.CanonicalBranch, StringComparison.Ordinal) ||
+                    !string.Equals(repairedHead, resolvedCandidate, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Git did not retain the canonical branch and adopted commit after repair.");
+
+                UpdateBranchIndicator();
+                var message =
+                    $"SquadDash preserved task commit {resolvedCandidate[..Math.Min(7, resolvedCandidate.Length)]} " +
+                    $"and restored it to the host-owned plan branch '{lease.CanonicalBranch}'.";
+                SquadDashTrace.Write("PlanBranchLease", message);
+                return new(true, true, true, message);
+            }
+
+            return new(true, false, false, assessment.Explanation);
+        }
+        catch (Exception ex)
+        {
+            var message =
+                $"SquadDash could not restore the host-owned plan branch '{lease.CanonicalBranch}' safely: {ex.Message} " +
+                "No downstream task was started or failed.";
+            SquadDashTrace.Write("PlanBranchLease", message);
+            return new(false, false, false, message);
+        }
     }
 
     private async Task EnsurePlanWorktreeReadyAsync(string workspace, string? planId = null)

@@ -929,7 +929,8 @@ internal sealed record ActiveLoopExecutionState(
     [property: JsonPropertyName("scrutinyReworkInstructions")] string? VerificationReworkInstructions = null,
     [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0,
     AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null,
-    string? PendingDecomposeRevision = null)
+    string? PendingDecomposeRevision = null,
+    PlanBranchLease? BranchLease = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -978,6 +979,20 @@ internal sealed record ActiveLoopExecutionState(
         var taskBaselineCommit = string.IsNullOrWhiteSpace(state.TaskBaselineCommit)
             ? null
             : state.TaskBaselineCommit.Trim();
+        var branchLease = state.BranchLease;
+        if (branchLease is not null)
+        {
+            branchLease = !string.Equals(branchLease.PlanId, groupId, StringComparison.Ordinal) ||
+                          !string.Equals(branchLease.Revision, revision, StringComparison.Ordinal) ||
+                          string.IsNullOrWhiteSpace(branchLease.CanonicalBranch) ||
+                          string.IsNullOrWhiteSpace(branchLease.BaselineCommit)
+                ? null
+                : branchLease with
+                {
+                    CanonicalBranch = branchLease.CanonicalBranch.Trim(),
+                    BaselineCommit = branchLease.BaselineCommit.Trim(),
+                };
+        }
 
         // Validate PendingRepairResult scope — discard if group/revision mismatch
         var pendingResult = state.PendingRepairResult;
@@ -1046,7 +1061,8 @@ internal sealed record ActiveLoopExecutionState(
                 : state.VerificationReworkInstructions.Trim(),
             Math.Max(0, state.VerificationEnvelopeRepairCount),
             assessedRecovery,
-            pendingRevision);
+            pendingRevision,
+            branchLease);
     }
 }
 

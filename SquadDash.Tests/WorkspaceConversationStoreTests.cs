@@ -744,7 +744,13 @@ internal sealed class WorkspaceConversationStoreTests {
                     "  GODCLASS-20260725  ",
                     "  GODCLASS-20260725  ",
                     "  revision-123  ",
-                    LastCompletedIteration: 4),
+                    LastCompletedIteration: 4,
+                    BranchLease: new PlanBranchLease(
+                        "GODCLASS-20260725",
+                        "revision-123",
+                        "  feature/canonical  ",
+                        "  abcdef1234567890  ",
+                        DateTimeOffset.UtcNow)),
             });
 
         var loaded = _store.Load(_workspacePath);
@@ -758,6 +764,8 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(loaded.ActiveLoopExecution?.DecomposeGroupId, Is.EqualTo("GODCLASS-20260725"));
             Assert.That(loaded.ActiveLoopExecution?.DecomposeRevision, Is.EqualTo("revision-123"));
             Assert.That(loaded.ActiveLoopExecution?.LastCompletedIteration, Is.EqualTo(4));
+            Assert.That(loaded.ActiveLoopExecution?.BranchLease?.CanonicalBranch, Is.EqualTo("feature/canonical"));
+            Assert.That(loaded.ActiveLoopExecution?.BranchLease?.BaselineCommit, Is.EqualTo("abcdef1234567890"));
         });
     }
 

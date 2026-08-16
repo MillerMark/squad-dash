@@ -75,13 +75,16 @@ internal sealed class PlanExecutionAttemptTests
                 "Task two details",
                 [new DecomposedAgentAssignment("talia-rune", "SDK", false)],
                 "rev-2",
-                attempt);
+                attempt,
+                canonicalBranch: "feature/canonical-plan");
 
             Assert.Multiple(() => {
                 Assert.That(context, Does.Contain("attempt-task-2"));
                 Assert.That(context, Does.Contain("PLAN-20260728-002"));
                 Assert.That(context, Does.Not.Contain("PLAN-20260728-001"));
                 Assert.That(context, Does.Contain(charter));
+                Assert.That(context, Does.Contain("\"canonicalBranch\":\"feature/canonical-plan\""));
+                Assert.That(context, Does.Contain("must not create or switch branches"));
             });
         }
         finally
