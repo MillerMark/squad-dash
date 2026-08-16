@@ -557,4 +557,94 @@ internal static class PlanGateManager
     /// Guard is based on <see cref="PlanApprovalGate.NotifiedAt"/> being null.
     /// </summary>
     internal static bool ShouldNotifyGateActivation(PlanApprovalGate gate) => gate.NotifiedAt is null;
+
+    // ── DecomposedTaskGroup gate consolidation ───────────────────────────────
+
+    /// <summary>
+    /// Returns the gate in <paramref name="group"/> whose <c>AfterTaskIds</c> set equals
+    /// <paramref name="afterTaskIds"/> (order-insensitive), or <c>null</c> when none exists.
+    /// </summary>
+    private static DecomposedGate? FindEquivalentGate(
+        DecomposedTaskGroup group,
+        IReadOnlyList<string> afterTaskIds)
+    {
+        return (group.ApprovalGates ?? []).FirstOrDefault(gate =>
+            (gate.AfterTaskIds ?? [])
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .SequenceEqual(afterTaskIds.OrderBy(x => x, StringComparer.Ordinal)));
+    }
+
+    /// <summary>
+    /// If an equivalent gate already exists in <paramref name="group"/> for the same
+    /// approval boundary (same AfterTaskIds set), returns a new group with that gate's
+    /// BeforeTaskIds extended or contracted to include/exclude <paramref name="targetTaskId"/>,
+    /// preserving GateId, Message, Question, and ProofRequirements.
+    /// Otherwise returns <c>null</c> (caller is responsible for adding a new gate).
+    /// </summary>
+    internal static DecomposedTaskGroup? TryConsolidateGate(
+        DecomposedTaskGroup group,
+        IReadOnlyList<string> afterTaskIds,
+        string targetTaskId,
+        bool include)
+    {
+        var existing = FindEquivalentGate(group, afterTaskIds);
+        if (existing is null) return null;
+
+        var currentBefore = existing.BeforeTaskIds ?? [];
+        IReadOnlyList<string> newBefore;
+        if (include)
+        {
+            if (currentBefore.Any(id => string.Equals(id, targetTaskId, StringComparison.Ordinal)))
+                return group;
+            newBefore = [..currentBefore, targetTaskId];
+        }
+        else
+        {
+            var contracted = currentBefore
+                .Where(id => !string.Equals(id, targetTaskId, StringComparison.Ordinal))
+                .ToArray();
+            if (contracted.Length == currentBefore.Count)
+                return group;
+            newBefore = contracted;
+        }
+
+        var updated = existing with { BeforeTaskIds = newBefore };
+        var gates = (group.ApprovalGates ?? [])
+            .Select(gate => string.Equals(gate.GateId, existing.GateId, StringComparison.Ordinal)
+                ? updated
+                : gate)
+            .ToArray();
+        return group with { ApprovalGates = gates };
+    }
+
+    /// <summary>
+    /// Returns the group with an extended or newly created gate for the given approval boundary.
+    /// When a gate with the same <paramref name="afterTaskIds"/> boundary already exists, delegates
+    /// to <see cref="TryConsolidateGate"/> to extend or contract its <c>BeforeTaskIds</c> while
+    /// preserving <c>GateId</c>, <c>Message</c>, <c>Question</c>, and <c>ProofRequirements</c>.
+    /// When no equivalent gate exists, adds a new gate using the supplied identity parameters.
+    /// The caller always receives a valid group — no null-check branch required.
+    /// </summary>
+    internal static DecomposedTaskGroup ApplyGateConsolidation(
+        DecomposedTaskGroup group,
+        IReadOnlyList<string> afterTaskIds,
+        string targetTaskId,
+        bool include,
+        string newGateId,
+        string message,
+        string question)
+    {
+        var consolidated = TryConsolidateGate(group, afterTaskIds, targetTaskId, include);
+        if (consolidated is not null) return consolidated;
+
+        var newGate = new DecomposedGate(
+            GateId:   newGateId,
+            Message:  message,
+            AfterTaskIds:  afterTaskIds,
+            BeforeTaskIds: [targetTaskId],
+            Question: question);
+
+        var gates = (group.ApprovalGates ?? []).Append(newGate).ToArray();
+        return group with { ApprovalGates = gates };
+    }
 }

@@ -662,4 +662,142 @@ internal sealed class PlanGateManagerTests
 
         Assert.That(PlanGateManager.CanUnapproveGate(plan, plan.ApprovalGates[0].GateId), Is.False);
     }
+
+    // ─── ApplyGateConsolidation (DecomposedTaskGroup) ────────────────────────
+
+    private static DecomposedTaskGroup MakeDecomposedGroup(
+        IReadOnlyList<DecomposedGate>? gates = null)
+    {
+        var tasks = new[]
+        {
+            new DecomposedSubTask("T001", "Task 1", [], "mid"),
+            new DecomposedSubTask("T002", "Task 2", ["T001"], "mid"),
+            new DecomposedSubTask("T004", "Task 4", ["T001"], "mid"),
+        };
+        return new DecomposedTaskGroup(
+            GroupId:       "GATE-TEST",
+            GroupTitle:    "Gate Consolidation Tests",
+            Branch:        "feature/test",
+            Summary:       "Test group",
+            Tasks:         tasks,
+            ApprovalGates: gates);
+    }
+
+    [Test]
+    public void ApplyGateConsolidation_ExtendsExistingGate_WhenSameBoundary()
+    {
+        var original = new DecomposedGate(
+            GateId:       "GATE-TEST-GATE-001",
+            Message:      "Phase review",
+            AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T002"],
+            Question:     "Is T001 ready to proceed?");
+        var group = MakeDecomposedGroup([original]);
+
+        var result = PlanGateManager.ApplyGateConsolidation(
+            group, ["T001"], "T004", include: true,
+            newGateId: "GATE-TEST-GATE-NEW",
+            message:   "Fallback message",
+            question:  "Fallback question?");
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+        var gate = result.ApprovalGates!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.GateId, Is.EqualTo(original.GateId));
+            Assert.That(gate.BeforeTaskIds, Is.EquivalentTo(new[] { "T002", "T004" }));
+        });
+    }
+
+    [Test]
+    public void ApplyGateConsolidation_CreatesNewGate_WhenNoBoundaryMatch()
+    {
+        var existing = new DecomposedGate(
+            GateId:       "GATE-TEST-GATE-001",
+            Message:      "Phase review",
+            AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T002"]);
+        var group = MakeDecomposedGroup([existing]);
+
+        var result = PlanGateManager.ApplyGateConsolidation(
+            group, ["T002"], "T004", include: true,
+            newGateId: "GATE-TEST-GATE-002",
+            message:   "New gate message",
+            question:  "New question?");
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void ApplyGateConsolidation_ContractsExistingGate_WhenRemovingTask()
+    {
+        var original = new DecomposedGate(
+            GateId:       "GATE-TEST-GATE-001",
+            Message:      "Phase review",
+            AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T002", "T004"]);
+        var group = MakeDecomposedGroup([original]);
+
+        var result = PlanGateManager.ApplyGateConsolidation(
+            group, ["T001"], "T004", include: false,
+            newGateId: "GATE-TEST-GATE-NEW",
+            message:   "Fallback",
+            question:  "Fallback?");
+
+        Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+        var gate = result.ApprovalGates!.Single();
+        Assert.That(gate.BeforeTaskIds, Is.EquivalentTo(new[] { "T002" }));
+    }
+
+    [Test]
+    public void ApplyGateConsolidation_PreservesGateIdentityAndReviewContract()
+    {
+        var proofReqs = new[]
+        {
+            new DecomposedTaskProofRequirement("req-1", "human-observation", "Inspect the result.",
+                "Does the output match the spec?"),
+        };
+        var original = new DecomposedGate(
+            GateId:            "GATE-TEST-GATE-001",
+            Message:           "Architecture review",
+            AfterTaskIds:      ["T001"],
+            BeforeTaskIds:     ["T002"],
+            ProofRequirements: proofReqs,
+            Question:          "Is the architecture solid?");
+        var group = MakeDecomposedGroup([original]);
+
+        var result = PlanGateManager.ApplyGateConsolidation(
+            group, ["T001"], "T004", include: true,
+            newGateId: "GATE-TEST-GATE-NEW",
+            message:   "Fallback message",
+            question:  "Fallback question?");
+
+        var gate = result.ApprovalGates!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(gate.GateId,            Is.EqualTo(original.GateId));
+            Assert.That(gate.Message,           Is.EqualTo(original.Message));
+            Assert.That(gate.Question,          Is.EqualTo(original.Question));
+            Assert.That(gate.ProofRequirements, Is.EqualTo(original.ProofRequirements));
+        });
+    }
+
+    [Test]
+    public void ApplyGateConsolidation_DoesNotDuplicateTaskId_WhenAlreadyPresent()
+    {
+        var original = new DecomposedGate(
+            GateId:       "GATE-TEST-GATE-001",
+            Message:      "Phase review",
+            AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T002", "T004"]);
+        var group = MakeDecomposedGroup([original]);
+
+        var result = PlanGateManager.ApplyGateConsolidation(
+            group, ["T001"], "T004", include: true,
+            newGateId: "GATE-TEST-GATE-NEW",
+            message:   "Fallback",
+            question:  "Fallback?");
+
+        Assert.That(result.ApprovalGates!.Single().BeforeTaskIds, Has.Count.EqualTo(2));
+    }
 }
