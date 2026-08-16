@@ -110,4 +110,15 @@ internal sealed class PlanBranchLeasePolicyTests
         Assert.That(result.Action, Is.EqualTo(PlanBranchRepairAction.PauseForReview));
         Assert.That(result.Explanation, Does.Contain("non-mutating"));
     }
+
+    [TestCase("SquadDash detected that plan work left the host-owned plan branch 'feature/right'.", true)]
+    [TestCase("Loop crashed unexpectedly: Plan P requires branch 'feature/right', but 'feature/wrong' is active.", true)]
+    [TestCase("Uncommitted changes must be committed first.", false)]
+    [TestCase(null, false)]
+    public void RecoveryPolicy_RecognizesCurrentAndLegacyBranchMismatchReasons(
+        string? reason,
+        bool expected)
+    {
+        Assert.That(PlanBranchLeaseRecoveryPolicy.IsBranchMismatchReason(reason), Is.EqualTo(expected));
+    }
 }

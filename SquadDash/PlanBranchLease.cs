@@ -34,6 +34,17 @@ internal sealed record PlanBranchEnforcementResult(
 
 internal sealed class PlanBranchLeaseViolationException(string message) : InvalidOperationException(message);
 
+internal static class PlanBranchLeaseRecoveryPolicy
+{
+    internal static bool IsBranchMismatchReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return false;
+        return reason.Contains("host-owned plan branch", StringComparison.OrdinalIgnoreCase) ||
+               (reason.Contains("requires branch", StringComparison.OrdinalIgnoreCase) &&
+                reason.Contains("is active", StringComparison.OrdinalIgnoreCase));
+    }
+}
+
 /// <summary>
 /// Pure policy for deciding whether a branch divergence can be repaired without guessing about
 /// commit ownership. Git inspection and mutations remain host-owned in MainWindow.

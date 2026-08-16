@@ -15180,9 +15180,8 @@ public partial class MainWindow : Window
             .Where(candidate =>
                 (candidate.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) &&
                 (string.Equals(candidate.Branch, branch, StringComparison.Ordinal) ||
-                 candidate.InterruptionData?.Reason?.Contains(
-                     "host-owned plan branch",
-                     StringComparison.OrdinalIgnoreCase) == true))
+                 PlanBranchLeaseRecoveryPolicy.IsBranchMismatchReason(
+                     candidate.InterruptionData?.Reason)))
             .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
             .FirstOrDefault();
         if (plan is null) return;
@@ -15350,9 +15349,8 @@ public partial class MainWindow : Window
         var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
         var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
-        var isBranchLeaseRecovery = durablePlan?.InterruptionData?.Reason?.Contains(
-            "host-owned plan branch",
-            StringComparison.OrdinalIgnoreCase) == true;
+        var isBranchLeaseRecovery = PlanBranchLeaseRecoveryPolicy.IsBranchMismatchReason(
+            durablePlan?.InterruptionData?.Reason);
         var humanReview = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
@@ -15631,10 +15629,16 @@ public partial class MainWindow : Window
 
         if (isBranchLeaseRecovery && durablePlan is not null)
         {
+            var canonicalBranchIsActive = _currentWorkspace is not null && string.Equals(
+                ReadGitBranch(_currentWorkspace.FolderPath),
+                durablePlan.Branch,
+                StringComparison.Ordinal);
             AddAsyncAction(
-                "Restore Plan Branch & Resume",
-                $"Switch back to the host-owned branch '{durablePlan.Branch}' and resume the pending task. " +
-                "Any divergent commit remains preserved on its existing branch; SquadDash does not delete or rewrite it.",
+                canonicalBranchIsActive ? "Resume Plan" : "Restore Plan Branch & Resume",
+                canonicalBranchIsActive
+                    ? "Resume with the pending task on the already-restored host-owned plan branch. No AI assessment or repeated completed work is needed."
+                    : $"Switch back to the host-owned branch '{durablePlan.Branch}' and resume the pending task. " +
+                      "Any divergent commit remains preserved on its existing branch; SquadDash does not delete or rewrite it.",
                 async () => await RestorePlanBranchAndResumeAsync(durablePlan));
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
