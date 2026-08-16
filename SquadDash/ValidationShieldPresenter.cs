@@ -217,6 +217,7 @@ internal static class ValidationShieldPresenter
     internal const double BaseShieldStackSpacing = 66;
     internal const double BaseShieldVisualHeight = 64;
     internal const double BaseRailTopPadding = 42;
+    internal const double BaseRailBottomGap = 8;
     internal const double BaseAllValidationTopOffset = 24;
     internal const double BaseAllBadgeHalfHeight = 17;
     internal const double BaseClusterConnectorClearance = 14;
@@ -235,7 +236,8 @@ internal static class ValidationShieldPresenter
         double nodeHeight,
         double graphTop,
         IReadOnlyList<(double CenterX, double CenterY, string AllKey)>? gateCenters,
-        ref double fallbackNextLeft)
+        ref double fallbackNextLeft,
+        double railVisualHeight = double.NaN)
     {
         var s = scaleFactor;
         double left, top;
@@ -245,7 +247,14 @@ internal static class ValidationShieldPresenter
             case AnchorKind.Stage when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
             case AnchorKind.Rail when anchor.StageIndex >= 0 && anchor.StageIndex < stageBoundaryXs.Count:
                 left = stageBoundaryXs[anchor.StageIndex] - 72 * s;
-                top = graphTop - (90 + stackIndex * BaseShieldStackSpacing) * s;
+                var measuredHeight = double.IsNaN(railVisualHeight)
+                    ? BaseShieldVisualHeight * s
+                    : Math.Max(1, railVisualHeight);
+                var railStride = measuredHeight + BaseRailBottomGap * s;
+                // The milestone octagon begins 36 scaled pixels above graphTop. Position the
+                // complete measured shield+title visual above it, with a stable visual gap.
+                top = graphTop - 36 * s - BaseRailBottomGap * s -
+                      measuredHeight - stackIndex * railStride;
                 break;
 
             case AnchorKind.Before when anchor.TaskId is not null && taskPositions.TryGetValue(anchor.TaskId, out var beforePos):
@@ -296,7 +305,9 @@ internal static class ValidationShieldPresenter
     /// Returns the rail height in scaled pixels.
     /// </summary>
     internal static double ComputeValidationRailHeight(
-        IReadOnlyList<ShieldAnchor> anchors, double scaleFactor)
+        IReadOnlyList<ShieldAnchor> anchors,
+        double scaleFactor,
+        double railVisualHeight = double.NaN)
     {
         var topStackCount = anchors
             .Where(a => a.Kind is AnchorKind.Stage or AnchorKind.Rail)
@@ -304,9 +315,15 @@ internal static class ValidationShieldPresenter
             .Select(g => g.Count())
             .DefaultIfEmpty(0)
             .Max();
-        return topStackCount == 0
-            ? 0
-            : (BaseRailTopPadding + topStackCount * BaseShieldStackSpacing) * scaleFactor;
+        if (topStackCount == 0)
+            return 0;
+
+        var measuredHeight = double.IsNaN(railVisualHeight)
+            ? BaseShieldVisualHeight * scaleFactor
+            : Math.Max(1, railVisualHeight);
+        return BaseRailTopPadding * scaleFactor +
+               topStackCount * measuredHeight +
+               Math.Max(0, topStackCount - 1) * BaseRailBottomGap * scaleFactor;
     }
 
     /// <summary>
@@ -319,15 +336,103 @@ internal static class ValidationShieldPresenter
         IReadOnlyList<int> beforeLevels,
         int stageCount)
     {
-        if (afterLevels.Count == 0 || beforeLevels.Count == 0 || stageCount < 2)
+        if (afterLevels.Count == 0 || stageCount == 0)
             return -1;
 
         var latestPrerequisiteStage = afterLevels.Max();
+        if (beforeLevels.Count == 0)
+        {
+            // A terminal or non-blocking validation still has a semantic location: immediately
+            // after its latest prerequisite. The caller supplies a final right-side rail anchor
+            // for the last stage, so end-of-plan audits never fall back to the upper-left corner.
+            return latestPrerequisiteStage >= 0 && latestPrerequisiteStage < stageCount
+                ? latestPrerequisiteStage
+                : -1;
+        }
+
+        if (stageCount < 2)
+            return -1;
         return latestPrerequisiteStage >= 0 &&
                latestPrerequisiteStage < stageCount - 1 &&
                beforeLevels.All(level => level > latestPrerequisiteStage)
             ? latestPrerequisiteStage
             : -1;
+    }
+
+    /// <summary>
+    /// Computes display-only task levels using both task dependencies and validation boundaries.
+    /// No plan data is changed: validation after→before edges affect only the rendered columns.
+    /// If malformed boundaries form a cycle, the dependency-only layout is returned.
+    /// </summary>
+    internal static Dictionary<string, int> ComputeValidationAwareLevels(
+        IReadOnlyList<DecomposedSubTask> tasks,
+        IReadOnlyList<DecomposedValidationNode> validations)
+    {
+        var tasksById = tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var outgoing = tasks.ToDictionary(
+            task => task.Id,
+            _ => new HashSet<string>(StringComparer.Ordinal),
+            StringComparer.Ordinal);
+        var indegree = tasks.ToDictionary(task => task.Id, _ => 0, StringComparer.Ordinal);
+
+        void AddEdge(string from, string to)
+        {
+            if (string.Equals(from, to, StringComparison.Ordinal) ||
+                !outgoing.TryGetValue(from, out var targets) ||
+                !indegree.ContainsKey(to) ||
+                !targets.Add(to))
+                return;
+            indegree[to]++;
+        }
+
+        foreach (var task in tasks)
+            foreach (var dependency in task.DependsOn ?? [])
+                AddEdge(dependency, task.Id);
+
+        foreach (var validation in validations)
+            foreach (var afterId in validation.AfterTaskIds ?? [])
+                foreach (var beforeId in validation.BeforeTaskIds ?? [])
+                    AddEdge(afterId, beforeId);
+
+        var ready = new SortedSet<string>(
+            indegree.Where(entry => entry.Value == 0).Select(entry => entry.Key),
+            StringComparer.Ordinal);
+        var levels = tasks.ToDictionary(task => task.Id, _ => 0, StringComparer.Ordinal);
+        var processed = 0;
+        while (ready.Count > 0)
+        {
+            var current = ready.Min!;
+            ready.Remove(current);
+            processed++;
+            foreach (var target in outgoing[current].OrderBy(id => id, StringComparer.Ordinal))
+            {
+                levels[target] = Math.Max(levels[target], levels[current] + 1);
+                indegree[target]--;
+                if (indegree[target] == 0)
+                    ready.Add(target);
+            }
+        }
+
+        if (processed == tasks.Count)
+            return levels;
+
+        // A valid plan should not reach this branch. Preserve a useful visualization instead
+        // of letting a malformed validation boundary erase or infinitely relax the task graph.
+        var dependencyOnly = new Dictionary<string, int>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        int DependencyLevel(string id)
+        {
+            if (dependencyOnly.TryGetValue(id, out var known)) return known;
+            if (!tasksById.TryGetValue(id, out var task) || !visiting.Add(id)) return 0;
+            var dependencies = (task.DependsOn ?? []).Where(tasksById.ContainsKey).ToArray();
+            var level = dependencies.Length == 0 ? 0 : dependencies.Max(DependencyLevel) + 1;
+            visiting.Remove(id);
+            return dependencyOnly[id] = level;
+        }
+
+        foreach (var task in tasks)
+            DependencyLevel(task.Id);
+        return dependencyOnly;
     }
 
     /// <summary>

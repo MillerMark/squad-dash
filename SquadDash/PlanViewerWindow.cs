@@ -820,10 +820,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         _taskSpinnersById.Clear();
         _validationSpinnersById.Clear();
-        var levels = CalculateLevels(group.Tasks, tasksById);
+        var displayedValidations = group.Validations ?? [];
+        // Validation boundaries are graph constraints even though they do not mutate task
+        // dependencies. Use them only for display-level calculation so the visual sequence
+        // matches execution without rewriting the approved plan.
+        var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(
+            group.Tasks,
+            displayedValidations);
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
         var columns = group.Tasks.GroupBy(task => levels[task.Id]).OrderBy(column => column.Key).ToArray();
-        var displayedValidations = group.Validations ?? [];
         static bool SameIds(IEnumerable<string> left, IEnumerable<string> right) =>
             left.OrderBy(id => id, StringComparer.Ordinal)
                 .SequenceEqual(right.OrderBy(id => id, StringComparer.Ordinal));
@@ -921,8 +926,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _ => ValidationShieldPresenter.AnchorKind.Rail,
             }, anchor.TaskId, anchor.StageIndex, anchor.AllKey);
 
+        var measuredRailVisualHeight = displayedValidations.Count == 0
+            ? ValidationShieldPresenter.BaseShieldVisualHeight * _scaleFactor
+            : displayedValidations.Max(validation => MeasureValidationRailVisualHeight(validation.Title));
         var validationRailHeight = ValidationShieldPresenter.ComputeValidationRailHeight(
-            validationAnchors.Values.Select(PresenterAnchor).ToArray(), _scaleFactor);
+            validationAnchors.Values.Select(PresenterAnchor).ToArray(),
+            _scaleFactor,
+            measuredRailVisualHeight);
         var stageHeaderReserve = 36 * _scaleFactor;
         var graphTop = Math.Max(stageHeaderReserve, 12 * _scaleFactor + validationRailHeight);
         var validationRailRight = 0.0;
@@ -1290,6 +1300,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
+        // Internal entries align with stage milestones. The additional final entry gives
+        // validations with no blocked tasks—especially final audits—a real right-side anchor.
+        var validationRailXs = stageBoundaryXs.ToList();
+        var finalColumnRight = columns
+            .SelectMany(column => column)
+            .Max(task => positions[task.Id].X + NodeWidth);
+        validationRailXs.Add(
+            finalColumnRight + 12 * _scaleFactor +
+            ValidationShieldPresenter.BaseShieldVisualWidth / 2 * _scaleFactor);
+
         var validationBottom = 0.0;
         if (displayedValidations.Count > 0)
         {
@@ -1411,17 +1431,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     candidate.Center.X,
                     candidate.Center.Y,
                     string.Join("\u001f", candidate.Dependencies.OrderBy(id => id, StringComparer.Ordinal)))).ToArray();
+                // Attach before measuring so dynamic environment font resources resolve exactly
+                // as they will in the rendered visual.
+                canvas.Children.Add(visual);
+                visual.Measure(new Size(validationWidth, double.PositiveInfinity));
+                var measuredVisualHeight = Math.Max(
+                    ValidationShieldPresenter.BaseShieldVisualHeight * _scaleFactor,
+                    visual.DesiredSize.Height);
                 var layout = ValidationShieldPresenter.ComputeShieldPosition(
                     PresenterAnchor(anchor),
                     stackIndex,
                     _scaleFactor,
-                    stageBoundaryXs,
+                    validationRailXs,
                     taskPositionMap,
                     NodeWidth,
                     NodeHeight,
                     graphTop,
                     gateCenterMap,
-                    ref fallbackNextLeft);
+                    ref fallbackNextLeft,
+                    measuredVisualHeight);
                 var left = layout.Left;
                 var top = layout.Top;
                 if (isStageValidation)
@@ -1430,7 +1458,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetLeft(visual, left);
                 Canvas.SetTop(visual, top);
                 Panel.SetZIndex(visual, 30);
-                canvas.Children.Add(visual);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
 
                 // Show Verity Cross avatar while a validation is actively running.
@@ -1453,8 +1480,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                 }
                 validationRailRight = Math.Max(validationRailRight, left + validationWidth);
-                // Full visual height: shield (26) + title margin (3) + title maxHeight (32) + bottom padding (5)
-                validationBottom = Math.Max(validationBottom, top + ValidationShieldPresenter.BaseShieldStackSpacing * _scaleFactor);
+                validationBottom = Math.Max(validationBottom, top + measuredVisualHeight);
             }
         }
 
@@ -3646,6 +3672,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         chip.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         return chip;
+    }
+
+    private double MeasureValidationRailVisualHeight(string? validationTitle)
+    {
+        var titleProbe = new TextBlock
+        {
+            Text = ValidationShieldPresenter.TruncateTitle(validationTitle),
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        if (TryFindResource("FontSizeBody") is double fontSize)
+            titleProbe.FontSize = fontSize;
+        else
+            titleProbe.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        titleProbe.Measure(new Size(280 * _scaleFactor, double.PositiveInfinity));
+
+        var shieldHeight = Math.Round(BaseNodeHeight * 0.375 * _scaleFactor);
+        var titleChromeHeight = 3 * _scaleFactor + 2; // title margin plus one-pixel top/bottom padding
+        return shieldHeight + titleChromeHeight + titleProbe.DesiredSize.Height;
     }
 
     private FrameworkElement CreateValidationShield(string validationId, string status)

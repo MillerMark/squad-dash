@@ -80,9 +80,10 @@ internal sealed class DenseValidationFixtureRenderingTests
 
         var railHeight = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, DefaultScaleFactor);
 
-        // Rail must cover padding + 3 stacked shields
+        // Rail must cover padding + measured shields + explicit inter-shield gaps.
         var expected = (ValidationShieldPresenter.BaseRailTopPadding +
-                        3 * ValidationShieldPresenter.BaseShieldStackSpacing) * DefaultScaleFactor;
+                        3 * ValidationShieldPresenter.BaseShieldVisualHeight +
+                        2 * ValidationShieldPresenter.BaseRailBottomGap) * DefaultScaleFactor;
         Assert.That(railHeight, Is.EqualTo(expected));
     }
 
@@ -183,7 +184,7 @@ internal sealed class DenseValidationFixtureRenderingTests
         var railHeight = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, DefaultScaleFactor);
 
         var expected = (ValidationShieldPresenter.BaseRailTopPadding +
-                        1 * ValidationShieldPresenter.BaseShieldStackSpacing) * DefaultScaleFactor;
+                        ValidationShieldPresenter.BaseShieldVisualHeight) * DefaultScaleFactor;
         Assert.That(railHeight, Is.EqualTo(expected));
     }
 

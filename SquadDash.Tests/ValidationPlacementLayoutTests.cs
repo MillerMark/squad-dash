@@ -29,7 +29,9 @@ internal sealed class ValidationPlacementLayoutTests
         Assert.Multiple(() =>
         {
             Assert.That(pos.Left, Is.EqualTo(400 - 72).Within(0.01));
-            Assert.That(pos.Top, Is.EqualTo(200 - 90).Within(0.01));
+            Assert.That(pos.Top, Is.EqualTo(
+                200 - 36 - ValidationShieldPresenter.BaseRailBottomGap -
+                ValidationShieldPresenter.BaseShieldVisualHeight).Within(0.01));
             Assert.That(pos.StackIndex, Is.EqualTo(0));
             Assert.That(pos.Anchor.Kind, Is.EqualTo(ValidationShieldPresenter.AnchorKind.Stage));
         });
@@ -57,7 +59,8 @@ internal sealed class ValidationPlacementLayoutTests
         // Stack index 1 should be higher (lower top value) than stack index 0
         Assert.That(pos1.Top, Is.LessThan(pos0.Top));
         Assert.That(pos0.Top - pos1.Top,
-            Is.EqualTo(ValidationShieldPresenter.BaseShieldStackSpacing).Within(0.01));
+            Is.EqualTo(ValidationShieldPresenter.BaseShieldVisualHeight +
+                       ValidationShieldPresenter.BaseRailBottomGap).Within(0.01));
     }
 
     [Test]
@@ -202,7 +205,9 @@ internal sealed class ValidationPlacementLayoutTests
             new ValidationShieldPresenter.ShieldAnchor(ValidationShieldPresenter.AnchorKind.Stage, StageIndex: 0),
         };
         var height = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, Scale);
-        Assert.That(height, Is.EqualTo(42 + 66).Within(0.01)); // BaseRailTopPadding + 1 * BaseShieldStackSpacing
+        Assert.That(height, Is.EqualTo(
+            ValidationShieldPresenter.BaseRailTopPadding +
+            ValidationShieldPresenter.BaseShieldVisualHeight).Within(0.01));
     }
 
     [Test]
@@ -215,7 +220,10 @@ internal sealed class ValidationPlacementLayoutTests
             new ValidationShieldPresenter.ShieldAnchor(ValidationShieldPresenter.AnchorKind.Stage, StageIndex: 0),
         };
         var height = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, Scale);
-        Assert.That(height, Is.EqualTo(42 + 3 * 66).Within(0.01));
+        Assert.That(height, Is.EqualTo(
+            ValidationShieldPresenter.BaseRailTopPadding +
+            3 * ValidationShieldPresenter.BaseShieldVisualHeight +
+            2 * ValidationShieldPresenter.BaseRailBottomGap).Within(0.01));
     }
 
     [Test]
@@ -231,7 +239,10 @@ internal sealed class ValidationPlacementLayoutTests
         };
         var height = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, Scale);
         // Max is stage:0 with 2 items vs stage:1 with 1 vs rail with 1 → max is 2
-        Assert.That(height, Is.EqualTo(42 + 2 * 66).Within(0.01));
+        Assert.That(height, Is.EqualTo(
+            ValidationShieldPresenter.BaseRailTopPadding +
+            2 * ValidationShieldPresenter.BaseShieldVisualHeight +
+            ValidationShieldPresenter.BaseRailBottomGap).Within(0.01));
     }
 
     [Test]
@@ -242,7 +253,28 @@ internal sealed class ValidationPlacementLayoutTests
             new ValidationShieldPresenter.ShieldAnchor(ValidationShieldPresenter.AnchorKind.Stage, StageIndex: 0),
         };
         var height = ValidationShieldPresenter.ComputeValidationRailHeight(anchors, 1.5);
-        Assert.That(height, Is.EqualTo((42 + 66) * 1.5).Within(0.01));
+        Assert.That(height, Is.EqualTo(
+            (ValidationShieldPresenter.BaseRailTopPadding +
+             ValidationShieldPresenter.BaseShieldVisualHeight) * 1.5).Within(0.01));
+    }
+
+    [Test]
+    public void ComputeShieldPosition_MeasuredRailVisualPreservesOctagonGap()
+    {
+        var anchor = new ValidationShieldPresenter.ShieldAnchor(
+            ValidationShieldPresenter.AnchorKind.Rail, StageIndex: 0);
+        var fallback = 100.0;
+        const double graphTop = 240;
+        const double measuredHeight = 86;
+
+        var position = ValidationShieldPresenter.ComputeShieldPosition(
+            anchor, 0, Scale, [400],
+            new Dictionary<string, (double X, double Y)>(), NodeWidth, NodeHeight,
+            graphTop, null, ref fallback, measuredHeight);
+
+        var octagonTop = graphTop - 36;
+        Assert.That(octagonTop - (position.Top + measuredHeight),
+            Is.EqualTo(ValidationShieldPresenter.BaseRailBottomGap).Within(0.01));
     }
 
     // ── Attached task spacing ─────────────────────────────────────────────────
@@ -297,7 +329,8 @@ internal sealed class ValidationPlacementLayoutTests
             Assert.That(lower.Left, Is.EqualTo(400 - 72).Within(0.01));
             Assert.That(upper.Left, Is.EqualTo(lower.Left).Within(0.01));
             Assert.That(lower.Top - upper.Top,
-                Is.EqualTo(ValidationShieldPresenter.BaseShieldStackSpacing).Within(0.01));
+                Is.EqualTo(ValidationShieldPresenter.BaseShieldVisualHeight +
+                           ValidationShieldPresenter.BaseRailBottomGap).Within(0.01));
             Assert.That(fallback, Is.EqualTo(100).Within(0.01));
         });
     }
@@ -322,6 +355,17 @@ internal sealed class ValidationPlacementLayoutTests
             stageCount: 3);
 
         Assert.That(stageIndex, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void InferComplexValidationStageIndex_TerminalAuditUsesLatestPrerequisiteStage()
+    {
+        var stageIndex = ValidationShieldPresenter.InferComplexValidationStageIndex(
+            afterLevels: [2, 6],
+            beforeLevels: [],
+            stageCount: 7);
+
+        Assert.That(stageIndex, Is.EqualTo(6));
     }
 
     [Test]
