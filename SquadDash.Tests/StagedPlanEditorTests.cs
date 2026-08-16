@@ -112,6 +112,40 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void TryValidate_RejectsGateWithMissingQuestion()
+    {
+        var group = MakeGroup() with
+        {
+            ApprovalGates = [new DecomposedGate(
+                GroupId + "-GATE-001",
+                "Verify the second task's observable result before dependent work continues.",
+                [Id(1)], [Id(2)])],   // Question is null (default)
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(StagedPlanEditor.TryValidate(group, out _, out var error), Is.False);
+            Assert.That(error, Does.Contain(GroupId + "-GATE-001"));
+            Assert.That(error, Does.Contain("verify or decide").IgnoreCase);
+        });
+    }
+
+    [Test]
+    public void TryValidate_AcceptsGateWithNonEmptyQuestion()
+    {
+        var group = MakeGroup() with
+        {
+            ApprovalGates = [new DecomposedGate(
+                GroupId + "-GATE-001",
+                "Verify the second task's observable result before dependent work continues.",
+                [Id(1)], [Id(2)],
+                Question: "Does the second task's output meet its stated acceptance criteria?")],
+        };
+
+        Assert.That(StagedPlanEditor.TryValidate(group, out _, out var error), Is.True, error);
+    }
+
+    [Test]
     public void AddValidation_UsesCompactIdAndTheImmediateTaskFrontier()
     {
         var updated = StagedPlanEditor.AddValidationAfterTask(MakeGroup(), Id(2));
