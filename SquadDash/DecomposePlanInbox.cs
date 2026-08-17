@@ -175,7 +175,7 @@ internal static class DecomposePlanInbox
         if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
         {
             actions.Add(BuildAction(
-                $"Continue Working on {stepLabel}…",
+                $"✎ Continue Working on {stepLabel}…",
                 "request-corrections",
                 $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch."));
         }

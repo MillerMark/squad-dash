@@ -209,7 +209,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             Is.EqualTo(new[]
             {
                 "Step 1 Is Complete",
-                "Continue Working on Step 1…",
+                "✎ Continue Working on Step 1…",
                 "✎ Revise Remaining Plan…",
             }));
     }
@@ -353,7 +353,7 @@ internal sealed class CompletedWorkReviewPresentationTests
                 Is.EqualTo(new[]
                 {
                     "Step 1 Is Complete",
-                    "Continue Working on Step 1…",
+                    "✎ Continue Working on Step 1…",
                     "✎ Revise Remaining Plan…",
                 }));
         });

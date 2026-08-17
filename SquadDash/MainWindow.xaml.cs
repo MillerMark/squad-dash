@@ -16694,7 +16694,7 @@ public partial class MainWindow : Window
             if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
             {
                 AddAsyncAction(
-                    $"Continue Working on {stepLabel}…",
+                    $"✎ Continue Working on {stepLabel}…",
                     $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch.",
                     async () => await QueuePlanRecoveryCorrectionAsync(plan, taskId));
             }

@@ -548,7 +548,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedPlan = durablePlan;
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
-                    $"Continue Working on {PlanRecoveryPresentationBuilder.FormatStepLabel(
+                    $"✎ Continue Working on {PlanRecoveryPresentationBuilder.FormatStepLabel(
                         capturedPlan.Tasks.FirstOrDefault(task => string.Equals(
                             task.TaskId,
                             capturedPlan.InterruptionData?.InterruptedTaskId,
