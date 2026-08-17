@@ -13495,7 +13495,8 @@ public partial class MainWindow : Window
 
     private async Task<(string? Error, string? EffectiveCommit)> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
-        bool verificationOnly)
+        bool verificationOnly,
+        string? baselineOverride = null)
     {
         if (_currentWorkspace is null) return ("No workspace is active.", null);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
@@ -13507,10 +13508,22 @@ public partial class MainWindow : Window
             var workspace = _currentWorkspace.FolderPath;
             var resolved = (await RunGitAsync(workspace, $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
             var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
-            if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
+            var baseline = baselineOverride ?? _decomposeIterationBaselineCommit;
+            if (!verificationOnly)
             {
-                if (!verificationOnly)
-                    return ($"The reported commit resolves to {resolved}, but the active branch is at {head}.", null);
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(baseline))
+                        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{resolved}\"");
+                    await RunGitAsync(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
+                }
+                catch
+                {
+                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null);
+                }
+            }
+            else if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
+            {
                 try
                 {
                     await RunGitAsync(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
@@ -13520,18 +13533,17 @@ public partial class MainWindow : Window
                     return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null);
                 }
             }
-            if (!verificationOnly &&
-                string.Equals(_decomposeIterationBaselineCommit, head, StringComparison.OrdinalIgnoreCase))
+
+            if (!verificationOnly && string.Equals(baseline, resolved, StringComparison.OrdinalIgnoreCase))
                 return ("The step reported completion without creating a new commit.", null);
 
-            if (!string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
+            if (!string.IsNullOrWhiteSpace(baseline))
             {
-                await RunGitAsync(
-                    workspace,
-                    $"merge-base --is-ancestor \"{_decomposeIterationBaselineCommit}\" \"{head}\"");
+                var rangeEnd = verificationOnly ? head : resolved;
+                await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{rangeEnd}\"");
                 var commitCountText = (await RunGitAsync(
                     workspace,
-                    $"rev-list --count \"{_decomposeIterationBaselineCommit}..{head}\"")).Trim();
+                    $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
                     return ("SquadDash could not determine how many commits the step produced.", null);
                 if (verificationOnly && commitCount != 0)
@@ -13542,9 +13554,9 @@ public partial class MainWindow : Window
 
             var changedPaths = (await RunGitAsync(
                     workspace,
-                    string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit)
-                        ? $"diff-tree --no-commit-id --name-only -r \"{head}\""
-                        : $"diff --name-only \"{_decomposeIterationBaselineCommit}..{head}\""))
+                    string.IsNullOrWhiteSpace(baseline)
+                        ? $"diff-tree --no-commit-id --name-only -r \"{resolved}\""
+                        : $"diff --name-only \"{baseline}..{(verificationOnly ? head : resolved)}\""))
                 .Replace("\r\n", "\n", StringComparison.Ordinal)
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
@@ -13556,7 +13568,7 @@ public partial class MainWindow : Window
                 return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null);
 
             await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, head);
+            return (null, verificationOnly ? head : resolved);
         }
         catch (Exception ex)
         {
