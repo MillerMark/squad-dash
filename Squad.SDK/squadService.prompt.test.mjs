@@ -61,6 +61,28 @@ test("auth diagnostics remain conservative when no recent provider evidence exis
     }
 });
 
+test("runPrompt enriches authentication failures raised after session creation", async () => {
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => ({
+            sessionId: "session-auth-send",
+            on() {},
+            getBackgroundTasks: async () => [],
+            sendAndWait: async () => {
+                throw new Error("Session was not created with authentication info or custom provider");
+            }
+        })
+    };
+
+    await assert.rejects(
+        service.runPrompt("validate", {}, { cwd: "D:\\Drive\\Source\\SquadDash-public" }),
+        error => {
+            assert.match(error.message, /Copilot authentication/i);
+            return true;
+        });
+});
+
 test("permission approval supports legacy Copilot runtime response shape", () => {
     assert.equal(resolvePermissionApprovalKind("1.0.24"), "approved");
 });

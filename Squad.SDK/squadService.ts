@@ -2214,7 +2214,7 @@ export class SquadBridgeService {
             if (options.sessionId && isRecoverableSessionReset(extractErrorMessage(error)))
                 await this.disposeSession(state.session.sessionId);
 
-            throw error;
+            throw enrichCopilotAuthenticationFailure(error);
         }
         finally {
             if (requestSubmitted)
