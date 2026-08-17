@@ -440,6 +440,7 @@ public partial class MainWindow : Window
     private bool _isPromptRunning;
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
+    private bool _planQueueDrainPauseAnnounced;
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _pendingPromptSuppressTranscript;
     private const string SystemTranscriptStatusPrefix = "[SQUADDASH_SYSTEM_STATUS] ";
@@ -2655,7 +2656,12 @@ public partial class MainWindow : Window
             if (_isPromptRunning || IsNativeLoopRunning || _queueManuallyPaused || HasPendingDirectQuickReplyAgentFollowUp())
             {
                 if (IsNativeLoopRunning && _loopFollowUpTcs == null)
+                {
+                    var firstPlanQueueInterrupt = !_loopInterruptedByQueue;
                     _loopInterruptedByQueue = true;
+                    if (firstPlanQueueInterrupt)
+                        AnnouncePlanQueueDrainPause();
+                }
                 EnqueueCurrentPrompt();
                 if (_queueManuallyPaused)
                     ShowQueuePausedCallout();
@@ -2703,6 +2709,22 @@ public partial class MainWindow : Window
             QueueNumber      = NextQueueNumber(),
             IsSystemInjected = isSystemInjected,
             SourceTag        = sourceTag,
+            IsLocked         = string.Equals(
+                sourceTag,
+                PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                StringComparison.Ordinal),
+            DisplayLabel     = string.Equals(
+                sourceTag,
+                PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                StringComparison.Ordinal)
+                    ? "Plan result repair"
+                    : null,
+            ReadOnlyDisplayText = string.Equals(
+                sourceTag,
+                PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                StringComparison.Ordinal)
+                    ? "This host-managed continuation corrects the current step result without repeating implementation work."
+                    : null,
         };
         if (isSystemInjected && !forceAtTail && _activeTabId is null && !_queueManuallyPaused) {
             _promptQueue.EnqueueItemAtFront(item);
@@ -3161,7 +3183,13 @@ public partial class MainWindow : Window
                 : string.Equals(item.SourceTag, "plan-gate-response-repair", StringComparison.Ordinal)
                     ? SystemTranscriptStatusPrefix +
                       "SquadDash is repairing a missing approval-response classification. No plan state has changed…"
-                : null;
+                    : string.Equals(
+                        item.SourceTag,
+                        PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                        StringComparison.Ordinal)
+                        ? SystemTranscriptStatusPrefix +
+                          "Correcting the current step result without repeating implementation work…"
+                        : null;
     }
 
     private static string DescribeQueueItemForTrace(PromptQueueItem item) =>
@@ -3605,10 +3633,11 @@ public partial class MainWindow : Window
                 : $"▶ Loop resuming — {LoopTimestamp()} — quick replies answered.";
             SquadDashTrace.Write("Loop", $"MaybeFireQueuedLoopAsync: starting queued loop resumeFromIteration={resumeFromIteration} wasQueueResume={wasQueueResume} wasQrResume={wasQrResume} queueCount={_promptQueue.Count}");
             AppendLoopOutputLine(resumeMsg, LoopLifecycleBrush);
-            AppendLine("▶ Starting queued loop…", (Brush)FindResource("SubtleText"));
             var claimed = await ResumeLoopImmediateAsync(resumeFromIteration);
             if (!claimed)
                 throw new InvalidOperationException("The saved loop execution could not be reclaimed safely.");
+            if (wasQueueResume)
+                AnnouncePlanQueueDrainResume();
         }
         catch (Exception ex)
         {
@@ -3621,6 +3650,34 @@ public partial class MainWindow : Window
                 ShowSystemTranscriptEntry(
                     $"Loop recovery paused: {ex.Message} The saved loop details were preserved.");
         }
+    }
+
+    private void AnnouncePlanQueueDrainPause()
+    {
+        if (_planQueueDrainPauseAnnounced)
+            return;
+
+        var planId = _activeDecomposeGroupId ??
+                     _conversationManager.ConversationState.ActiveLoopExecution?.DecomposeGroupId;
+        if (string.IsNullOrWhiteSpace(planId) || _planStore?.Load(planId) is not { } plan)
+            return;
+
+        _planQueueDrainPauseAnnounced = true;
+        ShowSystemTranscriptEntry(PlanLoopTranscriptPresentation.BuildQueueDrainPauseMessage(plan));
+    }
+
+    private void AnnouncePlanQueueDrainResume()
+    {
+        var planId = _activeDecomposeGroupId ??
+                     _conversationManager.ConversationState.ActiveLoopExecution?.DecomposeGroupId;
+        var plan = string.IsNullOrWhiteSpace(planId) ? null : _planStore?.Load(planId);
+        _planQueueDrainPauseAnnounced = false;
+        ShowSystemTranscriptEntry(plan is null
+            ? "Queued prompts complete. Resuming the plan."
+            : PlanLoopTranscriptPresentation.BuildQueueDrainResumeMessage(
+                plan,
+                _CodeHealthGroupRunner?.CurrentStepId,
+                _CodeHealthGroupRunner?.GetCurrentStepTitle()));
     }
 
     private void BeginQueueStateHydration()
@@ -11456,9 +11513,17 @@ public partial class MainWindow : Window
     private void CaptureExecutingPlanStepResult(string? rawResponse)
     {
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
-        var hasDurableRepairContext = activeExecution?.IsExecutingPlan == true &&
-                                      PlanRepairReplayPolicy.ShouldPersistTaskRepairResponse(activeExecution);
-        if (_activeDecomposeGroupId is null && !hasDurableRepairContext) return;
+        var dispatchedItem = _pec.CurrentDispatchedItem;
+        // A stopped plan can retain a durable repair context while ordinary user prompts
+        // drain. Those turns are not plan results and must never overwrite a valid pending
+        // repair result merely because they happen before the plan is reclaimed.
+        if (!PlanRepairReplayPolicy.ShouldCaptureTurnResponse(
+                activeExecution,
+                activePlanRuntime: _activeDecomposeGroupId is not null,
+                hasDispatchedQueueItem: dispatchedItem is not null,
+                dispatchedItemIsSystemInjected: dispatchedItem?.IsSystemInjected == true,
+                dispatchedItemSourceTag: dispatchedItem?.SourceTag))
+            return;
         if (_activeDecomposeGroupId is not null &&
             activeExecution?.DecomposeGroupId is not null &&
             !string.Equals(activeExecution.DecomposeGroupId, _activeDecomposeGroupId, StringComparison.Ordinal))
@@ -12502,7 +12567,10 @@ public partial class MainWindow : Window
                           "SquadDash is requesting the missing result envelope without repeating the task. " +
                           $"Technical detail: {repairError}");
                 }
-                EnqueuePrompt(repairPrompt, isSystemInjected: true);
+                EnqueuePrompt(
+                    repairPrompt,
+                    isSystemInjected: true,
+                    sourceTag: PlanRepairReplayPolicy.TaskResultRepairSourceTag);
                 return;
             }
 

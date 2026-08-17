@@ -27,6 +27,23 @@ internal static class PlanLoopTranscriptPresentation
         return string.IsNullOrWhiteSpace(detail) ? message : $"{message} · {detail.Trim()}";
     }
 
+    internal static string BuildQueueDrainPauseMessage(Plan plan) =>
+        $"Temporarily pausing “{plan.Title}” after the current turn to handle queued prompts.";
+
+    internal static string BuildQueueDrainResumeMessage(
+        Plan plan,
+        string? taskId,
+        string? taskTitle)
+    {
+        var task = ResolveTask(plan, taskId, taskTitle);
+        var title = task?.Title?.Trim() is { Length: > 0 } resolvedTitle
+            ? resolvedTitle
+            : string.IsNullOrWhiteSpace(taskTitle)
+                ? "the next plan step"
+                : taskTitle.Trim();
+        return $"Queued prompts complete. Resuming plan · {BuildProgressIdentity(plan, task)} · {title}.";
+    }
+
     internal static string BuildPhasePrompt(
         Plan plan,
         string? taskId,

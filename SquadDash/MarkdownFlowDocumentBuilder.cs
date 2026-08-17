@@ -484,12 +484,14 @@ internal static class MarkdownFlowDocumentBuilder {
     }
 
     // Matches **bold**, __bold__, *italic*, _italic_ — bold patterns listed first so ** beats *.
+    // Underscore emphasis follows word boundaries so protocol identifiers such as
+    // DECOMPOSE_STEP_RESULT_JSON are never fragmented into italic spans.
     private static readonly System.Text.RegularExpressions.Regex BoldItalicRegex = new(
-        @"\*\*(.+?)\*\*|__(.+?)__|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<!_)_(?!_)(.+?)(?<!_)_(?!_)",
+        @"\*\*(.+?)\*\*|__(.+?)__|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<![\p{L}\p{N}_])_(?![_\s])(.+?)(?<![_\s])_(?![\p{L}\p{N}_])",
         System.Text.RegularExpressions.RegexOptions.Singleline);
 
     private static readonly System.Text.RegularExpressions.Regex CodeIdentifierRegex = new(
-        @"(?<![\p{L}\p{N}_])(?=[\p{L}\p{N}_.]*[a-z0-9][A-Z])_?[\p{L}][\p{L}\p{N}_]*(?:\.[\p{L}\p{N}_]+)*(?![\p{L}\p{N}_])",
+        @"(?<![\p{L}\p{N}_])(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}|(?=[\p{L}\p{N}_.]*[a-z0-9][A-Z])_?[\p{L}][\p{L}\p{N}_]*(?:\.[\p{L}\p{N}_]+)*)(?![\p{L}\p{N}_])",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static void AddFormattedRuns(

@@ -180,6 +180,24 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
     }
 
     [Test]
+    public void AddInboxInlineText_StylesProtocolPayloadNameWithoutItalicizingUnderscores()
+    {
+        var paragraph = new Paragraph();
+
+        MarkdownFlowDocumentBuilder.AddInboxInlineText(
+            paragraph.Inlines,
+            "The response did not contain a valid DECOMPOSE_STEP_RESULT_JSON payload.");
+
+        var protocolRun = paragraph.Inlines.OfType<Run>()
+            .Single(run => run.Text == "DECOMPOSE_STEP_RESULT_JSON");
+        Assert.Multiple(() =>
+        {
+            Assert.That(protocolRun.FontFamily.Source, Does.Contain("Consolas"));
+            Assert.That(protocolRun.FontStyle, Is.Not.EqualTo(FontStyles.Italic));
+        });
+    }
+
+    [Test]
     public void Build_DefaultRenderer_DoesNotAutoStyleIdentifiers() {
         var doc = Build("PlanViewerWindow.cs remains ordinary outside Inbox.");
         var runs = doc.Blocks.OfType<Paragraph>()

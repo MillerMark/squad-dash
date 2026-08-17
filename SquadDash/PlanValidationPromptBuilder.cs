@@ -17,12 +17,11 @@ internal static class PlanValidationPromptBuilder
         var sb = new StringBuilder();
         sb.AppendLine("# Validation Assignment");
         sb.AppendLine();
-        sb.AppendLine("This validation must be performed by the Squad CLI built-in `fact-checker` utility agent.");
-        sb.AppendLine("You are the coordinator, not the validator. Use the `task` tool exactly once in synchronous mode to launch the " +
-                      "Squad `fact-checker` utility slot, using the CLI's `general-purpose` agent type. If " +
-                      "`.squad/agents/fact-checker/charter.md` exists, use its identity (which may be named `Fact Checker` or `Verity Cross`). " +
-                      "If it is absent, launch the agent as `Fact Checker` with this built-in role: independently verify claims, inspect counter-hypotheses, " +
-                      "separate evidence from assertion, and recommend pass, fail, or human review. Pass this complete assignment and its required response schema to the agent. " +
+        sb.AppendLine("This validation must be performed by the roster `fact-checker` utility agent.");
+        sb.AppendLine("You are the coordinator, not the validator. Call the host-provided `delegate_roster_agent` tool exactly once with " +
+                      "`agent_handle` set to `fact-checker`, and pass this complete assignment and required response schema in `prompt`. " +
+                      "That host-owned route applies the configured Fact Checker identity, charter, history, and model profile (for example, `Verity Cross`). " +
+                      "Do not use the generic `task` tool or create a temporary agent named Fact Checker. " +
                       "Do not perform the validation yourself or substitute another agent.");
         sb.AppendLine("After the fact-checker returns, relay its PLAN_VALIDATION_RESULT_JSON result as the only top-level result.");
         sb.AppendLine("The result must contain exactly one `assertionEvidence` item for each approved assertion below, in the same order. " +

@@ -45,6 +45,46 @@ internal sealed class PendingRepairResultTests
         return new PendingRepairResult(groupId, revision, taskId, attemptId, json, errorText);
     }
 
+    [Test]
+    public void OrdinaryQueuedPrompt_NeverOverwritesPendingPlanRepair()
+    {
+        var execution = CreateExecution(pendingResult: CreatePending(
+            result: CreateValidResult(attemptId: "attempt-1")));
+
+        Assert.That(PlanRepairReplayPolicy.ShouldCaptureTurnResponse(
+            execution,
+            activePlanRuntime: true,
+            hasDispatchedQueueItem: true,
+            dispatchedItemIsSystemInjected: false,
+            dispatchedItemSourceTag: null), Is.False);
+    }
+
+    [Test]
+    public void TypedRepairQueueItem_CanRestoreResultAfterRestart()
+    {
+        var execution = CreateExecution();
+
+        Assert.That(PlanRepairReplayPolicy.ShouldCaptureTurnResponse(
+            execution,
+            activePlanRuntime: false,
+            hasDispatchedQueueItem: true,
+            dispatchedItemIsSystemInjected: true,
+            dispatchedItemSourceTag: PlanRepairReplayPolicy.TaskResultRepairSourceTag), Is.True);
+    }
+
+    [Test]
+    public void UntaggedSystemPrompt_CannotMasqueradeAsTaskResultRepair()
+    {
+        var execution = CreateExecution();
+
+        Assert.That(PlanRepairReplayPolicy.ShouldCaptureTurnResponse(
+            execution,
+            activePlanRuntime: false,
+            hasDispatchedQueueItem: true,
+            dispatchedItemIsSystemInjected: true,
+            dispatchedItemSourceTag: null), Is.False);
+    }
+
     // ── 1. Normal consumption ──────────────────────────────────────────────────
 
     [Test]

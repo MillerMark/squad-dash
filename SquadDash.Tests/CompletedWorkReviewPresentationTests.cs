@@ -3,6 +3,26 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class CompletedWorkReviewPresentationTests
 {
+    [Test]
+    public void RecoveryReason_FormatsProtocolPayloadNameAsInlineCode()
+    {
+        var reason = PlanRecoveryPresentationBuilder.SummarizeReason(
+            "The response did not contain a valid DECOMPOSE_STEP_RESULT_JSON payload.");
+
+        Assert.That(reason, Is.EqualTo(
+            "The response did not contain a valid `DECOMPOSE_STEP_RESULT_JSON` payload."));
+    }
+
+    [Test]
+    public void ProtocolPayloadFormatting_DoesNotDoubleWrapExistingInlineCode()
+    {
+        var reason = PlanRecoveryPresentationBuilder.SummarizeReason(
+            "The `PLAN_VALIDATION_RESULT_JSON` payload was invalid.");
+
+        Assert.That(reason, Is.EqualTo(
+            "The `PLAN_VALIDATION_RESULT_JSON` payload was invalid."));
+    }
+
     private const string PlanId = "REVIEW-001";
     private const string TaskId = "REVIEW-001-002";
     private const string DependentTaskId = "REVIEW-001-003";

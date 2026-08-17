@@ -149,4 +149,26 @@ internal sealed class PlanLoopTranscriptPresentationTests
             PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(plan),
             Is.EqualTo("Plan complete · 8 of 8"));
     }
+
+    [Test]
+    public void QueueDrainMessages_ExplainTemporaryPauseAndExactResumeStep()
+    {
+        var task = new PlanTask(
+            "PLAN-1-003", "Recompute dependency stages", "Recompute", [], "high",
+            PlanTaskStatus.Executing, DisplayStepLabel: "3");
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Executing,
+            "Dependency editing", "feature/plan", "Summary", [task], [],
+            new PlanProgress(2, 8, task.TaskId), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanLoopTranscriptPresentation.BuildQueueDrainPauseMessage(plan),
+                Is.EqualTo("Temporarily pausing “Dependency editing” after the current turn to handle queued prompts."));
+            Assert.That(
+                PlanLoopTranscriptPresentation.BuildQueueDrainResumeMessage(plan, task.TaskId, task.Title),
+                Is.EqualTo("Queued prompts complete. Resuming plan · Step 3 of 8 · Recompute dependency stages."));
+        });
+    }
 }

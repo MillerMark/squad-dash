@@ -27,6 +27,13 @@ internal sealed class PlanValidationSchedulingTests
 
         Assert.Multiple(() =>
         {
+            Assert.That(prompt, Does.Contain("`delegate_roster_agent`"));
+            Assert.That(prompt, Does.Contain("`agent_handle` set to `fact-checker`"));
+            Assert.That(prompt, Does.Contain("Do not use the generic `task` tool"));
+        });
+
+        Assert.Multiple(() =>
+        {
             Assert.That(prompt, Does.Contain("Validation Assignment"));
             Assert.That(prompt, Does.Contain("Plan Objective"));
             Assert.That(prompt, Does.Contain(plan.Title));
@@ -39,10 +46,10 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(prompt, Does.Contain(PlanValidationResultParser.Marker));
             Assert.That(prompt, Does.Contain("Do not create any commits"));
             Assert.That(prompt, Does.Contain("Verity Cross"));
-            Assert.That(prompt, Does.Contain("`fact-checker` utility slot"));
-            Assert.That(prompt, Does.Contain("`general-purpose` agent type"));
-            Assert.That(prompt, Does.Contain("which may be named `Fact Checker` or `Verity Cross`"));
-            Assert.That(prompt, Does.Contain("If it is absent, launch the agent as `Fact Checker`"));
+            Assert.That(prompt, Does.Contain("roster `fact-checker` utility agent"));
+            Assert.That(prompt, Does.Contain("`delegate_roster_agent`"));
+            Assert.That(prompt, Does.Contain("`agent_handle` set to `fact-checker`"));
+            Assert.That(prompt, Does.Not.Contain("using the CLI's `general-purpose` agent type"));
             Assert.That(prompt, Does.Contain("Do not perform the validation yourself"));
             Assert.That(prompt, Does.Contain("human approval checkpoint"));
         });

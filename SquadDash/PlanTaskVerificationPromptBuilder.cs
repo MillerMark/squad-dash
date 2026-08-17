@@ -14,13 +14,12 @@ internal static class PlanTaskVerificationPromptBuilder
         string diffSummary)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("This verification must be performed by the Squad CLI built-in `fact-checker` utility agent.");
-        builder.AppendLine("You are the coordinator, not the verifier. Use the `task` tool exactly once in synchronous mode to launch the " +
-                           "Squad `fact-checker` utility slot, using the CLI's `general-purpose` agent type. If " +
-                           "`.squad/agents/fact-checker/charter.md` exists, use its identity (which may be named `Fact Checker` or `Verity Cross`). " +
-                           "If it is absent, launch the agent as `Fact Checker` with this built-in role: independently verify claims, inspect counter-hypotheses, " +
-                           "separate evidence from assertion, and recommend accept, rework, or human review. Pass the complete verification assignment and required result schema to the agent. " +
-                           "Do not perform the verification yourself and do not substitute the implementation agent, a generic reviewer, or prose-only findings.");
+        builder.AppendLine("This verification must be performed by the roster `fact-checker` utility agent.");
+        builder.AppendLine("You are the coordinator, not the verifier. Call the host-provided `delegate_roster_agent` tool exactly once with " +
+                           "`agent_handle` set to `fact-checker`, and pass the complete verification assignment and required result schema in `prompt`. " +
+                           "That host-owned route applies the configured Fact Checker identity, charter, history, and model profile (for example, `Verity Cross`). " +
+                           "Do not use the generic `task` tool or create a temporary agent named Fact Checker. " +
+                           "Do not perform the verification yourself or substitute the implementation agent, a generic reviewer, or prose-only findings.");
         builder.AppendLine("After the fact-checker returns, relay its PLAN_TASK_VERIFICATION_JSON result exactly as the only top-level result. " +
                            "If it cannot establish a claim without human observation, it must use `human-review-required`; it must never simulate or imply a human observation.");
         builder.AppendLine();

@@ -202,8 +202,15 @@ internal static class PlanRecoveryPresentationBuilder
                    "The completed primary worker's commit was preserved, and additional helpers are now advisory rather than fatal.";
         }
 
-        return normalized;
+        return FormatProtocolIdentifiers(normalized);
     }
+
+    internal static string FormatProtocolIdentifiers(string text) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"(?<![`A-Za-z0-9_])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,})(?![`A-Za-z0-9_])",
+            "`$1`",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     internal static string? BuildCompactTestSummary(DecomposeStepVerification? verification)
     {

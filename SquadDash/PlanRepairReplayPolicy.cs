@@ -6,6 +6,30 @@ namespace SquadDash;
 /// </summary>
 internal static class PlanRepairReplayPolicy
 {
+    internal const string TaskResultRepairSourceTag = "plan-result-envelope-repair";
+
+    internal static bool ShouldCaptureTurnResponse(
+        ActiveLoopExecutionState? execution,
+        bool activePlanRuntime,
+        bool hasDispatchedQueueItem,
+        bool dispatchedItemIsSystemInjected,
+        string? dispatchedItemSourceTag)
+    {
+        // Normal plan iterations are dispatched by the loop, not by the prompt queue.
+        // Once a queue item is present, only the typed result-repair continuation owns
+        // the plan envelope. An ordinary user prompt must remain ordinary even while a
+        // paused plan retains its durable recovery state.
+        if (!hasDispatchedQueueItem)
+            return activePlanRuntime;
+
+        return dispatchedItemIsSystemInjected &&
+               string.Equals(
+                   dispatchedItemSourceTag,
+                   TaskResultRepairSourceTag,
+                   StringComparison.Ordinal) &&
+               ShouldPersistTaskRepairResponse(execution);
+    }
+
     internal static bool TryCreatePendingResult(
         ActiveLoopExecutionState? execution,
         DecomposeStepResult? result,
