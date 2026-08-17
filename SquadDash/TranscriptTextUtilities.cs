@@ -19,6 +19,12 @@ internal static class TranscriptTextUtilities
         PlanGateResponseParser.Marker,
         PlanGateApprovalParser.Marker,
         PlanReviewActivityResponseParser.Marker,
+    ];
+
+    // These host-consumed execution envelopes are deliberately hidden rather than rendered
+    // as copyable protocol cards. Their user-facing outcome is emitted by the plan runtime.
+    private static readonly string[] HiddenProtocolMarkers =
+    [
         PlanValidationResultParser.Marker,
         PlanTaskVerificationResultParser.Marker,
         PlanTaskVerificationResultParser.LegacyMarker,
@@ -83,6 +89,14 @@ internal static class TranscriptTextUtilities
             normalizedMarker += ':';
 
         return $"{normalizedMarker}{Environment.NewLine}{json}";
+    }
+
+    internal static bool ShouldRenderProtocolJsonIndicator(string? marker)
+    {
+        if (string.IsNullOrWhiteSpace(marker)) return false;
+        var normalized = marker.Trim().TrimEnd(':');
+        return !HiddenProtocolMarkers.Any(hidden =>
+            string.Equals(hidden.TrimEnd(':'), normalized, StringComparison.Ordinal));
     }
 
     internal static string GetSanitizedTurnResponseText(TranscriptTurnView? turn)
@@ -343,7 +357,7 @@ internal static class TranscriptTextUtilities
 
     private static string StripHostOwnedJsonBlocks(string text)
     {
-        foreach (var marker in InspectableProtocolMarkers)
+        foreach (var marker in InspectableProtocolMarkers.Concat(HiddenProtocolMarkers))
             text = StripInspectableJsonBlock(text, marker);
         return text;
     }

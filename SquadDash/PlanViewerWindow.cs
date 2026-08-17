@@ -54,6 +54,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
+    private readonly Action<Plan, string>? _onRetryValidation;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -131,7 +132,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onReplanRemainingWork = null,
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
         Action<PendingDecomposePlan>? requestAiReview = null,
-        Action<PlanVisualizerReviewPayload?>? saveReviewState = null)
+        Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
+        Action<Plan, string>? onRetryValidation = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -171,6 +173,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
+        _onRetryValidation = onRetryValidation;
         if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
 
@@ -329,6 +332,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onReplanRemainingWork = _onReplanRemainingWork;
         var onApproveGate      = _onApproveGate;
         var onUnapproveGate    = _onUnapproveGate;
+        var onRetryValidation  = _onRetryValidation;
         var group = plan.Group;
 
         var root = new Grid();
@@ -400,6 +404,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
             actionRegion.Children.Add(actionsPanel);
             actionRegion.Children.Add(recoveryHost);
             header.Children.Add(actionRegion);
+        }
+
+        var failedValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
+            candidate.Status == PlanValidationStatus.Failed);
+        if (durablePlan is not null && failedValidation is not null && onRetryValidation is not null)
+        {
+            var validationPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            var retryValidationButton = TranscriptQuickReplyFactory.CreateButton(
+                "Retry Validation",
+                quickReplyFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(
+                    $"Retry the non-mutating validation “{failedValidation.Title}.” Completed implementation tasks and commits remain accepted."));
+            retryValidationButton.Focusable = false;
+            retryValidationButton.Click += (_, _) =>
+            {
+                validationPanel.IsEnabled = false;
+                onRetryValidation(durablePlan, failedValidation.ValidationId);
+                Close();
+            };
+            validationPanel.Children.Add(retryValidationButton);
+            header.Children.Add(validationPanel);
         }
 
         if (durablePlan is not null &&

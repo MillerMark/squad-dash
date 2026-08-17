@@ -25,6 +25,8 @@ internal static class PlanValidationPromptBuilder
                       "separate evidence from assertion, and recommend pass, fail, or human review. Pass this complete assignment and its required response schema to the agent. " +
                       "Do not perform the validation yourself or substitute another agent.");
         sb.AppendLine("After the fact-checker returns, relay its PLAN_VALIDATION_RESULT_JSON result as the only top-level result.");
+        sb.AppendLine("The result must contain exactly one `assertionEvidence` item for each approved assertion below, in the same order. " +
+                      "Copy each assertion text verbatim. Do not split, merge, summarize, or rewrite assertions.");
         sb.AppendLine();
         sb.AppendLine("You are performing a **non-mutating validation check**. You must NOT create, amend, or push any commits. " +
                        "Your job is to evaluate the assertions below against the current repository state and return a structured result.");
@@ -257,6 +259,6 @@ internal static class PlanValidationPromptBuilder
     private static string Truncate(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength] + "…";
 
-    private static string EscapeJson(string text) =>
+    internal static string EscapeJson(string text) =>
         text.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

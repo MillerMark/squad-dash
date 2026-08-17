@@ -1694,6 +1694,8 @@ public partial class MainWindow : Window
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
             getSubmittedAttachments: () => _pendingTranscriptAttachments ?? Array.Empty<FollowUpAttachment>(),
             promptBuilder: serviceProvider?.GetRequiredService<ISquadBridgePromptBuilder>());
+        _pec.TryHandlePlanRuntimeFailure = error =>
+            TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 
         InitializeHostCommands();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeHostCommands {ctorSw.ElapsedMilliseconds}ms.");
@@ -6342,6 +6344,9 @@ public partial class MainWindow : Window
 
     private void HandlePromptFailure(SquadSdkEvent evt)
     {
+        if (TryHandleActivePlanValidationProviderFailure(evt.Message, confirmedProviderEvent: true))
+            return;
+
         var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
         ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator");
         ScrollToEndIfAtBottom(CoordinatorThread);
@@ -6349,6 +6354,47 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(
             "UI",
             $"Prompt failed category={failure.Category} message={failure.RawError}");
+    }
+
+    private bool TryHandleActivePlanValidationProviderFailure(
+        string? rawError,
+        bool confirmedProviderEvent)
+    {
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution?.IsExecutingPlan != true ||
+            string.IsNullOrWhiteSpace(activeExecution.ActiveValidationId))
+            return false;
+
+        var failure = ProviderFailurePresentation.Analyze(rawError);
+        if (!confirmedProviderEvent && failure.Category == ProviderFailureCategory.Unknown)
+            return false;
+
+        // Both the bridge event and ExecutePromptAsync can report the same provider exit.
+        // Record it once and replace the two generic error surfaces with one phase-aware path.
+        if (!string.IsNullOrWhiteSpace(activeExecution.ValidationProviderFailureReason))
+            return true;
+
+        var retryCount = activeExecution.ValidationProviderRetryCount + 1;
+        _conversationManager.UpdateActiveLoopExecutionState(
+            activeExecution with
+            {
+                ValidationProviderRetryCount = retryCount,
+                ValidationProviderFailureReason = failure.RawError,
+            });
+
+        var plan = activeExecution.DecomposeGroupId is { Length: > 0 } planId
+            ? _planStore?.Load(planId)
+            : null;
+        var validation = plan?.Validations?.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, activeExecution.ActiveValidationId, StringComparison.Ordinal));
+        var title = validation?.Title ?? activeExecution.ActiveValidationId;
+        ScheduleDecomposeSystemEntry(retryCount <= 1
+            ? $"Validation provider stopped before returning evidence · {title}. SquadDash will retry this non-mutating validation once. Completed implementation work will not be repeated."
+            : $"Validation provider stopped again · {title}. SquadDash will preserve completed implementation work and pause this validation with a retry action.");
+        SquadDashTrace.Write(
+            "PlanValidation",
+            $"Provider failure registered validation={activeExecution.ActiveValidationId} retry={retryCount} error={failure.RawError}");
+        return true;
     }
 
     private static ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
@@ -11347,7 +11393,9 @@ public partial class MainWindow : Window
             onReplanRemainingWork: onReplanRemainingWork,
             saveDefinitionEdit: saveDefinitionEdit,
             requestAiReview: requestAiReview,
-            saveReviewState: saveReviewState)
+            saveReviewState: saveReviewState,
+            onRetryValidation: (current, validationId) =>
+                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -11585,10 +11633,16 @@ public partial class MainWindow : Window
                     $"Plan {_activeDecomposeGroupId} is missing active validation {activeValidationId}.");
             if (activeExec.ValidationRepairCount > 0 &&
                 !string.IsNullOrWhiteSpace(activeExec.ValidationRepairReason))
+            {
+                var repairHead = (await RunGitAsync(
+                    _currentWorkspace.FolderPath,
+                    "rev-parse HEAD")).Trim();
                 return PlanValidationRepairPrompt.Build(
-                    _activeDecomposeGroupId,
-                    activeValidationId,
-                    activeExec.ValidationRepairReason);
+                    plan,
+                    validation,
+                    activeExec.ValidationRepairReason,
+                    repairHead);
+            }
 
             var validationHead = (await RunGitAsync(
                 _currentWorkspace.FolderPath,
@@ -12909,6 +12963,8 @@ public partial class MainWindow : Window
                         ActiveValidationId = validation.ValidationId,
                         ValidationRepairCount = 0,
                         ValidationRepairReason = null,
+                        ValidationProviderRetryCount = 0,
+                        ValidationProviderFailureReason = null,
                     });
             }
             _CodeHealthGroupRunner?.ClearCurrentStep();
@@ -12943,6 +12999,27 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!string.IsNullOrWhiteSpace(activeExecution.ValidationProviderFailureReason))
+        {
+            if (activeExecution.ValidationProviderRetryCount <= 1)
+            {
+                // A provider/process failure is not malformed JSON. Retry the complete
+                // assignment once and retain the envelope-repair budget for a response that
+                // actually completed but violated the structured contract.
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with { ValidationProviderFailureReason = null });
+                return;
+            }
+
+            FailValidationWithRecovery(
+                groupId,
+                validationId,
+                activeExecution,
+                "The validation provider stopped twice before returning evidence.",
+                validatedCommit: null);
+            return;
+        }
+
         if (valResult is null && valError is not null)
         {
             // Tolerant repair: attempt one envelope repair before failing
@@ -12959,12 +13036,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Repair exhausted — mark validation as failed
             SquadDashTrace.Write("PlanValidation",
                 $"Validation {validationId} failed after repair attempt: {valError}");
-            ApplyAndPublishValidationResult(groupId, validationId, false,
-                $"Validation failed: missing result envelope after repair. {valError}", [], null);
-            ClearActiveValidation(activeExecution);
+            FailValidationWithRecovery(groupId, validationId, activeExecution,
+                $"The validation response was still missing its required result after one repair. {valError}", null);
             return;
         }
 
@@ -12977,9 +13052,8 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write("PlanValidation",
                     $"Validation result scope mismatch: expected {groupId}/{validationId}, " +
                     $"got {valResult.PlanId}/{valResult.ValidationId}.");
-                ApplyAndPublishValidationResult(groupId, validationId, false,
-                    "Validation result scope mismatch.", [], null);
-                ClearActiveValidation(activeExecution);
+                FailValidationWithRecovery(groupId, validationId, activeExecution,
+                    "The validation result identified a different plan or validation node.", null);
                 return;
             }
 
@@ -13003,9 +13077,9 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                ApplyAndPublishValidationResult(groupId, validationId, false,
-                    $"Validation failed after one evidence repair: {evidenceContractError}", [], valResult.ValidatedCommit);
-                ClearActiveValidation(activeExecution);
+                FailValidationWithRecovery(groupId, validationId, activeExecution,
+                    $"The corrected validation result still did not match the approved evidence contract. {evidenceContractError}",
+                    valResult.ValidatedCommit);
                 return;
             }
 
@@ -13051,8 +13125,12 @@ public partial class MainWindow : Window
                 }
             }
             else
-                ScheduleDecomposeSystemEntry(
-                    $"❌ Validation failed: {validationId} — {valResult.Summary}");
+                ScheduleValidationRecoveryEntry(
+                    groupId,
+                    validationId,
+                    $"Validation did not pass · {contractValidation!.Title}.\n" +
+                    $"Why it stopped: {valResult.Summary}\n" +
+                    "Completed implementation work is preserved and will not be repeated.");
             return;
         }
 
@@ -13070,9 +13148,105 @@ public partial class MainWindow : Window
             return;
         }
 
-        ApplyAndPublishValidationResult(groupId, validationId, false,
-            "Validation failed: no result returned after repair.", [], null);
+        FailValidationWithRecovery(groupId, validationId, activeExecution,
+            "No validation result was returned after one bounded repair.", null);
+    }
+
+    private void FailValidationWithRecovery(
+        string groupId,
+        string validationId,
+        ActiveLoopExecutionState activeExecution,
+        string reason,
+        string? validatedCommit)
+    {
+        var plan = ApplyAndPublishValidationResult(
+            groupId, validationId, false, reason, [], validatedCommit);
         ClearActiveValidation(activeExecution);
+        var validation = plan?.Validations?.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+        var title = validation?.Title ?? validationId;
+        ScheduleValidationRecoveryEntry(
+            groupId,
+            validationId,
+            $"Validation needs attention · {title}.\n" +
+            $"Why it stopped: {reason}\n" +
+            "Completed implementation work is preserved and will not be repeated.");
+    }
+
+    private void ScheduleValidationRecoveryEntry(
+        string planId,
+        string validationId,
+        string message,
+        bool addMessage = true)
+    {
+        void Publish()
+        {
+            if (addMessage)
+                ShowSystemTranscriptEntry(message);
+            var tag = $"plan-validation-recovery:{planId}:{validationId}";
+            foreach (var existing in CoordinatorThread.Document.Blocks
+                         .OfType<Section>()
+                         .Where(section => string.Equals(section.Tag as string, tag, StringComparison.Ordinal))
+                         .ToArray())
+                CoordinatorThread.Document.Blocks.Remove(existing);
+
+            var section = new Section { Tag = tag };
+            var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+            var retry = TranscriptQuickReplyFactory.CreateButton(
+                "Retry Validation",
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(
+                    "Retry only this non-mutating validation. Completed implementation tasks and commits remain accepted."));
+            retry.Click += async (_, _) =>
+            {
+                retry.IsEnabled = false;
+                try
+                {
+                    CoordinatorThread.Document.Blocks.Remove(section);
+                    await RetryFailedPlanValidationAsync(planId, validationId);
+                }
+                catch (Exception ex)
+                {
+                    retry.IsEnabled = true;
+                    if (!CoordinatorThread.Document.Blocks.Contains(section))
+                        CoordinatorThread.Document.Blocks.Add(section);
+                    HandleUiCallbackException("Retry validation", ex);
+                }
+            };
+            panel.Children.Add(retry);
+            section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, tag));
+            CoordinatorThread.Document.Blocks.Add(section);
+            ScrollToEndIfAtBottom(CoordinatorThread);
+        }
+
+        if (Dispatcher.CheckAccess()) Publish();
+        else Dispatcher.BeginInvoke(Publish, System.Windows.Threading.DispatcherPriority.Send);
+    }
+
+    private async Task RetryFailedPlanValidationAsync(string planId, string validationId)
+    {
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+            throw new InvalidOperationException(
+                "Wait for the current prompt or plan turn to finish before retrying validation.");
+
+        var plan = _planStore?.Load(planId)
+            ?? throw new InvalidOperationException($"Plan {planId} is no longer available.");
+        var validation = plan.Validations?.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+        if (validation is null)
+            throw new InvalidOperationException($"Validation {validationId} is no longer part of this plan.");
+        if (validation.Status != PlanValidationStatus.Failed)
+            throw new InvalidOperationException(
+                $"Validation “{validation.Title}” is no longer waiting to be retried.");
+
+        var updated = PlanStoreUpdater.ApplyValidationRetry(plan, validationId);
+        if (!TryPublishPlanProgress(updated, out var error))
+            throw new InvalidOperationException(error ?? "The validation retry could not be saved.");
+
+        PrepareForHostRecoveryAction();
+        ScheduleDecomposeSystemEntry(
+            $"Retrying validation · {validation.Title}. Completed implementation work remains accepted.");
+        await StartOrResumeDurablePlanAsync(updated);
     }
 
     private Plan? ApplyAndPublishValidationResult(
@@ -13107,6 +13281,8 @@ public partial class MainWindow : Window
                 ActiveValidationId = null,
                 ValidationRepairCount = 0,
                 ValidationRepairReason = null,
+                ValidationProviderRetryCount = 0,
+                ValidationProviderFailureReason = null,
             });
         if (activeExecution.DecomposeGroupId is { Length: > 0 } planId)
             PromotePendingPlanRevisionAtBoundary(planId);
@@ -15170,6 +15346,7 @@ public partial class MainWindow : Window
         var plan = _planStore.LoadAll()
             .Where(candidate =>
                 (candidate.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) &&
+                !PlanExecutionBoundaryPolicy.HasFailedValidation(candidate) &&
                 (string.Equals(candidate.Branch, branch, StringComparison.Ordinal) ||
                  PlanBranchLeaseRecoveryPolicy.IsBranchMismatchReason(
                      candidate.InterruptionData?.Reason)))
@@ -15212,6 +15389,32 @@ public partial class MainWindow : Window
             plan.PlanId,
             plan.Revision,
             taskId);
+    }
+
+    private void RestoreFailedPlanValidationRecoverySurface()
+    {
+        if (_planStore is null) return;
+        var plan = _planStore.LoadAll()
+            .Where(candidate =>
+                candidate.LifecycleStatus == PlanLifecycleStatus.Blocked &&
+                PlanExecutionBoundaryPolicy.HasFailedValidation(candidate))
+            .OrderByDescending(candidate => candidate.Timestamps.LastRunAt ?? candidate.Timestamps.CreatedAt)
+            .FirstOrDefault();
+        var validation = plan?.Validations?.FirstOrDefault(candidate =>
+            candidate.Status == PlanValidationStatus.Failed);
+        if (plan is null || validation is null) return;
+
+        var message = $"Validation needs attention · {validation.Title}.\n" +
+                      $"Why it stopped: {validation.Summary ?? "The validation did not return acceptable evidence."}\n" +
+                      "Completed implementation work is preserved and will not be repeated.";
+        var alreadyRecorded = _conversationManager.ConversationState.Turns.Any(turn =>
+            turn.ResponseText?.Contains($"Validation needs attention · {validation.Title}", StringComparison.Ordinal) == true ||
+            turn.ResponseText?.Contains($"Validation did not pass · {validation.Title}", StringComparison.Ordinal) == true);
+        ScheduleValidationRecoveryEntry(
+            plan.PlanId,
+            validation.ValidationId,
+            message,
+            addMessage: !alreadyRecorded);
     }
 
     private bool HasPendingPlanRevision(string planId) =>
@@ -33264,6 +33467,7 @@ public partial class MainWindow : Window
         // narrative. Reconstruct them only after hydration (and stale-state repair), or the
         // document replacement above will silently erase them during every restart.
         RestoreInterruptedPlanRecoverySurfaces();
+        RestoreFailedPlanValidationRecoverySurface();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -37895,7 +38099,8 @@ public partial class MainWindow : Window
 
         if (entry.AllowQuickReplies)
         {
-            foreach (var protocolJsonBlock in protocolJsonBlocks)
+            foreach (var protocolJsonBlock in protocolJsonBlocks.Where(block =>
+                         TranscriptTextUtilities.ShouldRenderProtocolJsonIndicator(block.Marker)))
                 newBlocks.Add(BuildProtocolJsonIndicatorParagraph(protocolJsonBlock));
         }
 

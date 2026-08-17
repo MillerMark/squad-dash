@@ -219,6 +219,13 @@ internal sealed class PromptExecutionController {
     /// </summary>
     internal Func<string?>? GetHostCommandCatalogInstruction { get; set; }
 
+    /// <summary>
+    /// Gives a host-owned plan phase first refusal for a provider/runtime failure. Returning
+    /// true means the phase recorded a bounded retry or durable recovery and the generic,
+    /// duplicate runtime-error presentation must not be added to the transcript.
+    /// </summary>
+    internal Func<string, bool>? TryHandlePlanRuntimeFailure { get; set; }
+
     // ── Owned fields ──────────────────────────────────────────────────────
     private bool             _universeSelectionPending;
     private bool             _newProjectOnboardingPending;   // set when waiting for "what do you want to build?"
@@ -2178,6 +2185,12 @@ internal sealed class PromptExecutionController {
         catch (Exception ex) {
             SquadDashTrace.Write("UI", $"ExecutePromptAsync failed: {ex}");
             StopPromptHealthMonitoring("error");
+            if (TryHandlePlanRuntimeFailure?.Invoke(ex.Message) == true) {
+                MarkActiveToolsAsFailed("Provider stopped before this plan phase completed.");
+                _updateLeadAgent("Waiting", string.Empty, "The plan phase is being recovered safely.");
+                _updateSessionState("Running");
+                return;
+            }
             var issue = _showRuntimeIssue(ex.Message);
             MarkActiveToolsAsFailed(issue.Message);
             _transcriptSink.AppendLine("[error] " + issue.Message, Brushes.Red);

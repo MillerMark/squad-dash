@@ -269,8 +269,18 @@ internal sealed class TranscriptTextUtilitiesTests {
             """;
 
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+        var protocolBlocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
 
-        Assert.That(sanitized, Is.EqualTo("All three assertions passed."));
+        Assert.Multiple(() =>
+        {
+            Assert.That(sanitized, Is.EqualTo("All three assertions passed."));
+            Assert.That(protocolBlocks, Is.Empty,
+                "Host-consumed validation JSON must not become a copyable transcript card.");
+            Assert.That(
+                TranscriptTextUtilities.ShouldRenderProtocolJsonIndicator("PLAN_VALIDATION_RESULT_JSON"),
+                Is.False,
+                "Previously persisted validation envelopes must also stay hidden after restart.");
+        });
     }
 
     [Test]

@@ -13,6 +13,7 @@ internal enum ProviderFailureCategory
     InvalidRequest,
     ContentSafety,
     ProviderService,
+    AgentRuntime,
     Cancelled,
     Unknown
 }
@@ -59,7 +60,17 @@ internal sealed record ProviderFailurePresentation(
         string explanation;
         string guidance;
 
-        if (ContainsAny(normalized, "operation was canceled", "operation was cancelled", "request canceled", "request cancelled"))
+        if (ContainsAny(normalized,
+                "failed to connect to copilot cli",
+                "cli server exited with code",
+                "agent runtime exited with code"))
+        {
+            category = ProviderFailureCategory.AgentRuntime;
+            title = "Agent runtime stopped during startup";
+            explanation = "The local agent process exited before it established a provider session. Warning text on stderr does not by itself identify the cause.";
+            guidance = "Retry once. If it repeats, run Squad Doctor and use the complete trace entry to diagnose the local CLI startup failure.";
+        }
+        else if (ContainsAny(normalized, "operation was canceled", "operation was cancelled", "request canceled", "request cancelled"))
         {
             category = ProviderFailureCategory.Cancelled;
             title = "Provider request cancelled";

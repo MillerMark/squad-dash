@@ -923,6 +923,8 @@ internal sealed record ActiveLoopExecutionState(
     string? ActiveValidationId = null,
     int ValidationRepairCount = 0,
     string? ValidationRepairReason = null,
+    int ValidationProviderRetryCount = 0,
+    string? ValidationProviderFailureReason = null,
     [property: JsonPropertyName("pendingTaskScrutiny")] PendingTaskVerification? PendingTaskVerification = null,
     [property: JsonPropertyName("activeScrutinyTaskId")] string? ActiveVerificationTaskId = null,
     [property: JsonPropertyName("scrutinyReworkCount")] int VerificationReworkCount = 0,
@@ -1007,6 +1009,9 @@ internal sealed record ActiveLoopExecutionState(
         var validationRepairReason = string.IsNullOrWhiteSpace(state.ValidationRepairReason)
             ? null
             : state.ValidationRepairReason.Trim();
+        var validationProviderFailureReason = string.IsNullOrWhiteSpace(state.ValidationProviderFailureReason)
+            ? null
+            : state.ValidationProviderFailureReason.Trim();
         var activeVerificationTaskId = string.IsNullOrWhiteSpace(state.ActiveVerificationTaskId)
             ? null
             : state.ActiveVerificationTaskId.Trim();
@@ -1053,6 +1058,8 @@ internal sealed record ActiveLoopExecutionState(
             activeValidationId,
             Math.Max(0, state.ValidationRepairCount),
             validationRepairReason,
+            Math.Max(0, state.ValidationProviderRetryCount),
+            validationProviderFailureReason,
             pendingVerification,
             activeVerificationTaskId,
             Math.Max(0, state.VerificationReworkCount),

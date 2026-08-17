@@ -260,7 +260,9 @@ internal sealed class PlanValidationSchedulingTests
             DecomposeRevision: "rev1",
             ActiveValidationId: "V1",
             ValidationRepairCount: 1,
-            ValidationRepairReason: " missing envelope ");
+            ValidationRepairReason: " missing envelope ",
+            ValidationProviderRetryCount: 1,
+            ValidationProviderFailureReason: " provider exited ");
 
         var normalized = ActiveLoopExecutionState.Normalize(state);
 
@@ -270,6 +272,8 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(normalized!.ActiveValidationId, Is.EqualTo("V1"));
             Assert.That(normalized.ValidationRepairCount, Is.EqualTo(1));
             Assert.That(normalized.ValidationRepairReason, Is.EqualTo("missing envelope"));
+            Assert.That(normalized.ValidationProviderRetryCount, Is.EqualTo(1));
+            Assert.That(normalized.ValidationProviderFailureReason, Is.EqualTo("provider exited"));
         });
     }
 
@@ -301,7 +305,9 @@ internal sealed class PlanValidationSchedulingTests
             DecomposeRevision: "rev1",
             ActiveValidationId: "V1",
             ValidationRepairCount: 1,
-            ValidationRepairReason: "missing envelope");
+            ValidationRepairReason: "missing envelope",
+            ValidationProviderRetryCount: 1,
+            ValidationProviderFailureReason: "provider exited");
 
         var json = JsonSerializer.Serialize(state);
         var deserialized = JsonSerializer.Deserialize<ActiveLoopExecutionState>(json, ReadOptions);
@@ -312,6 +318,8 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(normalized!.ActiveValidationId, Is.EqualTo("V1"));
             Assert.That(normalized.ValidationRepairCount, Is.EqualTo(1));
             Assert.That(normalized.ValidationRepairReason, Is.EqualTo("missing envelope"));
+            Assert.That(normalized.ValidationProviderRetryCount, Is.EqualTo(1));
+            Assert.That(normalized.ValidationProviderFailureReason, Is.EqualTo("provider exited"));
             Assert.That(normalized.DecomposeGroupId, Is.EqualTo("P1"));
         });
     }
@@ -336,6 +344,8 @@ internal sealed class PlanValidationSchedulingTests
         {
             Assert.That(normalized!.ActiveValidationId, Is.Null);
             Assert.That(normalized.ValidationRepairCount, Is.EqualTo(0));
+            Assert.That(normalized.ValidationProviderRetryCount, Is.EqualTo(0));
+            Assert.That(normalized.ValidationProviderFailureReason, Is.Null);
         });
     }
 
@@ -455,15 +465,21 @@ internal sealed class PlanValidationSchedulingTests
     [Test]
     public void RepairPrompt_IncludesExpectedFields()
     {
-        var prompt = PlanValidationRepairPrompt.Build("P1", "V1", "no result returned");
+        var plan = MakePlanWithReadyValidation();
+        var validation = plan.Validations![0];
+        var prompt = PlanValidationRepairPrompt.Build(
+            plan, validation, "no result returned", "abc1234");
 
         Assert.Multiple(() =>
         {
-            Assert.That(prompt, Does.Contain("P1"));
-            Assert.That(prompt, Does.Contain("V1"));
+            Assert.That(prompt, Does.Contain(plan.PlanId));
+            Assert.That(prompt, Does.Contain(validation.ValidationId));
             Assert.That(prompt, Does.Contain("no result returned"));
             Assert.That(prompt, Does.Contain(PlanValidationResultParser.Marker));
             Assert.That(prompt, Does.Contain("Do NOT create any commits"));
+            Assert.That(prompt, Does.Contain("exactly 1 assertionEvidence item"));
+            Assert.That(prompt, Does.Contain("A produces the declared output."));
+            Assert.That(prompt, Does.Contain("abc1234"));
         });
     }
 

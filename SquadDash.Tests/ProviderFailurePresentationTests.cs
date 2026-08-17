@@ -70,6 +70,26 @@ internal sealed class ProviderFailurePresentationTests
     }
 
     [Test]
+    public void Analyze_CliStartupExit_DoesNotMisdiagnoseStderrWarningAsProfileFailure()
+    {
+        const string message = "Failed to connect to Copilot CLI: CLI server exited with code 1\n" +
+                               "stderr: ExperimentalWarning: SQLite is an experimental feature";
+
+        var result = ProviderFailurePresentation.Analyze(message);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.AgentRuntime));
+            Assert.That(result.Title, Does.Contain("runtime stopped"));
+            Assert.That(result.Explanation, Does.Contain("Warning text").IgnoreCase);
+            Assert.That(result.Guidance, Does.Contain("Retry once"));
+            Assert.That(result.Guidance, Does.Contain("Squad Doctor"));
+            Assert.That(result.Guidance, Does.Not.Contain("endpoint"));
+            Assert.That(result.Guidance, Does.Not.Contain("credential"));
+        });
+    }
+
+    [Test]
     public void Analyze_ExplicitDeploymentNotFound_WorksWithoutEndpointContext()
     {
         var result = ProviderFailurePresentation.Analyze(
