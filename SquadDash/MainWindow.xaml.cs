@@ -10218,6 +10218,11 @@ public partial class MainWindow : Window
             QueueDecomposeReplan(plan, recoveryTaskId);
             return true;
         }
+        if (decision.Action == "request-corrections")
+        {
+            await QueuePlanRecoveryCorrectionAsync(plan, recoveryTaskId);
+            return true;
+        }
         if (decision.Action is "continue-working" or "retry-as-written")
             return await RetryDecomposeTaskAsync(plan, recoveryTaskId);
         return false;
@@ -10374,6 +10379,88 @@ public partial class MainWindow : Window
             "[Describe the correction you want]",
             "Address unchecked items",
             "plan-review-correction-draft",
+            attachments);
+    }
+
+    private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
+    {
+        var durable = _planStore?.Load(plan.Group.GroupId);
+        var task = durable?.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var evidence = durable?.InterruptionData?.TaskCommitEvidence;
+        if (durable is null || task is null || evidence is null ||
+            durable.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+            !string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal))
+        {
+            UIErrorHelper.ShowWarning(
+                "Continue Working on Step",
+                "The plan or its recorded task evidence changed. Reopen the current recovery card.");
+            return;
+        }
+
+        if (_currentWorkspace is null) return;
+        var correctionBaseline = (await RunGitAsync(
+            _currentWorkspace.FolderPath,
+            "rev-parse HEAD")).Trim();
+        await RunGitAsync(
+            _currentWorkspace.FolderPath,
+            $"merge-base --is-ancestor \"{evidence.Commit}\" \"{correctionBaseline}\"");
+        var prepared = durable with
+        {
+            InterruptionData = durable.InterruptionData! with
+            {
+                RecoveryCorrection = new PlanRecoveryCorrectionContext(
+                    correctionBaseline,
+                    DateTimeOffset.UtcNow),
+            },
+        };
+        if (!TryPublishPlanProgress(prepared, out var saveError))
+            throw new InvalidOperationException(
+                saveError ?? "SquadDash could not preserve the correction baseline.");
+        durable = prepared;
+
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task.DisplayStepLabel,
+            task.Title ?? task.Description);
+        var context =
+            $"Plan ID: {durable.PlanId}\n" +
+            $"Revision: {durable.Revision}\n" +
+            $"Task ID: {taskId}\n" +
+            $"Recorded task commit: {evidence.Commit}\n\n" +
+            $"Correction baseline: {correctionBaseline}\n\n" +
+            "The user concluded that this recorded task result needs bounded corrections. " +
+            "Implement only the requested correction on the current plan branch. Preserve the existing commit and accumulated work; " +
+            "do not rerun the original task, continue downstream plan execution, revise the plan, or modify tasks.md. " +
+            "Create exactly one atomic correction commit and run focused verification. End with PLAN_REVIEW_ACTIVITY_JSON " +
+            "using activity manual-correction, the exact plan/revision/task identity above, and a concise summary of the correction.";
+        var attachments = new List<FollowUpAttachment>
+        {
+            new(
+                CommitSha: string.Empty,
+                Description: $"Plan: {durable.Title}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock("plan", durable.Title, BuildPlanContentBody(durable)),
+                FileReferencePath: $".squad/plans/{durable.PlanId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan attachment anchors the correction to the exact interrupted step. Remove it anyway?"),
+            new(
+                CommitSha: evidence.Commit,
+                Description: $"Recorded result for {stepLabel}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock(
+                    "plan-recovery-correction",
+                    $"Required correction context for {stepLabel}",
+                    context),
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This context prevents completed work from being rerun and keeps the correction attached to the right step. Remove it anyway?"),
+        };
+        QueueEditablePlanPrompt(
+            $"Continue working on {stepLabel} without repeating its completed work.\r\n\r\n" +
+            "What is incomplete or needs correction?\r\n\r\n" +
+            "[Describe the bounded correction]\r\n",
+            "[Describe the bounded correction]",
+            $"Correct {stepLabel}",
+            "plan-recovery-correction-draft",
             attachments);
     }
 
@@ -11400,7 +11487,11 @@ public partial class MainWindow : Window
         Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
             ? EndInterruptedPlan
             : null;
-        Action<Plan>? onContinueInterruptedTask = hasRecoveryAssessment
+        Action<Plan>? onContinueInterruptedTask =
+            interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
+                ? current => _ = QueuePlanRecoveryCorrectionAsync(
+                    PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                : hasRecoveryAssessment
             ? current =>
             {
                 PrepareForHostRecoveryAction();
@@ -15167,7 +15258,13 @@ public partial class MainWindow : Window
             return true;
         }
         _planReviewActivityRepairPending = false;
-        if (_planStore is null) return true;
+        _ = ApplyPlanReviewActivityResponseAsync(response);
+        return true;
+    }
+
+    private async Task ApplyPlanReviewActivityResponseAsync(PlanReviewActivityResponse response)
+    {
+        if (_planStore is null) return;
 
         var plan = _planStore.Load(response.PlanId);
         if (plan is null ||
@@ -15177,7 +15274,7 @@ public partial class MainWindow : Window
         {
             AppendLine("⚠ The conversational review context changed before the response completed. " +
                        "No plan review activity was recorded.");
-            return true;
+            return;
         }
 
         if (string.Equals(
@@ -15191,7 +15288,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Approval",
                 $"Related review discussion retained plan boundary plan={plan.PlanId} tasks={string.Join(",", response.TaskIds)}.");
-            return true;
+            return;
         }
 
         var updated = PlanStoreUpdater.ApplyManualReviewActivity(
@@ -15202,13 +15299,70 @@ public partial class MainWindow : Window
         {
             AppendLine("⚠ SquadDash could not associate the conversational correction with the active review boundary. " +
                        "The plan remains unchanged.");
-            return true;
+            return;
+        }
+
+        var exactEvidence = updated.InterruptionData?.TaskCommitEvidence;
+        var correctionContext = updated.InterruptionData?.RecoveryCorrection;
+        if (_currentWorkspace is not null && exactEvidence is not null &&
+            correctionContext is not null &&
+            response.TaskIds.Count == 1 &&
+            string.Equals(exactEvidence.TaskId, response.TaskIds[0], StringComparison.Ordinal))
+        {
+            try
+            {
+                var workspace = _currentWorkspace.FolderPath;
+                var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+                await RunGitAsync(
+                    workspace,
+                    $"merge-base --is-ancestor \"{exactEvidence.Commit}\" \"{correctionContext.BaselineCommit}\"");
+                await RunGitAsync(
+                    workspace,
+                    $"merge-base --is-ancestor \"{correctionContext.BaselineCommit}\" \"{head}\"");
+                var countText = (await RunGitAsync(
+                    workspace,
+                    $"rev-list --count \"{correctionContext.BaselineCommit}..{head}\"")).Trim();
+                if (!int.TryParse(countText, out var count) || count != 1)
+                    throw new InvalidOperationException(
+                        $"The correction produced {countText} commits after the recorded task result; exactly one atomic correction commit is required.");
+                await EnsurePlanWorktreeReadyAsync(workspace, updated.PlanId);
+                var correctionCommit = (await RunGitAsync(
+                    workspace,
+                    $"log -1 --format=%H \"{correctionContext.BaselineCommit}..{head}\"")).Trim();
+                var combinedCommits = (exactEvidence.Commits ??
+                        [new PlanEvidenceCommit(exactEvidence.Commit, "task", "Original host-recorded task result.")])
+                    .Append(new PlanEvidenceCommit(
+                        correctionCommit,
+                        "task",
+                        "Bounded correction requested from the recovery card."))
+                    .ToArray();
+                updated = updated with
+                {
+                    InterruptionData = updated.InterruptionData! with
+                    {
+                        TaskCommitEvidence = exactEvidence with
+                        {
+                            Commit = head,
+                            Summary = exactEvidence.Summary + " Correction: " + response.Summary,
+                            Verification = null,
+                            Commits = combinedCommits,
+                        },
+                        RecoveryCorrection = null,
+                    },
+                };
+            }
+            catch (Exception ex)
+            {
+                AppendLine(
+                    "⚠ The correction completed, but SquadDash could not safely extend the task's commit evidence: " +
+                    ex.Message + " The plan remains paused and no work will be rerun automatically.");
+            }
         }
         if (!TryPublishPlanProgress(updated, out var saveError))
         {
             AppendLine("⚠ The conversational correction completed, but SquadDash could not record it for later plan assessment: " +
                        (saveError ?? "unknown persistence failure"));
-            return true;
+            return;
         }
 
         var labels = response.TaskIds
@@ -15220,8 +15374,8 @@ public partial class MainWindow : Window
             .ToArray();
         ShowSystemTranscriptEntry(
             $"Conversational correction recorded for {string.Join(", ", labels)}. " +
-            "The plan remains paused; use the current recovery card when you are ready to continue or revise the remaining plan.");
-        return true;
+            "The plan remains paused; use the refreshed recovery card to accept the step, continue working, or revise the remaining plan.");
+        RefreshHumanReviewSurfaces(updated);
     }
 
     private void QueueGateResponseRepairOrExplainFailure()
@@ -16537,6 +16691,13 @@ public partial class MainWindow : Window
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
                     return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
                 });
+            if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
+            {
+                AddAsyncAction(
+                    $"Continue Working on {stepLabel}…",
+                    $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch.",
+                    async () => await QueuePlanRecoveryCorrectionAsync(plan, taskId));
+            }
             AddAction(
                 "✎ Revise Remaining Plan…",
                 "Create an editable queued prompt with protected plan and replanning context attached. Nothing is sent until you review and submit it.",

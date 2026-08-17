@@ -498,7 +498,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (durablePlan is not null &&
             durablePlan.InterruptionData?.RecoveryAssessment is null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-            (onResumePlan is not null || onAdoptVerifiedCommitRange is not null || onEndPlan is not null))
+            (onResumePlan is not null || onAdoptVerifiedCommitRange is not null ||
+             onContinueInterruptedTask is not null || onEndPlan is not null))
         {
             var interruptedPanel = new WrapPanel
             {
@@ -542,6 +543,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                 };
                 interruptedPanel.Children.Add(adoptButton);
+            }
+            if (onContinueInterruptedTask is not null && onResumePlan is null)
+            {
+                var capturedPlan = durablePlan;
+                var continueButton = TranscriptQuickReplyFactory.CreateButton(
+                    $"Continue Working on {PlanRecoveryPresentationBuilder.FormatStepLabel(
+                        capturedPlan.Tasks.FirstOrDefault(task => string.Equals(
+                            task.TaskId,
+                            capturedPlan.InterruptionData?.InterruptedTaskId,
+                            StringComparison.Ordinal))?.DisplayStepLabel,
+                        capturedPlan.Tasks.FirstOrDefault(task => string.Equals(
+                            task.TaskId,
+                            capturedPlan.InterruptionData?.InterruptedTaskId,
+                            StringComparison.Ordinal))?.Title ?? "Step")}…",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Open an editable correction prompt without rerunning the completed step from scratch."));
+                continueButton.Focusable = false;
+                continueButton.Click += (_, _) =>
+                {
+                    onContinueInterruptedTask(capturedPlan);
+                    Close();
+                };
+                interruptedPanel.Children.Add(continueButton);
             }
             if (onResumePlan is not null)
             {

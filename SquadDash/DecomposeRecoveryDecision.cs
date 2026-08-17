@@ -27,7 +27,7 @@ internal static class DecomposeRecoveryDecisionParser
                !string.IsNullOrWhiteSpace(decision.GroupId) &&
                !string.IsNullOrWhiteSpace(decision.Revision) &&
                decision.Action is "accept-step-complete" or "resume-verification" or
-                   "continue-working" or "replan-failed-task" or
+                   "continue-working" or "request-corrections" or "replan-failed-task" or
                    // Read old persisted Inbox actions without creating this obsolete UI again.
                    "assess-and-continue" or "retry-as-written" or "review-completed-work";
     }

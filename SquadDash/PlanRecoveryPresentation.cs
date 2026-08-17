@@ -344,7 +344,7 @@ internal static class PlanRecoveryPresentationBuilder
                 evidence,
                 isAmendment
                     ? "Use the commit link above to investigate. Approve the amendment if it satisfies the requested change."
-                    : "Use the commit link above to investigate, then confirm whether this step is complete.",
+                    : "Review the commit if needed, then accept the step, continue working on it, or revise the remaining plan.",
                 "Retry Task Anyway…",
                 RetryIsWarning: true);
         }

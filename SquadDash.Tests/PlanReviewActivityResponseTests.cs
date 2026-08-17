@@ -53,6 +53,32 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void ProtocolContext_InterruptedRecordedWork_AllowsBoundedCorrection()
+    {
+        var plan = MakeInterruptedPlan() with
+        {
+            Tasks =
+            [
+                new PlanTask("TASK-1", "Footer", "Work", [], "high", PlanTaskStatus.Executing),
+            ],
+            InterruptionData = MakeInterruptedPlan().InterruptionData! with
+            {
+                TaskCommitEvidence = new PlanTaskCommitEvidence(
+                    "TASK-1", "attempt-1", "aaaaaaa", "bbbbbbb", "Implemented footer."),
+            },
+        };
+
+        var context = PlanReviewActivityResponseParser.BuildProtocolContext([plan]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context, Does.Contain("mode=interrupted-completed-work-review"));
+            Assert.That(context, Does.Contain("manual-correction"));
+            Assert.That(PlanReviewActivityResponseParser.IsActiveTarget(plan, "TASK-1"), Is.True);
+        });
+    }
+
+    [Test]
     public void ApplyManualReviewActivity_PersistsEvidenceWithoutAdvancingPlan()
     {
         var plan = MakeInterruptedPlan();

@@ -143,11 +143,21 @@ internal static class PlanReviewActivityResponseParser
                 gate.Status == PlanGateStatus.AwaitingApproval &&
                 gate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal));
 
-        return plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
-               string.Equals(plan.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal) &&
-               plan.Tasks.Any(task =>
-                   string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
-                   task.Status == PlanTaskStatus.HumanReviewRequired);
+        if (plan.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+            !string.Equals(plan.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal))
+            return false;
+
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        if (task?.Status == PlanTaskStatus.HumanReviewRequired)
+            return true;
+
+        // Exact host-recorded evidence is also a human decision boundary: the user may accept it
+        // or request a bounded conversational correction without rerunning the whole task.
+        var evidence = plan.InterruptionData?.TaskCommitEvidence;
+        return evidence is not null &&
+               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+               !string.IsNullOrWhiteSpace(evidence.Commit);
     }
 
     private static IReadOnlyList<ReviewBoundary> FindBoundaries(IReadOnlyList<Plan> plans)
@@ -181,9 +191,7 @@ internal static class PlanReviewActivityResponseParser
                 continue;
             var interruptedTaskId = plan.InterruptionData?.InterruptedTaskId;
             if (string.IsNullOrWhiteSpace(interruptedTaskId) ||
-                !plan.Tasks.Any(task =>
-                    string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal) &&
-                    task.Status == PlanTaskStatus.HumanReviewRequired))
+                !IsActiveTarget(plan, interruptedTaskId))
                 continue;
             var interruptedCorrections = plan.Tasks
                 .First(task => string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal))
@@ -193,7 +201,10 @@ internal static class PlanReviewActivityResponseParser
                 .Select(activity => activity.Summary)
                 .ToArray() ?? [];
             boundaries.Add(new ReviewBoundary(
-                plan.PlanId, plan.Revision, plan.Title, "interrupted-human-review",
+                plan.PlanId, plan.Revision, plan.Title,
+                plan.InterruptionData?.TaskCommitEvidence is null
+                    ? "interrupted-human-review"
+                    : "interrupted-completed-work-review",
                 [interruptedTaskId], null, interruptedCorrections));
         }
         return boundaries;

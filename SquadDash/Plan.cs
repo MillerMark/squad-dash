@@ -447,7 +447,14 @@ internal sealed record PlanInterruptionData(
                                                         PlanTaskCommitEvidence? TaskCommitEvidence = null,
     [property: JsonPropertyName("recoveryAssessment")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        PlanRecoveryDecisionEvidence? RecoveryAssessment = null);
+                                                        PlanRecoveryDecisionEvidence? RecoveryAssessment = null,
+    [property: JsonPropertyName("recoveryCorrection")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        PlanRecoveryCorrectionContext? RecoveryCorrection = null);
+
+internal sealed record PlanRecoveryCorrectionContext(
+    [property: JsonPropertyName("baselineCommit")] string BaselineCommit,
+    [property: JsonPropertyName("requestedAt")] DateTimeOffset RequestedAt);
 
 internal sealed record PlanRecoveryDecisionEvidence(
     [property: JsonPropertyName("summary")] string Summary,

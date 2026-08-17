@@ -172,6 +172,13 @@ internal static class DecomposePlanInbox
 
         var actions = new List<InboxAction>();
         actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
+        if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
+        {
+            actions.Add(BuildAction(
+                $"Continue Working on {stepLabel}…",
+                "request-corrections",
+                $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch."));
+        }
         actions.Add(BuildAction(
             "✎ Revise Remaining Plan…",
             "replan-failed-task",
@@ -194,7 +201,7 @@ internal static class DecomposePlanInbox
             if (tests is not null) body += tests + "\n";
             body += isAmendment
                 ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"
-                : $"\nUse the commit link above to investigate, then confirm whether {stepLabel} is complete.\n";
+                : $"\nReview the commit if needed, then accept {stepLabel}, continue working on it, or revise the remaining plan.\n";
         }
         else
             body += $"\nSquadDash does not have exact task-owned commit evidence to accept automatically. {stepLabel} remains incomplete.\n";

@@ -206,7 +206,12 @@ internal sealed class CompletedWorkReviewPresentationTests
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
         Assert.That(message.Actions.Select(a => a.Label),
-            Is.EqualTo(new[] { "Step 1 Is Complete", "✎ Revise Remaining Plan…" }));
+            Is.EqualTo(new[]
+            {
+                "Step 1 Is Complete",
+                "Continue Working on Step 1…",
+                "✎ Revise Remaining Plan…",
+            }));
     }
 
     [Test]
@@ -262,14 +267,14 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithEvidence_HasCompletionAndReplanActionsOnly()
+    public void BuildRecoveryMessage_WithEvidence_HasCompletionCorrectionAndReplanActions()
     {
         var pending = MakePending();
         var evidence = MakeEvidence();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(2));
+        Assert.That(message.Actions, Has.Count.EqualTo(3));
         Assert.That(message.Actions.Select(action => action.Label),
             Has.No.Member("Assess & Continue"));
     }
@@ -343,9 +348,14 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(2));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
             Assert.That(result.Message.Actions.Select(a => a.Label),
-                Is.EqualTo(new[] { "Step 1 Is Complete", "✎ Revise Remaining Plan…" }));
+                Is.EqualTo(new[]
+                {
+                    "Step 1 Is Complete",
+                    "Continue Working on Step 1…",
+                    "✎ Revise Remaining Plan…",
+                }));
         });
     }
 

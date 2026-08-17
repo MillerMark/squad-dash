@@ -249,7 +249,9 @@ internal static class DecomposePlanningInstructions
                     string.Join("\n", interruptedLines));
                 sections.Add("\nIf the user asks to continue an interrupted plan, use the host recovery controls " +
                     "or emit DECOMPOSE_RECOVERY_JSON with action continue-working. Do not independently rerun the task; " +
-                    "SquadDash owns the durable plan transition and preserves existing repository work.");
+                    "SquadDash owns the durable plan transition and preserves existing repository work. If exact completed-work " +
+                    "evidence is awaiting acceptance and the user says the step needs a bounded correction, emit action " +
+                    "request-corrections instead; SquadDash will open an editable correction draft and will not rerun the task.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
