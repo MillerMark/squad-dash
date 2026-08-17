@@ -156,6 +156,63 @@ internal sealed class PromptQueueTests {
         Assert.That(queue.HasReadyItems, Is.True);
     }
 
+    [Test]
+    public void AutoDispatch_ActiveLockedHostItem_RemainsEligible()
+    {
+        var queue = new PromptQueue();
+        var repair = new PromptQueueItem
+        {
+            Text = "repair result envelope",
+            IsLocked = true,
+            SourceTag = PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+        };
+        queue.EnqueueItem(repair);
+
+        var candidate = queue.GetAutoDispatchCandidate(
+            repair.Id,
+            manuallyPaused: false,
+            "guided-tour-dummy",
+            "guided-tour-type");
+
+        Assert.That(candidate, Is.SameAs(repair));
+    }
+
+    [Test]
+    public void AutoDispatch_ActiveEditableFirstItem_HoldsQueue()
+    {
+        var queue = new PromptQueue();
+        var active = new PromptQueueItem { Text = "user draft", IsLocked = false };
+        queue.EnqueueItem(active);
+        queue.EnqueueItem(new PromptQueueItem { Text = "later item" });
+
+        Assert.That(queue.GetAutoDispatchCandidate(active.Id, manuallyPaused: false), Is.Null);
+    }
+
+    [Test]
+    public void QueueWithUndispatchableItem_IsNotDrained()
+    {
+        var queue = new PromptQueue();
+        var active = new PromptQueueItem { Text = "user draft", IsLocked = false };
+        queue.EnqueueItem(active);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(queue.GetAutoDispatchCandidate(active.Id, manuallyPaused: false), Is.Null);
+            Assert.That(queue.IsDrained, Is.False);
+        });
+    }
+
+    [Test]
+    public void RemovingFinalItem_MakesQueueDrained()
+    {
+        var queue = new PromptQueue();
+        var item = new PromptQueueItem { Text = "host repair", IsLocked = true };
+        queue.EnqueueItem(item);
+        queue.RemoveItem(item);
+
+        Assert.That(queue.IsDrained, Is.True);
+    }
+
     // ── FIFO drain order ──────────────────────────────────────────────────────
 
     [Test]

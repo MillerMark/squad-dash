@@ -180,5 +180,38 @@ internal sealed class PromptQueue {
 
     public bool HasReadyItems => _items.Any(i => !i.IsEditing);
 
+    /// <summary>
+    /// Selects the next item that may dispatch automatically. Selecting an editable
+    /// first item intentionally holds the queue, but selecting a locked host-managed
+    /// item is only an inspection state and must not prevent its dispatch.
+    /// </summary>
+    public PromptQueueItem? GetAutoDispatchCandidate(
+        string? activeTabId,
+        bool manuallyPaused,
+        params string[] excludedSourceTags)
+    {
+        if (manuallyPaused)
+            return null;
+
+        if (_items.Count > 0 &&
+            string.Equals(_items[0].Id, activeTabId, StringComparison.Ordinal) &&
+            !_items[0].IsLocked)
+            return null;
+
+        foreach (var item in _items)
+        {
+            if (excludedSourceTags.Contains(item.SourceTag, StringComparer.Ordinal))
+                continue;
+            if (string.Equals(item.Id, activeTabId, StringComparison.Ordinal) && !item.IsLocked)
+                continue;
+            return item;
+        }
+
+        return null;
+    }
+
+    /// <summary>A loop may resume only after every queued item has actually left the queue.</summary>
+    public bool IsDrained => _items.Count == 0;
+
     public int Count => _items.Count;
 }

@@ -3035,20 +3035,11 @@ public partial class MainWindow : Window
     }
 
     private PromptQueueItem? GetAutoDispatchCandidate()
-    {
-        if (_queueManuallyPaused) return null;
-        var items = _promptQueue.Items;
-        // If the user is editing the rightmost (first-to-dispatch) tab, hold the entire
-        // queue so they can finish editing before anything fires.
-        if (items.Count > 0 && items[0].Id == _activeTabId && !items[0].IsLocked)
-            return null;
-        for (int i = 0; i < items.Count; i++)
-        {
-            if (items[i].Id != _activeTabId && items[i].SourceTag != TourDummyTag && items[i].SourceTag != TourTypeTag)
-                return items[i];
-        }
-        return null;
-    }
+        => _promptQueue.GetAutoDispatchCandidate(
+            _activeTabId,
+            _queueManuallyPaused,
+            TourDummyTag,
+            TourTypeTag);
 
     private bool CanAutoDispatchPromptQueue(string reason)
     {
@@ -3613,6 +3604,14 @@ public partial class MainWindow : Window
     {
         bool shouldResume = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
         if (!shouldResume || _isPromptRunning || IsLoopRunning || _queueDrainActive) return;
+        if (!_promptQueue.IsDrained)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"MaybeFireQueuedLoopAsync: resume deferred until queue actually drains count={_promptQueue.Count} " +
+                $"candidate={(GetAutoDispatchCandidate() is null ? "none" : "available")} activeTab={_activeTabId ?? "draft"}.");
+            return;
+        }
         bool wasQueueResume = _loopQueued || _loopInterruptedByQueue;
         bool wasQrResume    = _loopPausedForQuickReply;
         int resumeFromIteration = Math.Max(_loopCurrentIteration, _loopQueuedResumeFromIteration);
@@ -34127,7 +34126,7 @@ public partial class MainWindow : Window
                 {
                     AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
                 }
-                else if (!_promptQueue.HasReadyItems)
+                else if (_promptQueue.IsDrained)
                 {
                     _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
@@ -34194,7 +34193,7 @@ public partial class MainWindow : Window
                 {
                     AppendLoopOutputLine("⏸ Loop paused — Shift held on startup. Press Start Loop to resume.", LoopLifecycleBrush);
                 }
-                else if (!_promptQueue.HasReadyItems)
+                else if (_promptQueue.IsDrained)
                 {
                     _ = Dispatcher.InvokeAsync(async () => await MaybeFireQueuedLoopAsync(),
                         System.Windows.Threading.DispatcherPriority.Background);
