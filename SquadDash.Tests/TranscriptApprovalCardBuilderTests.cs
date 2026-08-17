@@ -113,6 +113,47 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.ResolvedIndicator.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(card.ResolvedIndicator.Text, Is.EqualTo("✓ Approved."));
             Assert.That(card.TitleBlock.Text, Is.EqualTo("Approval Acquired"));
+            Assert.That(card.ReviewSection, Is.Not.Null);
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(card.ReviewSection.Background, Is.EqualTo(System.Windows.Media.Brushes.Transparent));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdatingFailure_RestoresChecklistInteractionAndAttentionSurface()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+
+        TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+        Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+        Assert.That(card.ReviewSection.Background, Is.EqualTo(System.Windows.Media.Brushes.Transparent));
+
+        TranscriptApprovalCardBuilder.HideUpdatingState(card);
+
+        Assert.That(card.ReviewSection.IsEnabled, Is.True);
+        Assert.That(card.ReviewSection.GetValue(Border.BackgroundProperty), Is.Not.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ReworkAndAmendmentStates_LockChecklistInteraction()
+    {
+        var plan = BuildTestPlan();
+        var reworkCard = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        var amendmentCard = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+
+        TranscriptApprovalCardBuilder.ShowReworkRequestedState(reworkCard);
+        TranscriptApprovalCardBuilder.ShowAmendmentRequestedState(amendmentCard);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reworkCard.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(reworkCard.ReviewSection.Background, Is.EqualTo(System.Windows.Media.Brushes.Transparent));
+            Assert.That(amendmentCard.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(amendmentCard.ReviewSection.Background, Is.EqualTo(System.Windows.Media.Brushes.Transparent));
         });
     }
 

@@ -86,6 +86,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Prominent human-facing question describing the observation required for approval.</summary>
         internal TextBlock? QuestionBlock { get; init; }
 
+        /// <summary>Checklist surface whose interaction styling is removed once the checkpoint is resolved.</summary>
+        internal Border? ReviewSection { get; init; }
+
         /// <summary>Legacy handle for the removed redundant inspection shortcut.</summary>
         internal Hyperlink? InspectPlanLink { get; init; }
 
@@ -187,6 +190,7 @@ internal static class TranscriptApprovalCardBuilder
 
         // ── Human verification question ──────────────────────────────────
         TextBlock? questionBlock = null;
+        Border? reviewSection = null;
         Hyperlink? inspectPlanLink = null;
         var checklistItems = PlanHumanReviewChecklist.Build(plan, activeGates);
         var checklistState = checklistItems.ToDictionary(
@@ -322,6 +326,7 @@ internal static class TranscriptApprovalCardBuilder
                 Padding = new Thickness(10, 8, 10, 8),
                 Margin = new Thickness(0, 2, 0, 8),
             };
+            reviewSection = questionBorder;
             questionBorder.SetResourceReference(Border.BackgroundProperty, "ApprovalFieldSurface");
             questionBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
             var checklistMenu = new ContextMenu();
@@ -732,6 +737,7 @@ internal static class TranscriptApprovalCardBuilder
             ContentStack = stack,
             PlanLink = planTitleLink,
             QuestionBlock = questionBlock,
+            ReviewSection = reviewSection,
             InspectPlanLink = inspectPlanLink,
             InboxLink = inboxLink,
             InboxMessageLink = inboxMessageLink,
@@ -770,6 +776,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Shows the updating overlay and disables all actions.</summary>
     internal static void ShowUpdatingState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: false);
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = false;
@@ -780,6 +787,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Hides the updating overlay and re-enables actions.</summary>
     internal static void HideUpdatingState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: true);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
@@ -790,6 +798,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Leaves a historical card visible while making its resolved state unambiguous.</summary>
     internal static void ShowResolvedState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.TitleBlock.Text = "Approval Acquired";
         var note = card.NoteTextBox.Text.Trim();
@@ -831,6 +840,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Turns the card into durable history after the host accepts a rework request.</summary>
     internal static void ShowReworkRequestedState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.NoteSection.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Collapsed;
@@ -842,12 +852,25 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Turns the card into durable history after bounded additional work is accepted.</summary>
     internal static void ShowAmendmentRequestedState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.NoteSection.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Collapsed;
         card.ResolvedIndicator.Visibility = Visibility.Collapsed;
         card.ReworkIndicator.Text = "＋ Amendment added. Completed tasks remain accepted.";
         card.ReworkIndicator.Visibility = Visibility.Visible;
+    }
+
+    private static void SetReviewInteractionState(CardResult card, bool isInteractive)
+    {
+        if (card.ReviewSection is not { } section)
+            return;
+
+        section.IsEnabled = isInteractive;
+        if (isInteractive)
+            section.SetResourceReference(Border.BackgroundProperty, "ApprovalFieldSurface");
+        else
+            section.Background = Brushes.Transparent;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
