@@ -85,6 +85,26 @@ internal sealed class PendingRepairResultTests
             dispatchedItemSourceTag: null), Is.False);
     }
 
+    [Test]
+    public void MultipleCommitRepair_ExplainsThatImplementationIsFinished()
+    {
+        var description = PlanRepairReplayPolicy.BuildQueueDescription(
+            "Validation error: The step created 2 commits; each implementation step must produce exactly one atomic commit.");
+
+        Assert.That(description, Is.EqualTo(
+            "The current step's implementation is finished. SquadDash found multiple commits and is confirming which commit belongs to this step. No implementation work will be repeated."));
+    }
+
+    [Test]
+    public void OtherEnvelopeRepair_UsesAccurateGenericCompletionWording()
+    {
+        var description = PlanRepairReplayPolicy.BuildQueueDescription(
+            "The response omitted DECOMPOSE_STEP_RESULT_JSON.");
+
+        Assert.That(description, Is.EqualTo(
+            "The current step's implementation is finished. SquadDash is correcting its completion record. No implementation work will be repeated."));
+    }
+
     // ── 1. Normal consumption ──────────────────────────────────────────────────
 
     [Test]

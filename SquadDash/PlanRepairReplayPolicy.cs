@@ -8,6 +8,13 @@ internal static class PlanRepairReplayPolicy
 {
     internal const string TaskResultRepairSourceTag = "plan-result-envelope-repair";
 
+    internal static string BuildQueueDescription(string repairPrompt) =>
+        repairPrompt.Contains(
+            "each implementation step must produce exactly one atomic commit",
+            StringComparison.OrdinalIgnoreCase)
+            ? "The current step's implementation is finished. SquadDash found multiple commits and is confirming which commit belongs to this step. No implementation work will be repeated."
+            : "The current step's implementation is finished. SquadDash is correcting its completion record. No implementation work will be repeated.";
+
     internal static bool ShouldCaptureTurnResponse(
         ActiveLoopExecutionState? execution,
         bool activePlanRuntime,

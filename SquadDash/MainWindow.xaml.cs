@@ -2724,7 +2724,7 @@ public partial class MainWindow : Window
                 sourceTag,
                 PlanRepairReplayPolicy.TaskResultRepairSourceTag,
                 StringComparison.Ordinal)
-                    ? "This host-managed continuation corrects the current step result without repeating implementation work."
+                    ? PlanRepairReplayPolicy.BuildQueueDescription(text)
                     : null,
         };
         if (isSystemInjected && !forceAtTail && _activeTabId is null && !_queueManuallyPaused) {
@@ -34043,7 +34043,12 @@ public partial class MainWindow : Window
                 restoredItem.QueueNumber = entry.QueueNumber > 0 ? entry.QueueNumber : NextQueueNumber();
                 restoredItem.IsLocked = entry.IsLocked;
                 restoredItem.DisplayLabel = entry.DisplayLabel;
-                restoredItem.ReadOnlyDisplayText = entry.ReadOnlyDisplayText;
+                restoredItem.ReadOnlyDisplayText = string.Equals(
+                    entry.SourceTag,
+                    PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                    StringComparison.Ordinal)
+                        ? PlanRepairReplayPolicy.BuildQueueDescription(entry.Text)
+                        : entry.ReadOnlyDisplayText;
                 restoredItem.CaretIndex = entry.CaretIndex;
                 restoredItem.SelectionStart = entry.SelectionStart;
                 restoredItem.SelectionLength = entry.SelectionLength;
