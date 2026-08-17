@@ -206,6 +206,19 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void TranscriptContextMenuRouting_PrefersEmbeddedClarificationOwner()
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(new MenuItem { Header = "Clarify This…" });
+        var label = new TextBlock { Text = "Review requirement" };
+        var owner = new Border { Child = label, ContextMenu = menu };
+
+        var resolved = TranscriptApprovalCardBuilder.FindContextMenuOwner(label, "Clarify This…");
+
+        Assert.That(resolved, Is.SameAs(owner));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_UsesLowContrastApprovalFieldsAlignedChecklistAndResponsiveCard()
     {
         var application = Application.Current ?? new Application();

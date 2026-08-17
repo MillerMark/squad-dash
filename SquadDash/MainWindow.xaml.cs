@@ -20908,6 +20908,18 @@ public partial class MainWindow : Window
     {
         try
         {
+            var contextualOwner = TranscriptApprovalCardBuilder.FindContextMenuOwner(
+                e.OriginalSource as DependencyObject,
+                "Clarify This…");
+            if (contextualOwner?.ContextMenu is { } contextualMenu)
+            {
+                contextualMenu.PlacementTarget = contextualOwner;
+                contextualMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                contextualMenu.IsOpen = true;
+                e.Handled = true;
+                return;
+            }
+
             var menu = new ContextMenu();
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 

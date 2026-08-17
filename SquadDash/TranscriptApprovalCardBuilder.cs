@@ -20,6 +20,27 @@ internal sealed record TranscriptApprovalCardTag(string PlanId, string GateId, i
 /// </summary>
 internal static class TranscriptApprovalCardBuilder
 {
+    internal static FrameworkElement? FindContextMenuOwner(
+        DependencyObject? element,
+        string menuHeader)
+    {
+        var current = element;
+        while (current is not null)
+        {
+            if (current is FrameworkElement { ContextMenu: { } menu } owner &&
+                menu.Items.OfType<MenuItem>().Any(item =>
+                    string.Equals(item.Header?.ToString(), menuHeader, StringComparison.Ordinal)))
+                return owner;
+
+            if (current is not Visual and not System.Windows.Media.Media3D.Visual3D)
+                current = (current as FrameworkContentElement)?.Parent ??
+                          (current as FrameworkElement)?.Parent;
+            else
+                current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
+    }
+
     /// <summary>Result of building the card, with handles for later update/disable.</summary>
     internal sealed class CardResult
     {
