@@ -435,6 +435,7 @@ public partial class MainWindow : Window
     private bool _isClosing;
     private readonly List<InboxMessageWindow> _openInboxWindows = new();
     private readonly List<(string GroupId, PlanViewerWindow Window)> _openPlanViewerWindows = new();
+    private readonly Dictionary<string, TextDisplayWindow> _openTextWindows = new(StringComparer.OrdinalIgnoreCase);
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _codeHealthPendingOnIdle;
@@ -47071,91 +47072,29 @@ public partial class MainWindow : Window
 
     private void ShowTextWindow(string title, string content)
     {
-        var window = new Window
+        var windowKey = string.IsNullOrWhiteSpace(title) ? "Squad Help" : title.Trim();
+        if (_openTextWindows.TryGetValue(windowKey, out var existing))
         {
-            Title = title,
-            Width = 900,
-            Height = 700,
-            MinWidth = 640,
-            MinHeight = 480,
-            WindowStyle = WindowStyle.None,
-            ResizeMode = ResizeMode.CanResize
-        };
-        window.SetResourceReference(BackgroundProperty, "AppSurface");
+            existing.UpdateContent(content);
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            existing.Focus();
+            NativeMethods.TryActivateWindow(new System.Windows.Interop.WindowInteropHelper(existing).Handle);
+            existing.PulseAttention();
+            return;
+        }
 
-        System.Windows.Shell.WindowChrome.SetWindowChrome(window, new System.Windows.Shell.WindowChrome
-        {
-            CaptionHeight = 32,
-            ResizeBorderThickness = new Thickness(4),
-            CornerRadius = new CornerRadius(0),
-            GlassFrameThickness = new Thickness(0),
-            UseAeroCaptionButtons = false
-        });
-
+        var window = new TextDisplayWindow(windowKey, content);
         if (CanShowOwnedWindow())
             window.Owner = this;
 
-        // Custom title bar
-        var titleText = new TextBlock
+        _openTextWindows[windowKey] = window;
+        window.Closed += (_, _) =>
         {
-            Text = title,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 0, 0),
-            FontWeight = FontWeights.SemiBold
+            if (_openTextWindows.TryGetValue(windowKey, out var registered) && ReferenceEquals(registered, window))
+                _openTextWindows.Remove(windowKey);
         };
-        titleText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        titleText.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-
-        var closeButton = new Button { Content = "✕", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        closeButton.SetResourceReference(FrameworkElement.StyleProperty, "PanelCloseButtonStyle");
-        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(closeButton, true);
-        closeButton.Click += (_, _) => window.Close();
-
-        var titleBarGrid = new Grid();
-        titleBarGrid.Children.Add(titleText);
-        titleBarGrid.Children.Add(closeButton);
-
-        var titleBar = new Border { Child = titleBarGrid };
-        titleBar.SetResourceReference(Border.BackgroundProperty, "ChromeSurface");
-        System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(titleBar, true);
-        titleBar.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) window.DragMove(); };
-
-        // Content area with styled border matching panel CornerRadius
-        var textBox = new TextBox
-        {
-            Text = content,
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas")
-        };
-        textBox.SetResourceReference(TextBox.BackgroundProperty, "AppSurface");
-        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
-
-        var contentBorder = new Border
-        {
-            CornerRadius = new CornerRadius(16),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(12),
-            Margin = new Thickness(8, 0, 8, 8),
-            Child = textBox
-        };
-        contentBorder.SetResourceReference(Border.BackgroundProperty, "AppSurface");
-        contentBorder.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-
-        // Root layout grid
-        var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(titleBar, 0);
-        Grid.SetRow(contentBorder, 1);
-        grid.Children.Add(titleBar);
-        grid.Children.Add(contentBorder);
-
-        window.Content = grid;
 
         WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
         window.Show();
