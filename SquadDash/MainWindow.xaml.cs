@@ -13598,6 +13598,92 @@ public partial class MainWindow : Window
         SaveDecomposeRecoveryInboxReminder(groupId, revision, taskId, reason);
     }
 
+    /// <summary>
+    /// Restores task-scoped commit evidence durably captured before host result processing
+    /// failed. The original handoff is host-validated before later repair envelopes, so a repair
+    /// cannot replace its task commit with an unrelated newer HEAD and implementation is not repeated.
+    /// </summary>
+    private async Task ReconcileInterruptedPlanTaskEvidenceAsync()
+    {
+        if (_planStore is null || _currentWorkspace is null)
+            return;
+
+        var turns = _conversationManager.ConversationState.Turns;
+        foreach (var plan in _planStore.LoadAll())
+        {
+            var interruption = plan.InterruptionData;
+            var taskId = interruption?.InterruptedTaskId;
+            var baseline = interruption?.LastCommit;
+            if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
+                interruption?.TaskCommitEvidence is not null ||
+                string.IsNullOrWhiteSpace(taskId) ||
+                string.IsNullOrWhiteSpace(baseline))
+                continue;
+
+            var stableInterruption = interruption!;
+            var candidates = InterruptedPlanEvidenceResolver.FindTaskResults(
+                turns, plan.PlanId, plan.Revision, taskId);
+            foreach (var candidate in candidates)
+            {
+                string candidateBaseline;
+                try
+                {
+                    candidateBaseline = (await RunGitAsync(
+                        _currentWorkspace.FolderPath,
+                        $"rev-parse --verify \"{candidate.Commit}^{{commit}}^\"")).Trim();
+                    await RunGitAsync(
+                        _currentWorkspace.FolderPath,
+                        $"merge-base --is-ancestor \"{baseline}\" \"{candidateBaseline}\"");
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Rejected captured result plan={plan.PlanId} task={taskId} commit={candidate.Commit}: its parent is not reachable from the recorded interruption baseline. {ex.Message}");
+                    continue;
+                }
+
+                var validation = await ValidateDecomposeStepCommitAsync(
+                    candidate,
+                    verificationOnly: false,
+                    baselineOverride: candidateBaseline);
+                if (validation.Error is not null || string.IsNullOrWhiteSpace(validation.EffectiveCommit))
+                {
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Rejected captured result plan={plan.PlanId} task={taskId} commit={candidate.Commit}: {validation.Error}");
+                    continue;
+                }
+
+                var evidence = new PlanTaskCommitEvidence(
+                    taskId,
+                    candidate.ExecutionAttemptId,
+                    candidateBaseline,
+                    validation.EffectiveCommit,
+                    candidate.Summary,
+                    candidate.Verification);
+                var reconciled = plan with
+                {
+                    InterruptionData = stableInterruption with { TaskCommitEvidence = evidence },
+                };
+                if (TryPublishPlanProgress(reconciled, out var saveError))
+                {
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Restored captured task evidence plan={plan.PlanId} task={taskId} commit={validation.EffectiveCommit}.");
+                }
+                else
+                {
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Could not persist restored task evidence plan={plan.PlanId} task={taskId}: {saveError}");
+                }
+
+                break;
+            }
+        }
+    }
+
     private async Task InitializeApprovalRuntimeAsync()
     {
         // Developer simulations are deliberately session-scoped. Remove their disposable
@@ -13644,6 +13730,7 @@ public partial class MainWindow : Window
             SoundNotifications,
             _pushNotificationService);
 
+        await ReconcileInterruptedPlanTaskEvidenceAsync();
         var approvalPlans = _planStore.LoadAll().ToList();
         for (var index = 0; index < approvalPlans.Count; index++)
         {

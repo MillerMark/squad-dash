@@ -390,6 +390,7 @@
     <Compile Include="..\SquadDash\TaskPlanRepairPromptBuilder.cs" Link="Source\TaskPlanRepairPromptBuilder.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />
+    <Compile Include="..\SquadDash\InterruptedPlanEvidenceResolver.cs" Link="Source\InterruptedPlanEvidenceResolver.cs" />
     <Compile Include="..\SquadDash\DecomposeEnvelopeRepairPrompt.cs" Link="Source\DecomposeEnvelopeRepairPrompt.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryDecision.cs" Link="Source\DecomposeRecoveryDecision.cs" />
     <Compile Include="..\SquadDash\DecomposeWorktreePolicy.cs" Link="Source\DecomposeWorktreePolicy.cs" />
