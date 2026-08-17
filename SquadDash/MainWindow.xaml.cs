@@ -13730,7 +13730,6 @@ public partial class MainWindow : Window
             SoundNotifications,
             _pushNotificationService);
 
-        await ReconcileInterruptedPlanTaskEvidenceAsync();
         var approvalPlans = _planStore.LoadAll().ToList();
         for (var index = 0; index < approvalPlans.Count; index++)
         {
@@ -34040,6 +34039,10 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
+        // here. Reconcile it before rebuilding any recovery card or Inbox action.
+        await ReconcileInterruptedPlanTaskEvidenceAsync();
+        ReconcileDecomposeRecoveryInboxMessages();
         // Repair durable state only after the workspace-scoped execution envelope is loaded,
         // but before rebuilding approval/recovery controls from that state.
         RepairStalePlanExecutingState();
