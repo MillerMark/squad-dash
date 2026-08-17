@@ -5655,8 +5655,13 @@ public partial class MainWindow : Window
                             TryApplyPlanRecoveryAssessmentFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                            var expectsReviewClarification =
+                                HumanReviewResponseContractPolicy.RequiresClarificationProtocol(
+                                    _pec.CurrentDispatchedItem?.SourceTag);
                             var hasReviewClarification =
                                 TryHandleHumanReviewClarificationFromResponse(rawResponse);
+                            if (expectsReviewClarification && !hasReviewClarification)
+                                hasReviewClarification = HandleMissingHumanReviewClarificationResponse();
                             var hasReviewActivity = !hasReviewClarification &&
                                 TryHandlePlanReviewActivityFromResponse(rawResponse);
                             if (!hasReviewClarification && !hasReviewActivity)
@@ -14876,6 +14881,39 @@ public partial class MainWindow : Window
         var hasVisibleAnswer = !string.IsNullOrWhiteSpace(
             TranscriptTextUtilities.SanitizeResponseTextOrNull(rawResponse));
         _ = ApplyHumanReviewClarificationResponseAsync(response, hasVisibleAnswer);
+        return true;
+    }
+
+    private bool HandleMissingHumanReviewClarificationResponse()
+    {
+        if (!_humanReviewClarificationRepairPending)
+        {
+            _humanReviewClarificationRepairPending = true;
+            _promptQueue.EnqueueAtFront(
+                "Your previous response used the wrong response contract or omitted the required " +
+                $"{PlanHumanReviewClarificationResponseParser.Marker} payload. " +
+                $"Do not emit {PlanReviewActivityResponseParser.Marker}. Do not repeat analysis, change files, " +
+                "approve anything, or continue the plan. Return only one complete " +
+                $"{PlanHumanReviewClarificationResponseParser.Marker} payload using the exact planId, revision, " +
+                "gateId, itemId, and requestKind from the preceding human-review action context. Obey that " +
+                "requestKind's action and selection-preservation constraints.",
+                _promptQueueCoordinator.NextSequenceNumber(),
+                sourceTag: HumanReviewResponseContractPolicy.RepairSourceTag,
+                isSystemInjected: true);
+            SyncQueuePanel();
+            SyncSendButton();
+            ShowSystemTranscriptEntry(
+                "SquadDash did not receive the required human-review update. It requested one metadata-only correction; the review requirement and its selection remain unchanged.");
+        }
+        else
+        {
+            _humanReviewClarificationRepairPending = false;
+            ShowSystemTranscriptEntry(
+                "SquadDash did not receive the required human-review update after one correction. Nothing changed.");
+        }
+
+        // This turn belongs exclusively to the clarification contract. Never let a
+        // syntactically valid generic review-activity payload masquerade as success.
         return true;
     }
 

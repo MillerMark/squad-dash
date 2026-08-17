@@ -455,6 +455,7 @@
     <Compile Include="..\SquadDash\PlanGateResponse.cs" Link="Source\PlanGateResponse.cs" />
     <Compile Include="..\SquadDash\PlanReviewActivityResponse.cs" Link="Source\PlanReviewActivityResponse.cs" />
     <Compile Include="..\SquadDash\PlanHumanReviewClarificationResponse.cs" Link="Source\PlanHumanReviewClarificationResponse.cs" />
+    <Compile Include="..\SquadDash\HumanReviewResponseContractPolicy.cs" Link="Source\HumanReviewResponseContractPolicy.cs" />
     <Compile Include="..\SquadDash\HumanReviewClarificationDialogPresentation.cs" Link="Source\HumanReviewClarificationDialogPresentation.cs" />
     <Compile Include="..\SquadDash\FilteredTaskScopeSnapshot.cs" Link="Source\FilteredTaskScopeSnapshot.cs" />
     <Compile Include="..\SquadDash\QueuedLoopJob.cs" Link="Source\QueuedLoopJob.cs" />

@@ -51,7 +51,9 @@ internal static class DecomposePlanningInstructions
         return path;
     }
 
-    internal static string BuildOrdinaryPromptPointer(string specificationPath) =>
+    internal static string BuildOrdinaryPromptPointer(
+        string specificationPath,
+        bool includePlanReviewActivityProtocol = true) =>
         "If the user's request is too large or interdependent to implement safely in one turn, " +
         "or if the user explicitly requests plan creation (using verbs like create, draft, devise, " +
         "design, write, make, propose, outline, or the /plan command), " +
@@ -70,14 +72,18 @@ internal static class DecomposePlanningInstructions
         "human approval gate and the user approves in free text, follow the file's " +
         "PLAN_GATE_APPROVAL_JSON protocol. If the user explicitly requests plan-managed rework of reviewed " +
         "work, follow PLAN_GATE_RESPONSE_JSON; do not modify plan work until SquadDash accepts that " +
-        "structured rework decision. If the user instead asks to discuss or directly correct reviewed " +
-        "work conversationally while the plan remains paused, follow the injected PLAN_REVIEW_ACTIVITY_JSON " +
-        "instructions; a direct conversational correction is not plan-managed rework. Emitting TASKS_JSON " +
+        "structured rework decision. " +
+        (includePlanReviewActivityProtocol
+            ? "If the user instead asks to discuss or directly correct reviewed work conversationally while the plan remains paused, follow the injected PLAN_REVIEW_ACTIVITY_JSON instructions; a direct conversational correction is not plan-managed rework. "
+            : string.Empty) +
+        "Emitting TASKS_JSON " +
         "proposes a plan; it does not grant execution permission. Describe the handoff as submitting or " +
         "proposing the plan. Never claim that it was staged, added to Plans, or delivered to Inbox; only " +
         "SquadDash may report those host-owned outcomes after durable validation and persistence.";
 
-    internal static string BuildPendingPlanContext(string squadFolderPath)
+    internal static string BuildPendingPlanContext(
+        string squadFolderPath,
+        bool includePlanReviewActivityProtocol = true)
     {
         var plans = new PendingDecomposePlanStore(squadFolderPath).LoadAll();
         var sections = new List<string>();
@@ -254,10 +260,13 @@ internal static class DecomposePlanningInstructions
 
         try
         {
-            var reviewContext = PlanReviewActivityResponseParser.BuildProtocolContext(
-                new PlanStore(squadFolderPath).LoadAll());
-            if (!string.IsNullOrWhiteSpace(reviewContext))
-                sections.Add("\n" + reviewContext);
+            if (includePlanReviewActivityProtocol)
+            {
+                var reviewContext = PlanReviewActivityResponseParser.BuildProtocolContext(
+                    new PlanStore(squadFolderPath).LoadAll());
+                if (!string.IsNullOrWhiteSpace(reviewContext))
+                    sections.Add("\n" + reviewContext);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -454,12 +463,14 @@ internal static class DecomposePlanningInstructions
     internal static string BuildOrdinaryPromptContext(
         string squadFolderPath,
         string agentRoutingPolicy = PlanAgentRoutingPolicy.PlanExecutionOnly,
-        bool allowExecutingPlanRevision = false)
+        bool allowExecutingPlanRevision = false,
+        bool includePlanReviewActivityProtocol = true)
     {
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
-            var context = BuildOrdinaryPromptPointer(path) + BuildPendingPlanContext(squadFolderPath) +
+            var context = BuildOrdinaryPromptPointer(path, includePlanReviewActivityProtocol) +
+                          BuildPendingPlanContext(squadFolderPath, includePlanReviewActivityProtocol) +
                           "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance();
             var revisionContext = PlanRevisionPromptInjection.Build(
                 squadFolderPath,
