@@ -1,10 +1,88 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SquadClient } from "@bradygaster/squad-sdk/client";
 import type { SquadSessionConfig } from "@bradygaster/squad-sdk/client";
 
 const SessionIdleTimeoutMs = 60 * 60 * 1000;
+const CopilotAuthenticationLogLookbackMs = 2 * 60 * 1000;
+const CopilotAuthenticationLogReadLimit = 256 * 1024;
+const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
+
+type CopilotAuthenticationDiagnosticOptions = {
+    logDirectory?: string;
+    nowMs?: number;
+};
+
+export function enrichCopilotAuthenticationFailure(
+    error: unknown,
+    options: CopilotAuthenticationDiagnosticOptions = {}
+): Error {
+    const original = error instanceof Error ? error : new Error(String(error));
+    if (!original.message.toLowerCase().includes(MissingCopilotAuthenticationMessage.toLowerCase()))
+        return original;
+
+    const serviceFailure = findRecentCopilotAuthenticationServiceFailure(options);
+    if (!serviceFailure) {
+        return new Error(
+            `Copilot authentication could not be confirmed. ${MissingCopilotAuthenticationMessage}`);
+    }
+
+    const detail = serviceFailure.detail
+        ? ` GitHub returned: ${serviceFailure.detail}`
+        : " GitHub could not complete credential verification.";
+    return new Error(
+        `GitHub Copilot authentication lookup failed with HTTP ${serviceFailure.status}.${detail} ` +
+        "The saved Copilot sign-in may still be valid; wait briefly and retry.");
+}
+
+function findRecentCopilotAuthenticationServiceFailure(
+    options: CopilotAuthenticationDiagnosticOptions
+): { status: string; detail?: string } | undefined {
+    const logDirectory = options.logDirectory ?? path.join(
+        process.env.COPILOT_HOME?.trim() || path.join(os.homedir(), ".copilot"),
+        "logs");
+    const nowMs = options.nowMs ?? Date.now();
+
+    try {
+        const candidates = readdirSync(logDirectory)
+            .filter(fileName => /^process-.*\.log$/i.test(fileName))
+            .map(fileName => {
+                const fullPath = path.join(logDirectory, fileName);
+                return { fullPath, modifiedMs: statSync(fullPath).mtimeMs };
+            })
+            .filter(candidate => {
+                const ageMs = nowMs - candidate.modifiedMs;
+                return ageMs >= -5_000 && ageMs <= CopilotAuthenticationLogLookbackMs;
+            })
+            .sort((left, right) => right.modifiedMs - left.modifiedMs);
+
+        for (const candidate of candidates) {
+            const text = readFileSync(candidate.fullPath, "utf8").slice(-CopilotAuthenticationLogReadLimit);
+            const failures = [...text.matchAll(
+                /Failed to fetch (?:OAuth|GitHub CLI) user login \((5\d\d)\):[^\r\n]*/gi)];
+            const failure = failures.at(-1);
+            if (!failure)
+                continue;
+
+            const returnedDetails = [...text.matchAll(/GitHub returned:\s*([^\r\n]+)/gi)];
+            const returnedDetail = returnedDetails.at(-1)?.[1]?.trim();
+            return {
+                status: failure[1],
+                detail: returnedDetail && returnedDetail.length <= 500
+                    ? returnedDetail
+                    : undefined
+            };
+        }
+    }
+    catch {
+        // Diagnostics are supplemental. Never replace the original auth failure
+        // merely because the third-party log directory is unavailable or malformed.
+    }
+
+    return undefined;
+}
 
 export type SquadPromptRequest = {
     cwd: string;
@@ -2827,7 +2905,12 @@ export class SquadBridgeService {
                 bridgeDiagnostic("getOrCreateSession:create-after-resume-failure:start", {
                     model: sessionConfig.model ?? "(default)"
                 });
-                session = await client.createSession(sessionConfig);
+                try {
+                    session = await client.createSession(sessionConfig);
+                }
+                catch (error) {
+                    throw enrichCopilotAuthenticationFailure(error);
+                }
                 sessionCreateDurationMs = Date.now() - createStartedAt;
                 bridgeDiagnostic("getOrCreateSession:create-after-resume-failure:done", {
                     sessionId: session.sessionId,
@@ -2841,7 +2924,12 @@ export class SquadBridgeService {
             bridgeDiagnostic("getOrCreateSession:create:start", {
                 model: sessionConfig.model ?? "(default)"
             });
-            session = await client.createSession(sessionConfig);
+            try {
+                session = await client.createSession(sessionConfig);
+            }
+            catch (error) {
+                throw enrichCopilotAuthenticationFailure(error);
+            }
             sessionCreateDurationMs = Date.now() - createStartedAt;
             bridgeDiagnostic("getOrCreateSession:create:done", {
                 sessionId: session.sessionId,

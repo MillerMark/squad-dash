@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import {
     approvePermissionRequest,
@@ -6,6 +9,7 @@ import {
     buildNamedAgentExecutionPrompt,
     buildNamedAgentPrompt,
     buildProviderNeutralCliEnvironment,
+    enrichCopilotAuthenticationFailure,
     findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
@@ -17,6 +21,45 @@ import {
     StagedPlanRevisionHostProtocol,
     tryParseStagedPlanRevisionRequest
 } from "./squadService.js";
+
+test("auth diagnostics preserve a recent Copilot service failure instead of demanding sign-in", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "squaddash-copilot-auth-"));
+    try {
+        const nowMs = Date.now();
+        const logPath = path.join(root, "process-auth.log");
+        fs.writeFileSync(logPath, [
+            "Failed to fetch OAuth user login (503): Failed to fetch Copilot user info: 503",
+            "GitHub returned: No server is currently available to service your request"
+        ].join("\n"));
+        fs.utimesSync(logPath, new Date(nowMs), new Date(nowMs));
+
+        const result = enrichCopilotAuthenticationFailure(
+            new Error("Session was not created with authentication info or custom provider"),
+            { logDirectory: root, nowMs });
+
+        assert.match(result.message, /authentication lookup failed with HTTP 503/i);
+        assert.match(result.message, /No server is currently available/i);
+        assert.doesNotMatch(result.message, /sign in again/i);
+    }
+    finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("auth diagnostics remain conservative when no recent provider evidence exists", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "squaddash-copilot-auth-empty-"));
+    try {
+        const result = enrichCopilotAuthenticationFailure(
+            new Error("Session was not created with authentication info or custom provider"),
+            { logDirectory: root, nowMs: Date.now() });
+
+        assert.match(result.message, /authentication could not be confirmed/i);
+        assert.doesNotMatch(result.message, /sign-in is required/i);
+    }
+    finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
 
 test("permission approval supports legacy Copilot runtime response shape", () => {
     assert.equal(resolvePermissionApprovalKind("1.0.24"), "approved");

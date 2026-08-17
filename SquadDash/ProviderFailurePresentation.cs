@@ -60,7 +60,15 @@ internal sealed record ProviderFailurePresentation(
         string explanation;
         string guidance;
 
-        if (ContainsAny(normalized,
+        if (normalized.Contains("github copilot authentication lookup failed", StringComparison.Ordinal) &&
+            HasAnyServerStatus(normalized))
+        {
+            category = ProviderFailureCategory.ProviderService;
+            title = "GitHub Copilot authentication service is temporarily unavailable";
+            explanation = "GitHub could not verify the saved Copilot sign-in because its authentication service returned a server error.";
+            guidance = "Wait briefly and retry. The saved sign-in may still be valid; do not sign in again or restart SquadDash unless a later check reports that no credential is available.";
+        }
+        else if (ContainsAny(normalized,
                 "failed to connect to copilot cli",
                 "cli server exited with code",
                 "agent runtime exited with code"))

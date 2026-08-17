@@ -13240,6 +13240,13 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Validation “{validation.Title}” is no longer waiting to be retried.");
 
+        // A Copilot device sign-in is shared by the Windows user, while each
+        // SquadDash instance owns its own long-lived bridge process. Refresh only
+        // this instance before the explicit retry so a newly completed sign-in is
+        // observed without requiring any SquadDash windows to restart.
+        _bridge.RestartBridgeForNewSettings();
+        ClearRuntimeIssue();
+
         var updated = PlanStoreUpdater.ApplyValidationRetry(plan, validationId);
         if (!TryPublishPlanProgress(updated, out var error))
             throw new InvalidOperationException(error ?? "The validation retry could not be saved.");

@@ -42,13 +42,18 @@ internal sealed class WorkspaceIssueFactoryTests {
     // ── CreateRuntimeIssue ─────────────────────────────────────────────────
 
     [Test]
-    public void CreateRuntimeIssue_WhenAuthError_ReturnsCopilotAuthTitle() {
+    public void CreateRuntimeIssue_WhenAuthError_DoesNotClaimSignInIsDefinitelyMissing() {
         const string errorMessage =
             "Execution failed: Error: Session was not created with authentication info or custom provider";
 
         var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
 
-        Assert.That(issue.Title, Does.Contain("GitHub Copilot sign-in"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(issue.Title, Does.Contain("authentication could not be confirmed"));
+            Assert.That(issue.DetailText, Does.Contain("automatically"));
+            Assert.That(issue.DetailText, Does.Not.Contain("restart SquadDash").IgnoreCase);
+        });
     }
 
     [Test]
@@ -77,6 +82,25 @@ internal sealed class WorkspaceIssueFactoryTests {
             Assert.That(issue.HelpWindowContent, Does.Contain("copilot.cmd login"));
             Assert.That(issue.HelpWindowContent, Does.Not.Contain("run /login"));
             Assert.That(issue.HelpWindowContent, Does.Contain("Retry Validation"));
+            Assert.That(issue.HelpWindowContent, Does.Contain("No application restart is required"));
+        });
+    }
+
+    [Test]
+    public void CreateRuntimeIssue_WhenCopilotAuthLookupHasServiceFailure_DoesNotRequestSignInOrRestart()
+    {
+        const string errorMessage =
+            "GitHub Copilot authentication lookup failed with HTTP 503. GitHub could not complete credential verification.";
+
+        var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(issue.Title, Does.Contain("temporarily unavailable"));
+            Assert.That(issue.DetailText, Does.Contain("Retry Validation"));
+            Assert.That(issue.DetailText, Does.Contain("do not need to sign in again").IgnoreCase);
+            Assert.That(issue.DetailText, Does.Contain("restart SquadDash").IgnoreCase);
+            Assert.That(issue.Action, Is.Null);
         });
     }
 

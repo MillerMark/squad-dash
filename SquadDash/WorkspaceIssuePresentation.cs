@@ -114,13 +114,26 @@ internal static class WorkspaceIssueFactory {
         }
 
         if (normalizedMessage.Contains(
+                "GitHub Copilot authentication lookup failed with HTTP",
+                StringComparison.OrdinalIgnoreCase)) {
+            return new WorkspaceIssuePresentation(
+                Title: "GitHub Copilot is temporarily unavailable",
+                Message: "SquadDash found the local Copilot sign-in, but GitHub could not complete authentication verification.",
+                DetailText: "Wait briefly, then click Retry Validation. You do not need to sign in again or restart SquadDash.",
+                HelpButtonLabel: "View Details",
+                HelpWindowTitle: "GitHub Copilot Service Availability",
+                HelpWindowContent: BuildCopilotServiceFailureHelpText(normalizedMessage),
+                PrimaryLink: new WorkspaceIssueExternalLink("GitHub Status", "https://www.githubstatus.com/"));
+        }
+
+        if (normalizedMessage.Contains(
                 "Session was not created with authentication info or custom provider",
                 StringComparison.OrdinalIgnoreCase)) {
             var copilotLoginCommand = BuildCopilotLoginCommand(installationState);
             return new WorkspaceIssuePresentation(
-                Title: "GitHub Copilot sign-in is required on this machine",
-                Message: "SquadDash reached the bundled SDK, but the local Copilot CLI does not have an authenticated session for this Windows user.",
-                DetailText: "Sign in once, restart SquadDash, then retry the preserved validation.",
+                Title: "GitHub Copilot authentication could not be confirmed",
+                Message: "The local Copilot CLI could not establish an authenticated session for this request.",
+                DetailText: "If you just signed in, return to SquadDash and retry. SquadDash will reload this instance's Copilot connection automatically.",
                 HelpButtonLabel: "View Sign-in Steps",
                 HelpWindowTitle: "GitHub Copilot Sign-in",
                 HelpWindowContent: BuildCopilotAuthHelpText(copilotLoginCommand),
@@ -400,11 +413,25 @@ internal static class WorkspaceIssueFactory {
         builder.AppendLine("SquadDash uses the local GitHub Copilot CLI credential on this machine. A successful `gh auth status` does not necessarily mean that Copilot CLI is signed in.");
         builder.AppendLine();
         builder.AppendLine("What to do");
-        builder.AppendLine("1. Click Sign in to Copilot, or run this command in PowerShell:");
+        builder.AppendLine("1. If you just completed sign-in, return to SquadDash and click Retry Validation. SquadDash reloads this instance's Copilot connection automatically.");
+        builder.AppendLine("2. If authentication still cannot be confirmed, click Sign in to Copilot, or run this command in PowerShell:");
         builder.AppendLine(loginCommand ?? ".\\node_modules\\.bin\\copilot.cmd login");
-        builder.AppendLine("2. Complete the GitHub device sign-in flow.");
-        builder.AppendLine("3. Restart SquadDash.");
-        builder.AppendLine("4. Click Retry Validation. Completed implementation work will not run again.");
+        builder.AppendLine("3. Complete the GitHub device sign-in flow.");
+        builder.AppendLine("4. Return to SquadDash and click Retry Validation. No application restart is required, and completed implementation work will not run again.");
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildCopilotServiceFailureHelpText(string rawError) {
+        var builder = new StringBuilder();
+        builder.AppendLine("Your Copilot device sign-in completed, but GitHub temporarily could not verify it.");
+        builder.AppendLine();
+        builder.AppendLine("What to do");
+        builder.AppendLine("1. Wait briefly.");
+        builder.AppendLine("2. Click Retry Validation. SquadDash refreshes this instance's Copilot connection automatically.");
+        builder.AppendLine("3. If the service failure continues, check GitHub Status. Do not repeat sign-in unless SquadDash later reports that no credential is available.");
+        builder.AppendLine();
+        builder.AppendLine("Technical detail");
+        builder.AppendLine(rawError);
         return builder.ToString().TrimEnd();
     }
 

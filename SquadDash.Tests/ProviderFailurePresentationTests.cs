@@ -90,6 +90,21 @@ internal sealed class ProviderFailurePresentationTests
     }
 
     [Test]
+    public void Analyze_CopilotAuthenticationLookup503_IsAServiceFailureNotBadCredentials()
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            "GitHub Copilot authentication lookup failed with HTTP 503. GitHub could not complete credential verification.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.ProviderService));
+            Assert.That(result.Title, Does.Contain("temporarily unavailable"));
+            Assert.That(result.Guidance, Does.Contain("do not sign in again").IgnoreCase);
+            Assert.That(result.Guidance, Does.Contain("do not").And.Contain("restart SquadDash").IgnoreCase);
+        });
+    }
+
+    [Test]
     public void Analyze_ExplicitDeploymentNotFound_WorksWithoutEndpointContext()
     {
         var result = ProviderFailurePresentation.Analyze(
