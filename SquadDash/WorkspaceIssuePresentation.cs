@@ -116,13 +116,20 @@ internal static class WorkspaceIssueFactory {
         if (normalizedMessage.Contains(
                 "Session was not created with authentication info or custom provider",
                 StringComparison.OrdinalIgnoreCase)) {
+            var copilotLoginCommand = BuildCopilotLoginCommand(installationState);
             return new WorkspaceIssuePresentation(
                 Title: "GitHub Copilot sign-in is required on this machine",
-                Message: "SquadDash reached the bundled SDK, but GitHub Copilot is not authenticated for this Windows user yet.",
-                DetailText: "Sign in once in the Copilot CLI, then retry the prompt.",
+                Message: "SquadDash reached the bundled SDK, but the local Copilot CLI does not have an authenticated session for this Windows user.",
+                DetailText: "Sign in once, restart SquadDash, then retry the preserved validation.",
                 HelpButtonLabel: "View Sign-in Steps",
                 HelpWindowTitle: "GitHub Copilot Sign-in",
-                HelpWindowContent: BuildCopilotAuthHelpText(),
+                HelpWindowContent: BuildCopilotAuthHelpText(copilotLoginCommand),
+                Action: copilotLoginCommand is null
+                    ? null
+                    : new WorkspaceIssueAction(
+                        "Sign in to Copilot",
+                        WorkspaceIssueActionKind.LaunchPowerShellCommand,
+                        copilotLoginCommand),
                 PrimaryLink: new WorkspaceIssueExternalLink("Copilot Docs", "https://docs.github.com/copilot"),
                 SecondaryLink: new WorkspaceIssueExternalLink("GitHub Copilot", "https://github.com/features/copilot"));
         }
@@ -388,21 +395,30 @@ internal static class WorkspaceIssueFactory {
         return builder.ToString().TrimEnd();
     }
 
-    private static string BuildCopilotAuthHelpText() {
+    private static string BuildCopilotAuthHelpText(string? loginCommand) {
         var builder = new StringBuilder();
-        builder.AppendLine("SquadDash uses the local GitHub Copilot CLI session on this machine.");
+        builder.AppendLine("SquadDash uses the local GitHub Copilot CLI credential on this machine. A successful `gh auth status` does not necessarily mean that Copilot CLI is signed in.");
         builder.AppendLine();
         builder.AppendLine("What to do");
-        builder.AppendLine("1. Open PowerShell.");
-        builder.AppendLine("2. Change to your repo root.");
-        builder.AppendLine("3. Run .\\node_modules\\.bin\\copilot.cmd");
-        builder.AppendLine("4. In the Copilot CLI, run /login");
-        builder.AppendLine("5. Complete the GitHub sign-in flow.");
-        builder.AppendLine("6. Restart SquadDash and retry the prompt.");
-        builder.AppendLine();
-        builder.AppendLine("Optional");
-        builder.AppendLine("Run gh auth status to confirm your GitHub sign-in state.");
+        builder.AppendLine("1. Click Sign in to Copilot, or run this command in PowerShell:");
+        builder.AppendLine(loginCommand ?? ".\\node_modules\\.bin\\copilot.cmd login");
+        builder.AppendLine("2. Complete the GitHub device sign-in flow.");
+        builder.AppendLine("3. Restart SquadDash.");
+        builder.AppendLine("4. Click Retry Validation. Completed implementation work will not run again.");
         return builder.ToString().TrimEnd();
+    }
+
+    private static string? BuildCopilotLoginCommand(SquadInstallationState? installationState) {
+        if (installationState is null || string.IsNullOrWhiteSpace(installationState.ActiveDirectory))
+            return null;
+        var command = Path.Combine(
+            installationState.ActiveDirectory,
+            "node_modules",
+            ".bin",
+            "copilot.cmd");
+        if (!File.Exists(command))
+            return null;
+        return $"& '{command.Replace("'", "''", StringComparison.Ordinal)}' login";
     }
 
     private static WorkspaceIssuePresentation CreateMissingPowerShellIssue() {

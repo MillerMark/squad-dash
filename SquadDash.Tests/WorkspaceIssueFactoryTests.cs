@@ -63,6 +63,59 @@ internal sealed class WorkspaceIssueFactoryTests {
     }
 
     [Test]
+    public void CreateRuntimeIssue_WhenAuthError_ExplainsSeparateCopilotCredentialAndDirectLogin()
+    {
+        const string errorMessage =
+            "Error: Session was not created with authentication info or custom provider";
+
+        var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(issue.HelpWindowContent, Does.Contain("gh auth status"));
+            Assert.That(issue.HelpWindowContent, Does.Contain("does not necessarily mean"));
+            Assert.That(issue.HelpWindowContent, Does.Contain("copilot.cmd login"));
+            Assert.That(issue.HelpWindowContent, Does.Not.Contain("run /login"));
+            Assert.That(issue.HelpWindowContent, Does.Contain("Retry Validation"));
+        });
+    }
+
+    [Test]
+    public void CreateRuntimeIssue_WhenWorkspaceCopilotExists_OffersDirectSignInAction()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "squaddash-copilot-login-" + Guid.NewGuid().ToString("N"));
+        var shim = Path.Combine(root, "node_modules", ".bin", "copilot.cmd");
+        Directory.CreateDirectory(Path.GetDirectoryName(shim)!);
+        File.WriteAllText(shim, "@echo off");
+        try
+        {
+            var installation = new SquadInstallationState(
+                root,
+                Path.Combine(root, ".squad"),
+                Path.Combine(root, ".squad", "team.md"),
+                Path.Combine(root, "package.json"),
+                Path.Combine(root, "node_modules", ".bin", "squad.cmd"),
+                true, true, true, true);
+
+            var issue = WorkspaceIssueFactory.CreateRuntimeIssue(
+                "Session was not created with authentication info or custom provider",
+                installation);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(issue.Action, Is.Not.Null);
+                Assert.That(issue.Action!.Label, Is.EqualTo("Sign in to Copilot"));
+                Assert.That(issue.Action.Kind, Is.EqualTo(WorkspaceIssueActionKind.LaunchPowerShellCommand));
+                Assert.That(issue.Action.Argument, Does.Contain("copilot.cmd' login"));
+            });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
     public void CreateRuntimeIssue_WhenBuildLockError_ReturnsBuildTempFilesTitle() {
         const string errorMessage =
             @"Access to the path 'C:\Source\SquadUI\SquadDash\obj\Debug\net10.0-windows\SquadDash.tmp' is denied.";
