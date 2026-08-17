@@ -88,6 +88,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private bool _isAiReviewPending;
     private string? _reviewStatusMessage;
     private DecomposedTaskGroup? _deferredDefinitionEdit;
+    private (Dictionary<string, Point> OldPositions, IReadOnlyList<string> AffectedTaskIds)? _pendingAnimation;
 
     private enum AutomaticScrollTarget
     {
@@ -2286,6 +2287,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     var definitionEditable = IsTaskDefinitionEditable(capturedTask.Id);
                     contextMenu.Items.Add(new Separator());
+                    var dependsOnSubmenu1 = CreateDependsOnSubmenu(capturedTask.Id, group, levels, positions);
+                    if (dependsOnSubmenu1 is not null)
+                    {
+                        contextMenu.Items.Add(dependsOnSubmenu1);
+                        contextMenu.Items.Add(new Separator());
+                    }
                     var addValidation = new MenuItem
                     {
                         Header = "Add validation after this task",
@@ -2377,6 +2384,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 insertAfter.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertAfter);
                 contextMenu.Items.Add(new Separator());
+                var dependsOnSubmenu2 = CreateDependsOnSubmenu(capturedTaskId, group, levels, positions);
+                if (dependsOnSubmenu2 is not null)
+                {
+                    contextMenu.Items.Add(dependsOnSubmenu2);
+                    contextMenu.Items.Add(new Separator());
+                }
                 var addValidation = new MenuItem
                 {
                     Header = "Add validation after this task",
@@ -2952,6 +2965,44 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
             };
         }
+
+        // Kick off any pending dependency-edit animation after the new layout is applied.
+        if (_pendingAnimation is { } animData)
+        {
+            _pendingAnimation = null;
+            var capturedBorderByTask = borderByTask;
+            var capturedPositions    = positions;
+            Dispatcher.BeginInvoke(() =>
+            {
+                foreach (var animTaskId in animData.AffectedTaskIds)
+                {
+                    if (!capturedBorderByTask.TryGetValue(animTaskId, out var animBorder)) continue;
+                    if (!animData.OldPositions.TryGetValue(animTaskId, out var oldPos)) continue;
+                    var newLeft = Canvas.GetLeft(animBorder);
+                    var newTop  = Canvas.GetTop(animBorder);
+                    var deltaX = oldPos.X - newLeft;
+                    var deltaY = oldPos.Y - newTop;
+                    if (Math.Abs(deltaX) < 1 && Math.Abs(deltaY) < 1) continue;
+                    try
+                    {
+                        var transform = new TranslateTransform(deltaX, deltaY);
+                        animBorder.RenderTransform = transform;
+                        var duration = new Duration(TimeSpan.FromMilliseconds(350));
+                        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                        var animX = new DoubleAnimation(deltaX, 0, duration) { EasingFunction = ease };
+                        var animY = new DoubleAnimation(deltaY, 0, duration) { EasingFunction = ease };
+                        animX.Completed += (_, _) => animBorder.RenderTransform = null;
+                        transform.BeginAnimation(TranslateTransform.XProperty, animX);
+                        transform.BeginAnimation(TranslateTransform.YProperty, animY);
+                    }
+                    catch (Exception ex)
+                    {
+                        SquadDashTrace.Write("PlanViewer", $"Dependency animation failed: {ex.Message}");
+                        animBorder.RenderTransform = null;
+                    }
+                }
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
 
         canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
         canvas.Height = Math.Max(
@@ -3378,6 +3429,192 @@ internal sealed class PlanViewerWindow : ChromedWindow
             submenu.Items.Add(item);
         }
         return submenu;
+    }
+
+    /// <summary>
+    /// Returns a group equal to <paramref name="group"/> but with <paramref name="depId"/>
+    /// added to or removed from <paramref name="taskId"/>'s DependsOn list.
+    /// </summary>
+    private static DecomposedTaskGroup WithToggledDependency(
+        DecomposedTaskGroup group, string taskId, string depId, bool add)
+    {
+        var modifiedTasks = group.Tasks.Select(t =>
+        {
+            if (!string.Equals(t.Id, taskId, StringComparison.Ordinal)) return t;
+            IReadOnlyList<string> newDeps;
+            if (add)
+            {
+                newDeps = t.DependsOn.Contains(depId, StringComparer.Ordinal)
+                    ? t.DependsOn
+                    : [.. t.DependsOn, depId];
+            }
+            else
+            {
+                newDeps = t.DependsOn
+                    .Where(d => !string.Equals(d, depId, StringComparison.Ordinal))
+                    .ToArray();
+            }
+            return t with { DependsOn = newDeps };
+        }).ToArray();
+        return group with { Tasks = modifiedTasks };
+    }
+
+    /// <summary>
+    /// Builds a "Depends On" submenu for a task border context menu. Lists all other tasks
+    /// grouped into Earlier/Later by topological stage. Current deps show check marks.
+    /// Candidates that would create a cycle are disabled with a descriptive tooltip.
+    /// Selecting/clearing an item calls <see cref="DependencyEditRecomputer.Recompute"/>;
+    /// stage-changing edits require confirmation before routing through
+    /// <see cref="ApplyStagedMutation"/>.
+    /// </summary>
+    private MenuItem? CreateDependsOnSubmenu(
+        string taskId,
+        DecomposedTaskGroup group,
+        IReadOnlyDictionary<string, int> levels,
+        Dictionary<string, Point> positions)
+    {
+        if (_saveDefinitionEdit is null || _plan is null) return null;
+
+        var selectedTask = group.Tasks.FirstOrDefault(t =>
+            string.Equals(t.Id, taskId, StringComparison.Ordinal));
+        if (selectedTask is null) return null;
+
+        var candidates = group.Tasks
+            .Where(t => !string.Equals(t.Id, taskId, StringComparison.Ordinal))
+            .OrderBy(t => levels.TryGetValue(t.Id, out var l) ? l : 0)
+            .ThenBy(t => t.Title ?? t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (candidates.Length == 0) return null;
+
+        var currentDeps   = selectedTask.DependsOn.ToHashSet(StringComparer.Ordinal);
+        var selectedLevel = levels.TryGetValue(taskId, out var sl) ? sl : 0;
+
+        var earlier = candidates.Where(t =>
+            (levels.TryGetValue(t.Id, out var l) ? l : 0) < selectedLevel).ToArray();
+        var later   = candidates.Where(t =>
+            (levels.TryGetValue(t.Id, out var l) ? l : 0) >= selectedLevel).ToArray();
+
+        var submenu = new MenuItem { Header = "Depends On" };
+
+        void AddGroupHeader(string label)
+        {
+            var headerItem = new MenuItem
+            {
+                Header    = label,
+                IsEnabled = false,
+                FontStyle = FontStyles.Italic,
+            };
+            headerItem.SetResourceReference(MenuItem.ForegroundProperty, "SubtleText");
+            submenu.Items.Add(headerItem);
+        }
+
+        void AddCandidateItem(DecomposedSubTask candidate)
+        {
+            var isCurrentDep = currentDeps.Contains(candidate.Id);
+
+            bool wouldCycle    = false;
+            string? cycleTip   = null;
+            if (!isCurrentDep)
+            {
+                var testGroup  = WithToggledDependency(group, taskId, candidate.Id, add: true);
+                var testResult = DependencyEditRecomputer.Recompute(testGroup);
+                if (!testResult.Success)
+                {
+                    wouldCycle = true;
+                    cycleTip   = testResult.CycleIds is { Count: > 0 }
+                        ? "Adding this dependency would create a cycle: " +
+                          string.Join(" → ", testResult.CycleIds)
+                        : "Adding this dependency would create a cycle.";
+                }
+            }
+
+            var capturedCandidate  = candidate;
+            var capturedCurrentDep = isCurrentDep;
+            var item = new MenuItem
+            {
+                Header      = capturedCandidate.Title ?? capturedCandidate.Id,
+                IsCheckable = true,
+                IsChecked   = capturedCurrentDep,
+                IsEnabled   = !wouldCycle,
+            };
+            if (wouldCycle && cycleTip is not null)
+                item.ToolTip = ToolTipHelper.MakeThemedToolTip(cycleTip);
+
+            // IsChecked is already toggled before Click fires on a checkable MenuItem.
+            item.Click += (_, _) =>
+            {
+                if (_plan is null) return;
+                var adding   = item.IsChecked;
+                var newGroup = WithToggledDependency(_plan.Group, taskId, capturedCandidate.Id, adding);
+                var result   = DependencyEditRecomputer.Recompute(newGroup);
+                if (!result.Success)
+                {
+                    // Cycle guard — should not happen since the item was disabled, but be safe.
+                    item.IsChecked = capturedCurrentDep;
+                    return;
+                }
+
+                // Recompute current levels at click time (plan may have changed since menu build).
+                var currentLevels = ValidationShieldPresenter.ComputeValidationAwareLevels(
+                    _plan.Group.Tasks, _plan.Group.Validations ?? []);
+
+                var movedTasks = _plan.Group.Tasks
+                    .Where(t =>
+                        currentLevels.TryGetValue(t.Id, out var oldLevel) &&
+                        result.StageAssignments!.TryGetValue(t.Id, out var newLevel) &&
+                        oldLevel != newLevel)
+                    .ToList();
+
+                if (movedTasks.Count > 0)
+                {
+                    var primary  = movedTasks.FirstOrDefault(t =>
+                        string.Equals(t.Id, taskId, StringComparison.Ordinal)) ?? movedTasks[0];
+                    var title    = primary.Title ?? primary.Id;
+                    var oldStage = (currentLevels.TryGetValue(primary.Id, out var os) ? os : 0) + 1;
+                    var newStage = result.StageAssignments![primary.Id] + 1;
+                    var extra    = movedTasks.Count - 1;
+                    var msg      = extra > 0
+                        ? $"This will move '{title}' from Stage {oldStage} to Stage {newStage} " +
+                          $"and reposition {extra} downstream task{(extra == 1 ? "" : "s")}. Continue?"
+                        : $"This will move '{title}' from Stage {oldStage} to Stage {newStage}. Continue?";
+
+                    var confirmed = MessageBox.Show(
+                        this, msg, "Stage Change",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question,
+                        MessageBoxResult.No) == MessageBoxResult.Yes;
+
+                    if (!confirmed)
+                    {
+                        item.IsChecked = capturedCurrentDep;
+                        return;
+                    }
+
+                    // Capture old positions for post-rebuild animation of affected tasks.
+                    var affectedIds = movedTasks.Select(t => t.Id).ToList<string>();
+                    _pendingAnimation = (
+                        new Dictionary<string, Point>(positions, StringComparer.Ordinal),
+                        affectedIds);
+                }
+
+                ApplyStagedMutation(result.RecomputedGroup!);
+            };
+            submenu.Items.Add(item);
+        }
+
+        if (earlier.Length > 0)
+        {
+            AddGroupHeader("Earlier tasks");
+            foreach (var c in earlier) AddCandidateItem(c);
+        }
+        if (later.Length > 0)
+        {
+            if (earlier.Length > 0) submenu.Items.Add(new Separator());
+            AddGroupHeader("Later tasks");
+            foreach (var c in later) AddCandidateItem(c);
+        }
+
+        return submenu.Items.Count > 0 ? submenu : null;
     }
 
     private bool ConfirmDestructivePlanEdit(string message) =>
