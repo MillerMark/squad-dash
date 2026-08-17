@@ -16040,13 +16040,26 @@ public partial class MainWindow : Window
                 Grid.SetColumn(itemText, 1);
                 itemRow.Children.Add(box);
                 itemRow.Children.Add(itemText);
-                var itemMenu = new ContextMenu();
-                itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
-                var clarify = new MenuItem { Header = "Clarify This…" };
-                clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                clarify.Click += (_, _) => QueueClarifyHumanReviewItem(durablePlan!, item);
-                itemMenu.Items.Add(clarify);
-                itemRow.ContextMenu = itemMenu;
+                void AttachClarifyMenu(FrameworkElement target)
+                {
+                    var itemMenu = new ContextMenu();
+                    itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+                    var clarify = new MenuItem { Header = "Clarify This…" };
+                    clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    clarify.Click += (_, _) => QueueClarifyHumanReviewItem(durablePlan!, item);
+                    itemMenu.Items.Add(clarify);
+                    target.ContextMenu = itemMenu;
+                    target.PreviewMouseRightButtonUp += (_, e) =>
+                    {
+                        itemMenu.PlacementTarget = target;
+                        itemMenu.IsOpen = true;
+                        e.Handled = true;
+                    };
+                }
+
+                AttachClarifyMenu(itemRow);
+                AttachClarifyMenu(box);
+                AttachClarifyMenu(itemText);
                 var capturedItem = item;
                 box.Checked += (_, _) =>
                 {

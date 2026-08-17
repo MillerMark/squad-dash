@@ -177,6 +177,35 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_ClarifyMenuIsBoundDirectlyToChecklistClickTargets()
+    {
+        var plan = BuildTestPlan();
+        var gate = plan.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "visual", "human-observation", "Inspect the menu", "Is the menu understandable?")
+            ],
+        };
+        plan = plan with { ApprovalGates = [gate] };
+        PlanHumanReviewChecklistItem? clarified = null;
+
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, gate, 14, _ => { },
+            onClarifyItem: item => clarified = item);
+        var directMenus = EnumerateFrameworkElements(card.ContentStack)
+            .Where(element => element.ContextMenu?.Items.OfType<MenuItem>()
+                .Any(item => Equals(item.Header, "Clarify This…")) == true)
+            .ToArray();
+
+        Assert.That(directMenus, Has.Length.GreaterThanOrEqualTo(3));
+        var clarify = directMenus[0].ContextMenu!.Items.OfType<MenuItem>().Single();
+        clarify.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Assert.That(clarified?.ItemId, Is.EqualTo("visual"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_UsesLowContrastApprovalFieldsAlignedChecklistAndResponsiveCard()
     {
         var application = Application.Current ?? new Application();
@@ -502,6 +531,15 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(link.InternalUri, Is.EqualTo("app://commit-diff:abc1234567890abcdef"));
             Assert.That(link.ShortSha, Is.EqualTo("abc1234"));
         });
+    }
+
+    private static IEnumerable<FrameworkElement> EnumerateFrameworkElements(DependencyObject root)
+    {
+        if (root is FrameworkElement element)
+            yield return element;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+            foreach (var descendant in EnumerateFrameworkElements(child))
+                yield return descendant;
     }
 
     [Test]

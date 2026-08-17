@@ -226,13 +226,26 @@ internal static class TranscriptApprovalCardBuilder
 
                 if (onClarifyItem is not null)
                 {
-                    var itemMenu = new ContextMenu();
-                    itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
-                    var clarify = new MenuItem { Header = "Clarify This…" };
-                    clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                    clarify.Click += (_, _) => onClarifyItem(item);
-                    itemMenu.Items.Add(clarify);
-                    itemRow.ContextMenu = itemMenu;
+                    void AttachClarifyMenu(FrameworkElement target)
+                    {
+                        var itemMenu = new ContextMenu();
+                        itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+                        var clarify = new MenuItem { Header = "Clarify This…" };
+                        clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                        clarify.Click += (_, _) => onClarifyItem(item);
+                        itemMenu.Items.Add(clarify);
+                        target.ContextMenu = itemMenu;
+                        target.PreviewMouseRightButtonUp += (_, e) =>
+                        {
+                            itemMenu.PlacementTarget = target;
+                            itemMenu.IsOpen = true;
+                            e.Handled = true;
+                        };
+                    }
+
+                    AttachClarifyMenu(itemRow);
+                    AttachClarifyMenu(checkBorder);
+                    AttachClarifyMenu(itemBlock);
                 }
 
                 var capturedItem = item;
