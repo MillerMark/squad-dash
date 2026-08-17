@@ -74,6 +74,33 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
         });
     }
 
+    [Test]
+    public void PlainTranscriptText_AutomaticallyStylesCamelAndPascalCaseIdentifiersAsCode()
+    {
+        var blocks = BuildHeadingBlocks(
+            "Work verified. PlanGateManager calls string.IsNullOrWhiteSpace and _saveDefinitionEdit.",
+            gitHubUrl: null);
+        var runs = blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => FlattenInlines(paragraph.Inlines))
+            .OfType<Run>()
+            .ToArray();
+
+        Assert.Multiple(() =>
+        {
+            foreach (var identifier in new[]
+                     {
+                         "PlanGateManager", "string.IsNullOrWhiteSpace", "_saveDefinitionEdit",
+                     })
+            {
+                Assert.That(runs.Single(run => run.Text == identifier).FontFamily.Source,
+                    Does.Contain("Consolas"), identifier);
+            }
+            Assert.That(runs.Any(run => run.Text.Contains("Work verified", StringComparison.Ordinal) &&
+                                        !run.FontFamily.Source.Contains("Consolas", StringComparison.OrdinalIgnoreCase)),
+                Is.True);
+        });
+    }
+
     private static void EnsureApplicationResources() {
         var app = Application.Current ?? new Application();
         app.Resources["FontSizeNormal"] = 14.0;

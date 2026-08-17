@@ -41,6 +41,27 @@ internal sealed class TranscriptQuickReplyFactoryTests
         Assert.That(buttons, Is.EqualTo(new[] { button }));
     }
 
+    [Test]
+    public void CreateContainer_MakesEmbeddedCardResponsiveToTranscriptWidth()
+    {
+        var card = new Border
+        {
+            Width = 400,
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
+        var container = TranscriptQuickReplyFactory.CreateContainer(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(container.Child, Is.SameAs(card));
+            Assert.That(double.IsNaN(card.Width), Is.True);
+            Assert.That(double.IsPositiveInfinity(card.MaxWidth), Is.True);
+            Assert.That(card.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Stretch));
+        });
+    }
+
     [TestCase("warning", QuickReplyTone.Warning)]
     [TestCase(" WARNING ", QuickReplyTone.Warning)]
     [TestCase("destructive", QuickReplyTone.Destructive)]

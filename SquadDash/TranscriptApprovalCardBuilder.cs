@@ -215,11 +215,11 @@ internal static class TranscriptApprovalCardBuilder
                 checkBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
                 AutomationProperties.SetName(checkBorder, item.Text);
 
-                var itemRow = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 0, 0, 4),
-                };
+                var itemRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(checkBorder, 0);
+                Grid.SetColumn(itemBlock, 1);
                 itemRow.Children.Add(checkBorder);
                 itemRow.Children.Add(itemBlock);
 
@@ -265,7 +265,7 @@ internal static class TranscriptApprovalCardBuilder
                 Padding = new Thickness(10, 8, 10, 8),
                 Margin = new Thickness(0, 2, 0, 8),
             };
-            questionBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+            questionBorder.SetResourceReference(Border.BackgroundProperty, "ApprovalFieldSurface");
             questionBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
             var checklistMenu = new ContextMenu();
             checklistMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
@@ -486,7 +486,7 @@ internal static class TranscriptApprovalCardBuilder
             BorderThickness = new Thickness(1),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
-        noteBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
+        noteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         noteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         AutomationProperties.SetName(noteBox, "Approval note");
@@ -633,8 +633,6 @@ internal static class TranscriptApprovalCardBuilder
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(14, 10, 14, 10),
-            MaxWidth = fontSize * 54,
-            HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 4, 0, 4),
             Effect = new DropShadowEffect
             {
@@ -656,11 +654,10 @@ internal static class TranscriptApprovalCardBuilder
 
         var tag = new TranscriptApprovalCardTag(
             snapshot.PlanId, gate.GateId, requestVersion);
-        var container = new BlockUIContainer(border)
-        {
-            Margin = new Thickness(0, 4, 0, 8),
-            Tag = tag,
-        };
+        var container = TranscriptCardLayout.CreateContainer(
+            border,
+            tag,
+            new Thickness(0, 4, 0, 8));
 
         return new CardResult
         {

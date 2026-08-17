@@ -91,11 +91,10 @@ internal static class ProviderFailureTranscriptBlockFactory
         border.SetResourceReference(Border.BackgroundProperty, BackgroundResourceKey);
         border.SetResourceReference(Border.BorderBrushProperty, ForegroundResourceKey);
 
-        return new BlockUIContainer(border)
-        {
-            Margin = new Thickness(0, 5, 0, 10),
-            Tag = new ProviderFailureCopyPayload(failure, normalizedLabel)
-        };
+        return TranscriptCardLayout.CreateContainer(
+            border,
+            new ProviderFailureCopyPayload(failure, normalizedLabel),
+            new Thickness(0, 5, 0, 10));
     }
 
     private static TextBlock CreateTextBlock(string text, FontWeight weight, Thickness margin)

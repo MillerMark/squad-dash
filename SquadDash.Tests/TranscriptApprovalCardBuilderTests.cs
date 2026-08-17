@@ -177,6 +177,36 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_UsesLowContrastApprovalFieldsAlignedChecklistAndResponsiveCard()
+    {
+        var application = Application.Current ?? new Application();
+        var fieldSurface = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromRgb(0xFC, 0xF9, 0xF4));
+        application.Resources["ApprovalFieldSurface"] = fieldSurface;
+        var plan = BuildTestPlan();
+
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        var questionSurface = card.ContentStack.Children.OfType<Border>()
+            .Single(border => border.ContextMenu is not null);
+        var questionStack = (StackPanel)questionSurface.Child;
+        var checklistRow = questionStack.Children.OfType<Grid>().First();
+        var questionText = checklistRow.Children.OfType<TextBlock>().Single();
+        var cardBorder = (Border)card.Container.Child;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(questionSurface.Background, Is.SameAs(fieldSurface));
+            Assert.That(card.NoteTextBox.Background, Is.SameAs(fieldSurface));
+            Assert.That(Grid.GetColumn(questionText), Is.EqualTo(1),
+                "Wrapped checklist text must remain aligned with its first line, not the checkbox.");
+            Assert.That(checklistRow.ColumnDefinitions[1].Width.IsStar, Is.True);
+            Assert.That(cardBorder.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Stretch));
+            Assert.That(double.IsPositiveInfinity(cardBorder.MaxWidth), Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_FullEvidenceLink_OpensTheSelectedStepEvidence()
     {
         var plan = BuildTestPlan();

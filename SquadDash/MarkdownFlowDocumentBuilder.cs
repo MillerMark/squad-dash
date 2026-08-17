@@ -7,6 +7,29 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace SquadDash;
+
+internal static class InlineCodeIdentifierParser
+{
+    internal static readonly System.Text.RegularExpressions.Regex Pattern = new(
+        @"(?<![\p{L}\p{N}_])(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}|(?=[\p{L}\p{N}_.]*[a-z0-9][A-Z])_?[\p{L}][\p{L}\p{N}_]*(?:\.[\p{L}\p{N}_]+)*)(?![\p{L}\p{N}_])",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    internal static bool TryReadAt(string text, int startIndex, out int nextIndex, out string identifier)
+    {
+        nextIndex = startIndex;
+        identifier = string.Empty;
+        if (startIndex < 0 || startIndex >= text.Length)
+            return false;
+        var match = Pattern.Match(text, startIndex);
+        if (!match.Success || match.Index != startIndex)
+            return false;
+        nextIndex = match.Index + match.Length;
+        identifier = match.Value;
+        return true;
+    }
+}
+
 internal static class MarkdownFlowDocumentBuilder {
     private static readonly Brush DefaultForegroundBrush    = new SolidColorBrush(Color.FromRgb(0x32, 0x2A, 0x23));
     private static readonly Brush DefaultQuoteFillBrush     = new SolidColorBrush(Color.FromRgb(0xF6, 0xF1, 0xE8));
@@ -490,10 +513,6 @@ internal static class MarkdownFlowDocumentBuilder {
         @"\*\*(.+?)\*\*|__(.+?)__|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<![\p{L}\p{N}_])_(?![_\s])(.+?)(?<![_\s])_(?![\p{L}\p{N}_])",
         System.Text.RegularExpressions.RegexOptions.Singleline);
 
-    private static readonly System.Text.RegularExpressions.Regex CodeIdentifierRegex = new(
-        @"(?<![\p{L}\p{N}_])(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){2,}|(?=[\p{L}\p{N}_.]*[a-z0-9][A-Z])_?[\p{L}][\p{L}\p{N}_]*(?:\.[\p{L}\p{N}_]+)*)(?![\p{L}\p{N}_])",
-        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
     private static void AddFormattedRuns(
         InlineCollection inlines,
         string text,
@@ -536,7 +555,7 @@ internal static class MarkdownFlowDocumentBuilder {
         }
 
         var position = 0;
-        foreach (System.Text.RegularExpressions.Match match in CodeIdentifierRegex.Matches(text)) {
+        foreach (System.Text.RegularExpressions.Match match in InlineCodeIdentifierParser.Pattern.Matches(text)) {
             if (match.Index > position)
                 inlines.Add(CreateRun(text[position..match.Index], fontWeight, fontStyle));
             inlines.Add(CreateInlineCodeRun(match.Value, fontWeight, fontStyle));

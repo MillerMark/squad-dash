@@ -35,6 +35,36 @@ internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
 internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
 internal sealed record TranscriptProtocolJsonIndicatorTag(string Marker);
 
+/// <summary>
+/// Shared sizing policy for UI cards embedded in a transcript FlowDocument. Stretching the card
+/// lets WPF remeasure it whenever the transcript width changes; no per-card resize subscription is
+/// required and historical cards remain responsive.
+/// </summary>
+internal static class TranscriptCardLayout
+{
+    internal static T MakeResponsive<T>(T card) where T : FrameworkElement
+    {
+        card.Width = double.NaN;
+        card.MaxWidth = double.PositiveInfinity;
+        card.HorizontalAlignment = HorizontalAlignment.Stretch;
+        return card;
+    }
+
+    internal static BlockUIContainer CreateContainer(
+        UIElement child,
+        object? tag = null,
+        Thickness? margin = null)
+    {
+        if (child is FrameworkElement element)
+            MakeResponsive(element);
+        return new BlockUIContainer(child)
+        {
+            Margin = margin ?? new Thickness(0, 2, 0, 10),
+            Tag = tag,
+        };
+    }
+}
+
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
 internal static class TranscriptQuickReplyFactory
 {
@@ -93,11 +123,7 @@ internal static class TranscriptQuickReplyFactory
     };
 
     internal static BlockUIContainer CreateContainer(UIElement child, object? tag = null) =>
-        new(child)
-        {
-            Margin = new Thickness(0, 2, 0, 10),
-            Tag = tag ?? ContainerMarker.Instance,
-        };
+        TranscriptCardLayout.CreateContainer(child, tag ?? ContainerMarker.Instance);
 
     internal static bool IsQuickReplyContainer(BlockUIContainer container) =>
         container.Tag is QuickReplyCopyData or PendingDecomposeApprovalTag or DecomposeRecoveryTag or DecomposeRecoveryCardTag or

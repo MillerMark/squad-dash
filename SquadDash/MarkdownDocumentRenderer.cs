@@ -746,6 +746,20 @@ internal sealed class MarkdownDocumentRenderer {
                 continue;
             }
 
+            // CamelCase/PascalCase and protocol identifiers are code references even when the
+            // model omits backticks. Keep explicit Markdown parsing above this branch so links,
+            // emphasis, and authored code spans retain their intended behavior.
+            if (InlineCodeIdentifierParser.TryReadAt(text, i, out var identifierEnd, out var identifier)) {
+                flush(buffer.ToString());
+                buffer.Clear();
+                var identifierRun = new Run(identifier) { FontFamily = new FontFamily("Consolas") };
+                identifierRun.SetResourceReference(TextElement.BackgroundProperty, "CodeSurface");
+                identifierRun.SetResourceReference(TextElement.ForegroundProperty, "CodeText");
+                inlines.Add(identifierRun);
+                i = identifierEnd;
+                continue;
+            }
+
             // Color hex swatch: #RRGGBB or #RGB
             if (text[i] == '#' && TryReadColorHex(text, i, out var hexEnd, out var swatchColor)) {
                 flush(buffer.ToString()); buffer.Clear();

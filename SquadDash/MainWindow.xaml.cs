@@ -15784,13 +15784,20 @@ public partial class MainWindow : Window
                 itemText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                 var box = new CheckBox
                 {
-                    Content = itemText,
                     IsChecked = item.IsChecked,
-                    Margin = new Thickness(8, 1, 0, 4),
-                    VerticalContentAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(8, 3, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Top,
                     ToolTip = ToolTipHelper.MakeThemedToolTip(
                         "Check this after you personally verify that the statement is true."),
                 };
+                System.Windows.Automation.AutomationProperties.SetName(box, item.Text);
+                var itemRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(box, 0);
+                Grid.SetColumn(itemText, 1);
+                itemRow.Children.Add(box);
+                itemRow.Children.Add(itemText);
                 var capturedItem = item;
                 box.Checked += (_, _) =>
                 {
@@ -15805,7 +15812,7 @@ public partial class MainWindow : Window
                     refreshHumanReviewActions();
                 };
                 boxes.Add(box);
-                checklistStack.Children.Add(box);
+                checklistStack.Children.Add(itemRow);
                 copyParts.Add("☐ " + item.Text);
                 if (item.WasPreviouslyChecked && !item.IsChecked)
                 {
@@ -15832,7 +15839,7 @@ public partial class MainWindow : Window
                 Padding = new Thickness(10, 8, 10, 8),
                 Margin = new Thickness(0, 2, 0, 8),
             };
-            checklistBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+            checklistBorder.SetResourceReference(Border.BackgroundProperty, "ApprovalFieldSurface");
             checklistBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
             var menu = new ContextMenu();
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
@@ -15845,7 +15852,9 @@ public partial class MainWindow : Window
             };
             menu.Items.Add(markAll);
             checklistBorder.ContextMenu = menu;
-            blocks.Add(new BlockUIContainer(checklistBorder));
+            blocks.Add(TranscriptCardLayout.CreateContainer(
+                checklistBorder,
+                margin: new Thickness(0)));
         }
 
         if (humanReview is not null)
