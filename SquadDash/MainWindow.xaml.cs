@@ -38434,6 +38434,15 @@ public partial class MainWindow : Window
                     var trimmedPl = pl.TrimStart();
                     if (trimmedPl.StartsWith("Doing this myself because", StringComparison.OrdinalIgnoreCase))
                         p.SetResourceReference(TextElement.ForegroundProperty, "SelfHandledText");
+                    if (trimmedPl.StartsWith("Plan validation passed", StringComparison.Ordinal))
+                    {
+                        var iconSize = _transcriptFontSize * 0.85;
+                        var icon = (Viewbox)Application.Current.FindResource("TaskSucceeded");
+                        icon.Width = iconSize;
+                        icon.Height = iconSize;
+                        icon.Margin = new Thickness(0, 0, 4, 0);
+                        p.Inlines.Add(new InlineUIContainer(icon) { BaselineAlignment = BaselineAlignment.Center });
+                    }
                     _markdownRenderer.AppendInlineMarkdown(p.Inlines, trimmedPl);
                     yield return p;
                 }
