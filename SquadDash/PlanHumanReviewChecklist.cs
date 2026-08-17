@@ -28,29 +28,68 @@ internal static class PlanHumanReviewChecklist
             var definitions = BuildDefinitions(gate);
             foreach (var definition in definitions)
             {
+                var disposition = gate.HumanReviewDispositions?
+                    .Where(candidateDisposition =>
+                        string.Equals(candidateDisposition.PlanRevision, plan.Revision, StringComparison.Ordinal) &&
+                        candidateDisposition.TargetItemIds.Contains(definition.ItemId, StringComparer.Ordinal))
+                    .OrderByDescending(candidateDisposition => candidateDisposition.RecordedAt)
+                    .FirstOrDefault();
+                if (disposition?.Action is PlanHumanReviewClarificationAction.Remove or
+                    PlanHumanReviewClarificationAction.Automate)
+                    continue;
+
+                if (disposition?.Action == PlanHumanReviewClarificationAction.Merge &&
+                    !string.Equals(disposition.ItemId, definition.ItemId, StringComparison.Ordinal))
+                    continue;
+
+                var presentedDefinitions = disposition?.Action switch
+                {
+                    PlanHumanReviewClarificationAction.Reword or
+                    PlanHumanReviewClarificationAction.Merge when
+                        !string.IsNullOrWhiteSpace(disposition.ReplacementText) =>
+                        [(definition.ItemId, disposition.ReplacementText!)],
+                    PlanHumanReviewClarificationAction.Split when
+                        disposition.ReplacementItems is { Count: > 0 } replacements =>
+                        replacements.Select((text, index) =>
+                            ($"{definition.ItemId}::clarified#{index + 1}", text)).ToArray(),
+                    _ => [(definition.ItemId, definition.Text)],
+                };
+                foreach (var presented in presentedDefinitions)
+                    AddChecklistItem(result, gate, definition.RequirementId,
+                        presented.Item1, presented.Item2, candidate);
+            }
+        }
+        return result;
+    }
+
+    private static void AddChecklistItem(
+        List<PlanHumanReviewChecklistItem> result,
+        PlanApprovalGate gate,
+        string requirementId,
+        string itemId,
+        string text,
+        string candidate)
+    {
                 var current = gate.HumanReviewSelections?
                     .LastOrDefault(selection =>
-                        string.Equals(selection.ItemId, definition.ItemId, StringComparison.Ordinal) &&
+                        string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
                         string.Equals(selection.CandidateCommit, candidate, StringComparison.OrdinalIgnoreCase));
                 var previous = gate.HumanReviewSelections?
                     .Where(selection =>
                         selection.IsChecked &&
-                        string.Equals(selection.ItemId, definition.ItemId, StringComparison.Ordinal) &&
+                        string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
                         !string.Equals(selection.CandidateCommit, candidate, StringComparison.OrdinalIgnoreCase))
                     .OrderByDescending(selection => selection.UpdatedAt)
                     .FirstOrDefault();
                 result.Add(new PlanHumanReviewChecklistItem(
                     gate.GateId,
-                    definition.ItemId,
-                    definition.RequirementId,
-                    definition.Text,
+                    itemId,
+                    requirementId,
+                    text,
                     candidate,
                     current?.IsChecked == true,
                     previous is not null,
                     previous?.CandidateCommit));
-            }
-        }
-        return result;
     }
 
     internal static string ResolveCandidateCommit(Plan plan, PlanApprovalGate gate)

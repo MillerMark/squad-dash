@@ -99,6 +99,7 @@ internal static class TranscriptApprovalCardBuilder
         Action<ReviewTaskEntry>? onOpenEvidence = null,
         Action<PlanHumanReviewChecklistItem, bool>? onChecklistChanged = null,
         Action<IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
+        Action<PlanHumanReviewChecklistItem>? onClarifyItem = null,
         bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
@@ -222,6 +223,17 @@ internal static class TranscriptApprovalCardBuilder
                 Grid.SetColumn(itemBlock, 1);
                 itemRow.Children.Add(checkBorder);
                 itemRow.Children.Add(itemBlock);
+
+                if (onClarifyItem is not null)
+                {
+                    var itemMenu = new ContextMenu();
+                    itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+                    var clarify = new MenuItem { Header = "Clarify This…" };
+                    clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    clarify.Click += (_, _) => onClarifyItem(item);
+                    itemMenu.Items.Add(clarify);
+                    itemRow.ContextMenu = itemMenu;
+                }
 
                 var capturedItem = item;
                 Action<bool> setChecked = (value) =>

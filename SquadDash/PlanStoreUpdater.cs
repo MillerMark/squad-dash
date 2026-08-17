@@ -1671,6 +1671,88 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Applies a host-validated clarification disposition without resolving the gate. The approved
+    /// task graph remains unchanged; review-only wording is overlaid from durable disposition history.
+    /// </summary>
+    internal static Plan ApplyHumanReviewClarification(
+        Plan existing,
+        PlanHumanReviewClarificationResponse response,
+        PlanHumanReviewChecklistItem item,
+        string recordedBy,
+        DateTimeOffset? recordedAt = null)
+    {
+        var gate = existing.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, response.GateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
+            return existing;
+
+        var now = recordedAt ?? DateTimeOffset.UtcNow;
+        var targetItemIds = (response.TargetItemIds is { Count: > 0 }
+                ? response.TargetItemIds
+                : [response.ItemId])
+            .Append(response.ItemId)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        string? automatedValidationId = null;
+        if (response.Action == PlanHumanReviewClarificationAction.Automate)
+        {
+            var validation = (existing.Validations ?? []).FirstOrDefault(candidate =>
+                string.Equals(candidate.ValidationId, response.ExistingValidationId, StringComparison.Ordinal));
+            if (validation is null ||
+                !validation.AfterTaskIds.ToHashSet(StringComparer.Ordinal).SetEquals(gate.AfterTaskIds) ||
+                !validation.BeforeTaskIds.ToHashSet(StringComparer.Ordinal).SetEquals(gate.BeforeTaskIds))
+                return existing;
+            automatedValidationId = validation.ValidationId;
+        }
+
+        var disposition = new PlanHumanReviewRequirementDisposition(
+            item.ItemId,
+            targetItemIds,
+            item.Text,
+            response.Action,
+            response.Reason,
+            now,
+            recordedBy,
+            existing.Revision,
+            item.CandidateCommit,
+            response.ReplacementText,
+            response.ReplacementItems,
+            automatedValidationId);
+        var selections = gate.HumanReviewSelections?.ToList() ?? [];
+        if (!response.PreserveCheckedSelections)
+        {
+            foreach (var targetId in targetItemIds)
+            {
+                selections.RemoveAll(selection =>
+                    string.Equals(selection.ItemId, targetId, StringComparison.Ordinal) &&
+                    string.Equals(selection.CandidateCommit, item.CandidateCommit,
+                        StringComparison.OrdinalIgnoreCase));
+                selections.Add(new PlanHumanReviewSelection(
+                    targetId, false, item.CandidateCommit, now));
+            }
+        }
+
+        var updatedGate = gate with
+        {
+            HumanReviewSelections = selections,
+            HumanReviewDispositions = (gate.HumanReviewDispositions ?? [])
+                .Append(disposition)
+                .ToArray(),
+        };
+        return existing with
+        {
+            ApprovalGates = existing.ApprovalGates
+                .Select(candidate => string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal)
+                    ? updatedGate
+                    : candidate)
+                .ToArray(),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+    }
+
+    /// <summary>
     /// Repairs builds that allowed a generic AI recovery assessment to mark work complete despite
     /// an unresolved independent-verification verdict. Human acceptance remains authoritative; this
     /// repair is limited to completion summaries explicitly produced by AI recovery assessment.

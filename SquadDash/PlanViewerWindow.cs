@@ -3325,10 +3325,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     /// <summary>
-    /// Builds an "Approval Blocks" submenu for a pending gate's right-click context menu.
-    /// Lists all transitive successors of the gate's AfterTaskIds as checkable items; checked
-    /// items are the gate's current BeforeTaskIds. Toggling an item adds or removes that task
-    /// from BeforeTaskIds via <see cref="PlanGateManager.ApplyGateConsolidation"/>.
+    /// Builds a "This approval blocks" submenu for a pending gate's right-click context menu.
+    /// Lists the useful blocking frontier after the gate; descendants of an already-blocked
+    /// task are omitted because they are held transitively. Existing checked descendants remain
+    /// available so a redundant direct block can be removed.
     /// Returns null when there are no compatible candidate tasks or no edit context.
     /// </summary>
     private MenuItem? CreateApprovalBlocksSubmenu(string gateId, DecomposedTaskGroup group)
@@ -3338,27 +3338,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             string.Equals(g.GateId, gateId, StringComparison.Ordinal));
         if (gate is null) return null;
 
-        // Compute all tasks that transitively depend on (i.e. come after) AfterTaskIds.
-        var afterSet = (gate.AfterTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
-        var reachable = new HashSet<string>(afterSet, StringComparer.Ordinal);
-        var changed = true;
-        while (changed)
-        {
-            changed = false;
-            foreach (var task in group.Tasks)
-            {
-                if (!reachable.Contains(task.Id) &&
-                    task.DependsOn.Any(dep => reachable.Contains(dep)))
-                {
-                    reachable.Add(task.Id);
-                    changed = true;
-                }
-            }
-        }
-
-        // Candidates: reachable but not in AfterTaskIds themselves.
-        var candidates = group.Tasks
-            .Where(t => reachable.Contains(t.Id) && !afterSet.Contains(t.Id))
+        var candidates = PlanGateManager.GetApprovalBlockingCandidates(group, gate)
             .OrderBy(t => t.Title ?? t.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -3370,7 +3350,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var capturedMessage = gate.Message;
         var capturedQuestion = gate.Question ?? string.Empty;
 
-        var submenu = new MenuItem { Header = "Approval Blocks" };
+        var submenu = new MenuItem { Header = "This approval blocks" };
         foreach (var candidate in candidates)
         {
             var capturedCandidate = candidate;
@@ -5997,11 +5977,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(msgPara);
         }
 
-        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
-        if (!string.IsNullOrWhiteSpace(approvalQuestion))
+        var approvalQuestions = ResolvePresentedHumanReviewQuestions(gate);
+        if (approvalQuestions.Count > 0)
         {
             AddSectionHeader("Verify the Following:");
-            var questionPara = new Paragraph(new Run(approvalQuestion)
+            var questionPara = new Paragraph(new Run("• " + string.Join("\n• ", approvalQuestions))
             {
                 FontWeight = FontWeights.SemiBold,
             });
@@ -6373,12 +6353,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             message.Margin = new Thickness(0, 0, 0, 4);
             _detailDocument.Blocks.Add(message);
 
-            var question = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
-            if (!string.IsNullOrWhiteSpace(question))
+            var questions = ResolvePresentedHumanReviewQuestions(gate);
+            if (questions.Count > 0)
             {
                 var questionParagraph = new Paragraph();
                 questionParagraph.Inlines.Add(new Run("Verify the Following: ") { FontWeight = FontWeights.SemiBold });
-                questionParagraph.Inlines.Add(new Run(question));
+                questionParagraph.Inlines.Add(new Run(string.Join("  • ", questions)));
                 questionParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 questionParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 questionParagraph.Margin = new Thickness(0, 0, 0, 4);
@@ -6393,6 +6373,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             AppendApprovalContractEditor(gate);
         }
+    }
+
+    private IReadOnlyList<string> ResolvePresentedHumanReviewQuestions(PlanApprovalGate gate)
+    {
+        if (_durablePlan is not null && gate.HumanReviewDispositions is { Count: > 0 })
+            return PlanHumanReviewChecklist.Build(_durablePlan, [gate])
+                .Select(item => item.Text)
+                .ToArray();
+
+        var question = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        return string.IsNullOrWhiteSpace(question) ? [] : [question];
     }
 
     private void AppendApprovalContractEditor(PlanApprovalGate gate)

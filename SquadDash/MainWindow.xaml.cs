@@ -373,6 +373,7 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
     private bool _planReviewActivityRepairPending;
+    private bool _humanReviewClarificationRepairPending;
 
     // ── Static simulation runtime ──────────────────────────────────────────────
     private SimulationSessionManager? _simulationSessionManager;
@@ -5654,8 +5655,11 @@ public partial class MainWindow : Window
                             TryApplyPlanRecoveryAssessmentFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
                             _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
-                            var hasReviewActivity = TryHandlePlanReviewActivityFromResponse(rawResponse);
-                            if (!hasReviewActivity)
+                            var hasReviewClarification =
+                                TryHandleHumanReviewClarificationFromResponse(rawResponse);
+                            var hasReviewActivity = !hasReviewClarification &&
+                                TryHandlePlanReviewActivityFromResponse(rawResponse);
+                            if (!hasReviewClarification && !hasReviewActivity)
                             {
                                 _ = TryHandleGateResponseFromResponseAsync(rawResponse);
                                 TryHandleGateApprovalFromResponse(rawResponse);
@@ -10369,6 +10373,59 @@ public partial class MainWindow : Window
             attachments);
     }
 
+    private void QueueClarifyHumanReviewItem(Plan plan, PlanHumanReviewChecklistItem item)
+    {
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        var gate = current.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
+        {
+            UIErrorHelper.ShowWarning(
+                "Clarify Human Review",
+                "This review checkpoint changed before the clarification prompt could be created.");
+            return;
+        }
+
+        var reviewedTask = gate.AfterTaskIds
+            .Select(taskId => current.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+            .FirstOrDefault(task => task is not null);
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            reviewedTask?.DisplayStepLabel,
+            reviewedTask?.Title ?? gate.Message);
+        var protocol = PlanHumanReviewClarificationResponseParser.BuildProtocolContext(
+            current, gate, item, stepLabel);
+        var attachments = new List<FollowUpAttachment>
+        {
+            new(
+                CommitSha: string.Empty,
+                Description: $"Plan: {current.Title}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock("plan", current.Title, BuildPlanContentBody(current)),
+                FileReferencePath: $".squad/plans/{current.PlanId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan anchors the clarification to the exact durable review boundary. Remove it anyway?"),
+            new(
+                CommitSha: string.Empty,
+                Description: "Required human-review clarification context",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock(
+                    "plan-human-review-clarification",
+                    "Required human-review clarification context",
+                    protocol),
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This attachment identifies the exact checklist item and response contract. Remove it anyway?"),
+        };
+        QueueEditablePlanPrompt(
+            $"Clarify this human-review requirement:\r\n\r\n“{item.Text}”\r\n\r\n" +
+            "My question or concern:\r\n\r\n" +
+            "[Describe what is unclear, unobservable, redundant, or unsuitable for human review]\r\n",
+            "[Describe what is unclear, unobservable, redundant, or unsuitable for human review]",
+            "Clarify human review",
+            "plan-human-review-clarification-draft",
+            attachments);
+    }
+
     private async Task<bool> RetryDecomposeTaskAsync(
         PendingDecomposePlan plan,
         string taskId,
@@ -13753,6 +13810,7 @@ public partial class MainWindow : Window
             onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
                 var reviewedTaskId = activeGates
@@ -14710,6 +14768,190 @@ public partial class MainWindow : Window
             return await ApplyGateAmendmentResponseAsync(plan, gate, currentToken, response);
 
         return await ApplyGateReworkResponseAsync(plan, gate, currentToken, response);
+    }
+
+    private bool TryHandleHumanReviewClarificationFromResponse(string? rawResponse)
+    {
+        if (rawResponse?.Contains(
+                PlanHumanReviewClarificationResponseParser.Marker,
+                StringComparison.Ordinal) != true)
+            return false;
+
+        if (!PlanHumanReviewClarificationResponseParser.TryParse(
+                rawResponse, out var response, out var parseError) || response is null)
+        {
+            if (!_humanReviewClarificationRepairPending)
+            {
+                _humanReviewClarificationRepairPending = true;
+                _promptQueue.EnqueueAtFront(
+                    "Your previous clarification recommendation did not match the required " +
+                    $"{PlanHumanReviewClarificationResponseParser.Marker} schema. " +
+                    "Do not repeat analysis, change files, approve anything, or continue the plan. " +
+                    "Return only one corrected complete payload using the exact planId, revision, gateId, " +
+                    "and itemId from the preceding clarification context. Null collections may be returned " +
+                    "as empty arrays. Technical detail: " + parseError,
+                    _promptQueueCoordinator.NextSequenceNumber(),
+                    sourceTag: "plan-human-review-clarification-repair",
+                    isSystemInjected: true);
+                SyncQueuePanel();
+                SyncSendButton();
+                ShowSystemTranscriptEntry(
+                    "SquadDash could not read the clarification recommendation. It requested one metadata-only repair; the plan remains paused.");
+            }
+            else
+            {
+                _humanReviewClarificationRepairPending = false;
+                ShowSystemTranscriptEntry(
+                    "SquadDash could not read the clarification recommendation after one repair. Nothing changed.");
+            }
+            return true;
+        }
+
+        _humanReviewClarificationRepairPending = false;
+        var hasVisibleAnswer = !string.IsNullOrWhiteSpace(
+            TranscriptTextUtilities.SanitizeResponseTextOrNull(rawResponse));
+        _ = ApplyHumanReviewClarificationResponseAsync(response, hasVisibleAnswer);
+        return true;
+    }
+
+    private async Task ApplyHumanReviewClarificationResponseAsync(
+        PlanHumanReviewClarificationResponse response,
+        bool hasVisibleAnswer)
+    {
+        if (_planStore is null) return;
+        var plan = _planStore.Load(response.PlanId);
+        var gate = plan?.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, response.GateId, StringComparison.Ordinal));
+        if (plan is null || gate is null ||
+            !string.Equals(plan.Revision, response.Revision, StringComparison.Ordinal) ||
+            gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
+        {
+            ShowSystemTranscriptEntry(
+                "The human-review checkpoint changed before clarification completed. Nothing changed.");
+            return;
+        }
+
+        var checklist = PlanHumanReviewChecklist.Build(plan, [gate]);
+        var item = checklist.FirstOrDefault(candidate =>
+            string.Equals(candidate.ItemId, response.ItemId, StringComparison.Ordinal));
+        if (item is null)
+        {
+            ShowSystemTranscriptEntry(
+                "The human-review requirement changed before clarification completed. Nothing changed.");
+            return;
+        }
+
+        if (!hasVisibleAnswer)
+            ShowSystemTranscriptEntry(response.UserFacingAnswer);
+        if (!PlanHumanReviewClarificationAction.ChangesReviewContract(response.Action))
+            return;
+
+        if (response.Action == PlanHumanReviewClarificationAction.Automate)
+        {
+            var validation = (plan.Validations ?? []).FirstOrDefault(candidate =>
+                string.Equals(candidate.ValidationId, response.ExistingValidationId, StringComparison.Ordinal));
+            if (validation is null ||
+                !validation.AfterTaskIds.ToHashSet(StringComparer.Ordinal).SetEquals(gate.AfterTaskIds) ||
+                !validation.BeforeTaskIds.ToHashSet(StringComparer.Ordinal).SetEquals(gate.BeforeTaskIds))
+            {
+                ShowSystemTranscriptEntry(
+                    "The recommendation requires a new or differently placed automated validation. " +
+                    "That change must use the plan-revision workflow, so this review card was not changed.");
+                return;
+            }
+        }
+
+        var confirmation = BuildHumanReviewClarificationConfirmation(response, item);
+        if (MessageBox.Show(
+                this,
+                confirmation,
+                "Update Human Review",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No) != MessageBoxResult.Yes)
+        {
+            ShowSystemTranscriptEntry("The clarification was answered, but its proposed review change was not applied.");
+            return;
+        }
+
+        var recordedBy = _currentWorkspace is null
+            ? Environment.UserName
+            : await HumanApprovalIdentityResolver.ResolveAsync(_currentWorkspace.FolderPath);
+        var updated = PlanStoreUpdater.ApplyHumanReviewClarification(
+            plan, response, item, recordedBy);
+        if (ReferenceEquals(updated, plan))
+        {
+            ShowSystemTranscriptEntry(
+                "SquadDash could not apply the human-review clarification because the checkpoint changed. Nothing changed.");
+            return;
+        }
+        if (!TryPublishPlanProgress(updated, out var saveError))
+        {
+            ShowSystemTranscriptEntry(
+                "SquadDash could not save the human-review clarification. Nothing changed. " +
+                (saveError ?? string.Empty));
+            return;
+        }
+
+        await RefreshApprovalRequestAfterGateGuidanceEditAsync(updated);
+        RefreshHumanReviewSurfaces(updated);
+        ShowSystemTranscriptEntry(BuildHumanReviewClarificationAppliedMessage(response));
+    }
+
+    private static string BuildHumanReviewClarificationConfirmation(
+        PlanHumanReviewClarificationResponse response,
+        PlanHumanReviewChecklistItem item)
+    {
+        var proposed = response.Action switch
+        {
+            PlanHumanReviewClarificationAction.Reword =>
+                $"Replace it with:\n\n{response.ReplacementText}",
+            PlanHumanReviewClarificationAction.Remove =>
+                "Remove it from human review.",
+            PlanHumanReviewClarificationAction.Automate =>
+                $"Assign it to existing automated validation “{response.ExistingValidationId}”.",
+            PlanHumanReviewClarificationAction.Split =>
+                "Replace it with:\n\n" + string.Join("\n", response.ReplacementItems!.Select(value => "• " + value)),
+            PlanHumanReviewClarificationAction.Merge =>
+                $"Merge the selected requirements into:\n\n{response.ReplacementText}",
+            _ => response.Action,
+        };
+        return $"Current requirement:\n\n{item.Text}\n\nProposed change:\n\n{proposed}\n\nReason:\n\n{response.Reason}\n\nApply this change?";
+    }
+
+    private static string BuildHumanReviewClarificationAppliedMessage(
+        PlanHumanReviewClarificationResponse response) => response.Action switch
+    {
+        PlanHumanReviewClarificationAction.Reword => "The human-review requirement was reworded.",
+        PlanHumanReviewClarificationAction.Remove => "The human-review requirement was removed and the reason was recorded.",
+        PlanHumanReviewClarificationAction.Automate => "The human-review requirement was replaced with an automated validation.",
+        PlanHumanReviewClarificationAction.Split => "The human-review requirement was split into focused checks.",
+        PlanHumanReviewClarificationAction.Merge => "The human-review requirements were consolidated.",
+        _ => "The human-review clarification was recorded.",
+    };
+
+    private void RefreshHumanReviewSurfaces(Plan plan)
+    {
+        if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+            _planApprovalRuntime is not null)
+        {
+            SuppressCheckpointApprovalCardsForPendingRevision(plan.PlanId);
+            var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                candidate.Status == PlanGateStatus.AwaitingApproval);
+            var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+            if (gate is not null && token is not null)
+                AppendGateApprovalActions(
+                    plan, gate, BuildLightweightApprovalSnapshot(plan, gate), token);
+            return;
+        }
+
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+            plan.InterruptionData?.InterruptedTaskId is { } taskId)
+        {
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
+                CoordinatorThread.Document.Blocks, plan.PlanId);
+            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
+        }
     }
 
     private bool TryHandlePlanReviewActivityFromResponse(string? rawResponse)
@@ -15798,6 +16040,13 @@ public partial class MainWindow : Window
                 Grid.SetColumn(itemText, 1);
                 itemRow.Children.Add(box);
                 itemRow.Children.Add(itemText);
+                var itemMenu = new ContextMenu();
+                itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+                var clarify = new MenuItem { Header = "Clarify This…" };
+                clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                clarify.Click += (_, _) => QueueClarifyHumanReviewItem(durablePlan!, item);
+                itemMenu.Items.Add(clarify);
+                itemRow.ContextMenu = itemMenu;
                 var capturedItem = item;
                 box.Checked += (_, _) =>
                 {

@@ -581,9 +581,21 @@ internal sealed class DurableApprovalRequestManager
                 parts.Add(string.IsNullOrWhiteSpace(stepLabel)
                     ? $"- {reason}"
                     : $"- **Step {stepLabel}:** {reason}");
-                var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
-                if (!string.IsNullOrWhiteSpace(question))
-                    parts.Add($"  - **Verify the Following:** {question}");
+                if (gate is not null)
+                {
+                    if (gate.HumanReviewDispositions is { Count: > 0 })
+                    {
+                        var reviewItems = PlanHumanReviewChecklist.Build(plan, [gate]);
+                        if (reviewItems.Count > 0)
+                        {
+                            parts.Add("  - **Verify the Following:**");
+                            foreach (var item in reviewItems)
+                                parts.Add($"    - {(item.IsChecked ? "☑" : "☐")} {item.Text}");
+                        }
+                    }
+                    else if (PlanProofCapabilityPolicy.ResolveHumanQuestion(gate) is { Length: > 0 } question)
+                        parts.Add($"  - **Verify the Following:** {question}");
+                }
             }
 
             AppendReviewEvidence(parts, plan, activeGateIds, snapshot);

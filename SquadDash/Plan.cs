@@ -150,6 +150,27 @@ internal sealed record PlanHumanReviewSelection(
     [property: JsonPropertyName("candidateCommit")] string CandidateCommit,
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt);
 
+/// <summary>Auditable disposition of a human-review requirement clarification.</summary>
+internal sealed record PlanHumanReviewRequirementDisposition(
+    [property: JsonPropertyName("itemId")] string ItemId,
+    [property: JsonPropertyName("targetItemIds")] IReadOnlyList<string> TargetItemIds,
+    [property: JsonPropertyName("originalText")] string OriginalText,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("recordedAt")] DateTimeOffset RecordedAt,
+    [property: JsonPropertyName("recordedBy")] string RecordedBy,
+    [property: JsonPropertyName("planRevision")] string PlanRevision,
+    [property: JsonPropertyName("candidateCommit")] string CandidateCommit,
+    [property: JsonPropertyName("replacementText")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ReplacementText = null,
+    [property: JsonPropertyName("replacementItems")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? ReplacementItems = null,
+    [property: JsonPropertyName("automatedValidationId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? AutomatedValidationId = null);
+
 /// <summary>
 /// Work deliberately left to a named downstream task. A worker may not use this as a general
 /// escape hatch: independent verification confirms that every owner is downstream and that its
@@ -324,7 +345,10 @@ internal sealed record PlanApprovalGate(
                                                   string? Question = null,
     [property: JsonPropertyName("humanReviewSelections")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  IReadOnlyList<PlanHumanReviewSelection>? HumanReviewSelections = null);
+                                                  IReadOnlyList<PlanHumanReviewSelection>? HumanReviewSelections = null,
+    [property: JsonPropertyName("humanReviewDispositions")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  IReadOnlyList<PlanHumanReviewRequirementDisposition>? HumanReviewDispositions = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan

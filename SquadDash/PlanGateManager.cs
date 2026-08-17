@@ -10,6 +10,50 @@ namespace SquadDash;
 internal static class PlanGateManager
 {
     /// <summary>
+    /// Returns the useful choices for an approval gate's blocking frontier.
+    /// Descendants of an already-blocked task are omitted because the gate already
+    /// holds them transitively. Existing redundant selections remain visible so a
+    /// user can remove them.
+    /// </summary>
+    internal static IReadOnlyList<DecomposedSubTask> GetApprovalBlockingCandidates(
+        DecomposedTaskGroup group,
+        DecomposedGate gate)
+    {
+        var afterSet = (gate.AfterTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
+        var reachableFromGate = ExpandSuccessors(group.Tasks, afterSet);
+        var beforeSet = (gate.BeforeTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
+        var transitivelyBlocked = ExpandSuccessors(group.Tasks, beforeSet);
+
+        return group.Tasks
+            .Where(task => reachableFromGate.Contains(task.Id) &&
+                           !afterSet.Contains(task.Id) &&
+                           (beforeSet.Contains(task.Id) || !transitivelyBlocked.Contains(task.Id)))
+            .ToArray();
+    }
+
+    private static HashSet<string> ExpandSuccessors(
+        IReadOnlyList<DecomposedSubTask> tasks,
+        IEnumerable<string> roots)
+    {
+        var reachable = roots.ToHashSet(StringComparer.Ordinal);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var task in tasks)
+            {
+                if (!reachable.Contains(task.Id) && task.DependsOn.Any(reachable.Contains))
+                {
+                    reachable.Add(task.Id);
+                    changed = true;
+                }
+            }
+        }
+
+        return reachable;
+    }
+
+    /// <summary>
     /// Only a pending gate is still a plan-design choice. Once execution has requested,
     /// approved, or skipped a gate, its boundary and presentation anchor are durable history.
     /// </summary>

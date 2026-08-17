@@ -800,4 +800,45 @@ internal sealed class PlanGateManagerTests
 
         Assert.That(result.ApprovalGates!.Single().BeforeTaskIds, Has.Count.EqualTo(2));
     }
+
+    [Test]
+    public void GetApprovalBlockingCandidates_OmitsUncheckedDescendantsOfBlockedTasks()
+    {
+        var tasks = new[]
+        {
+            new DecomposedSubTask("T001", "Task 1", [], "mid"),
+            new DecomposedSubTask("T010", "Task 10", ["T001"], "mid"),
+            new DecomposedSubTask("T011", "Task 11", ["T010"], "mid"),
+            new DecomposedSubTask("T012", "Task 12", ["T001"], "mid"),
+        };
+        var gate = new DecomposedGate(
+            GateId: "GATE-001", Message: "Review", AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T010"], Question: "Ready?");
+        var group = new DecomposedTaskGroup(
+            "GROUP", "Group", "feature/test", "Summary", tasks, ApprovalGates: [gate]);
+
+        var candidates = PlanGateManager.GetApprovalBlockingCandidates(group, gate);
+
+        Assert.That(candidates.Select(task => task.Id), Is.EqualTo(new[] { "T010", "T012" }));
+    }
+
+    [Test]
+    public void GetApprovalBlockingCandidates_KeepsRedundantCheckedDescendantRemovable()
+    {
+        var tasks = new[]
+        {
+            new DecomposedSubTask("T001", "Task 1", [], "mid"),
+            new DecomposedSubTask("T010", "Task 10", ["T001"], "mid"),
+            new DecomposedSubTask("T011", "Task 11", ["T010"], "mid"),
+        };
+        var gate = new DecomposedGate(
+            GateId: "GATE-001", Message: "Review", AfterTaskIds: ["T001"],
+            BeforeTaskIds: ["T010", "T011"], Question: "Ready?");
+        var group = new DecomposedTaskGroup(
+            "GROUP", "Group", "feature/test", "Summary", tasks, ApprovalGates: [gate]);
+
+        var candidates = PlanGateManager.GetApprovalBlockingCandidates(group, gate);
+
+        Assert.That(candidates.Select(task => task.Id), Is.EqualTo(new[] { "T010", "T011" }));
+    }
 }

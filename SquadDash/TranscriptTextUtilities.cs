@@ -28,6 +28,7 @@ internal static class TranscriptTextUtilities
         PlanValidationResultParser.Marker,
         PlanTaskVerificationResultParser.Marker,
         PlanTaskVerificationResultParser.LegacyMarker,
+        PlanHumanReviewClarificationResponseParser.Marker,
     ];
 
     private static readonly Regex WhitespaceNormRegex = new(
