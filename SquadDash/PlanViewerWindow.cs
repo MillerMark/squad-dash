@@ -177,7 +177,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
 
-        Title     = $"Plan — {plan.Group.GroupTitle}";
+        Title     = $"Plan — {durablePlan?.DisplayName ?? plan.Group.GroupTitle}";
         Width     = 1200;
         Height    = 720;
         MinWidth  = 760;
@@ -284,7 +284,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (!CanEditSelectedElement())
             _isInspectorEditing = false;
         RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForPlanProgress);
-        Title = $"Plan — {updatedDefinition.Group.GroupTitle}";
+        Title = $"Plan — {updatedPlan.DisplayName}";
         if (_deferredDefinitionEdit is not null &&
             updatedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
         {
@@ -3205,7 +3205,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         _editHistory?.ReplaceCurrent(plan.Group);
         RebuildPreservingScroll(plan, durablePlan);
-        Title = $"Plan — {plan.Group.GroupTitle}";
+        Title = $"Plan — {durablePlan.DisplayName}";
     }
 
     private bool ApplyStagedMutation(
@@ -3265,7 +3265,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
 
             RebuildPreservingScroll(saved, _durablePlan);
-            Title = $"Plan — {saved.Group.GroupTitle}";
+            Title = $"Plan — {_durablePlan?.DisplayName ?? saved.Group.GroupTitle}";
             return true;
         }
         catch (PlanEditPauseRequiredException exception)

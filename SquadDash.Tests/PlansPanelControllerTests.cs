@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -234,6 +235,76 @@ internal sealed class PlansPanelControllerTests
             reviseItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
 
             Assert.That(revised, Is.SameAs(plan));
+        });
+
+    [Test]
+    public void ContextMenu_Rename_PreservesEditorAcrossLiveUpdateAndShowsSavedAlias() =>
+        WpfTestContext.Run(() =>
+        {
+            var active = new StackPanel();
+            var plan = MakePlan(title: "Original") with
+            {
+                Tasks = [new PlanTask("t1", "Task 1", "Work", [], "normal", PlanTaskStatus.Executing)],
+                Progress = new PlanProgress(0, 1, "t1"),
+                LifecycleStatus = PlanLifecycleStatus.Executing,
+            };
+            var latest = plan with { Progress = new PlanProgress(1, 1, null) };
+            var controller = new PlansPanelController(
+                active, new StackPanel(), new Border(), new StackPanel(), new Border(), _ => { },
+                renamePlan: (_, title) => latest with { DisplayTitle = title });
+            controller.Refresh([plan]);
+
+            var row = active.Children.OfType<Border>().Single();
+            var renameItem = row.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Rename"));
+            renameItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            var editor = ((Grid)((StackPanel)row.Child).Children[0]).Children.OfType<TextBox>().Single();
+            editor.Text = "Renamed while running";
+
+            controller.OnPlanChanged(latest);
+            Assert.That(((Grid)((StackPanel)row.Child).Children[0]).Children.OfType<TextBox>().Single(),
+                Is.SameAs(editor), "A live progress refresh must not tear down the active editor.");
+
+            editor.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+
+            var rebuiltRow = active.Children.OfType<Border>().Single();
+            var rebuiltStack = (StackPanel)rebuiltRow.Child;
+            var title = ((Grid)rebuiltStack.Children[0]).Children.OfType<TextBlock>()
+                .Single(block => block.Text == "Renamed while running");
+            var progress = rebuiltStack.Children.OfType<StackPanel>()
+                .Single(panel => panel.Children.OfType<ProgressBar>().Any())
+                .Children.OfType<TextBlock>().Single();
+            Assert.Multiple(() =>
+            {
+                Assert.That(title.Text, Is.EqualTo("Renamed while running"));
+                Assert.That(progress.Text, Is.EqualTo("1/1 complete"));
+            });
+        });
+
+    [Test]
+    public void ContextMenu_Rename_SaveFailureKeepsEnteredTextAvailable() =>
+        WpfTestContext.Run(() =>
+        {
+            var active = new StackPanel();
+            var controller = new PlansPanelController(
+                active, new StackPanel(), new Border(), new StackPanel(), new Border(), _ => { },
+                renamePlan: (_, _) => throw new IOException("locked"));
+            controller.Refresh([MakePlan(title: "Original")]);
+
+            var row = active.Children.OfType<Border>().Single();
+            row.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Rename"))
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            var editor = ((Grid)((StackPanel)row.Child).Children[0]).Children.OfType<TextBox>().Single();
+            editor.Text = "Do not lose this";
+            editor.RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(editor.Text, Is.EqualTo("Do not lose this"));
+                Assert.That(editor.Parent, Is.Not.Null);
+                Assert.That(editor.ToolTip, Is.Not.Null);
+            });
         });
 
     // ── Different plans create separate rows ──────────────────────────────────

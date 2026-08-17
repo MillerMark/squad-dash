@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,8 +15,11 @@ internal sealed class PlanStore
 {
     private const string PlansSubfolder = "plans";
 
+    private static readonly ConcurrentDictionary<string, object> StoreLocks =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly string _plansFolder;
-    private readonly object _sync = new();
+    private readonly object _sync;
 
     private static readonly JsonSerializerOptions ReadOptions = new()
     {
@@ -30,7 +34,8 @@ internal sealed class PlanStore
 
     internal PlanStore(string squadFolderPath)
     {
-        _plansFolder = Path.Combine(squadFolderPath, PlansSubfolder);
+        _plansFolder = Path.GetFullPath(Path.Combine(squadFolderPath, PlansSubfolder));
+        _sync = StoreLocks.GetOrAdd(_plansFolder, static _ => new object());
     }
 
     /// <summary>
@@ -45,6 +50,31 @@ internal sealed class PlanStore
             var path = GetPlanPath(plan.PlanId);
             JsonFileStorage.AtomicWrite(path, plan, WriteOptions);
             return plan;
+        }
+    }
+
+    /// <summary>
+    /// Renames only the plan's user-facing alias. The latest durable plan is loaded and updated
+    /// while holding the workspace store lock, so a stale panel row cannot overwrite execution
+    /// progress, approval state, validation state, or interruption evidence.
+    /// </summary>
+    internal Plan RenameDisplayTitle(string planId, string displayTitle)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(planId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayTitle);
+
+        var normalizedTitle = displayTitle.Trim();
+        lock (_sync)
+        {
+            var current = LoadInternal(planId)
+                ?? throw new InvalidOperationException($"Plan '{planId}' no longer exists or could not be loaded.");
+            var storedAlias = string.Equals(normalizedTitle, current.Title, StringComparison.Ordinal)
+                ? null
+                : normalizedTitle;
+            var updated = current with { DisplayTitle = storedAlias };
+            EnsureDirectory();
+            JsonFileStorage.AtomicWrite(GetPlanPath(planId), updated, WriteOptions);
+            return updated;
         }
     }
 

@@ -94,7 +94,7 @@ internal sealed class PlanLifecycleControlValidationTests
             resumePlan:           p => log.Add(new("resume", p)),
             endPlan:              p => log.Add(new("end", p)),
             archivePlan:          p => log.Add(new("archive", p)),
-            pausePlan:            p => log.Add(new("pause", p)),
+            pausePlan:            p => { log.Add(new("pause", p)); return true; },
             abortPlan:            p => log.Add(new("abort", p)),
             isPromptRunning:      () => true);
 
@@ -145,9 +145,17 @@ internal sealed class PlanLifecycleControlValidationTests
 
             pauseButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-            Assert.That(log, Has.Count.EqualTo(1));
-            Assert.That(log[0].Action, Is.EqualTo("pause"));
-            Assert.That(log[0].Plan.PlanId, Is.EqualTo(plan.PlanId));
+            var status = ((StackPanel)activePanel.Children.OfType<Border>().Single().Child)
+                .Children.OfType<TextBlock>()
+                .Single(block => Equals(block.Tag, "PlanTransientStatus"));
+            Assert.Multiple(() =>
+            {
+                Assert.That(log, Has.Count.EqualTo(1));
+                Assert.That(log[0].Action, Is.EqualTo("pause"));
+                Assert.That(log[0].Plan.PlanId, Is.EqualTo(plan.PlanId));
+                Assert.That(status.Text, Is.EqualTo("Pausing after this turn…"));
+                Assert.That(pauseButton.IsEnabled, Is.False);
+            });
         });
 
     // ── 3. User-paused plan shows resume button with accessibility name ───────

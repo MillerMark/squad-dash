@@ -50328,18 +50328,9 @@ public partial class MainWindow : Window
                 revisePlan: BeginPlanRevision,
                 renamePlan: (plan, newTitle) =>
                 {
-                    if (_planStore is null) return;
-                    try
-                    {
-                        var updatedPlan = plan with { Title = newTitle };
-                        _planStore.Save(updatedPlan);
-                        _plansPanelController?.OnPlanChanged(updatedPlan);
-                    }
-                    catch (Exception ex)
-                    {
-                        SquadDashTrace.Write(TraceCategory.UI,
-                            $"PlanRename: failed to save title for '{plan.PlanId}': {ex.Message}");
-                    }
+                    if (_planStore is null)
+                        throw new InvalidOperationException("The plan store is not available.");
+                    return _planStore.RenameDisplayTitle(plan.PlanId, newTitle);
                 });
 
             if (PlansPanelBorder is { } ppb)
@@ -50519,16 +50510,17 @@ public partial class MainWindow : Window
             $"Archived {archivedPlanIds.Count} plan family/families: retired {archivedMessageIds.Count} active Inbox artifact(s) and all pending revisions.");
     }
 
-    private void RequestPlanPauseAfterCurrentStep(Plan plan)
+    private bool RequestPlanPauseAfterCurrentStep(Plan plan)
     {
         if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
-            return;
+            return false;
         _pausePlanAfterCurrentStepRequested = true;
         ScheduleDecomposeSystemEntry(
-            $"Plan {plan.Title} will pause after the current step is accepted.",
+            $"Plan {plan.DisplayName} will pause after the current step is accepted.",
             plan.PlanId,
             plan.Revision,
             plan.Progress.ExecutingTaskId);
+        return true;
     }
 
     private async void AbortCurrentPlanWork(Plan plan)

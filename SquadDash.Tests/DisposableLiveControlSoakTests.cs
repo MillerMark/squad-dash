@@ -782,7 +782,7 @@ internal sealed class DisposableLiveControlSoakTests
             resumePlan: p => log.Add(new("resume", p)),
             endPlan: p => log.Add(new("end", p)),
             archivePlan: p => log.Add(new("archive", p)),
-            pausePlan: p => log.Add(new("pause", p)),
+            pausePlan: p => { log.Add(new("pause", p)); return true; },
             abortPlan: p => log.Add(new("abort", p)),
             isPromptRunning: () => true);
 

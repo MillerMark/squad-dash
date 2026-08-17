@@ -537,4 +537,17 @@ internal sealed record Plan(
     /// </summary>
     [property: JsonPropertyName("suppressedApprovalGates")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                    IReadOnlyList<PlanApprovalGate>? SuppressedApprovalGates = null);
+                                                    IReadOnlyList<PlanApprovalGate>? SuppressedApprovalGates = null,
+
+    /// <summary>
+    /// Optional user-facing alias. Unlike <see cref="Title"/>, this is presentation metadata and
+    /// is deliberately excluded from the approved plan revision and tasks.md projection.
+    /// </summary>
+    [property: JsonPropertyName("displayTitle")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                    string? DisplayTitle = null)
+{
+    [JsonIgnore]
+    internal string DisplayName =>
+        string.IsNullOrWhiteSpace(DisplayTitle) ? Title : DisplayTitle.Trim();
+}

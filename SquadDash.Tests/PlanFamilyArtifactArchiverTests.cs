@@ -104,7 +104,7 @@ internal sealed class PlanFamilyArtifactArchiverTests
                 Does.Contain("IsDurablePlanArchived(plan.Group.GroupId)"));
             Assert.That(ExtractMethod(source, "private void SaveDecomposePlanInboxReminder(", "private void ArchiveDecomposePlanInboxReminder("),
                 Does.Contain("IsDurablePlanArchived(plan.Group.GroupId)"));
-            Assert.That(ExtractMethod(source, "private void ArchivePlan(Plan plan)", "private void RequestPlanPauseAfterCurrentStep("),
+            Assert.That(ExtractMethod(source, "private void ArchivePlan(Plan plan)", "private bool RequestPlanPauseAfterCurrentStep("),
                 Does.Contain("ArchivePlanFamilyArtifacts(archived.PlanId)"));
         });
     }

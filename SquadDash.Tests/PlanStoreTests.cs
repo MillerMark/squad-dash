@@ -180,6 +180,61 @@ internal sealed class PlanStoreTests
         Assert.That(returned, Is.SameAs(plan));
     }
 
+    [Test]
+    public void RenameDisplayTitle_ReloadsLatestPlanAndPreservesApprovedRevisionAndProgress()
+    {
+        var original = MakePlan("PROJ-20260101");
+        var validRevision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(original).Group);
+        original = original with { Revision = validRevision };
+        _store.Save(original);
+
+        var latest = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks =
+            [
+                original.Tasks[0] with { Status = PlanTaskStatus.Complete },
+                original.Tasks[1] with { Status = PlanTaskStatus.Executing },
+            ],
+            Progress = new PlanProgress(1, 2, original.Tasks[1].TaskId),
+        };
+        // Simulate plan execution advancing after the panel captured "original".
+        _store.Save(latest);
+
+        var renamed = _store.RenameDisplayTitle(original.PlanId, "A clearer display name");
+        var loaded = new PlanStore(_workspace.GetPath(".squad")).Load(original.PlanId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(renamed.DisplayName, Is.EqualTo("A clearer display name"));
+            Assert.That(loaded!.DisplayName, Is.EqualTo("A clearer display name"));
+            Assert.That(loaded.Title, Is.EqualTo(original.Title),
+                "Presentation-only rename must not alter revision-sealed plan content.");
+            Assert.That(loaded.Revision, Is.EqualTo(validRevision));
+            Assert.That(loaded.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(loaded.Progress, Is.EqualTo(latest.Progress));
+            Assert.That(loaded.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(loaded.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.Executing));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(loaded), Is.True);
+        });
+    }
+
+    [Test]
+    public void RenameDisplayTitle_MatchingCanonicalTitle_ClearsAlias()
+    {
+        var plan = MakePlan("PROJ-20260101") with { DisplayTitle = "Temporary alias" };
+        _store.Save(plan);
+
+        var renamed = _store.RenameDisplayTitle(plan.PlanId, plan.Title);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(renamed.DisplayTitle, Is.Null);
+            Assert.That(renamed.DisplayName, Is.EqualTo(plan.Title));
+        });
+    }
+
     // ─── Delete ──────────────────────────────────────────────────────────────
 
     [Test]

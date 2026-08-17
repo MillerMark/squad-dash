@@ -25,12 +25,12 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _endPlan;
     private readonly Action<Plan>? _approveGate;
     private readonly Action<Plan>? _archivePlan;
-    private readonly Action<Plan>? _pausePlan;
+    private readonly Func<Plan, bool>? _pausePlan;
     private readonly Action<Plan>? _abortPlan;
     private readonly Action<Plan>? _attachFollowUp;
     private readonly Action<Plan>? _addToNewChat;
     private readonly Action<Plan>? _revisePlan;
-    private readonly Action<Plan, string>? _renamePlan;
+    private readonly Func<Plan, string, Plan>? _renamePlan;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -46,6 +46,8 @@ internal sealed class PlansPanelController
     // Cached plan list for targeted live updates — avoids a full store reload on each event.
     private List<Plan> _currentPlans = [];
     private readonly HashSet<string> _updatedPlanIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _planStatusByPlanId = new(StringComparer.Ordinal);
+    private string? _activeRenamePlanId;
 
     // Braille-dot spinner indicator for the actively-executing plan.
     private TextBlock? _executingSpinnerBlock;
@@ -69,14 +71,14 @@ internal sealed class PlansPanelController
         Action<Plan>? endPlan              = null,
         Action<Plan>? approveGate          = null,
         Action<Plan>? archivePlan          = null,
-        Action<Plan>? pausePlan            = null,
+        Func<Plan, bool>? pausePlan        = null,
         Action<Plan>? abortPlan            = null,
         Action<Plan>? attachFollowUp       = null,
         Action<Plan>? addToNewChat         = null,
         Func<bool>?   isPromptRunning      = null,
         Func<Plan, string>? getPlanFilePath = null,
         Action<Plan>? revisePlan = null,
-        Action<Plan, string>? renamePlan = null)
+        Func<Plan, string, Plan>? renamePlan = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -110,7 +112,12 @@ internal sealed class PlansPanelController
     internal void Refresh(IReadOnlyList<Plan> plans)
     {
         _currentPlans = [.. plans];
-        RebuildPanels();
+        RemoveObsoleteTransientStatuses();
+        if (_activeRenamePlanId is not null &&
+            !_currentPlans.Any(plan => string.Equals(plan.PlanId, _activeRenamePlanId, StringComparison.Ordinal)))
+            _activeRenamePlanId = null;
+        if (_activeRenamePlanId is null)
+            RebuildPanels();
     }
 
     /// <summary>
@@ -132,7 +139,10 @@ internal sealed class PlansPanelController
         }
         else
             _currentPlans.Add(updatedPlan);
-        RebuildPanels();
+        if (updatedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
+            _planStatusByPlanId.Remove(updatedPlan.PlanId);
+        if (_activeRenamePlanId is null)
+            RebuildPanels();
     }
 
     /// <summary>
@@ -146,8 +156,41 @@ internal sealed class PlansPanelController
         if (idx >= 0)
         {
             _currentPlans.RemoveAt(idx);
+            _planStatusByPlanId.Remove(planId);
+            if (string.Equals(_activeRenamePlanId, planId, StringComparison.Ordinal))
+                _activeRenamePlanId = null;
             RebuildPanels();
         }
+    }
+
+    internal void SetPlanStatus(string planId, string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            _planStatusByPlanId.Remove(planId);
+        else
+            _planStatusByPlanId[planId] = status.Trim();
+
+        var row = FindRowByPlanId(_activePanel, planId)
+               ?? FindRowByPlanId(_completedPanel, planId)
+               ?? FindRowByPlanId(_archivedPanel, planId);
+        if (row?.Child is not StackPanel rowStack)
+            return;
+
+        var existing = rowStack.Children.OfType<TextBlock>()
+            .FirstOrDefault(block => Equals(block.Tag, "PlanTransientStatus"));
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            if (existing is not null) rowStack.Children.Remove(existing);
+            return;
+        }
+
+        if (existing is not null)
+        {
+            existing.Text = status.Trim();
+            return;
+        }
+
+        rowStack.Children.Insert(1, BuildTransientStatusBlock(status.Trim()));
     }
 
     internal void SetShowCompleted(bool show)
@@ -263,18 +306,18 @@ internal sealed class PlansPanelController
 
         var active = _currentPlans.Where(p => !PlanLifecycleStatus.IsTerminal(p.LifecycleStatus))
             .OrderByDescending(GetLastRunAt)
-            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(plan => plan.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         var completed = _currentPlans.Where(p =>
             PlanLifecycleStatus.IsTerminal(p.LifecycleStatus) &&
             p.LifecycleStatus != PlanLifecycleStatus.Archived)
             .OrderByDescending(GetLastRunAt)
-            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(plan => plan.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         var archived = _currentPlans.Where(p =>
             p.LifecycleStatus == PlanLifecycleStatus.Archived)
             .OrderByDescending(GetLastRunAt)
-            .ThenBy(plan => plan.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(plan => plan.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         if (active.Count == 0 && completed.Count == 0)
@@ -391,7 +434,7 @@ internal sealed class PlansPanelController
 
         var titleBlock = new TextBlock
         {
-            Text             = plan.Title,
+            Text             = plan.DisplayName,
             TextTrimming     = TextTrimming.CharacterEllipsis,
             TextWrapping     = TextWrapping.NoWrap,
             VerticalAlignment = VerticalAlignment.Center,
@@ -418,6 +461,9 @@ internal sealed class PlansPanelController
             titleRow.Children.Add(updatedBadge);
         }
         rowStack.Children.Add(titleRow);
+
+        if (_planStatusByPlanId.TryGetValue(plan.PlanId, out var transientStatus))
+            rowStack.Children.Add(BuildTransientStatusBlock(transientStatus));
 
         // ── Progress row (only when plan has tasks) ───────────────────────
         if (plan.Progress.TotalCount > 0)
@@ -704,11 +750,14 @@ internal sealed class PlansPanelController
 
     private void BeginInlineRename(Grid titleRow, TextBlock titleBlock, Plan plan)
     {
+        if (_activeRenamePlanId is not null)
+            return;
+        _activeRenamePlanId = plan.PlanId;
         titleBlock.Visibility = Visibility.Collapsed;
 
         var textBox = new TextBox
         {
-            Text              = plan.Title,
+            Text              = plan.DisplayName,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment   = VerticalAlignment.Center,
             BorderThickness     = new Thickness(1),
@@ -726,32 +775,42 @@ internal sealed class PlansPanelController
 
         textBox.Loaded += (_, _) => { textBox.Focus(); textBox.SelectAll(); };
 
-        var committed = false;
+        var finished = false;
 
         void Commit()
         {
-            if (committed) return;
-            committed = true;
+            if (finished) return;
             var newTitle = textBox.Text.Trim();
-            titleRow.Children.Remove(textBox);
-            titleBlock.Visibility = Visibility.Visible;
             if (string.IsNullOrWhiteSpace(newTitle) ||
-                string.Equals(newTitle, plan.Title, StringComparison.Ordinal))
+                string.Equals(newTitle, plan.DisplayName, StringComparison.Ordinal))
+            {
+                Cancel();
                 return;
-            try { _renamePlan!(plan, newTitle); }
+            }
+            try
+            {
+                var updatedPlan = _renamePlan!(plan, newTitle);
+                finished = true;
+                _activeRenamePlanId = null;
+                OnPlanChanged(updatedPlan);
+            }
             catch (Exception ex)
             {
                 SquadDashTrace.Write(TraceCategory.UI,
                     $"PlansPanelController: rename of '{plan.PlanId}' failed: {ex.Message}");
+                textBox.SetResourceReference(TextBox.BorderBrushProperty, "PriorityHigh");
+                textBox.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "The plan could not be renamed. Your text is still here; try again.");
+                textBox.Focus();
             }
         }
 
         void Cancel()
         {
-            if (committed) return;
-            committed = true;
-            titleRow.Children.Remove(textBox);
-            titleBlock.Visibility = Visibility.Visible;
+            if (finished) return;
+            finished = true;
+            _activeRenamePlanId = null;
+            RebuildPanels();
         }
 
         textBox.KeyDown += (_, e) =>
@@ -804,7 +863,11 @@ internal sealed class PlansPanelController
             pause.Click += (_, args) =>
             {
                 args.Handled = true;
-                _pausePlan(plan);
+                if (_pausePlan(plan))
+                {
+                    pause.IsEnabled = false;
+                    SetPlanStatus(plan.PlanId, "Pausing after this turn…");
+                }
             };
             return pause;
         }
@@ -889,6 +952,30 @@ internal sealed class PlansPanelController
         iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
 
         return iconBlock;
+    }
+
+    private static TextBlock BuildTransientStatusBlock(string status)
+    {
+        var block = new TextBlock
+        {
+            Text = status,
+            Tag = "PlanTransientStatus",
+            Margin = new Thickness(20, 1, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        block.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        block.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        return block;
+    }
+
+    private void RemoveObsoleteTransientStatuses()
+    {
+        var executingIds = _currentPlans
+            .Where(plan => plan.LifecycleStatus == PlanLifecycleStatus.Executing)
+            .Select(plan => plan.PlanId)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var planId in _planStatusByPlanId.Keys.Where(id => !executingIds.Contains(id)).ToArray())
+            _planStatusByPlanId.Remove(planId);
     }
 
     /// <summary>
