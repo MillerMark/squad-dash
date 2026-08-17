@@ -6389,9 +6389,11 @@ public partial class MainWindow : Window
         var validation = plan?.Validations?.FirstOrDefault(candidate =>
             string.Equals(candidate.ValidationId, activeExecution.ActiveValidationId, StringComparison.Ordinal));
         var title = validation?.Title ?? activeExecution.ActiveValidationId;
-        ScheduleDecomposeSystemEntry(retryCount <= 1
-            ? $"Validation provider stopped before returning evidence · {title}. SquadDash will retry this non-mutating validation once. Completed implementation work will not be repeated."
-            : $"Validation provider stopped again · {title}. SquadDash will preserve completed implementation work and pause this validation with a retry action.");
+        ScheduleDecomposeSystemEntry(
+            PlanValidationProviderFailurePresentation.BuildAttemptMessage(
+                title,
+                failure.RawError,
+                willRetry: retryCount <= 1));
         SquadDashTrace.Write(
             "PlanValidation",
             $"Provider failure registered validation={activeExecution.ActiveValidationId} retry={retryCount} error={failure.RawError}");
@@ -13016,7 +13018,9 @@ public partial class MainWindow : Window
                 groupId,
                 validationId,
                 activeExecution,
-                "The validation provider stopped twice before returning evidence.",
+                PlanValidationProviderFailurePresentation.BuildRecoveryReason(
+                    activeExecution.ValidationProviderFailureReason,
+                    activeExecution.ValidationProviderRetryCount),
                 validatedCommit: null);
             return;
         }

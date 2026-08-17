@@ -40,6 +40,7 @@
     <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />
     <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanValidationProviderFailurePresentation.cs" Link="Source\PlanValidationProviderFailurePresentation.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationResult.cs" Link="Source\PlanTaskVerificationResult.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationPromptBuilder.cs" Link="Source\PlanTaskVerificationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />
