@@ -15796,6 +15796,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (durablePlan is not null &&
+            combinedHumanReviewGate is null &&
+            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(durablePlan, taskId))
+        {
+            AddAsyncResultAction(
+                $"{stepLabel} Is Complete",
+                $"Accept the exact host-recorded commit and passing tests shown above, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                async () =>
+                {
+                    var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
+                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                });
+            AddAction(
+                "✎ Revise Remaining Plan…",
+                "Create an editable queued prompt with protected plan and replanning context attached. Nothing is sent until you review and submit it.",
+                () => QueueDecomposeReplan(plan, taskId),
+                removeAfterAction: false);
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
         if (review is not null)
         {
             var reviewsAmendment = durablePlan!.Tasks.Any(task =>

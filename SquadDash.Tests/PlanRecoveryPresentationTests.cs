@@ -274,6 +274,57 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void HumanReviewCompletionPolicy_AllowsExactHostRecordedCandidateWithPassingTests()
+    {
+        const string commit = "abcdef1234567890";
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-007",
+            "attempt-1",
+            "baseline",
+            commit,
+            "Implemented the task.",
+            new DecomposeStepVerification("passed", "dotnet test", "12 tests passed"));
+        var task = new PlanTask(
+            "PLAN-007", "Review me", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                commit, "Implemented the task.", ["Feature.cs"], evidence.Verification,
+                DateTimeOffset.UtcNow));
+        var plan = TestPlan(evidence) with { Tasks = [task] };
+
+        Assert.That(
+            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(plan, task.TaskId),
+            Is.True);
+    }
+
+    [TestCase("different-commit", "passed")]
+    [TestCase("abcdef1234567890", "failed")]
+    public void HumanReviewCompletionPolicy_RejectsAmbiguousOrFailingEvidence(
+        string handoffCommit,
+        string verificationStatus)
+    {
+        const string evidenceCommit = "abcdef1234567890";
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-007",
+            "attempt-1",
+            "baseline",
+            evidenceCommit,
+            "Candidate work.",
+            new DecomposeStepVerification(verificationStatus, "dotnet test", "Result"));
+        var task = new PlanTask(
+            "PLAN-007", "Review me", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                handoffCommit, "Candidate work.", ["Feature.cs"], evidence.Verification,
+                DateTimeOffset.UtcNow));
+        var plan = TestPlan(evidence) with { Tasks = [task] };
+
+        Assert.That(
+            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(plan, task.TaskId),
+            Is.False);
+    }
+
+    [Test]
     public void SplitAnalysisSentences_PreservesCodeReferencesWhileSeparatingClaims()
     {
         var bullets = PlanRecoveryPresentationBuilder.SplitAnalysisSentences(

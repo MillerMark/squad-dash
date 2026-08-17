@@ -58,6 +58,30 @@ internal static class PlanHumanReviewGatePolicy
 }
 
 /// <summary>
+/// Allows the user to accept a task directly when SquadDash already owns unambiguous evidence
+/// for the exact candidate shown on the recovery card. This is intentionally narrower than a
+/// general recovery assessment: the task handoff and host-captured commit must agree, and the
+/// host-captured verification must have passed.
+/// </summary>
+internal static class PlanHumanReviewCompletionPolicy
+{
+    internal static bool CanAcceptDirectly(Plan plan, string taskId)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var evidence = plan.InterruptionData?.TaskCommitEvidence;
+
+        return task?.Status == PlanTaskStatus.HumanReviewRequired &&
+               evidence is not null &&
+               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+               !string.IsNullOrWhiteSpace(evidence.Commit) &&
+               !string.IsNullOrWhiteSpace(task.Handoff?.Commit) &&
+               string.Equals(evidence.Commit, task.Handoff.Commit, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(evidence.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+/// <summary>
 /// Converts durable recovery provenance into calm, state-specific user language. It never infers
 /// task ownership from commit timestamps, authors, or a coincidental position in branch history.
 /// </summary>
