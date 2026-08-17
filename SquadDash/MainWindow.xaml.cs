@@ -10426,6 +10426,69 @@ public partial class MainWindow : Window
             attachments);
     }
 
+    private void QueueRefreshHumanReviewWording(Plan plan, PlanHumanReviewChecklistItem item)
+    {
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        var gate = current.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
+        {
+            UIErrorHelper.ShowWarning(
+                "Refresh Human Review Wording",
+                "This review checkpoint changed before the wording-refresh prompt could be created.");
+            return;
+        }
+
+        var currentItem = PlanHumanReviewChecklist.Build(current, [gate]).FirstOrDefault(candidate =>
+            string.Equals(candidate.ItemId, item.ItemId, StringComparison.Ordinal));
+        if (currentItem is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Refresh Human Review Wording",
+                "This human-review requirement is no longer part of the current checkpoint.");
+            return;
+        }
+
+        var reviewedTask = gate.AfterTaskIds
+            .Select(taskId => current.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+            .FirstOrDefault(task => task is not null);
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            reviewedTask?.DisplayStepLabel,
+            reviewedTask?.Title ?? gate.Message);
+        var protocol = PlanHumanReviewClarificationResponseParser.BuildRefreshWordingProtocolContext(
+            current, gate, currentItem, stepLabel);
+        var attachments = new List<FollowUpAttachment>
+        {
+            new(
+                CommitSha: string.Empty,
+                Description: $"Plan: {current.Title}",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock("plan", current.Title, BuildPlanContentBody(current)),
+                FileReferencePath: $".squad/plans/{current.PlanId}.json",
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This plan anchors the wording refresh to the exact durable review boundary. Remove it anyway?"),
+            new(
+                CommitSha: string.Empty,
+                Description: "Required human-review wording context",
+                OriginalPrompt: null,
+                ContentBlock: BuildTypedAttachmentBlock(
+                    "plan-human-review-wording",
+                    "Required human-review wording context",
+                    protocol),
+                RequiresRemovalConfirmation: true,
+                RemovalWarning: "This attachment identifies the exact checklist item and constrained response contract. Remove it anyway?"),
+        };
+        QueueEditablePlanPrompt(
+            $"Refresh this human-review requirement so it matches the current product and repository:\r\n\r\n“{currentItem.Text}”\r\n\r\n" +
+            "Relevant change or context (optional):\r\n\r\n" +
+            "[Describe a rename or behavioral change, or send as-is for repository-based assessment]\r\n",
+            "[Describe a rename or behavioral change, or send as-is for repository-based assessment]",
+            "Refresh human review wording",
+            "plan-human-review-wording-draft",
+            attachments);
+    }
+
     private async Task<bool> RetryDecomposeTaskAsync(
         PendingDecomposePlan plan,
         string taskId,
@@ -13811,6 +13874,7 @@ public partial class MainWindow : Window
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
             onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
+            onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
                 var reviewedTaskId = activeGates
@@ -14788,7 +14852,8 @@ public partial class MainWindow : Window
                     $"{PlanHumanReviewClarificationResponseParser.Marker} schema. " +
                     "Do not repeat analysis, change files, approve anything, or continue the plan. " +
                     "Return only one corrected complete payload using the exact planId, revision, gateId, " +
-                    "and itemId from the preceding clarification context. Null collections may be returned " +
+                    "itemId, and requestKind from the preceding clarification context. Obey the action and " +
+                    "selection-preservation constraints for that requestKind. Null collections may be returned " +
                     "as empty arrays. Technical detail: " + parseError,
                     _promptQueueCoordinator.NextSequenceNumber(),
                     sourceTag: "plan-human-review-clarification-repair",
@@ -14900,6 +14965,9 @@ public partial class MainWindow : Window
     private static string BuildHumanReviewClarificationAppliedMessage(
         PlanHumanReviewClarificationResponse response) => response.Action switch
     {
+        PlanHumanReviewClarificationAction.Reword when
+            response.RequestKind == PlanHumanReviewClarificationRequestKind.RefreshWording =>
+            "Human review wording refreshed. Review selection cleared.",
         PlanHumanReviewClarificationAction.Reword => "The human-review requirement was reworded.",
         PlanHumanReviewClarificationAction.Remove => "Human review requirement removed. Justification recorded in the plan.",
         PlanHumanReviewClarificationAction.Automate => "The human-review requirement was replaced with an automated validation.",
@@ -16018,7 +16086,7 @@ public partial class MainWindow : Window
                 Grid.SetColumn(itemText, 1);
                 itemRow.Children.Add(box);
                 itemRow.Children.Add(itemText);
-                void AttachClarifyMenu(FrameworkElement target)
+                void AttachReviewItemMenu(FrameworkElement target)
                 {
                     var itemMenu = new ContextMenu();
                     itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
@@ -16026,6 +16094,10 @@ public partial class MainWindow : Window
                     clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     clarify.Click += (_, _) => QueueClarifyHumanReviewItem(durablePlan!, item);
                     itemMenu.Items.Add(clarify);
+                    var refreshWording = new MenuItem { Header = "Refresh Wording…" };
+                    refreshWording.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    refreshWording.Click += (_, _) => QueueRefreshHumanReviewWording(durablePlan!, item);
+                    itemMenu.Items.Add(refreshWording);
                     target.ContextMenu = itemMenu;
                     target.PreviewMouseRightButtonUp += (_, e) =>
                     {
@@ -16035,9 +16107,9 @@ public partial class MainWindow : Window
                     };
                 }
 
-                AttachClarifyMenu(itemRow);
-                AttachClarifyMenu(box);
-                AttachClarifyMenu(itemText);
+                AttachReviewItemMenu(itemRow);
+                AttachReviewItemMenu(box);
+                AttachReviewItemMenu(itemText);
                 var capturedItem = item;
                 box.Checked += (_, _) =>
                 {

@@ -21,6 +21,14 @@ internal static class PlanHumanReviewClarificationAction
         Reword or Remove or Automate or Split or Merge;
 }
 
+internal static class PlanHumanReviewClarificationRequestKind
+{
+    internal const string Clarify = "clarify";
+    internal const string RefreshWording = "refresh-wording";
+
+    internal static bool IsSupported(string value) => value is Clarify or RefreshWording;
+}
+
 internal sealed record PlanHumanReviewClarificationResponse(
     [property: JsonPropertyName("planId")] string PlanId,
     [property: JsonPropertyName("revision")] string Revision,
@@ -34,7 +42,8 @@ internal sealed record PlanHumanReviewClarificationResponse(
     [property: JsonPropertyName("targetItemIds")] IReadOnlyList<string>? TargetItemIds = null,
     [property: JsonPropertyName("preserveCheckedSelections")] bool PreserveCheckedSelections = true,
     [property: JsonPropertyName("evidence")] IReadOnlyList<string>? Evidence = null,
-    [property: JsonPropertyName("existingValidationId")] string? ExistingValidationId = null);
+    [property: JsonPropertyName("existingValidationId")] string? ExistingValidationId = null,
+    [property: JsonPropertyName("requestKind")] string RequestKind = PlanHumanReviewClarificationRequestKind.Clarify);
 
 internal static class PlanHumanReviewClarificationResponseParser
 {
@@ -56,6 +65,9 @@ internal static class PlanHumanReviewClarificationResponseParser
 
         var payload = extraction.Payload;
         var action = payload.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        var requestKind = string.IsNullOrWhiteSpace(payload.RequestKind)
+            ? PlanHumanReviewClarificationRequestKind.Clarify
+            : payload.RequestKind.Trim().ToLowerInvariant();
         var replacementItems = Normalize(payload.ReplacementItems);
         var targetItemIds = Normalize(payload.TargetItemIds);
         var evidence = Normalize(payload.Evidence);
@@ -63,6 +75,7 @@ internal static class PlanHumanReviewClarificationResponseParser
             string.IsNullOrWhiteSpace(payload.Revision) ||
             string.IsNullOrWhiteSpace(payload.GateId) ||
             string.IsNullOrWhiteSpace(payload.ItemId) ||
+            !PlanHumanReviewClarificationRequestKind.IsSupported(requestKind) ||
             !PlanHumanReviewClarificationAction.IsSupported(action) ||
             string.IsNullOrWhiteSpace(payload.UserFacingAnswer) ||
             string.IsNullOrWhiteSpace(payload.Reason))
@@ -82,6 +95,9 @@ internal static class PlanHumanReviewClarificationResponseParser
         else if (action == PlanHumanReviewClarificationAction.Automate &&
                  string.IsNullOrWhiteSpace(payload.ExistingValidationId))
             error = "An automate response requires existingValidationId; new validations require a plan revision.";
+        else if (requestKind == PlanHumanReviewClarificationRequestKind.RefreshWording &&
+                 (action != PlanHumanReviewClarificationAction.Reword || payload.PreserveCheckedSelections))
+            error = "A refresh-wording response requires action=reword and preserveCheckedSelections=false.";
         if (error is not null) return false;
 
         response = payload with
@@ -98,6 +114,7 @@ internal static class PlanHumanReviewClarificationResponseParser
             TargetItemIds = targetItemIds,
             Evidence = evidence,
             ExistingValidationId = payload.ExistingValidationId?.Trim(),
+            RequestKind = requestKind,
         };
         return true;
     }
@@ -115,6 +132,7 @@ internal static class PlanHumanReviewClarificationResponseParser
             gateId = gate.GateId,
             itemId = item.ItemId,
             action = PlanHumanReviewClarificationAction.Explain,
+            requestKind = PlanHumanReviewClarificationRequestKind.Clarify,
             userFacingAnswer = "Explain how the user can observe this requirement, or why it should change.",
             reason = "Evidence-based rationale for the recommendation.",
             replacementText = (string?)null,
@@ -156,6 +174,59 @@ internal static class PlanHumanReviewClarificationResponseParser
             Material changes are recommendations only; SquadDash asks the user before applying them and records
             an audit disposition. End with exactly one payload matching this complete example (null and empty
             arrays are accepted where shown):
+            {{Marker}}
+            {{example}}
+            """;
+    }
+
+    internal static string BuildRefreshWordingProtocolContext(
+        Plan plan,
+        PlanApprovalGate gate,
+        PlanHumanReviewChecklistItem item,
+        string stepLabel)
+    {
+        var example = JsonSerializer.Serialize(new
+        {
+            planId = plan.PlanId,
+            revision = plan.Revision,
+            gateId = gate.GateId,
+            itemId = item.ItemId,
+            action = PlanHumanReviewClarificationAction.Reword,
+            requestKind = PlanHumanReviewClarificationRequestKind.RefreshWording,
+            userFacingAnswer = "The requirement now uses the current UI terminology and remains human-observable.",
+            reason = "The reviewed surface changed after the original requirement was written.",
+            replacementText = "Does the current interface show the renamed command and its expected state?",
+            replacementItems = Array.Empty<string>(),
+            targetItemIds = new[] { item.ItemId },
+            preserveCheckedSelections = false,
+            evidence = Array.Empty<string>(),
+            existingValidationId = (string?)null,
+        });
+        return $$"""
+            ## Refresh one human-review requirement
+            This is a read-only wording assessment. Inspect the current repository, relevant changes after the
+            candidate commit, and the attached plan to determine whether names, labels, behavior, or observable
+            outcomes have changed. Do not edit files, execute plan work, approve the checkpoint, or continue the
+            plan.
+
+            Authoritative target:
+            - planId: {{plan.PlanId}}
+            - revision: {{plan.Revision}}
+            - plan: {{plan.Title}}
+            - gateId: {{gate.GateId}}
+            - reviewed step: {{stepLabel}}
+            - checklist itemId: {{item.ItemId}}
+            - current requirement: {{JsonSerializer.Serialize(item.Text)}}
+            - candidate commit originally reviewed: {{item.CandidateCommit}}
+            - currently checked: {{item.IsChecked.ToString().ToLowerInvariant()}}
+
+            Return a self-contained, concise, human-observable replacement requirement using current terminology.
+            Do not change its underlying intent, silently broaden its scope, or convert it into an implementation
+            invariant. The response must use requestKind=refresh-wording, action=reword, and
+            preserveCheckedSelections=false so the user must review the refreshed wording again.
+
+            End with exactly one payload matching this complete example (null and empty arrays are accepted where
+            shown):
             {{Marker}}
             {{example}}
             """;

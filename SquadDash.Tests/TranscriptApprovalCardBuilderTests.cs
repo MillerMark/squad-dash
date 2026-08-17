@@ -190,19 +190,28 @@ public class TranscriptApprovalCardBuilderTests
         };
         plan = plan with { ApprovalGates = [gate] };
         PlanHumanReviewChecklistItem? clarified = null;
+        PlanHumanReviewChecklistItem? refreshed = null;
 
         var card = TranscriptApprovalCardBuilder.Build(
             BuildTestSnapshot(), plan, gate, 14, _ => { },
-            onClarifyItem: item => clarified = item);
+            onClarifyItem: item => clarified = item,
+            onRefreshWordingItem: item => refreshed = item);
         var directMenus = EnumerateFrameworkElements(card.ContentStack)
             .Where(element => element.ContextMenu?.Items.OfType<MenuItem>()
                 .Any(item => Equals(item.Header, "Clarify This…")) == true)
             .ToArray();
 
         Assert.That(directMenus, Has.Length.GreaterThanOrEqualTo(3));
-        var clarify = directMenus[0].ContextMenu!.Items.OfType<MenuItem>().Single();
+        var menuItems = directMenus[0].ContextMenu!.Items.OfType<MenuItem>().ToArray();
+        var clarify = menuItems.Single(item => Equals(item.Header, "Clarify This…"));
+        var refresh = menuItems.Single(item => Equals(item.Header, "Refresh Wording…"));
         clarify.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        Assert.That(clarified?.ItemId, Is.EqualTo("visual"));
+        refresh.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(clarified?.ItemId, Is.EqualTo("visual"));
+            Assert.That(refreshed?.ItemId, Is.EqualTo("visual"));
+        });
     }
 
     [Test, Apartment(ApartmentState.STA)]

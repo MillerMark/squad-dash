@@ -121,6 +121,7 @@ internal static class TranscriptApprovalCardBuilder
         Action<PlanHumanReviewChecklistItem, bool>? onChecklistChanged = null,
         Action<IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         Action<PlanHumanReviewChecklistItem>? onClarifyItem = null,
+        Action<PlanHumanReviewChecklistItem>? onRefreshWordingItem = null,
         bool includeDetailedEvidence = false)
     {
         var activeGateCount = plan.ApprovalGates
@@ -245,16 +246,26 @@ internal static class TranscriptApprovalCardBuilder
                 itemRow.Children.Add(checkBorder);
                 itemRow.Children.Add(itemBlock);
 
-                if (onClarifyItem is not null)
+                if (onClarifyItem is not null || onRefreshWordingItem is not null)
                 {
-                    void AttachClarifyMenu(FrameworkElement target)
+                    void AttachReviewItemMenu(FrameworkElement target)
                     {
                         var itemMenu = new ContextMenu();
                         itemMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
-                        var clarify = new MenuItem { Header = "Clarify This…" };
-                        clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                        clarify.Click += (_, _) => onClarifyItem(item);
-                        itemMenu.Items.Add(clarify);
+                        if (onClarifyItem is not null)
+                        {
+                            var clarify = new MenuItem { Header = "Clarify This…" };
+                            clarify.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                            clarify.Click += (_, _) => onClarifyItem(item);
+                            itemMenu.Items.Add(clarify);
+                        }
+                        if (onRefreshWordingItem is not null)
+                        {
+                            var refresh = new MenuItem { Header = "Refresh Wording…" };
+                            refresh.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                            refresh.Click += (_, _) => onRefreshWordingItem(item);
+                            itemMenu.Items.Add(refresh);
+                        }
                         target.ContextMenu = itemMenu;
                         target.PreviewMouseRightButtonUp += (_, e) =>
                         {
@@ -264,9 +275,9 @@ internal static class TranscriptApprovalCardBuilder
                         };
                     }
 
-                    AttachClarifyMenu(itemRow);
-                    AttachClarifyMenu(checkBorder);
-                    AttachClarifyMenu(itemBlock);
+                    AttachReviewItemMenu(itemRow);
+                    AttachReviewItemMenu(checkBorder);
+                    AttachReviewItemMenu(itemBlock);
                 }
 
                 var capturedItem = item;

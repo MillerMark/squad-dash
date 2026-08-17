@@ -35,6 +35,90 @@ internal sealed class PlanHumanReviewClarificationTests
     }
 
     [Test]
+    public void Parser_AcceptsConstrainedRefreshWordingResponse()
+    {
+        const string text = """
+            PLAN_HUMAN_REVIEW_CLARIFICATION_JSON:
+            {
+              "planId": "PLAN-1",
+              "revision": "rev-1",
+              "gateId": "GATE-1",
+              "itemId": "proof-1",
+              "requestKind": "refresh-wording",
+              "action": "reword",
+              "userFacingAnswer": "The UI label changed.",
+              "reason": "The requirement uses stale terminology.",
+              "replacementText": "Does the This approval blocks submenu show the current downstream tasks?",
+              "preserveCheckedSelections": false
+            }
+            """;
+
+        var parsed = PlanHumanReviewClarificationResponseParser.TryParse(
+            text, out var response, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(response!.RequestKind,
+                Is.EqualTo(PlanHumanReviewClarificationRequestKind.RefreshWording));
+            Assert.That(response.Action, Is.EqualTo(PlanHumanReviewClarificationAction.Reword));
+            Assert.That(response.PreserveCheckedSelections, Is.False);
+        });
+    }
+
+    [TestCase("explain", false)]
+    [TestCase("reword", true)]
+    public void Parser_RejectsRefreshWordingThatCouldKeepStaleApproval(
+        string action,
+        bool preserveCheckedSelections)
+    {
+        var text = $$"""
+            PLAN_HUMAN_REVIEW_CLARIFICATION_JSON:
+            {
+              "planId": "PLAN-1",
+              "revision": "rev-1",
+              "gateId": "GATE-1",
+              "itemId": "proof-1",
+              "requestKind": "refresh-wording",
+              "action": "{{action}}",
+              "userFacingAnswer": "Answer.",
+              "reason": "Reason.",
+              "replacementText": "Updated requirement?",
+              "preserveCheckedSelections": {{preserveCheckedSelections.ToString().ToLowerInvariant()}}
+            }
+            """;
+
+        var parsed = PlanHumanReviewClarificationResponseParser.TryParse(
+            text, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("refresh-wording"));
+        });
+    }
+
+    [Test]
+    public void RefreshWordingPrompt_RequiresReadOnlyRewordAndClearedSelection()
+    {
+        var plan = MakePlan();
+        var gate = plan.ApprovalGates.Single();
+        var item = PlanHumanReviewChecklist.Build(plan, [gate]).First();
+
+        var prompt = PlanHumanReviewClarificationResponseParser.BuildRefreshWordingProtocolContext(
+            plan, gate, item, "Step 1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("read-only wording assessment"));
+            Assert.That(prompt, Does.Contain("requestKind=refresh-wording"));
+            Assert.That(prompt, Does.Contain("action=reword"));
+            Assert.That(prompt, Does.Contain("preserveCheckedSelections=false"));
+            Assert.That(prompt, Does.Contain(item.CandidateCommit));
+        });
+    }
+
+    [Test]
     public void Remove_PreservesOtherSelectionsAcrossStoreReload()
     {
         using var workspace = new TestWorkspace();
