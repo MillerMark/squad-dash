@@ -141,7 +141,7 @@ internal sealed class PlansPanelControllerTests
             ctrl.OnPlanChanged(plan with { Revision = "rev2", RevisionNumber = 2 });
 
             var updatedRow = activePanel.Children.OfType<Border>().Single();
-            var updatedTitleRow = (StackPanel)((StackPanel)updatedRow.Child).Children[0];
+            var updatedTitleRow = (Grid)((StackPanel)updatedRow.Child).Children[0];
             Assert.That(updatedTitleRow.Children.OfType<TextBlock>().Any(text => text.Text == "Updated"), Is.True);
             Assert.That(updatedRow.Effect, Is.Not.Null);
 
@@ -150,7 +150,7 @@ internal sealed class PlansPanelControllerTests
             openItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
 
             var acknowledgedRow = activePanel.Children.OfType<Border>().Single();
-            var acknowledgedTitleRow = (StackPanel)((StackPanel)acknowledgedRow.Child).Children[0];
+            var acknowledgedTitleRow = (Grid)((StackPanel)acknowledgedRow.Child).Children[0];
             Assert.That(acknowledgedTitleRow.Children.OfType<TextBlock>().Any(text => text.Text == "Updated"), Is.False);
         });
 
@@ -338,7 +338,7 @@ internal sealed class PlansPanelControllerTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var statusIcon = (TextBlock)titleRow.Children[0];
 
             Assert.That(statusIcon.Text, Is.EqualTo("⟳"));

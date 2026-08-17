@@ -30,6 +30,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _attachFollowUp;
     private readonly Action<Plan>? _addToNewChat;
     private readonly Action<Plan>? _revisePlan;
+    private readonly Action<Plan, string>? _renamePlan;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -74,7 +75,8 @@ internal sealed class PlansPanelController
         Action<Plan>? addToNewChat         = null,
         Func<bool>?   isPromptRunning      = null,
         Func<Plan, string>? getPlanFilePath = null,
-        Action<Plan>? revisePlan = null)
+        Action<Plan>? revisePlan = null,
+        Action<Plan, string>? renamePlan = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -92,6 +94,7 @@ internal sealed class PlansPanelController
         _attachFollowUp       = attachFollowUp;
         _addToNewChat         = addToNewChat;
         _revisePlan           = revisePlan;
+        _renamePlan           = renamePlan;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -378,7 +381,11 @@ internal sealed class PlansPanelController
         var rowStack = new StackPanel { Orientation = Orientation.Vertical };
 
         // ── Title row: status icon + title ────────────────────────────────
-        var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var titleRow = new Grid();
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        if (isUpdated)
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var iconBlock = BuildTitleStatusOrControl(plan);
 
@@ -392,6 +399,8 @@ internal sealed class PlansPanelController
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
+        Grid.SetColumn(iconBlock, 0);
+        Grid.SetColumn(titleBlock, 1);
         titleRow.Children.Add(iconBlock);
         titleRow.Children.Add(titleBlock);
         if (isUpdated)
@@ -405,6 +414,7 @@ internal sealed class PlansPanelController
             };
             updatedBadge.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             updatedBadge.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
+            Grid.SetColumn(updatedBadge, 2);
             titleRow.Children.Add(updatedBadge);
         }
         rowStack.Children.Add(titleRow);
@@ -526,6 +536,14 @@ internal sealed class PlansPanelController
             _openPlan(plan);
         };
         menu.Items.Add(openItem);
+
+        if (_renamePlan is not null)
+        {
+            var renameItem = new MenuItem { Header = "Rename" };
+            renameItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            renameItem.Click += (_, _) => BeginInlineRename(titleRow, titleBlock, plan);
+            menu.Items.Add(renameItem);
+        }
 
         if (_revisePlan is not null)
         {
@@ -680,6 +698,68 @@ internal sealed class PlansPanelController
     {
         if (!_updatedPlanIds.Remove(planId)) return;
         RebuildPanels();
+    }
+
+    // ── In-place rename ───────────────────────────────────────────────────────
+
+    private void BeginInlineRename(Grid titleRow, TextBlock titleBlock, Plan plan)
+    {
+        titleBlock.Visibility = Visibility.Collapsed;
+
+        var textBox = new TextBox
+        {
+            Text              = plan.Title,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment   = VerticalAlignment.Center,
+            BorderThickness     = new Thickness(1),
+            Padding             = new Thickness(2, 1, 2, 1),
+        };
+        textBox.SetResourceReference(TextBox.FontSizeProperty,   "FontSizeBody");
+        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        textBox.SetResourceReference(TextBox.BackgroundProperty, "InputSurface");
+        textBox.SetResourceReference(TextBox.BorderBrushProperty, "SubtleBorder");
+        Grid.SetColumn(textBox, 1);
+        titleRow.Children.Add(textBox);
+
+        // Prevent row click from opening the plan viewer while editing.
+        textBox.MouseLeftButtonUp += (_, e) => e.Handled = true;
+
+        textBox.Loaded += (_, _) => { textBox.Focus(); textBox.SelectAll(); };
+
+        var committed = false;
+
+        void Commit()
+        {
+            if (committed) return;
+            committed = true;
+            var newTitle = textBox.Text.Trim();
+            titleRow.Children.Remove(textBox);
+            titleBlock.Visibility = Visibility.Visible;
+            if (string.IsNullOrWhiteSpace(newTitle) ||
+                string.Equals(newTitle, plan.Title, StringComparison.Ordinal))
+                return;
+            try { _renamePlan!(plan, newTitle); }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(TraceCategory.UI,
+                    $"PlansPanelController: rename of '{plan.PlanId}' failed: {ex.Message}");
+            }
+        }
+
+        void Cancel()
+        {
+            if (committed) return;
+            committed = true;
+            titleRow.Children.Remove(textBox);
+            titleBlock.Visibility = Visibility.Visible;
+        }
+
+        textBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { e.Handled = true; Commit(); }
+            else if (e.Key == Key.Escape) { e.Handled = true; Cancel(); }
+        };
+        textBox.LostFocus += (_, _) => Commit();
     }
 
     private static string BuildProgressCountLabel(Plan plan) =>

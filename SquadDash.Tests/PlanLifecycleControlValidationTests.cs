@@ -114,7 +114,7 @@ internal sealed class PlanLifecycleControlValidationTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var pauseButton = titleRow.Children.OfType<Button>().FirstOrDefault();
 
             Assert.Multiple(() =>
@@ -140,7 +140,7 @@ internal sealed class PlanLifecycleControlValidationTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var pauseButton = titleRow.Children.OfType<Button>().First();
 
             pauseButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -163,7 +163,7 @@ internal sealed class PlanLifecycleControlValidationTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var resumeButton = titleRow.Children.OfType<Button>().FirstOrDefault();
 
             Assert.Multiple(() =>
@@ -189,7 +189,7 @@ internal sealed class PlanLifecycleControlValidationTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var resumeButton = titleRow.Children.OfType<Button>().First();
 
             resumeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -219,7 +219,7 @@ internal sealed class PlanLifecycleControlValidationTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (StackPanel)rowStack.Children[0];
+            var titleRow = (Grid)rowStack.Children[0];
             var buttons = titleRow.Children.OfType<Button>().ToList();
 
             Assert.That(buttons, Has.Count.EqualTo(0),

@@ -50325,7 +50325,22 @@ public partial class MainWindow : Window
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
                 addToNewChat: plan => { AddEmptyQueueSlot(); AttachPlanFollowUp(plan); },
                 getPlanFilePath: plan => System.IO.Path.Combine(_currentWorkspace!.SquadFolderPath, "plans", plan.PlanId + ".json"),
-                revisePlan: BeginPlanRevision);
+                revisePlan: BeginPlanRevision,
+                renamePlan: (plan, newTitle) =>
+                {
+                    if (_planStore is null) return;
+                    try
+                    {
+                        var updatedPlan = plan with { Title = newTitle };
+                        _planStore.Save(updatedPlan);
+                        _plansPanelController?.OnPlanChanged(updatedPlan);
+                    }
+                    catch (Exception ex)
+                    {
+                        SquadDashTrace.Write(TraceCategory.UI,
+                            $"PlanRename: failed to save title for '{plan.PlanId}': {ex.Message}");
+                    }
+                });
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
