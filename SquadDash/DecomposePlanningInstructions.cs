@@ -406,9 +406,7 @@ internal static class DecomposePlanningInstructions
                 throw new InvalidDataException(
                     $"Plan task {stepId} assigns unavailable roster agent '{assignment.AgentHandle}'.");
 
-            var charterPath = agent.CharterPath is { Length: > 0 }
-                ? Path.Combine(squadFolderPath, agent.CharterPath.Replace('/', Path.DirectorySeparatorChar))
-                : Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
+            var charterPath = PlanStepAgentResolver.ResolveCharterPath(squadFolderPath, agent);
             if (!File.Exists(charterPath))
                 throw new InvalidDataException(
                     $"Plan task {stepId} assigns '{agent.Handle}', but its charter is unavailable.");

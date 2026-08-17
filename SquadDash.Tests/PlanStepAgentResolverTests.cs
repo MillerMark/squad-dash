@@ -108,6 +108,31 @@ internal sealed class PlanStepAgentResolverTests
         Assert.That(argus!.IsActive, Is.False);
     }
 
+    [TestCase("active", true)]
+    [TestCase("Active", true)]
+    [TestCase("✅ Active", true)]
+    [TestCase("Active ✅", true)]
+    [TestCase("inactive", false)]
+    [TestCase("🔴 Retired", false)]
+    public void ParseTeamMd_RecognizesActiveAsAWholeStatusLabel(string status, bool expectedActive)
+    {
+        var team = $$"""
+            ## Members
+            | Name | Role | Charter | Status |
+            |---|---|---|---|
+            | Shuri | AiGen | `.squad/agents/shuri/charter.md` | {{status}} |
+            """;
+
+        var agent = PlanStepAgentResolver.ParseTeamMd(team).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(agent.Handle, Is.EqualTo("shuri"));
+            Assert.That(agent.CharterPath, Is.EqualTo(".squad/agents/shuri/charter.md"));
+            Assert.That(agent.IsActive, Is.EqualTo(expectedActive));
+        });
+    }
+
     // ── Resolution tests ─────────────────────────────────────────────────────────
 
     private static (IReadOnlyList<RoutingRule> rules, IReadOnlyList<RosterAgent> agents) BuildTestData()

@@ -61,9 +61,7 @@ internal sealed record PlanExecutionAttemptState(
             if (agent is null)
                 throw new InvalidDataException(
                     $"Task {taskId} assigns unavailable active roster agent '{assignment.AgentHandle}'.");
-            var charterPath = agent.CharterPath is { Length: > 0 }
-                ? Path.Combine(squadFolderPath, agent.CharterPath.Replace('/', Path.DirectorySeparatorChar))
-                : Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
+            var charterPath = PlanStepAgentResolver.ResolveCharterPath(squadFolderPath, agent);
             var charter = File.ReadAllText(charterPath);
             // The capability authenticates the host-owned assignment envelope at launch.
             // Reading the authoritative charter is separate completion evidence so an AI

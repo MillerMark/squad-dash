@@ -66,6 +66,38 @@ internal sealed class PlanAgentAssignmentSchemaTests
     }
 
     [Test]
+    public void Validator_AcceptsLegacyDecoratedStatusAndWorkspaceRelativeCharterPath()
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "squaddash-legacy-routing-" + Guid.NewGuid().ToString("N"));
+        var squadFolder = Path.Combine(temp, ".squad");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(squadFolder, "agents", "cassianrook"));
+            File.WriteAllText(Path.Combine(squadFolder, "team.md"), """
+                | Name | Role | Charter | Status |
+                |---|---|---|---|
+                | CassianRook | AI Model Integration Expert | `.squad/agents/cassianrook/charter.md` | ✅ Active |
+                """);
+            File.WriteAllText(
+                Path.Combine(squadFolder, "agents", "cassianrook", "charter.md"),
+                "# CassianRook");
+            var group = new DecomposedTaskGroup(
+                "LEGACY-20260817", "Legacy routing", "feature/legacy-routing", "Validate legacy routing",
+                [new DecomposedSubTask(
+                    "LEGACY-20260817-001", "Build integration", [], "high", "Build integration",
+                    AgentRoutingMode: "assigned",
+                    AgentAssignments: [new DecomposedAgentAssignment("cassianrook", "primary")])]);
+
+            Assert.That(PlanAgentAssignmentCatalogValidator.TryValidate(
+                group, squadFolder, out var error, requireExplicitRouting: true), Is.True, error);
+        }
+        finally
+        {
+            if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    [Test]
     public void TasksJsonParser_NormalizesUnambiguousAssignmentAndGateAliases()
     {
         const string text = """

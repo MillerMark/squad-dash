@@ -148,11 +148,13 @@ internal sealed class PlanStepAgentResolver
                     name.Equals("Name", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var isActive    = status.Equals("active", StringComparison.OrdinalIgnoreCase);
+                var isActive    = HasStatusLabel(status, "active");
                 // Newer team templates use the Charter column for a prose responsibility
                 // summary. Only path-shaped values are charter paths; otherwise fall back to
                 // the canonical agents/<handle>/charter.md location during validation.
-                var charterPath = LooksLikeCharterPath(charter) ? charter : null;
+                var charterPath = LooksLikeCharterPath(charter)
+                    ? charter.Trim().Trim('`')
+                    : null;
                 var charterDirectory = charterPath is null
                     ? null
                     : Path.GetFileName(Path.GetDirectoryName(charterPath.Replace('/', Path.DirectorySeparatorChar)));
@@ -175,6 +177,57 @@ internal sealed class PlanStepAgentResolver
 
     private static string CleanKeyword(string kw) =>
         new string(kw.Where(c => c != '`' && c != '*' && c != '\\').ToArray()).Trim();
+
+    private static bool HasStatusLabel(string status, string label)
+    {
+        var searchStart = 0;
+        while (searchStart < status.Length)
+        {
+            var index = status.IndexOf(label, searchStart, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+                return false;
+
+            var beforeIsBoundary = index == 0 || !char.IsLetterOrDigit(status[index - 1]);
+            var afterIndex = index + label.Length;
+            var afterIsBoundary = afterIndex == status.Length || !char.IsLetterOrDigit(status[afterIndex]);
+            if (beforeIsBoundary && afterIsBoundary)
+                return true;
+
+            searchStart = afterIndex;
+        }
+
+        return false;
+    }
+
+    internal static string ResolveCharterPath(string squadFolderPath, RosterAgent agent)
+    {
+        if (string.IsNullOrWhiteSpace(agent.CharterPath))
+            return Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
+
+        var cleaned = agent.CharterPath.Trim().Trim('`')
+            .Replace('/', Path.DirectorySeparatorChar);
+        if (Path.IsPathRooted(cleaned))
+            return Path.GetFullPath(cleaned);
+
+        var normalizedSquadFolder = Path.GetFullPath(squadFolderPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var squadRelative = Path.GetFullPath(Path.Combine(normalizedSquadFolder, cleaned));
+        if (File.Exists(squadRelative))
+            return squadRelative;
+
+        var teamRoot = Path.GetDirectoryName(normalizedSquadFolder);
+        if (!string.IsNullOrWhiteSpace(teamRoot))
+        {
+            var teamRootRelative = Path.GetFullPath(Path.Combine(teamRoot, cleaned));
+            if (File.Exists(teamRootRelative) ||
+                cleaned.StartsWith(
+                    Path.GetFileName(normalizedSquadFolder) + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))
+                return teamRootRelative;
+        }
+
+        return squadRelative;
+    }
 
     private static bool LooksLikeCharterPath(string value)
     {

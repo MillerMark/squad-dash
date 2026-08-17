@@ -59,9 +59,7 @@ internal static class PlanAgentAssignmentCatalogValidator
                     return false;
                 }
 
-                var charterPath = agent.CharterPath is { Length: > 0 }
-                    ? Path.Combine(squadFolderPath, agent.CharterPath.Replace('/', Path.DirectorySeparatorChar))
-                    : Path.Combine(squadFolderPath, "agents", agent.Handle, "charter.md");
+                var charterPath = PlanStepAgentResolver.ResolveCharterPath(squadFolderPath, agent);
                 if (!File.Exists(charterPath))
                 {
                     error = $"Task {task.Id} assigns '{assignment.AgentHandle}', but its charter is missing.";
