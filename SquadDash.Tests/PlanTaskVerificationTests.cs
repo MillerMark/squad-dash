@@ -126,7 +126,7 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
-    public void Parser_StillRequiresInstructionsForReworkVerdict()
+    public void Parser_ReworkWithoutInstructionsFallsBackToHumanReviewWithoutAnotherModelCall()
     {
         var json = """
             PLAN_TASK_VERIFICATION_JSON:
@@ -136,8 +136,14 @@ internal sealed class PlanTaskVerificationTests
              "reworkInstructions":null}
             """;
 
-        Assert.That(PlanTaskVerificationResultParser.TryParse(json, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("actionable rework instructions"));
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.HumanReviewRequired));
+            Assert.That(result?.MissingOrOverstatedWork, Does.Contain("missing wiring"));
+        });
     }
 
     [Test]
@@ -150,7 +156,11 @@ internal sealed class PlanTaskVerificationTests
             new DecomposeStepVerification("passed", "dotnet test", "green"));
 
         var prompt = PlanTaskVerificationPromptBuilder.BuildEnvelopeRepair(
-            plan, task, candidate, "The production approval actions are still enabled.");
+            plan,
+            task,
+            candidate,
+            "The production approval actions are still enabled.",
+            "An accepted result cannot contain missing work.");
 
         Assert.Multiple(() =>
         {
@@ -159,6 +169,8 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
             Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
             Assert.That(prompt, Does.Contain("production approval actions are still enabled"));
+            Assert.That(prompt, Does.Contain("Exact validation error: An accepted result cannot contain missing work."));
+            Assert.That(prompt, Does.Contain("Never return `accepted` with a `missing`, `overstated`, or `unclear` finding"));
         });
     }
 
@@ -195,6 +207,9 @@ internal sealed class PlanTaskVerificationTests
         {
             Assert.That(prompt, Does.Contain("Treat every explicit current-task requirement as binding"));
             Assert.That(prompt, Does.Contain("candidate handoff declares it in `deferredWork`"));
+            Assert.That(prompt, Does.Contain("plan-authored downstream integration"));
+            Assert.That(prompt, Does.Contain("does not belong in the current handoff's `deferredWork`"));
+            Assert.That(prompt, Does.Contain("report `human-review-required` as a warning instead of rejecting the task"));
             Assert.That(prompt, Does.Contain("`P-2` — Wire consumer"));
             Assert.That(prompt, Does.Contain("Use the source from the running application"));
         });
@@ -250,7 +265,7 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
-    public void Parser_RejectsAcceptedVerdictWithDiscrepancies()
+    public void Parser_AcceptedVerdictWithDiscrepanciesFallsBackToHumanReview()
     {
         var json = """
             PLAN_TASK_VERIFICATION_JSON:
@@ -260,8 +275,59 @@ internal sealed class PlanTaskVerificationTests
              "testAssessment":"tests cover only helper","reworkInstructions":[]}
             """;
 
-        Assert.That(PlanTaskVerificationResultParser.TryParse(json, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("accepted verification result"));
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.HumanReviewRequired));
+            Assert.That(result?.MissingOrOverstatedWork, Does.Contain("consumer is not wired"));
+        });
+    }
+
+    [Test]
+    public void Parser_AcceptedVerdictWithBoundedCorrectionBecomesReworkRequired()
+    {
+        var json = """
+            PLAN_TASK_VERIFICATION_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"accepted","summary":"one bounded defect","claimFindings":[],
+             "missingOrOverstatedWork":["consumer is not wired"],
+             "testAssessment":"helper tests pass",
+             "reworkInstructions":["wire the production consumer"]}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.ReworkRequired));
+            Assert.That(result?.ReworkInstructions, Does.Contain("wire the production consumer"));
+        });
+    }
+
+    [Test]
+    public void Parser_UnrecognizedFindingIsAnInconclusiveWarningNotAutomaticRework()
+    {
+        var json = """
+            PLAN_TASK_VERIFICATION_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"rework-required","summary":"future consumer may be absent",
+             "claimFindings":[{"claim":"future consumer","disposition":"possibly-missing","evidence":"ownership is uncertain"}],
+             "missingOrOverstatedWork":["future consumer may be absent"],
+             "testAssessment":"current contract tests pass",
+             "reworkInstructions":["wire the possible consumer"]}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.HumanReviewRequired));
+            Assert.That(result?.ClaimFindings.Single().Disposition, Is.EqualTo("unclear"));
+        });
     }
 
     [Test]

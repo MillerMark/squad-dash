@@ -178,7 +178,7 @@ internal sealed class CompletedWorkReviewPresentationTests
     // --- Routing: Inbox actions ---
 
     [Test]
-    public void BuildRecoveryMessage_WithEvidence_IncludesReviewAction()
+    public void BuildRecoveryMessage_WithEvidence_OffersDirectStepCompletion()
     {
         var pending = MakePending();
         var evidence = MakeEvidence();
@@ -186,7 +186,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
         Assert.That(message.Actions.Select(a => a.Label),
-            Does.Contain("Review Completed Work"));
+            Is.EqualTo(new[] { "Step 1 Is Complete", "✎ Revise Remaining Plan…" }));
     }
 
     [Test]
@@ -211,10 +211,10 @@ internal sealed class CompletedWorkReviewPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Actions.Select(action => action.Label),
-                Does.Contain("Review & Approve Amendment"));
+                Does.Contain("Approve Amendment & Continue"));
             Assert.That(message.Actions.Select(action => action.Label),
                 Has.No.Member("Review Completed Work"));
-            Assert.That(message.Body, Does.Contain("accepting it also approves its checkpoint"));
+            Assert.That(message.Body, Does.Contain("Approving accepts the amendment and its checkpoint"));
         });
     }
 
@@ -230,7 +230,7 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithoutEvidence_StillHasAssessAndReplan()
+    public void BuildRecoveryMessage_WithoutEvidence_ContinuesWithoutAssessmentAndOffersReplan()
     {
         var pending = MakePending();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
@@ -238,18 +238,20 @@ internal sealed class CompletedWorkReviewPresentationTests
 
         Assert.That(message.Actions, Has.Count.EqualTo(2));
         Assert.That(message.Actions.Select(a => a.Label),
-            Is.EqualTo(new[] { "Assess & Continue", "✎ Revise Remaining Plan…" }));
+            Is.EqualTo(new[] { "Continue Working on Step 1", "✎ Revise Remaining Plan…" }));
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithEvidence_HasThreeActions()
+    public void BuildRecoveryMessage_WithEvidence_HasCompletionAndReplanActionsOnly()
     {
         var pending = MakePending();
         var evidence = MakeEvidence();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(3));
+        Assert.That(message.Actions, Has.Count.EqualTo(2));
+        Assert.That(message.Actions.Select(action => action.Label),
+            Has.No.Member("Assess & Continue"));
     }
 
     [Test]
@@ -308,7 +310,7 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void Reconcile_CurrentInterrupted_WithEvidence_PreservesAllActions()
+    public void Reconcile_CurrentInterrupted_WithEvidence_UsesDirectCompletionModel()
     {
         var pending = MakePending();
         var evidence = MakeEvidence();
@@ -321,9 +323,9 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(2));
             Assert.That(result.Message.Actions.Select(a => a.Label),
-                Does.Contain("Review Completed Work"));
+                Is.EqualTo(new[] { "Step 1 Is Complete", "✎ Revise Remaining Plan…" }));
         });
     }
 

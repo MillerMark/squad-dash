@@ -46,7 +46,8 @@ internal sealed class PlanReviewActivityResponseTests
             Assert.That(context, Does.Contain("mode=interrupted-human-review"));
             Assert.That(context, Does.Contain("A bare \"fix it\""));
             Assert.That(context, Does.Contain("manual-correction"));
-            Assert.That(context, Does.Contain("assess-and-continue"));
+            Assert.That(context, Does.Contain("continue-working"));
+            Assert.That(context, Does.Not.Contain("assess-and-continue"));
             Assert.That(context, Does.Contain("Do not reopen the task"));
         });
     }

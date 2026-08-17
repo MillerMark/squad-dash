@@ -60,6 +60,9 @@ internal sealed class DecomposeRecoveryDecisionParserTests
     [TestCase("retry-as-written")]
     [TestCase("replan-failed-task")]
     [TestCase("assess-and-continue")]
+    [TestCase("accept-step-complete")]
+    [TestCase("resume-verification")]
+    [TestCase("continue-working")]
     public void SupportedAction_Parses(string action)
     {
         var text = $"DECOMPOSE_RECOVERY_JSON:\n{{\"groupId\":\"PLAN-20260725\",\"revision\":\"abc\",\"action\":\"{action}\"}}";

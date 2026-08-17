@@ -43,14 +43,22 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine("Inspect the actual commit, diff, production call sites, and tests. A helper or test is not production integration " +
                            "unless the running path consumes it. Treat the worker summary as a claim, not evidence.");
         builder.AppendLine("Treat every explicit current-task requirement as binding. Do not waive missing work merely because a later task " +
-                           "might address it. A deferral is legitimate only when the candidate handoff declares it in `deferredWork`, names " +
-                           "one or more downstream owner task IDs, and the approved contracts of those tasks clearly own the deferred work. " +
-                           "An undeclared or unsupported deferral is missing or overstated work and requires rework.");
+                           "might address it. A worker-created deferral of work otherwise owned by the current task is legitimate only when the " +
+                           "candidate handoff declares it in `deferredWork`, names one or more downstream owner task IDs, and the approved " +
+                           "contracts of those tasks clearly own the deferred work. Require rework only when repository and plan evidence " +
+                           "definitively establish a bounded omission owned by the current task. If ownership or intent remains uncertain, " +
+                           "report `human-review-required` as a warning instead of rejecting the task.");
+        builder.AppendLine("Distinguish worker-created deferral from plan-authored downstream integration. If the approved current task describes " +
+                           "an interface or service and explicitly names a later approved task as its production consumer, that later wiring is " +
+                           "already owned by the plan and does not belong in the current handoff's `deferredWork`. Verify the current contract and " +
+                           "interface now; verify the named consumer when its owning task runs. Mark the current handoff overstated only if it claims " +
+                           "that future consumer is already wired when repository evidence shows it is not.");
         AppendDownstreamContracts(builder, plan, task);
         builder.AppendLine();
         builder.AppendLine("Return exactly one result. `missingOrOverstatedWork` is mandatory even when empty. " +
                            "Use `accepted` only when every material claim is supported. Use `rework-required` for a clear, bounded correction. " +
                            "Use `human-review-required` when evidence or product intent is ambiguous.");
+        AppendVerdictRules(builder);
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
     }
@@ -98,10 +106,13 @@ internal static class PlanTaskVerificationPromptBuilder
         Plan plan,
         PlanTask task,
         DecomposeStepResult candidate,
-        string? priorFindings = null)
+        string? priorFindings = null,
+        string? validationError = null)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Your verification completed, but the response omitted the required structured result.");
+        builder.AppendLine("Your verification completed, but SquadDash could not accept the structured result.");
+        if (!string.IsNullOrWhiteSpace(validationError))
+            builder.AppendLine($"Exact validation error: {validationError.Trim()}");
         builder.AppendLine("The completed verification must be the spawned `fact-checker` utility agent's result. Do not replace it with the coordinator's own assessment.");
         builder.AppendLine("Do not inspect files again, run tools, modify the repository, or launch workers.");
         builder.AppendLine("Convert the findings already reached into the required result. Do not omit, soften, or reinterpret a discrepancy.");
@@ -115,8 +126,19 @@ internal static class PlanTaskVerificationPromptBuilder
         }
         builder.AppendLine();
         builder.AppendLine("Return only the corrected PLAN_TASK_VERIFICATION_JSON object below. Do not add prose before or after it.");
+        AppendVerdictRules(builder);
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
+    }
+
+    private static void AppendVerdictRules(StringBuilder builder)
+    {
+        builder.AppendLine();
+        builder.AppendLine("Verdict consistency rules (these are mandatory):");
+        builder.AppendLine("- `accepted`: every claim finding is `supported`, `missingOrOverstatedWork` is `[]`, and `reworkInstructions` is `[]`.");
+        builder.AppendLine("- `rework-required`: a definite, task-owned, bounded defect is supported by repository evidence and `reworkInstructions` contains the concrete correction.");
+        builder.AppendLine("- `human-review-required`: a discrepancy is suspected, evidence is incomplete, ownership is uncertain, or product intent is ambiguous. Preserve it as a warning for human judgment; do not reject the result or invent rework instructions.");
+        builder.AppendLine("Never return `accepted` with a `missing`, `overstated`, or `unclear` finding. Never erase a discrepancy merely to keep `accepted`.");
     }
 
     private static void AppendSchema(

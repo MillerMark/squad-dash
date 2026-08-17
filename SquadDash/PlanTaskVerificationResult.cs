@@ -67,6 +67,10 @@ internal static class PlanTaskVerificationResultParser
             Verdict = parsed.Verdict?.Trim().ToLowerInvariant() ?? string.Empty,
             ClaimFindings = (parsed.ClaimFindings ?? [])
                 .Where(finding => finding is not null)
+                .Select(finding => finding with
+                {
+                    Disposition = NormalizeDisposition(finding.Disposition),
+                })
                 .ToArray(),
             MissingOrOverstatedWork = (parsed.MissingOrOverstatedWork ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item))
@@ -94,19 +98,41 @@ internal static class PlanTaskVerificationResultParser
             return false;
         }
 
-        if (parsed.Verdict == PlanTaskVerificationVerdict.Accepted && parsed.MissingOrOverstatedWork.Count > 0)
+        // A contradictory verdict is still a complete, useful verification result. Preserve all
+        // findings and normalize toward the safer decision instead of spending another model call
+        // asking for representation-only repair. Bounded instructions permit one automatic
+        // rework; otherwise the human decides from the evidence already collected.
+        var hasDefiniteFinding = parsed.ClaimFindings.Any(finding =>
+            finding.Disposition is "missing" or "overstated") ||
+            parsed.MissingOrOverstatedWork.Count > 0;
+        var hasUnclearFinding = parsed.ClaimFindings.Any(finding =>
+            finding.Disposition == "unclear");
+        if (parsed.Verdict == PlanTaskVerificationVerdict.Accepted &&
+            (hasDefiniteFinding || hasUnclearFinding))
         {
-            error = "An accepted verification result cannot contain missing or overstated work.";
-            return false;
+            parsed = parsed with
+            {
+                Verdict = hasDefiniteFinding && !hasUnclearFinding && parsed.ReworkInstructions.Count > 0
+                    ? PlanTaskVerificationVerdict.ReworkRequired
+                    : PlanTaskVerificationVerdict.HumanReviewRequired,
+            };
         }
 
-        if (parsed.Verdict == PlanTaskVerificationVerdict.ReworkRequired && parsed.ReworkInstructions.Count == 0)
+        if (parsed.Verdict == PlanTaskVerificationVerdict.ReworkRequired &&
+            (parsed.ReworkInstructions.Count == 0 || hasUnclearFinding || !hasDefiniteFinding))
         {
-            error = "A rework-required verification result must include actionable rework instructions.";
-            return false;
+            parsed = parsed with { Verdict = PlanTaskVerificationVerdict.HumanReviewRequired };
         }
 
         result = parsed;
         return true;
+    }
+
+    private static string NormalizeDisposition(string? disposition)
+    {
+        var normalized = disposition?.Trim().ToLowerInvariant();
+        return normalized is "supported" or "missing" or "overstated" or "unclear"
+            ? normalized
+            : "unclear";
     }
 }

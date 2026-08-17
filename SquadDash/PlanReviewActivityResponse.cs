@@ -98,17 +98,17 @@ internal static class PlanReviewActivityResponseParser
               does not add durable plan history.
             - If the user asks you to fix or modify the reviewed result directly, do that work normally. The user
               may ask you to delegate it to a different agent. Do not reopen the task, run the plan verifier, or
-              continue downstream plan execution. End with `manual-correction`; SquadDash records it so a later
-              Assess & Continue can inspect and verify the accumulated work.
+              continue downstream plan execution. End with `manual-correction`; SquadDash records it so the
+              current recovery card can continue from the accumulated work.
             - A bare "fix it" at this boundary means conversational `manual-correction` unless the user explicitly
               asks to reopen, rerun, or send the task back through plan execution.
             - If the user explicitly asks for plan-managed rework, use the existing approval-response or recovery
               protocol instead; do not emit this activity payload.
             - If the user explicitly approves an awaiting gate, use PLAN_GATE_APPROVAL_JSON. If the plan is
               interrupted with completed work awaiting human acceptance, use DECOMPOSE_RECOVERY_JSON with action
-              `review-completed-work`.
+              `accept-step-complete`.
             - If the user asks to continue an interrupted plan after conversational corrections, use
-              DECOMPOSE_RECOVERY_JSON with action `assess-and-continue`; SquadDash must assess the accumulated work
+              DECOMPOSE_RECOVERY_JSON with action `continue-working`; SquadDash must preserve the accumulated work
               before resuming. For an awaiting approval gate, use `add-amendment` to reconcile and verify the manual
               correction before approval.
             - Unrelated work remains ordinary work and emits no review-activity payload.

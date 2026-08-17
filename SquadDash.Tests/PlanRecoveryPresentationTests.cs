@@ -181,7 +181,7 @@ internal sealed class PlanRecoveryPresentationTests
                 bullet.Text.StartsWith("The build passes", StringComparison.Ordinal)), Is.EqualTo(1));
             Assert.That(presentation.AnalysisBullets.Single(item =>
                 item.Text == "AppendModelAttributionLine was removed.").Severity,
-                Is.EqualTo(PlanHumanReviewAnalysisSeverity.Error));
+                Is.EqualTo(PlanHumanReviewAnalysisSeverity.Warning));
         });
     }
 
@@ -274,7 +274,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void HumanReviewCompletionPolicy_AllowsExactHostRecordedCandidateWithPassingTests()
+    public void RecoveryAction_WithHostRecordedCandidateOffersDirectStepCompletion()
     {
         const string commit = "abcdef1234567890";
         var evidence = new PlanTaskCommitEvidence(
@@ -289,39 +289,39 @@ internal sealed class PlanRecoveryPresentationTests
             PlanTaskStatus.HumanReviewRequired,
             Handoff: new PlanTaskHandoff(
                 commit, "Implemented the task.", ["Feature.cs"], evidence.Verification,
-                DateTimeOffset.UtcNow));
+                DateTimeOffset.UtcNow),
+            DisplayStepLabel: "7");
         var plan = TestPlan(evidence) with { Tasks = [task] };
 
-        Assert.That(
-            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(plan, task.TaskId),
-            Is.True);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
+            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete"));
+            Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
+            Assert.That(action.Hint, Does.Contain("No additional AI assessment"));
+        });
     }
 
-    [TestCase("different-commit", "passed")]
-    [TestCase("abcdef1234567890", "failed")]
-    public void HumanReviewCompletionPolicy_RejectsAmbiguousOrFailingEvidence(
-        string handoffCommit,
-        string verificationStatus)
+    [Test]
+    public void RecoveryAction_WithoutHostRecordedCandidateContinuesWithoutAssessment()
     {
-        const string evidenceCommit = "abcdef1234567890";
-        var evidence = new PlanTaskCommitEvidence(
-            "PLAN-007",
-            "attempt-1",
-            "baseline",
-            evidenceCommit,
-            "Candidate work.",
-            new DecomposeStepVerification(verificationStatus, "dotnet test", "Result"));
         var task = new PlanTask(
             "PLAN-007", "Review me", "Work", [], "high",
-            PlanTaskStatus.HumanReviewRequired,
-            Handoff: new PlanTaskHandoff(
-                handoffCommit, "Candidate work.", ["Feature.cs"], evidence.Verification,
-                DateTimeOffset.UtcNow));
-        var plan = TestPlan(evidence) with { Tasks = [task] };
+            PlanTaskStatus.Failed,
+            DisplayStepLabel: "7");
+        var plan = TestPlan(null) with { Tasks = [task] };
 
-        Assert.That(
-            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(plan, task.TaskId),
-            Is.False);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ContinueWorking));
+            Assert.That(action.Label, Is.EqualTo("Continue Working on Step 7"));
+            Assert.That(action.ProtocolAction, Is.EqualTo("continue-working"));
+            Assert.That(action.Hint, Does.Contain("No preliminary AI assessment"));
+        });
     }
 
     [Test]
@@ -398,7 +398,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.Heading, Does.StartWith("Amendment"));
-            Assert.That(presentation.Recommendation, Does.Contain("accepting it also approves"));
+            Assert.That(presentation.Recommendation, Does.Contain("Approve the amendment"));
         });
     }
 

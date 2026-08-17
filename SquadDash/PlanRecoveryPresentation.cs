@@ -24,6 +24,87 @@ internal sealed record PlanHumanReviewAnalysisItem(
     string Text,
     PlanHumanReviewAnalysisSeverity Severity);
 
+internal enum PlanRecoveryPrimaryActionKind
+{
+    AcceptStep,
+    ApproveAmendment,
+    ResumeVerification,
+    RetryVerification,
+    ContinueWorking,
+}
+
+internal sealed record PlanRecoveryPrimaryActionPresentation(
+    PlanRecoveryPrimaryActionKind Kind,
+    string Label,
+    string Hint,
+    string ProtocolAction);
+
+/// <summary>
+/// One recovery decision model shared by the transcript, Inbox, and Plan Viewer. Evidence is
+/// investigated through links on the recovery surface; an action never opens a second copy of
+/// the same evidence and no recovery action launches a redundant AI assessment.
+/// </summary>
+internal static class PlanRecoveryActionPresentationBuilder
+{
+    internal static PlanRecoveryPrimaryActionPresentation Build(Plan plan, string taskId)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var taskIndex = plan.Tasks.ToList().FindIndex(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            task?.Title ?? task?.Description ?? taskId);
+        var evidence = plan.InterruptionData?.TaskCommitEvidence;
+        var hasExactTaskEvidence = evidence is not null &&
+                                   string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+                                   !string.IsNullOrWhiteSpace(evidence.Commit) &&
+                                   !string.IsNullOrWhiteSpace(evidence.BaselineCommit);
+
+        if (hasExactTaskEvidence)
+        {
+            if (!string.IsNullOrWhiteSpace(task?.AmendmentGateId))
+            {
+                return new PlanRecoveryPrimaryActionPresentation(
+                    PlanRecoveryPrimaryActionKind.ApproveAmendment,
+                    "Approve Amendment & Continue",
+                    "Accept the host-recorded amendment commit shown on this card, approve its checkpoint, and continue. No additional AI assessment runs.",
+                    "accept-step-complete");
+            }
+
+            return new PlanRecoveryPrimaryActionPresentation(
+                PlanRecoveryPrimaryActionKind.AcceptStep,
+                $"{stepLabel} Is Complete",
+                $"Accept the host-recorded commit shown on this card, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                "accept-step-complete");
+        }
+
+        if (PlanVerificationRecoveryPolicy.CanResume(plan, taskId))
+        {
+            return new PlanRecoveryPrimaryActionPresentation(
+                PlanRecoveryPrimaryActionKind.ResumeVerification,
+                "Resume Verification & Continue",
+                "Resume verification from the saved task handoff. Implementation work will not be repeated and no repository assessment will run.",
+                "resume-verification");
+        }
+
+        if (PlanTaskExecutionPolicy.IsVerificationOnly(task))
+        {
+            return new PlanRecoveryPrimaryActionPresentation(
+                PlanRecoveryPrimaryActionKind.RetryVerification,
+                "Retry Verification",
+                "Run this non-mutating verification step again against the current branch. No implementation task or preliminary repository assessment runs.",
+                "continue-working");
+        }
+
+        return new PlanRecoveryPrimaryActionPresentation(
+            PlanRecoveryPrimaryActionKind.ContinueWorking,
+            $"Continue Working on {stepLabel}",
+            $"Keep {stepLabel} incomplete and continue from the preserved repository state. No preliminary AI assessment runs.",
+            "continue-working");
+    }
+}
+
 /// <summary>
 /// Identifies the narrow case where an inconclusive automated verification can be resolved by
 /// the task's already-approved human-only proof checkpoint. Explicit rework findings never enter
@@ -54,30 +135,6 @@ internal static class PlanHumanReviewGatePolicy
                 PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))).ToArray();
 
         return candidates.Length == 1 ? candidates[0] : null;
-    }
-}
-
-/// <summary>
-/// Allows the user to accept a task directly when SquadDash already owns unambiguous evidence
-/// for the exact candidate shown on the recovery card. This is intentionally narrower than a
-/// general recovery assessment: the task handoff and host-captured commit must agree, and the
-/// host-captured verification must have passed.
-/// </summary>
-internal static class PlanHumanReviewCompletionPolicy
-{
-    internal static bool CanAcceptDirectly(Plan plan, string taskId)
-    {
-        var task = plan.Tasks.FirstOrDefault(candidate =>
-            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
-        var evidence = plan.InterruptionData?.TaskCommitEvidence;
-
-        return task?.Status == PlanTaskStatus.HumanReviewRequired &&
-               evidence is not null &&
-               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
-               !string.IsNullOrWhiteSpace(evidence.Commit) &&
-               !string.IsNullOrWhiteSpace(task.Handoff?.Commit) &&
-               string.Equals(evidence.Commit, task.Handoff.Commit, StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(evidence.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -189,13 +246,24 @@ internal static class PlanRecoveryPresentationBuilder
         var bullets = new List<PlanHumanReviewAnalysisItem>();
         if (report is not null)
         {
+            var inconclusiveReview = string.Equals(
+                report.Verdict,
+                PlanTaskVerificationVerdict.HumanReviewRequired,
+                StringComparison.Ordinal);
             bullets.AddRange(SplitAnalysisSentences(report.Summary).Select(text =>
-                new PlanHumanReviewAnalysisItem(text, ClassifyAnalysisSentence(text))));
+                new PlanHumanReviewAnalysisItem(
+                    text,
+                    ClassifyAnalysisSentence(text, inconclusiveReview))));
             foreach (var missing in report.MissingOrOverstatedWork)
                 if (!string.IsNullOrWhiteSpace(missing)) bullets.Add(new PlanHumanReviewAnalysisItem(
-                    missing.Trim(), ClassifyAnalysisSentence(missing)));
+                    missing.Trim(),
+                    inconclusiveReview
+                        ? PlanHumanReviewAnalysisSeverity.Warning
+                        : ClassifyAnalysisSentence(missing)));
             bullets.AddRange(SplitAnalysisSentences(report.TestAssessment).Select(text =>
-                new PlanHumanReviewAnalysisItem(text, ClassifyAnalysisSentence(text))));
+                new PlanHumanReviewAnalysisItem(
+                    text,
+                    ClassifyAnalysisSentence(text, inconclusiveReview))));
         }
         if (bullets.Count == 0)
             bullets.Add(new PlanHumanReviewAnalysisItem(
@@ -219,7 +287,9 @@ internal static class PlanRecoveryPresentationBuilder
             distinct);
     }
 
-    private static PlanHumanReviewAnalysisSeverity ClassifyAnalysisSentence(string text)
+    private static PlanHumanReviewAnalysisSeverity ClassifyAnalysisSentence(
+        string text,
+        bool inconclusiveReview = false)
     {
         if (text.Contains("passes", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("passed", StringComparison.OrdinalIgnoreCase) ||
@@ -227,7 +297,8 @@ internal static class PlanRecoveryPresentationBuilder
             text.Contains("succeeded", StringComparison.OrdinalIgnoreCase))
             return PlanHumanReviewAnalysisSeverity.Information;
         if (text.Contains("human observation", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("human review", StringComparison.OrdinalIgnoreCase))
+            text.Contains("human review", StringComparison.OrdinalIgnoreCase) ||
+            inconclusiveReview)
             return PlanHumanReviewAnalysisSeverity.Warning;
         return PlanHumanReviewAnalysisSeverity.Error;
     }
@@ -265,8 +336,8 @@ internal static class PlanRecoveryPresentationBuilder
                     : "SquadDash captured a host-validated commit from this task before execution stopped.",
                 evidence,
                 isAmendment
-                    ? "Recommended: review the amendment once; accepting it also approves the checkpoint that requested it."
-                    : "Recommended: review the completed work before deciding whether this step is complete.",
+                    ? "Use the commit link above to investigate. Approve the amendment if it satisfies the requested change."
+                    : "Use the commit link above to investigate, then confirm whether this step is complete.",
                 "Retry Task Anyway…",
                 RetryIsWarning: true);
         }

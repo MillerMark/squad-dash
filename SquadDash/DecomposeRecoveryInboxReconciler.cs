@@ -52,7 +52,8 @@ internal static class DecomposeRecoveryInboxReconciler
                 currentTaskId!,
                 plan!.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.",
                 message.Timestamp,
-                plan.InterruptionData?.TaskCommitEvidence) with
+                plan.InterruptionData?.TaskCommitEvidence,
+                plan) with
             {
                 Read = message.Read,
                 Priority = "critical",

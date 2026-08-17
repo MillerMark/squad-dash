@@ -407,7 +407,7 @@ internal sealed class PlanExecutionScenarioTests
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
         {
-            "Assess & Continue",
+            "Continue Working on PLAN-20260728-003",
             "✎ Revise Remaining Plan…",
         }));
     }

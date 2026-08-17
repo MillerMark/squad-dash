@@ -421,9 +421,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onAdoptVerifiedCommitRange is not null)
             {
                 var acceptButton = TranscriptQuickReplyFactory.CreateButton(
-                    $"Accept {stepLabel} as Complete", quickReplyFontSize,
+                    _interruptedPrimaryActionLabel ?? $"{stepLabel} Is Complete", quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Review and explicitly accept the existing evidence for {stepLabel}, mark only this step complete, and continue the plan."));
+                        _interruptedPrimaryActionHint ??
+                        $"Use the evidence links in this viewer, then mark only {stepLabel} complete and continue the plan."));
                 acceptButton.Focusable = false;
                 acceptButton.Click += async (_, _) =>
                 {
@@ -483,13 +484,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var resumableValidation = PlanExecutionBoundaryPolicy.SelectValidation(capturedPlan);
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
                     resumableValidation is null
-                        ? _interruptedPrimaryActionLabel ?? "Assess & Continue"
+                        ? _interruptedPrimaryActionLabel ?? "Continue Plan Recovery"
                         : "Resume Validation",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         resumableValidation is null
                             ? _interruptedPrimaryActionHint ??
-                              "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing or continuing the plan."
+                              "Continue from the preserved plan state without launching a preliminary repository assessment."
                             : $"Continue with the ready validation “{resumableValidation.Title}.” Completed implementation steps will not be repeated."));
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>
@@ -507,7 +508,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         interruptedPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
                             $"Plan recovery assessment failed: {ex}");
-                        UIErrorHelper.ShowError("Assess & Continue", ex.Message, this);
+                        UIErrorHelper.ShowError("Plan Recovery", ex.Message, this);
                     }
                 };
                 interruptedPanel.Children.Add(adoptButton);
@@ -2467,7 +2468,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
             }
 
-            // Assess & Continue is coordinator-owned. Mirror the fact-checker placement so
+            // Recovery assessment is coordinator-owned. Mirror the fact-checker placement so
             // the upper-right avatar and right-side spinner describe the same active work.
             if (activityState == PlanTaskActivityState.Assessing && _resolveAgentAvatar is not null)
             {

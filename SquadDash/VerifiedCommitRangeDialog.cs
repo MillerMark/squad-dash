@@ -22,7 +22,7 @@ internal sealed class VerifiedCommitRangeDialog : ChromedWindow
         : base(captionHeight: 34, resizeMode: ResizeMode.CanResize, resizeBorderThickness: 6)
     {
         _hostRecordedRange = hostRecordedRange;
-        Title = "Review Completed Work";
+        Title = "Choose Task Commit Range";
         Width = 720;
         Height = 480;
         MinWidth = 560;

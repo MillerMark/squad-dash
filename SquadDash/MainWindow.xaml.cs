@@ -6337,7 +6337,7 @@ public partial class MainWindow : Window
             "required-plan-agent-provider-failure",
             "[interrupted: required plan agent provider failure]");
         ScheduleDecomposeSystemEntry(
-            reason + " Correct the provider profile, then use Assess & Continue to recover the preserved task state.");
+            reason + " Correct the provider profile, then use the current plan recovery action to continue from the preserved state.");
     }
 
     private void HandlePromptFailure(SquadSdkEvent evt)
@@ -10089,23 +10089,24 @@ public partial class MainWindow : Window
         }
 
         var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
-        if (decision.Action == "assess-and-continue")
+        if (decision.Action is "resume-verification" or "assess-and-continue")
         {
             await AssessAndContinuePlanRecoveryAsync(plan, recoveryTaskId);
             return true;
         }
-        if (decision.Action == "review-completed-work")
+        if (decision.Action is "accept-step-complete" or "review-completed-work")
         {
             return durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-                   await AdoptVerifiedCommitRangeAsync(durablePlan);
+                   await AdoptVerifiedCommitRangeAsync(durablePlan, explicitStepAcceptance: true);
         }
         if (decision.Action == "replan-failed-task")
         {
             QueueDecomposeReplan(plan, recoveryTaskId);
             return true;
         }
-        else
+        if (decision.Action is "continue-working" or "retry-as-written")
             return await RetryDecomposeTaskAsync(plan, recoveryTaskId);
+        return false;
     }
 
     private void QueueDecomposeReplan(
@@ -10304,7 +10305,7 @@ public partial class MainWindow : Window
                 currentGroup.Branch);
             ShowTranscriptPlanPreflightRecovery(
                 plan,
-                action: "assess-and-continue",
+                action: "continue-working",
                 branchOverride: currentGroup.Branch,
                 blocked,
                 sourceActionsPanel: null,
@@ -11142,49 +11143,33 @@ public partial class MainWindow : Window
             ? p => _ = StartOrResumeDurablePlanAsync(p)
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
-        var hasRecordedTaskEvidence = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-                                      !string.IsNullOrWhiteSpace(interruptedTaskId) &&
-                                      CompletedWorkReviewPresentationBuilder.Build(durablePlan, interruptedTaskId!) is not null;
-        var combinesHumanReviewGate = durablePlan is not null &&
-                                      !string.IsNullOrWhiteSpace(interruptedTaskId) &&
-                                      PlanHumanReviewGatePolicy.FindCombinableGate(
-                                          durablePlan, interruptedTaskId!) is not null;
-        Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
-            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
-                ? hasRecordedTaskEvidence
-                    ? durablePlan.InterruptionData?.RecoveryAssessment is not null
-                        ? planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: true)
-                        : planToReview => AdoptVerifiedCommitRangeAsync(planToReview, explicitStepAcceptance: false)
-                    : AssessInterruptedPlanFromDurableAsync
-                : null;
-        var interruptedTaskIsAmendment = durablePlan?.Tasks.Any(task =>
-            string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal) &&
-            !string.IsNullOrWhiteSpace(task.AmendmentGateId)) == true;
-        var canResumeInterruptedVerification = durablePlan is not null &&
-                                               !string.IsNullOrWhiteSpace(interruptedTaskId) &&
-                                               PlanVerificationRecoveryPolicy.CanResume(
-                                                   durablePlan, interruptedTaskId!);
-        var interruptedPrimaryActionLabel = hasRecordedTaskEvidence
-            ? interruptedTaskIsAmendment
-                ? "Review & Approve Amendment"
-                : "Review Completed Work"
-            : canResumeInterruptedVerification
-                ? "Resume Verification & Continue"
-                : null;
-        var interruptedPrimaryActionHint = hasRecordedTaskEvidence
-            ? interruptedTaskIsAmendment
-                ? "Review the exact amendment commit range; accepting it also approves the checkpoint that requested the amendment."
-                : combinesHumanReviewGate
-                    ? "Open the exact commit evidence and human checkpoint together. No additional AI review runs; confirming the step also approves its human-only gate."
-                    : "Open the exact commit range recorded for this task attempt. No additional AI review runs; completion remains your decision."
-            : canResumeInterruptedVerification
-                ? "Resume independent verification from the candidate handoff already saved for this task; implementation work will not be repeated."
-                : null;
-        Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
-            ? EndInterruptedPlan
+        var interruptedRecoveryAction = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                                        !string.IsNullOrWhiteSpace(interruptedTaskId)
+            ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, interruptedTaskId!)
             : null;
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
+        Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
+            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
+                ? interruptedRecoveryAction?.Kind switch
+                {
+                    PlanRecoveryPrimaryActionKind.AcceptStep or
+                    PlanRecoveryPrimaryActionKind.ApproveAmendment =>
+                        planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: true),
+                    PlanRecoveryPrimaryActionKind.ResumeVerification when !hasRecoveryAssessment =>
+                        AssessInterruptedPlanFromDurableAsync,
+                    PlanRecoveryPrimaryActionKind.RetryVerification or
+                    PlanRecoveryPrimaryActionKind.ContinueWorking when !hasRecoveryAssessment =>
+                        async current => await RetryDecomposeTaskAsync(
+                            PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!),
+                    _ => null,
+                }
+                : null;
+        var interruptedPrimaryActionLabel = interruptedRecoveryAction?.Label;
+        var interruptedPrimaryActionHint = interruptedRecoveryAction?.Hint;
+        Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+            ? EndInterruptedPlan
+            : null;
         Action<Plan>? onContinueInterruptedTask = hasRecoveryAssessment
             ? current =>
             {
@@ -11192,7 +11177,8 @@ public partial class MainWindow : Window
                 _ = RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
             }
             : null;
-        Action<Plan>? onReplanRemainingWork = hasRecoveryAssessment
+        Action<Plan>? onReplanRemainingWork = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                                              !string.IsNullOrWhiteSpace(interruptedTaskId)
             ? current =>
             {
                 PrepareForHostRecoveryAction();
@@ -11562,7 +11548,11 @@ public partial class MainWindow : Window
             if (isEnvelopeRepair)
             {
                 verificationPrompt = PlanTaskVerificationPromptBuilder.BuildEnvelopeRepair(
-                    plan, task, candidate, _capturedTaskVerificationRawResponse);
+                    plan,
+                    task,
+                    candidate,
+                    _capturedTaskVerificationRawResponse,
+                    _capturedTaskVerificationResultError);
             }
             else
             {
@@ -14551,7 +14541,7 @@ public partial class MainWindow : Window
             .ToArray();
         ShowSystemTranscriptEntry(
             $"Conversational correction recorded for {string.Join(", ", labels)}. " +
-            "The plan remains paused; use Assess & Continue when you want SquadDash to reconcile and verify the accumulated work.");
+            "The plan remains paused; use the current recovery card when you are ready to continue or revise the remaining plan.");
         return true;
     }
 
@@ -15047,7 +15037,8 @@ public partial class MainWindow : Window
         if (plan is null) return;
         var durablePlan = _planStore?.Load(groupId);
         var evidence = durablePlan?.InterruptionData?.TaskCommitEvidence;
-        var message = DecomposePlanInbox.BuildRecoveryMessage(plan, taskId, reason, DateTimeOffset.Now, evidence);
+        var message = DecomposePlanInbox.BuildRecoveryMessage(
+            plan, taskId, reason, DateTimeOffset.Now, evidence, durablePlan);
         var existing = _inboxStore.GetById(message.Id);
         if (existing is not null)
         {
@@ -15622,10 +15613,9 @@ public partial class MainWindow : Window
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
-
-        var review = durablePlan is null
+        var primaryRecoveryAction = durablePlan is null
             ? null
-            : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
+            : PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId);
 
         if (isBranchLeaseRecovery && durablePlan is not null)
         {
@@ -15749,7 +15739,7 @@ public partial class MainWindow : Window
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
             var recommendationText = combinedHumanReviewGate is null
                 ? presentation.Recommendation
-                : $"Review the completed work once. Confirming {stepLabel} also approves the human checkpoint above.";
+                : $"Use the commit link above to investigate. Confirming {stepLabel} also approves the human checkpoint above.";
             MarkdownFlowDocumentBuilder.AddInboxInlineText(
                 recommendation.Inlines,
                 recommendationText);
@@ -15797,12 +15787,12 @@ public partial class MainWindow : Window
         }
 
         if (durablePlan is not null &&
-            combinedHumanReviewGate is null &&
-            PlanHumanReviewCompletionPolicy.CanAcceptDirectly(durablePlan, taskId))
+            primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
+                PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
             AddAsyncResultAction(
-                $"{stepLabel} Is Complete",
-                $"Accept the exact host-recorded commit and passing tests shown above, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                primaryRecoveryAction.Label,
+                primaryRecoveryAction.Hint,
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
@@ -15818,49 +15808,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (review is not null)
-        {
-            var reviewsAmendment = durablePlan!.Tasks.Any(task =>
-                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
-                !string.IsNullOrWhiteSpace(task.AmendmentGateId));
-            AddAsyncResultAction(
-                reviewsAmendment ? "Review & Approve Amendment" : "Review Completed Work",
-                reviewsAmendment
-                    ? "Review the amendment commit, changed files, and tests. Accepting it also approves the checkpoint that requested this amendment."
-                    : combinedHumanReviewGate is not null
-                        ? $"Open the commit evidence for your review. No additional AI review runs. Confirm {stepLabel} only after observing the human checkpoint above."
-                        : "Open the committed work, changed files, tests, and downstream effects. No additional AI review runs; completion remains your decision.",
-                async () => await AdoptVerifiedCommitRangeAsync(durablePlan!));
-        }
-
-        var canResumeVerification = durablePlan is not null &&
-                                    PlanVerificationRecoveryPolicy.CanResume(durablePlan, taskId);
-        var verificationOnlyRecovery = durablePlan?.Tasks.FirstOrDefault(task =>
-            string.Equals(task.TaskId, taskId, StringComparison.Ordinal)) is { } interruptedTask &&
-            PlanTaskExecutionPolicy.IsVerificationOnly(interruptedTask);
-        var recoveryActionLabel = verificationOnlyRecovery
-            ? "Retry Verification"
-            : canResumeVerification
-            ? "Resume Verification & Continue"
-            : assessmentRetry
-                ? "Retry Assessment"
-                : "Assess & Continue";
-        var recoveryActionHint = verificationOnlyRecovery
-            ? "Run this non-mutating verification step again against the current branch. It will not create a commit or launch a second independent review."
-            : canResumeVerification
-            ? "Resume independent verification from the durable candidate handoff. Implementation work will not be repeated."
-            : "AI will inspect changes since this task began and classify the task as complete, partial, or not started. " +
-              "SquadDash will validate the assessment, then accept completed work, continue partial work, or start the task. " +
-              "If evidence is inconclusive, nothing changes and you’ll be asked to review it.";
+        var recoveryActionLabel = primaryRecoveryAction?.Label ?? $"Continue Working on {stepLabel}";
+        var recoveryActionHint = primaryRecoveryAction?.Hint ??
+            $"Keep {stepLabel} incomplete and continue from the preserved repository state. No preliminary AI assessment runs.";
         AddAsyncAction(
             recoveryActionLabel,
             recoveryActionHint,
             async () =>
             {
-                if (verificationOnlyRecovery)
-                    await RetryDecomposeTaskAsync(plan, taskId);
-                else
+                if (primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ResumeVerification)
                     await AssessAndContinuePlanRecoveryAsync(plan, taskId);
+                else
+                    await RetryDecomposeTaskAsync(plan, taskId);
             });
         AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
             () => QueueDecomposeReplan(plan, taskId));
@@ -16083,6 +16042,55 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
         await AssessAndContinuePlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
         return true;
+    }
+
+    private async Task ContinueInterruptedPlanFromDurableAsync(Plan plan)
+    {
+        try
+        {
+            var durable = _planStore?.Load(plan.PlanId) ?? plan;
+            if (PlanRecoveryResumePolicy.IsSafelyResumable(durable))
+            {
+                await StartOrResumeDurablePlanAsync(durable);
+                return;
+            }
+
+            var taskId = durable.InterruptionData?.InterruptedTaskId
+                ?? durable.Progress.ExecutingTaskId
+                ?? durable.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+            if (string.IsNullOrWhiteSpace(taskId))
+            {
+                OpenPlanFromStore(durable);
+                return;
+            }
+
+            var action = PlanRecoveryActionPresentationBuilder.Build(durable, taskId);
+            switch (action.Kind)
+            {
+                case PlanRecoveryPrimaryActionKind.AcceptStep:
+                case PlanRecoveryPrimaryActionKind.ApproveAmendment:
+                    // Acceptance is a human decision. Open the evidence-bearing surface instead
+                    // of silently accepting work from the Plans panel's compact resume control.
+                    OpenPlanFromStore(durable);
+                    return;
+                case PlanRecoveryPrimaryActionKind.ResumeVerification:
+                    PrepareForHostRecoveryAction();
+                    await ResumeInterruptedTaskVerificationAsync(durable, taskId);
+                    return;
+                case PlanRecoveryPrimaryActionKind.RetryVerification:
+                case PlanRecoveryPrimaryActionKind.ContinueWorking:
+                    PrepareForHostRecoveryAction();
+                    await RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(durable), taskId);
+                    return;
+                default:
+                    OpenPlanFromStore(durable);
+                    return;
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("Continue plan recovery", ex);
+        }
     }
 
     private async Task AssessAndContinuePlanRecoveryAsync(PendingDecomposePlan plan, string taskId)
@@ -16625,7 +16633,7 @@ public partial class MainWindow : Window
 
             KeepPlanStoppedAfterAssessment(
                 context,
-                "The repository changed again during the automatic reassessment. Run Assess & Continue again when repository activity has settled.");
+                "The repository changed again while evidence was being checked. Reopen the current recovery card after repository activity has settled.");
             return;
         }
 
@@ -16642,7 +16650,7 @@ public partial class MainWindow : Window
         {
             KeepPlanStoppedAfterAssessment(
                 context,
-                "The captured commit-ID mapping no longer matches the repository range. Run Assess & Continue again to gather fresh evidence.");
+                "The captured commit-ID mapping no longer matches the repository range. Reopen the current recovery card to choose how to continue.");
             return;
         }
         if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
@@ -50070,7 +50078,7 @@ public partial class MainWindow : Window
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
                 startPlan:  plan => _ = StartOrResumeDurablePlanAsync(plan),
-                resumePlan: plan => _ = AssessInterruptedPlanFromDurableAsync(plan),
+                resumePlan: plan => _ = ContinueInterruptedPlanFromDurableAsync(plan),
                 endPlan:    EndInterruptedPlan,
                 approveGate: plan =>
                 {

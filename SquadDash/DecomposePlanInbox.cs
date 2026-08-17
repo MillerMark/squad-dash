@@ -127,7 +127,8 @@ internal static class DecomposePlanInbox
         string taskId,
         string reason,
         DateTimeOffset timestamp,
-        PlanTaskCommitEvidence? taskCommitEvidence = null)
+        PlanTaskCommitEvidence? taskCommitEvidence = null,
+        Plan? durablePlan = null)
     {
         InboxAction BuildAction(string label, string action, string hint) => new()
         {
@@ -144,30 +145,38 @@ internal static class DecomposePlanInbox
         var isAmendment = plan.Group.Tasks.Any(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal) &&
             !string.IsNullOrWhiteSpace(task.AmendmentGateId));
+        var taskIndex = plan.Group.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal));
+        var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            taskIndex >= 0 ? (taskIndex + 1).ToString() : null,
+            taskTitle);
+        var primary = durablePlan is not null
+            ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId)
+            : hasCommitEvidence
+                ? new PlanRecoveryPrimaryActionPresentation(
+                    isAmendment
+                        ? PlanRecoveryPrimaryActionKind.ApproveAmendment
+                        : PlanRecoveryPrimaryActionKind.AcceptStep,
+                    isAmendment ? "Approve Amendment & Continue" : $"{stepLabel} Is Complete",
+                    isAmendment
+                        ? "Accept the host-recorded amendment commit shown in this message, approve its checkpoint, and continue. No additional AI assessment runs."
+                        : $"Accept the host-recorded commit shown in this message, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                    "accept-step-complete")
+                : new PlanRecoveryPrimaryActionPresentation(
+                    PlanRecoveryPrimaryActionKind.ContinueWorking,
+                    $"Continue Working on {stepLabel}",
+                    $"Keep {stepLabel} incomplete and continue from the preserved repository state. No preliminary AI assessment runs.",
+                    "continue-working");
 
         var actions = new List<InboxAction>();
-
-        if (hasCommitEvidence)
-        {
-            actions.Add(BuildAction(
-                isAmendment ? "Review & Approve Amendment" : "Review Completed Work",
-                "review-completed-work",
-                isAmendment
-                    ? "Review the amendment commit and tests. Accepting it also approves the checkpoint that requested the amendment."
-                    : "Open the committed work, changed files, test results, and downstream effects. No additional AI review runs; completion remains your decision."));
-        }
-
-        actions.Add(BuildAction(
-            "Assess & Continue",
-            "assess-and-continue",
-            "AI will classify the task as complete, partial, or not started. SquadDash validates the assessment before changing the plan."));
+        actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
         actions.Add(BuildAction(
             "✎ Revise Remaining Plan…",
             "replan-failed-task",
             "Replace the blocked task with smaller approved steps."));
 
-        var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
-            string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
         var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(reason);
         var status = PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommitEvidence);
         var body = $"**{status}**\n\n" +
@@ -184,9 +193,11 @@ internal static class DecomposePlanInbox
             var tests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
             if (tests is not null) body += tests + "\n";
             body += isAmendment
-                ? "\nRecommended: review the amendment once; accepting it also approves its checkpoint.\n"
-                : "\nRecommended: review the completed work and confirm it only if it satisfies the task.\n";
+                ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"
+                : $"\nUse the commit link above to investigate, then confirm whether {stepLabel} is complete.\n";
         }
+        else
+            body += $"\nSquadDash does not have exact task-owned commit evidence to accept automatically. {stepLabel} remains incomplete.\n";
 
         body += "\nChoose a recovery action below.";
 

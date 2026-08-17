@@ -64,13 +64,13 @@ internal sealed class RecoveryUiTests
     // ── Actions ──────────────────────────────────────────────────────────────
 
     [Test]
-    public void BuildRecoveryMessage_HasAssessAndContinueAction()
+    public void BuildRecoveryMessage_ContinuesWithoutPreliminaryAssessment()
     {
         var message = BuildMessage();
         Assert.That(
             message.Actions.Select(a => a.Label),
-            Has.Member("Assess & Continue"),
-            "Recovery message must expose the evidence-driven continuation action.");
+            Has.Member("Continue Working on PLAN-20260728-003"),
+            "Recovery must continue from preserved state without a redundant assessment call.");
     }
 
     [Test]
