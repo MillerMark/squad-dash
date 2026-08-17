@@ -179,7 +179,7 @@
     </Viewbox>
 
     <!-- X annotation tool icon -->
-    <Viewbox x:Key="ImageEditorXIcon" Width="18" Height="18" Stretch="Uniform">
+    <Viewbox x:Key="ImageEditorXIcon" x:Shared="False" Width="18" Height="18" Stretch="Uniform">
         <Canvas Width="200" Height="200">
             <Path Fill="#4B000000">
                 <Path.Data>

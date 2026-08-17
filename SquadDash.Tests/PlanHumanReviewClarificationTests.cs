@@ -133,6 +133,34 @@ internal sealed class PlanHumanReviewClarificationTests
         Assert.That(sanitized, Is.EqualTo("Answer for the reviewer."));
     }
 
+    [TestCase(PlanHumanReviewClarificationAction.Remove, "Remove Requirement", HumanReviewClarificationChangeIcon.Remove)]
+    [TestCase(PlanHumanReviewClarificationAction.Reword, "Apply Rewording", HumanReviewClarificationChangeIcon.Edit)]
+    [TestCase(PlanHumanReviewClarificationAction.Automate, "Use Automated Validation", HumanReviewClarificationChangeIcon.Check)]
+    public void ConfirmationPresentation_UsesExplicitActionLabelsAndIcons(
+        string action,
+        string expectedLabel,
+        HumanReviewClarificationChangeIcon expectedIcon)
+    {
+        var plan = MakePlan();
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).First();
+        var response = MakeResponse(action, item.ItemId) with
+        {
+            ReplacementText = "Can the reviewer observe the updated command?",
+            ExistingValidationId = "VAL-EXISTING",
+        };
+
+        var presentation = HumanReviewClarificationDialogPresentation.Create(response, item);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.PrimaryActionLabel, Is.EqualTo(expectedLabel));
+            Assert.That(presentation.SecondaryActionLabel, Is.EqualTo("Keep Current Requirement"));
+            Assert.That(presentation.ChangeIcon, Is.EqualTo(expectedIcon));
+            Assert.That(presentation.CurrentRequirement, Is.EqualTo(item.Text));
+            Assert.That(presentation.Reason, Is.EqualTo("Not observable by a human."));
+        });
+    }
+
     private static PlanHumanReviewClarificationResponse MakeResponse(string action, string itemId) => new(
         "PLAN-1", "rev-1", "GATE-1", itemId, action,
         "This requirement should change.", "Not observable by a human.");

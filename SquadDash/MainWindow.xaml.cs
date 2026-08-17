@@ -14818,6 +14818,12 @@ public partial class MainWindow : Window
         PlanHumanReviewClarificationResponse response,
         bool hasVisibleAnswer)
     {
+        // A clarification recommendation is the provider's completed response, not an
+        // unfinished agent turn. Yield before opening any human decision UI so the response
+        // callback can return, the bridge can become idle, and human think-time cannot trip
+        // the stalled-agent watchdog. The plan remains unchanged until the user confirms.
+        await Dispatcher.Yield(DispatcherPriority.Background);
+
         if (_planStore is null) return;
         var plan = _planStore.Load(response.PlanId);
         var gate = plan?.ApprovalGates.FirstOrDefault(candidate =>
@@ -14861,14 +14867,7 @@ public partial class MainWindow : Window
             }
         }
 
-        var confirmation = BuildHumanReviewClarificationConfirmation(response, item);
-        if (MessageBox.Show(
-                this,
-                confirmation,
-                "Update Human Review",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No) != MessageBoxResult.Yes)
+        if (!HumanReviewClarificationDialog.Show(this, response, item))
         {
             ShowSystemTranscriptEntry("The clarification was answered, but its proposed review change was not applied.");
             return;
@@ -14898,32 +14897,11 @@ public partial class MainWindow : Window
         ShowSystemTranscriptEntry(BuildHumanReviewClarificationAppliedMessage(response));
     }
 
-    private static string BuildHumanReviewClarificationConfirmation(
-        PlanHumanReviewClarificationResponse response,
-        PlanHumanReviewChecklistItem item)
-    {
-        var proposed = response.Action switch
-        {
-            PlanHumanReviewClarificationAction.Reword =>
-                $"Replace it with:\n\n{response.ReplacementText}",
-            PlanHumanReviewClarificationAction.Remove =>
-                "Remove it from human review.",
-            PlanHumanReviewClarificationAction.Automate =>
-                $"Assign it to existing automated validation “{response.ExistingValidationId}”.",
-            PlanHumanReviewClarificationAction.Split =>
-                "Replace it with:\n\n" + string.Join("\n", response.ReplacementItems!.Select(value => "• " + value)),
-            PlanHumanReviewClarificationAction.Merge =>
-                $"Merge the selected requirements into:\n\n{response.ReplacementText}",
-            _ => response.Action,
-        };
-        return $"Current requirement:\n\n{item.Text}\n\nProposed change:\n\n{proposed}\n\nReason:\n\n{response.Reason}\n\nApply this change?";
-    }
-
     private static string BuildHumanReviewClarificationAppliedMessage(
         PlanHumanReviewClarificationResponse response) => response.Action switch
     {
         PlanHumanReviewClarificationAction.Reword => "The human-review requirement was reworded.",
-        PlanHumanReviewClarificationAction.Remove => "The human-review requirement was removed and the reason was recorded.",
+        PlanHumanReviewClarificationAction.Remove => "Human review requirement removed. Justification recorded in the plan.",
         PlanHumanReviewClarificationAction.Automate => "The human-review requirement was replaced with an automated validation.",
         PlanHumanReviewClarificationAction.Split => "The human-review requirement was split into focused checks.",
         PlanHumanReviewClarificationAction.Merge => "The human-review requirements were consolidated.",
@@ -28626,6 +28604,50 @@ public partial class MainWindow : Window
                 ShowDeveloperPlanResponseCard(kind);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePlanResponseCard_Click), ex); }
+    }
+
+    private void SimulateHumanReviewChangeDialog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var action = (sender as MenuItem)?.Tag as string;
+            if (action is not (PlanHumanReviewClarificationAction.Remove or
+                PlanHumanReviewClarificationAction.Reword or
+                PlanHumanReviewClarificationAction.Automate))
+                return;
+
+            var item = new PlanHumanReviewChecklistItem(
+                "developer-preview-gate",
+                "developer-preview-requirement",
+                "developer-preview-proof",
+                "After adding a task through the **This approval blocks** submenu, is there still only one gate for that approval boundary?",
+                "a13f0c2",
+                IsChecked: false,
+                WasPreviouslyChecked: false,
+                PreviouslyCheckedCommit: null);
+            var response = new PlanHumanReviewClarificationResponse(
+                "SQUADDASH-DEVELOPER-HUMAN-REVIEW",
+                "developer-preview",
+                item.GateId,
+                item.ItemId,
+                action,
+                "This preview does not change a real plan.",
+                action == PlanHumanReviewClarificationAction.Remove
+                    ? "Live UI observation is the wrong proof mechanism for a data invariant. Automated coverage should own this requirement."
+                    : "The revised contract makes the expected evidence clearer and reduces reviewer uncertainty.",
+                ReplacementText: action == PlanHumanReviewClarificationAction.Reword
+                    ? "Can the reviewer add a blocked task and still see one approval boundary in the plan?"
+                    : null,
+                ExistingValidationId: action == PlanHumanReviewClarificationAction.Automate
+                    ? "PLAN-VAL-GATE-CONSOLIDATION"
+                    : null);
+
+            _ = HumanReviewClarificationDialog.Show(this, response, item);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateHumanReviewChangeDialog_Click), ex);
+        }
     }
 
     private void ClearPlanResponseCardPreviews_Click(object sender, RoutedEventArgs e)
