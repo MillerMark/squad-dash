@@ -389,7 +389,7 @@ internal static class PlanGateManager
     /// Gate: AfterTaskIds = task.DependsOn, BeforeTaskIds = [taskId].
     /// Returns plan unchanged when taskId is a root task or an equivalent gate already exists.
     /// </summary>
-    internal static Plan AddGateBefore(Plan plan, string taskId, string message)
+    internal static Plan AddGateBefore(Plan plan, string taskId, string message, string? question = null)
     {
         if (IsRootTask(plan, taskId)) return plan;
 
@@ -407,7 +407,7 @@ internal static class PlanGateManager
             plan, afterIds, beforeIds, eligibleBeforeIds);
         if (expanded is not null) return expanded;
 
-        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-before:{taskId}");
+        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-before:{taskId}", question: question);
     }
 
     /// <summary>
@@ -417,7 +417,7 @@ internal static class PlanGateManager
     /// gate has an empty task frontier and guards the validation at the same boundary.
     /// Returns plan unchanged for a leaf with no final validation or an equivalent gate.
     /// </summary>
-    internal static Plan AddGateAfter(Plan plan, string taskId, string message)
+    internal static Plan AddGateAfter(Plan plan, string taskId, string message, string? question = null)
     {
         IReadOnlyList<string> afterIds  = [taskId];
         IReadOnlyList<string> beforeIds = plan.Tasks
@@ -446,7 +446,7 @@ internal static class PlanGateManager
                 PresentationAnchor: $"task-after:{taskId}",
                 AfterTaskIdsSpecified: true,
                 BeforeTaskIdsSpecified: true,
-                Question: ResolveReviewQuestion(plan, afterIds, beforeIds, message, null));
+                Question: ResolveReviewQuestion(plan, afterIds, beforeIds, message, question));
             return plan with { ApprovalGates = [..plan.ApprovalGates, terminalGate] };
         }
 
@@ -456,7 +456,7 @@ internal static class PlanGateManager
             plan, afterIds, beforeIds, eligibleBeforeIds);
         if (expanded is not null) return expanded;
 
-        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}");
+        return AddBoundaryGate(plan, afterIds, beforeIds, message, $"task-after:{taskId}", question: question);
     }
 
     /// <summary>

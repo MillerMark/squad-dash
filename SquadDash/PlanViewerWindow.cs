@@ -1296,17 +1296,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     ? null
                     : () =>
                 {
-                    var updated = isLocked && existingGate is not null
-                        ? milestoneIsPrimary
+                    Plan updated;
+                    if (isLocked && existingGate is not null)
+                    {
+                        updated = milestoneIsPrimary
                             ? PlanGateManager.RemoveGate(durablePlan!, existingGate.GateId)
-                            : PlanGateManager.SetPresentationAnchor(durablePlan!, existingGate.GateId, milestoneAnchor)
-                        : PlanGateManager.AddBoundaryGate(
+                            : PlanGateManager.SetPresentationAnchor(durablePlan!, existingGate.GateId, milestoneAnchor);
+                    }
+                    else
+                    {
+                        var defaultQ = $"Has Stage {leftColumn.Key + 1} been reviewed and approved?";
+                        var question = _saveDefinitionEdit is not null
+                            ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
+                            : defaultQ;
+                        if (string.IsNullOrWhiteSpace(question)) return;
+                        updated = PlanGateManager.AddBoundaryGate(
                             durablePlan!,
                             afterIds,
                             beforeIds,
                             $"Review milestone before Stage {leftColumn.Key + 2}",
                             milestoneAnchor,
-                            removeSubsumedTaskGates: true);
+                            removeSubsumedTaskGates: true,
+                            question: question);
+                    }
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
                     isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
@@ -1325,6 +1337,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneAwaiting ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
+                if (existingGate is not null && milestoneStop.ContextMenu is ContextMenu milestoneMenu)
+                {
+                    var blocksSubmenu = CreateApprovalBlocksSubmenu(existingGate.GateId, group);
+                    if (blocksSubmenu is not null)
+                    {
+                        milestoneMenu.Items.Add(new Separator());
+                        milestoneMenu.Items.Add(blocksSubmenu);
+                    }
+                }
                 canvas.Children.Add(milestoneStop);
                 approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
             }
@@ -1801,17 +1822,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 ShowCoveredGuidance(joinController, ApprovalLabel(joinController));
                             return;
                         }
-                        var updated = joinIsLocked && existingJoinGate is not null
-                            ? joinIsPrimary
+                        Plan updated;
+                        if (joinIsLocked && existingJoinGate is not null)
+                        {
+                            updated = joinIsPrimary
                                 ? PlanGateManager.RemoveGate(durablePlan!, existingJoinGate.GateId)
-                                : PlanGateManager.SetPresentationAnchor(durablePlan!, existingJoinGate.GateId, joinAnchor)
-                            : PlanGateManager.AddBoundaryGate(
+                                : PlanGateManager.SetPresentationAnchor(durablePlan!, existingJoinGate.GateId, joinAnchor);
+                        }
+                        else
+                        {
+                            var joinTargetTitle = string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id));
+                            var defaultQ = $"Has the work required for {joinTargetTitle} been reviewed and approved?";
+                            var question = _saveDefinitionEdit is not null
+                                ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
+                                : defaultQ;
+                            if (string.IsNullOrWhiteSpace(question)) return;
+                            updated = PlanGateManager.AddBoundaryGate(
                                 durablePlan!,
                                 joinAfterIds,
                                 joinBeforeIds,
-                                $"Review joined work before: {string.Join(", ", gate.Targets.Select(task => task.Title ?? task.Id))}",
+                                $"Review joined work before: {joinTargetTitle}",
                                 joinAnchor,
-                                removeSubsumedTaskGates: true);
+                                removeSubsumedTaskGates: true,
+                                question: question);
+                        }
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
                     joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
@@ -1831,6 +1865,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
+                var joinGateForBlocks = existingJoinGate ?? coveringJoinGate;
+                if (joinGateForBlocks is not null && joinStop.ContextMenu is ContextMenu joinMenu)
+                {
+                    var blocksSubmenu = CreateApprovalBlocksSubmenu(joinGateForBlocks.GateId, group);
+                    if (blocksSubmenu is not null)
+                    {
+                        joinMenu.Items.Add(new Separator());
+                        joinMenu.Items.Add(blocksSubmenu);
+                    }
+                }
                 badgeContent.Children.Add(joinStop);
                 approvalControlsByAnchor[joinAnchor] = joinStop;
             }
@@ -2604,12 +2648,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     ShowCoveredGuidance(beforeController, ApprovalLabel(beforeController));
                                 return;
                             }
-                            var updated = existingBeforeGate is not null
-                                ? beforeIsPrimary
+                            Plan updated;
+                            if (existingBeforeGate is not null)
+                            {
+                                updated = beforeIsPrimary
                                     ? PlanGateManager.RemoveGate(durablePlan, existingBeforeGate.GateId)
-                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingBeforeGate.GateId, beforeAnchor)
-                                : PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
-                                    $"Review before starting: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
+                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingBeforeGate.GateId, beforeAnchor);
+                            }
+                            else
+                            {
+                                var taskTitle = capturedTaskForStop.Title ?? capturedTaskForStop.Id;
+                                var defaultQ = $"Has {taskTitle} been reviewed and approved?";
+                                var question = _saveDefinitionEdit is not null
+                                    ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
+                                    : defaultQ;
+                                if (string.IsNullOrWhiteSpace(question)) return;
+                                updated = PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
+                                    $"Review before starting: {taskTitle}", question: question);
+                            }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
                             beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
@@ -2629,6 +2685,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeAwaiting ? 4 : 6) * _scaleFactor);
                         Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
+                        if (controllingBeforeGate is not null && beforeStop.ContextMenu is ContextMenu beforeMenu)
+                        {
+                            var blocksSubmenu = CreateApprovalBlocksSubmenu(controllingBeforeGate.GateId, group);
+                            if (blocksSubmenu is not null)
+                            {
+                                beforeMenu.Items.Add(new Separator());
+                                beforeMenu.Items.Add(blocksSubmenu);
+                            }
+                        }
                         canvas.Children.Add(beforeStop);
                         approvalControlsByAnchor[beforeAnchor] = beforeStop;
                     }
@@ -2714,12 +2779,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                     ShowCoveredGuidance(afterController, ApprovalLabel(afterController));
                                 return;
                             }
-                            var updated = existingAfterGate is not null
-                                ? afterIsPrimary
+                            Plan updated;
+                            if (existingAfterGate is not null)
+                            {
+                                updated = afterIsPrimary
                                     ? PlanGateManager.RemoveGate(durablePlan, existingAfterGate.GateId)
-                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingAfterGate.GateId, afterAnchor)
-                                : PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
-                                    $"Review after completing: {capturedTaskForStop.Title ?? capturedTaskForStop.Id}");
+                                    : PlanGateManager.SetPresentationAnchor(durablePlan, existingAfterGate.GateId, afterAnchor);
+                            }
+                            else
+                            {
+                                var taskTitle = capturedTaskForStop.Title ?? capturedTaskForStop.Id;
+                                var defaultQ = $"Has {taskTitle} been reviewed and approved?";
+                                var question = _saveDefinitionEdit is not null
+                                    ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
+                                    : defaultQ;
+                                if (string.IsNullOrWhiteSpace(question)) return;
+                                updated = PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
+                                    $"Review after completing: {taskTitle}", question: question);
+                            }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
                             afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
@@ -2739,6 +2816,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterAwaiting ? 24 : 22) * _scaleFactor);
                         Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterAwaiting ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
+                        if (controllingAfterGate is not null && afterStop.ContextMenu is ContextMenu afterMenu)
+                        {
+                            var blocksSubmenu = CreateApprovalBlocksSubmenu(controllingAfterGate.GateId, group);
+                            if (blocksSubmenu is not null)
+                            {
+                                afterMenu.Items.Add(new Separator());
+                                afterMenu.Items.Add(blocksSubmenu);
+                            }
+                        }
                         canvas.Children.Add(afterStop);
                         approvalControlsByAnchor[afterAnchor] = afterStop;
                     }
@@ -3236,6 +3322,82 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 beginEditingSelection: true);
         };
         return item;
+    }
+
+    /// <summary>
+    /// Builds an "Approval Blocks" submenu for a pending gate's right-click context menu.
+    /// Lists all transitive successors of the gate's AfterTaskIds as checkable items; checked
+    /// items are the gate's current BeforeTaskIds. Toggling an item adds or removes that task
+    /// from BeforeTaskIds via <see cref="PlanGateManager.ApplyGateConsolidation"/>.
+    /// Returns null when there are no compatible candidate tasks or no edit context.
+    /// </summary>
+    private MenuItem? CreateApprovalBlocksSubmenu(string gateId, DecomposedTaskGroup group)
+    {
+        if (_saveDefinitionEdit is null || _plan is null) return null;
+        var gate = (group.ApprovalGates ?? []).FirstOrDefault(g =>
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (gate is null) return null;
+
+        // Compute all tasks that transitively depend on (i.e. come after) AfterTaskIds.
+        var afterSet = (gate.AfterTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
+        var reachable = new HashSet<string>(afterSet, StringComparer.Ordinal);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var task in group.Tasks)
+            {
+                if (!reachable.Contains(task.Id) &&
+                    task.DependsOn.Any(dep => reachable.Contains(dep)))
+                {
+                    reachable.Add(task.Id);
+                    changed = true;
+                }
+            }
+        }
+
+        // Candidates: reachable but not in AfterTaskIds themselves.
+        var candidates = group.Tasks
+            .Where(t => reachable.Contains(t.Id) && !afterSet.Contains(t.Id))
+            .OrderBy(t => t.Title ?? t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (candidates.Length == 0) return null;
+
+        var beforeSet = (gate.BeforeTaskIds ?? []).ToHashSet(StringComparer.Ordinal);
+        IReadOnlyList<string> capturedAfterTaskIds = gate.AfterTaskIds ?? [];
+        var capturedGateId = gate.GateId;
+        var capturedMessage = gate.Message;
+        var capturedQuestion = gate.Question ?? string.Empty;
+
+        var submenu = new MenuItem { Header = "Approval Blocks" };
+        foreach (var candidate in candidates)
+        {
+            var capturedCandidate = candidate;
+            var item = new MenuItem
+            {
+                Header = capturedCandidate.Title ?? capturedCandidate.Id,
+                IsCheckable = true,
+                IsChecked = beforeSet.Contains(capturedCandidate.Id),
+            };
+            // IsChecked is already toggled before Click fires on a checkable MenuItem.
+            item.Click += (_, _) =>
+            {
+                if (_plan is null) return;
+                var include = item.IsChecked;
+                var updatedGroup = PlanGateManager.ApplyGateConsolidation(
+                    _plan.Group,
+                    capturedAfterTaskIds,
+                    capturedCandidate.Id,
+                    include,
+                    capturedGateId,
+                    capturedMessage,
+                    capturedQuestion);
+                ApplyStagedMutation(updatedGroup, selectKind: "humanapproval", selectId: capturedGateId);
+            };
+            submenu.Items.Add(item);
+        }
+        return submenu;
     }
 
     private bool ConfirmDestructivePlanEdit(string message) =>
