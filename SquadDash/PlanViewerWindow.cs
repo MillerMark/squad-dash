@@ -536,7 +536,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null &&
             durablePlan.InterruptionData?.RecoveryAssessment is null &&
-            durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+            durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
+                PlanLifecycleStatus.WaitingForCleanWorktree &&
             (onResumePlan is not null || onAdoptVerifiedCommitRange is not null ||
              onContinueInterruptedTask is not null || onEndPlan is not null))
         {

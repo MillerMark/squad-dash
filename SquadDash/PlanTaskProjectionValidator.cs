@@ -5,9 +5,9 @@ using System.Linq;
 namespace SquadDash;
 
 /// <summary>
-/// Validates that the mutable tasks.md projection still describes the exact durable plan before
-/// execution progress is accepted. This prevents missing, malformed, or stale task data from
-/// being converted into authoritative plan state.
+/// Compares the mutable tasks.md projection with a durable plan for projection diagnostics and
+/// safe projection repair. This validator must never admit, reject, or reconstruct execution;
+/// <see cref="Plan"/> is the sole execution authority.
 /// </summary>
 internal static class PlanTaskProjectionValidator
 {

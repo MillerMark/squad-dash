@@ -223,6 +223,26 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void WaitingForCleanWorktree_IsSafelyResumableWithoutTaskFailure()
+    {
+        var task = new PlanTask(
+            "P-1", "Pending work", "Description", [], "normal", PlanTaskStatus.Pending);
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Approved,
+            "Plan", "feature/plan", "Summary", [task], [],
+            new PlanProgress(0, 1), new PlanTimestamps(System.DateTimeOffset.UtcNow));
+
+        var waiting = PlanStoreUpdater.ApplyWaitingForCleanWorktree(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(waiting), Is.True);
+            Assert.That(waiting.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(waiting.InterruptionData, Is.Null);
+        });
+    }
+
+    [Test]
     public void PlanPreflightBlockedException_Properties_StoredCorrectly()
     {
         var paths = new List<string> { "src/Foo.cs", "src/Bar.cs" };

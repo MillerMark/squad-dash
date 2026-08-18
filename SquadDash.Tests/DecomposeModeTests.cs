@@ -1273,6 +1273,33 @@ internal sealed class CodeHealthGroupRunnerTests
 
         Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Complete));
     }
+
+    [Test]
+    public void TrackFirstEligibleStep_CanonicalPlan_IgnoresContradictoryTasksMdStatuses()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeLinearGroup();
+        writer.WriteGroup(_tasksFile, group, "canonical-revision");
+        File.WriteAllText(
+            _tasksFile,
+            File.ReadAllText(_tasksFile).Replace("- [ ]", "- [x]", StringComparison.Ordinal));
+        var canonical = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("canonical-revision", group),
+            DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+        };
+
+        var state = runner.TrackFirstEligibleStep(canonical);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Eligible));
+            Assert.That(runner.CurrentStepId, Is.EqualTo("PROJ-20240101-001"));
+            Assert.That(runner.CurrentRevision, Is.EqualTo("canonical-revision"));
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

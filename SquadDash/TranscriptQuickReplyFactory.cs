@@ -33,6 +33,7 @@ internal sealed class DecomposeRecoveryCardTag : ICopyable
 }
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
 internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
+internal sealed record PlanPreflightRecoveryReceiptTag(string GroupId, string Revision, DateTimeOffset ResolvedAt);
 internal sealed record TranscriptProtocolJsonIndicatorTag(string Marker);
 
 /// <summary>

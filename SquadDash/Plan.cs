@@ -14,12 +14,13 @@ internal static class PlanLifecycleStatus
     internal const string Completed        = "completed";         // all tasks finished
     internal const string Archived         = "archived";          // hidden from active lists
     internal const string Blocked          = "blocked";           // one or more tasks failed
+    internal const string WaitingForCleanWorktree = "waiting-for-clean-worktree"; // preflight pause; no task failed
 
     internal static readonly IReadOnlySet<string> All =
         new HashSet<string>(StringComparer.Ordinal)
         {
             Staged, Approved, Executing, AwaitingApproval,
-            Interrupted, Stopped, Completed, Archived, Blocked,
+            Interrupted, Stopped, Completed, Archived, Blocked, WaitingForCleanWorktree,
         };
 
     internal static bool IsTerminal(string status) =>

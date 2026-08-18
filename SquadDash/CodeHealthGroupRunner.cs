@@ -147,6 +147,43 @@ internal sealed class CodeHealthGroupRunner
     }
 
     /// <summary>
+    /// Selects the next task exclusively from the canonical durable plan. tasks.md is a
+    /// presentation projection and must not influence scheduling, completion, or blocking.
+    /// </summary>
+    internal DecomposeGroupExecutionState TrackFirstEligibleStep(
+        Plan plan,
+        IReadOnlySet<string>? approvalBlockedTaskIds = null)
+    {
+        _currentStepId = null;
+        _currentRevision = plan.Revision;
+
+        _taskById.Clear();
+        var canonicalGroup = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        foreach (var task in canonicalGroup.Tasks)
+            _taskById[task.Id] = task;
+
+        var completedIds = plan.Tasks
+            .Where(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
+            .Select(task => task.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
+        var eligible = plan.Tasks
+            .Where(task => task.Status is PlanTaskStatus.Pending or PlanTaskStatus.Executing or PlanTaskStatus.Reworking)
+            .Where(task => task.DependsOn.All(completedIds.Contains))
+            .ToArray();
+
+        _currentStepId = eligible
+            .FirstOrDefault(task => approvalBlockedTaskIds?.Contains(task.TaskId) != true)
+            ?.TaskId;
+        if (_currentStepId is not null)
+            return DecomposeGroupExecutionState.Eligible;
+        if (plan.Tasks.All(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded))
+            return DecomposeGroupExecutionState.Complete;
+        if (eligible.Any(task => approvalBlockedTaskIds?.Contains(task.TaskId) == true))
+            return DecomposeGroupExecutionState.AwaitingApproval;
+        return DecomposeGroupExecutionState.Blocked;
+    }
+
+    /// <summary>
     /// Called when stop_loop is received while decompose mode is active.
     /// If the current step is still <c>[ ]</c> (i.e. the AI did not mark it <c>[x]</c>),
     /// marks it <c>[!]</c> in tasks.md.

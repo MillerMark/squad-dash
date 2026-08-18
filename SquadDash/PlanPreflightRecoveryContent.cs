@@ -238,6 +238,7 @@ internal static class PlanRecoveryResumePolicy
     }
 
     internal static bool IsSafelyResumable(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree ||
         plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
         (plan.InterruptionData?.Reason.StartsWith(
              "Paused by user",

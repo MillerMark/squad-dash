@@ -1514,4 +1514,50 @@ internal sealed class PlanStoreUpdaterTests
         Assert.That(restored.Timestamps.CompletedAt, Is.EqualTo(completedAt));
         Assert.That(restored.Timestamps.ArchivedAt, Is.Null);
     }
+
+    [Test]
+    public void ApplyWaitingForCleanWorktree_PreservesTaskStateAndIsNotFailure()
+    {
+        var group = MakeGroup(1);
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("GROUP-001-001")], "GROUP-001-001");
+
+        var waiting = PlanStoreUpdater.ApplyWaitingForCleanWorktree(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(waiting.LifecycleStatus,
+                Is.EqualTo(PlanLifecycleStatus.WaitingForCleanWorktree));
+            Assert.That(waiting.Progress.ExecutingTaskId, Is.Null);
+            Assert.That(waiting.Tasks, Is.EqualTo(plan.Tasks));
+            Assert.That(waiting.InterruptionData, Is.EqualTo(plan.InterruptionData));
+            Assert.That(PlanLifecycleStatus.IsTerminal(waiting.LifecycleStatus), Is.False);
+        });
+    }
+
+    [Test]
+    public void CanonicalApplyStepAccepted_DoesNotRequireTaskItemProjection()
+    {
+        var group = MakeGroup(2);
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null,
+            group,
+            "rev1",
+            [MakeItem("GROUP-001-001"), MakeItem("GROUP-001-002")],
+            "GROUP-001-001");
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", plan.Revision, "complete",
+            "abc1234", "Completed from canonical result.", null, null);
+
+        var updated = PlanStoreUpdater.ApplyStepAccepted(
+            plan, "GROUP-001-002", result);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(updated.Tasks[0].Commit, Is.EqualTo("abc1234"));
+            Assert.That(updated.Progress.CompletedCount, Is.EqualTo(1));
+            Assert.That(updated.Progress.ExecutingTaskId, Is.EqualTo("GROUP-001-002"));
+        });
+    }
 }

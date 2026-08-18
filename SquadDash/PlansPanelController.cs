@@ -633,7 +633,8 @@ internal sealed class PlansPanelController
             menu.Items.Add(startItem);
         }
 
-        if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
+            PlanLifecycleStatus.WaitingForCleanWorktree)
         {
             if (PlanRecoveryResumePolicy.IsSafelyResumable(plan) && _startPlan is not null)
             {
@@ -828,6 +829,8 @@ internal sealed class PlansPanelController
     {
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
             return "Approval ready";
+        if (plan.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree)
+            return "Waiting for clean workspace";
         if (PlanRecoveryResumePolicy.IsReworkPreflightPause(plan))
             return "Rework ready · workspace blocked";
         if (PlanRecoveryResumePolicy.IsAmendmentPreflightPause(plan))
@@ -1012,6 +1015,7 @@ internal sealed class PlansPanelController
         PlanLifecycleStatus.Completed        => "✓",
         PlanLifecycleStatus.Archived         => "📁",
         PlanLifecycleStatus.Blocked          => "✖",
+        PlanLifecycleStatus.WaitingForCleanWorktree => "⏳",
         _                                    => "•",
     };
 
@@ -1020,6 +1024,7 @@ internal sealed class PlansPanelController
         PlanLifecycleStatus.Executing        => "PriorityMid",
         PlanLifecycleStatus.Interrupted      => "PriorityHigh",
         PlanLifecycleStatus.Blocked          => "PriorityHigh",
+        PlanLifecycleStatus.WaitingForCleanWorktree => "PriorityMid",
         PlanLifecycleStatus.Completed        => "PriorityLow",
         PlanLifecycleStatus.Archived         => "SubtleText",
         PlanLifecycleStatus.Stopped          => "SubtleText",
