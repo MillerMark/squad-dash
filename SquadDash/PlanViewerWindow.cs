@@ -108,6 +108,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private record SelectedElementIdentity(string Kind, string Id);
+    private record CommittedColumnReorder(string ColumnTaskId, IReadOnlyList<string> NewTaskOrder);
     [Flags]
     private enum ConnectorEndpointRole
     {
@@ -140,12 +141,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public IReadOnlyList<DragConnectorState> ConnectedConnectorStates { get; init; } = [];
         public IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> ConnectedConnectors { get; init; } = [];
         public IReadOnlyList<(UIElement Element, double OriginalTop)> DragOverlayElements { get; init; } = [];
+        public IReadOnlyList<(FrameworkElement Card, double OriginalTop, string TaskId)> SiblingCards { get; init; } = [];
+        public List<string> CurrentColumnOrder { get; init; } = [];
+        public IReadOnlyList<string> PreDragColumnOrder { get; init; } = [];
+        public Dictionary<string, double> DisplacedSiblingTops { get; init; } = new(StringComparer.Ordinal);
+        public Dictionary<string, IReadOnlyList<(UIElement Element, double OriginalTop)>> SiblingOverlayElements { get; init; } =
+            new(StringComparer.Ordinal);
+        public IReadOnlyList<double> ColumnSlotTops { get; init; } = [];
+        public string ColumnIdentifier { get; init; } = string.Empty;
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private FrameworkElement? _selectionGlowElement;
     private TaskCardDragState? _taskCardDragState;
+    private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
@@ -7573,6 +7583,220 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return captured;
     }
 
+    private static bool TryGetTaskIdTag(FrameworkElement element, out string taskId)
+    {
+        taskId = string.Empty;
+        if (element.Tag is not string tag || !tag.StartsWith("task:", StringComparison.Ordinal))
+            return false;
+        taskId = tag["task:".Length..];
+        return !string.IsNullOrWhiteSpace(taskId);
+    }
+
+    private static bool IsSameColumn(double left, double columnX) =>
+        double.IsFinite(left) && Math.Abs(left - columnX) <= 0.5;
+
+    private string ResolveColumnIdentifier(double columnX)
+    {
+        if (_graphCanvas is null)
+            return "stage:unknown";
+
+        var nearestDistance = double.MaxValue;
+        var nearestStage = "stage:unknown";
+        foreach (var child in _graphCanvas.Children.OfType<FrameworkElement>())
+        {
+            if (child.Tag is not string tag || !tag.StartsWith("stage:", StringComparison.Ordinal))
+                continue;
+            var left = Canvas.GetLeft(child);
+            if (!double.IsFinite(left))
+                continue;
+            var distance = Math.Abs(left - columnX);
+            if (distance >= nearestDistance)
+                continue;
+            nearestDistance = distance;
+            nearestStage = tag;
+        }
+        return nearestStage;
+    }
+
+    private static double ResolveSlotTop(TaskCardDragState dragState, int orderIndex)
+    {
+        if (orderIndex >= 0 && orderIndex < dragState.ColumnSlotTops.Count)
+            return dragState.ColumnSlotTops[orderIndex];
+        return dragState.OriginalTop;
+    }
+
+    private static double ResolveSiblingCurrentTop(
+        TaskCardDragState dragState,
+        (FrameworkElement Card, double OriginalTop, string TaskId) sibling)
+    {
+        if (dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+            return displacedTop;
+        return sibling.OriginalTop;
+    }
+
+    private void AnimateCanvasTop(
+        UIElement element,
+        double toTop,
+        TimeSpan duration,
+        Action<double>? onCompleted = null)
+    {
+        element.BeginAnimation(Canvas.TopProperty, null);
+        var animation = new DoubleAnimation(toTop, duration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        animation.Completed += (_, _) =>
+        {
+            element.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetTop(element, toTop);
+            onCompleted?.Invoke(toTop);
+        };
+        element.BeginAnimation(Canvas.TopProperty, animation);
+    }
+
+    private void ApplyTaskCardTopAndConnectors(string taskId, double left, double top)
+    {
+        _taskCardPositions[taskId] = new Point(left, top);
+        if (!_connectorsByTask.TryGetValue(taskId, out var groups) || groups.Count == 0)
+            return;
+
+        foreach (var group in groups.Distinct().ToArray())
+        {
+            var fromTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.Start));
+            var toTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+            if (string.IsNullOrWhiteSpace(fromTaskId) ||
+                string.IsNullOrWhiteSpace(toTaskId) ||
+                !_taskCardPositions.TryGetValue(fromTaskId, out var fromPoint) ||
+                !_taskCardPositions.TryGetValue(toTaskId, out var toPoint))
+                continue;
+
+            var skipCount = 0;
+            if (_plan?.Group is { } sourceGroup)
+            {
+                var (_, levels) = ResolveTasksAndLevels();
+                if (levels.TryGetValue(fromTaskId, out var sourceLevel) &&
+                    levels.TryGetValue(toTaskId, out var targetLevel))
+                {
+                    skipCount = Math.Max(0, targetLevel - sourceLevel - 1);
+                }
+                else
+                {
+                    var sourceTask = sourceGroup.Tasks.FirstOrDefault(task =>
+                        string.Equals(task.Id, fromTaskId, StringComparison.Ordinal));
+                    if (sourceTask is not null)
+                        skipCount = Math.Max(0, sourceTask.DependsOn.Count - 1);
+                }
+            }
+
+            var dashedTaskEdges = ResolveDashedTaskEdgeKeys();
+            var isDashed = dashedTaskEdges.Contains(EdgeKey(fromTaskId, toTaskId));
+            var updatedFrom = new Point(fromPoint.X + NodeWidth, fromPoint.Y + NodeHeight / 2.0);
+            var updatedTo = new Point(toPoint.X, toPoint.Y + NodeHeight / 2.0);
+
+            if (_graphCanvas is null)
+                continue;
+            RemoveConnectorGroupElements(_graphCanvas, group);
+            var replacementGroup = AddDirectTaskConnector(_graphCanvas, updatedFrom, updatedTo, skipCount, isDashed);
+            replacementGroup.TaskIds.Clear();
+            foreach (var endpointTaskId in group.TaskIds.Distinct(StringComparer.Ordinal))
+            {
+                replacementGroup.TaskIds.Add(endpointTaskId);
+                replacementGroup.RegisterEndpointRole(endpointTaskId, group.GetEndpointRole(endpointTaskId));
+            }
+            replacementGroup.GateBadges.Clear();
+            foreach (var badge in group.GateBadges.Distinct())
+                replacementGroup.GateBadges.Add(badge);
+
+            foreach (var endpointTaskId in replacementGroup.TaskIds)
+            {
+                if (!_connectorsByTask.TryGetValue(endpointTaskId, out var endpointGroups))
+                    continue;
+                endpointGroups.RemoveAll(existing => ReferenceEquals(existing, group));
+                if (!endpointGroups.Contains(replacementGroup))
+                    endpointGroups.Add(replacementGroup);
+            }
+        }
+    }
+
+    private bool TryPerformDragSwap(TaskCardDragState dragState, double draggedMidpoint)
+    {
+        var draggedIndex = dragState.CurrentColumnOrder.IndexOf(dragState.TaskId);
+        if (draggedIndex < 0)
+            return false;
+
+        if (draggedIndex > 0)
+        {
+            var siblingTaskId = dragState.CurrentColumnOrder[draggedIndex - 1];
+            var sibling = dragState.SiblingCards.FirstOrDefault(value =>
+                string.Equals(value.TaskId, siblingTaskId, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(sibling.TaskId))
+            {
+                var siblingCurrentTop = ResolveSiblingCurrentTop(dragState, sibling);
+                var siblingMidpoint = siblingCurrentTop + sibling.Card.ActualHeight / 2.0;
+                if (draggedMidpoint < siblingMidpoint)
+                {
+                    var siblingTargetTop = ResolveSlotTop(dragState, draggedIndex);
+                    PerformVisualSwap(dragState, sibling, siblingTargetTop, draggedIndex, draggedIndex - 1);
+                    return true;
+                }
+            }
+        }
+
+        if (draggedIndex + 1 < dragState.CurrentColumnOrder.Count)
+        {
+            var siblingTaskId = dragState.CurrentColumnOrder[draggedIndex + 1];
+            var sibling = dragState.SiblingCards.FirstOrDefault(value =>
+                string.Equals(value.TaskId, siblingTaskId, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(sibling.TaskId))
+            {
+                var siblingCurrentTop = ResolveSiblingCurrentTop(dragState, sibling);
+                var siblingMidpoint = siblingCurrentTop + sibling.Card.ActualHeight / 2.0;
+                if (draggedMidpoint > siblingMidpoint)
+                {
+                    var siblingTargetTop = ResolveSlotTop(dragState, draggedIndex);
+                    PerformVisualSwap(dragState, sibling, siblingTargetTop, draggedIndex, draggedIndex + 1);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void PerformVisualSwap(
+        TaskCardDragState dragState,
+        (FrameworkElement Card, double OriginalTop, string TaskId) sibling,
+        double newSiblingTop,
+        int draggedIndex,
+        int siblingIndex)
+    {
+        var transitionDuration = TimeSpan.FromMilliseconds(180);
+        AnimateCanvasTop(
+            sibling.Card,
+            newSiblingTop,
+            transitionDuration,
+            finalTop => ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, finalTop));
+        dragState.DisplacedSiblingTops[sibling.TaskId] = newSiblingTop;
+
+        if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+        {
+            var siblingDelta = newSiblingTop - sibling.OriginalTop;
+            foreach (var (overlay, originalTop) in overlays)
+                AnimateCanvasTop(overlay, originalTop + siblingDelta, transitionDuration);
+        }
+
+        if (draggedIndex >= 0 &&
+            draggedIndex < dragState.CurrentColumnOrder.Count &&
+            siblingIndex >= 0 &&
+            siblingIndex < dragState.CurrentColumnOrder.Count)
+        {
+            (dragState.CurrentColumnOrder[draggedIndex], dragState.CurrentColumnOrder[siblingIndex]) =
+                (dragState.CurrentColumnOrder[siblingIndex], dragState.CurrentColumnOrder[draggedIndex]);
+        }
+    }
+
     private IReadOnlyList<DragConnectorState> BuildDragConnectorStates(string taskId, double originalTop)
     {
         if (!_connectorsByTask.TryGetValue(taskId, out var groups))
@@ -7831,6 +8055,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var connectedConnectorStates = BuildDragConnectorStates(taskId, originalTop);
         var connectedConnectors = CaptureConnectorEffects(connectedConnectorStates);
         var dragOverlayElements = CaptureTaskDragOverlays(taskId);
+        var sameColumnCards = (_graphCanvas.Children.OfType<FrameworkElement>())
+            .Select(child => new
+            {
+                Element = child,
+                Left = Canvas.GetLeft(child),
+                Top = Canvas.GetTop(child),
+            })
+            .Where(entry =>
+                IsSameColumn(entry.Left, columnX) &&
+                double.IsFinite(entry.Top) &&
+                TryGetTaskIdTag(entry.Element, out _))
+            .Select(entry => (entry.Element, entry.Top))
+            .OrderBy(entry => entry.Top)
+            .ToArray();
+        var preDragColumnOrder = sameColumnCards
+            .Select(entry =>
+            {
+                TryGetTaskIdTag(entry.Element, out var id);
+                return id;
+            })
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToArray();
+        var siblingCards = sameColumnCards
+            .Select(entry =>
+            {
+                TryGetTaskIdTag(entry.Element, out var id);
+                return (Card: entry.Element, OriginalTop: entry.Top, TaskId: id);
+            })
+            .Where(entry =>
+                !string.IsNullOrWhiteSpace(entry.TaskId) &&
+                !string.Equals(entry.TaskId, taskId, StringComparison.Ordinal))
+            .ToArray();
+        var siblingOverlayElements = siblingCards.ToDictionary(
+            sibling => sibling.TaskId,
+            sibling => CaptureTaskDragOverlays(sibling.TaskId),
+            StringComparer.Ordinal);
+        var columnSlotTops = sameColumnCards.Select(entry => entry.Top).ToArray();
 
         _taskCardDragState = new TaskCardDragState
         {
@@ -7846,6 +8107,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             ConnectedConnectorStates = connectedConnectorStates,
             ConnectedConnectors = connectedConnectors,
             DragOverlayElements = dragOverlayElements,
+            SiblingCards = siblingCards,
+            CurrentColumnOrder = preDragColumnOrder.ToList(),
+            PreDragColumnOrder = preDragColumnOrder,
+            DisplacedSiblingTops = new Dictionary<string, double>(StringComparer.Ordinal),
+            SiblingOverlayElements = siblingOverlayElements,
+            ColumnSlotTops = columnSlotTops,
+            ColumnIdentifier = ResolveColumnIdentifier(columnX),
             IsActive = false,
         };
         ApplyTaskCardDragGlow(_taskCardDragState);
@@ -7911,6 +8179,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var (element, originalTop) in dragState.DragOverlayElements)
             Canvas.SetTop(element, originalTop + dragDeltaY);
         UpdateTaskCardDragConnectors(dragState, constrainedTop);
+
+        var draggedMidpoint = constrainedTop + dragState.Element.ActualHeight / 2.0;
+        while (TryPerformDragSwap(dragState, draggedMidpoint))
+        {
+        }
     }
 
     private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
@@ -7948,10 +8221,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_taskCardDragState is not { } dragState)
             return;
 
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            if (!dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+                continue;
+            sibling.Card.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetTop(sibling.Card, displacedTop);
+            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
+
+            if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+            {
+                var siblingDelta = displacedTop - sibling.OriginalTop;
+                foreach (var (overlay, originalTop) in overlays)
+                {
+                    overlay.BeginAnimation(Canvas.TopProperty, null);
+                    Canvas.SetTop(overlay, originalTop + siblingDelta);
+                }
+            }
+        }
+
         var top = Canvas.GetTop(dragState.Element);
         if (double.IsNaN(top))
             top = dragState.OriginalTop;
         UpdateTaskCardDragConnectors(dragState, top);
+        if (dragState.CurrentColumnOrder.Count > 0 &&
+            !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal))
+        {
+            _lastCommittedColumnOrder = new CommittedColumnReorder(
+                dragState.ColumnIdentifier,
+                dragState.CurrentColumnOrder.ToArray());
+        }
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;
         _suppressTaskCardCancelOnLostCapture = true;
@@ -7964,6 +8263,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         if (_taskCardDragState is not { } dragState)
             return;
+
+        var transitionDuration = TimeSpan.FromMilliseconds(180);
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            AnimateCanvasTop(
+                sibling.Card,
+                sibling.OriginalTop,
+                transitionDuration,
+                finalTop => ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, finalTop));
+            if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+            {
+                foreach (var (overlay, originalTop) in overlays)
+                    AnimateCanvasTop(overlay, originalTop, transitionDuration);
+            }
+        }
 
         Canvas.SetTop(dragState.Element, dragState.OriginalTop);
         Canvas.SetLeft(dragState.Element, dragState.ColumnX);
