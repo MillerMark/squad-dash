@@ -7779,6 +7779,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             transitionDuration,
             finalTop => ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, finalTop));
         dragState.DisplacedSiblingTops[sibling.TaskId] = newSiblingTop;
+        ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, newSiblingTop);
 
         if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
         {
