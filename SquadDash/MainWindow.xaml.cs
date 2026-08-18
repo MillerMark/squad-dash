@@ -11984,15 +11984,13 @@ public partial class MainWindow : Window
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
             resolveTaskCorrectionActivity: taskId =>
-                _pendingPlanTaskCorrectionContext is { } correction &&
-                string.Equals(correction.PlanId, groupId, StringComparison.Ordinal) &&
-                string.Equals(correction.TaskId, taskId, StringComparison.Ordinal)
-                    ? _publishedPlanTaskCorrectionActivity is { } published &&
-                      string.Equals(published.PlanId, groupId, StringComparison.Ordinal) &&
-                      string.Equals(published.TaskId, taskId, StringComparison.Ordinal)
-                        ? published.State
-                        : PlanTaskCorrectionActivityState.Drafting
-                    : PlanTaskCorrectionActivityState.None,
+                PlanTaskCorrectionActivityPolicy.Resolve(
+                    _pendingPlanTaskCorrectionContext,
+                    groupId,
+                    taskId,
+                    _isPromptRunning,
+                    _pec.CurrentDispatchedItem?.Id,
+                    _pec.CurrentDispatchedItem?.SourceTag),
             isApprovalChangeActivityActive: gateId =>
                 _activeGateChangeActivity is { } activity &&
                 string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
@@ -14527,19 +14525,17 @@ public partial class MainWindow : Window
     {
         var context = _pendingPlanTaskCorrectionContext;
         var dispatchedItem = _pec.CurrentDispatchedItem;
-        var isMatchingRunningPrompt = isPromptRunning && context is not null &&
-            (string.Equals(dispatchedItem?.Id, context.QueueItemId, StringComparison.Ordinal) ||
-             string.Equals(
-                 dispatchedItem?.SourceTag,
-                 "plan-recovery-correction-draft",
-                 StringComparison.Ordinal));
         var next = context is null
             ? ((string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?)null
             : (context.PlanId,
                context.TaskId,
-               isMatchingRunningPrompt
-                   ? PlanTaskCorrectionActivityState.Running
-                   : PlanTaskCorrectionActivityState.Drafting);
+               PlanTaskCorrectionActivityPolicy.Resolve(
+                   context,
+                   context.PlanId,
+                   context.TaskId,
+                   isPromptRunning,
+                   dispatchedItem?.Id,
+                   dispatchedItem?.SourceTag));
         if (_publishedPlanTaskCorrectionActivity == next)
             return;
 
@@ -14557,6 +14553,11 @@ public partial class MainWindow : Window
         _publishedPlanTaskCorrectionActivity = next;
         if (next is { } activity)
         {
+            SquadDashTrace.Write(
+                "Plan",
+                $"Task correction activity plan={activity.PlanId} task={activity.TaskId} " +
+                $"state={activity.State} promptRunning={isPromptRunning} " +
+                $"queueItem={dispatchedItem?.Id ?? "(none)"} sourceTag={dispatchedItem?.SourceTag ?? "(none)"}.");
             _broker.Publish(new PlanTaskCorrectionActivityEvent(
                 activity.PlanId,
                 activity.TaskId,

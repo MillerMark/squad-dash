@@ -3326,10 +3326,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
     {
+        if (_resolveTaskCorrectionActivity is not null)
+            return _resolveTaskCorrectionActivity(taskId);
         if (_taskCorrectionStates.TryGetValue(taskId, out var liveState))
             return liveState;
-        return _resolveTaskCorrectionActivity?.Invoke(taskId) ??
-               PlanTaskCorrectionActivityState.None;
+        return PlanTaskCorrectionActivityState.None;
     }
 
     private void ShowPlanPreflightRecovery(
