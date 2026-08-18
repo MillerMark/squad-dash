@@ -13443,6 +13443,22 @@ public partial class MainWindow : Window
         var plan = _planStore?.Load(groupId);
         if (plan is null)
             return DecomposeGroupExecutionState.Missing;
+
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution?.ActiveVerificationTaskId is { } verificationTaskId &&
+            string.Equals(activeExecution.DecomposeGroupId, groupId, StringComparison.Ordinal) &&
+            string.Equals(activeExecution.DecomposeRevision, plan.Revision, StringComparison.Ordinal))
+        {
+            if (_CodeHealthGroupRunner.TryRestoreVerificationStep(
+                    plan,
+                    verificationTaskId,
+                    out var restorationError))
+                return DecomposeGroupExecutionState.Eligible;
+            SquadDashTrace.Write(
+                "PlanVerification",
+                $"Could not restore verification candidate plan={groupId} task={verificationTaskId}: {restorationError}");
+            return DecomposeGroupExecutionState.Blocked;
+        }
         return _CodeHealthGroupRunner.TrackFirstEligibleStep(plan, UnionBlockedTaskIds(plan));
     }
 
@@ -17353,7 +17369,7 @@ public partial class MainWindow : Window
         var handoff = task.Handoff
             ?? throw new InvalidOperationException(
                 $"Task {taskId} no longer has the candidate handoff required for verification.");
-        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
         var candidateCommit = (await RunGitAsync(
             workspace, $"rev-parse --verify \"{handoff.Commit}^{{commit}}\"")).Trim();
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
@@ -17407,10 +17423,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<string> ResolvePlanRecoveryBaselineAsync(string workspace, Plan durable)
+    private async Task<string> ResolvePlanRecoveryBaselineAsync(
+        string workspace,
+        Plan durable,
+        string? taskId = null)
     {
         var baselineCandidate = durable.InterruptionData?.TaskCommitEvidence?.BaselineCommit
             ?? durable.InterruptionData?.LastCommit;
+        if (string.IsNullOrWhiteSpace(baselineCandidate) &&
+            !string.IsNullOrWhiteSpace(taskId) &&
+            PlanVerificationRecoveryPolicy.TryGetAtomicCandidateCommit(
+                durable,
+                taskId,
+                out var atomicCandidateCommit))
+        {
+            var resolvedCandidate = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{atomicCandidateCommit}^{{commit}}\"")).Trim();
+            var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{resolvedCandidate}\" \"{head}\"");
+            baselineCandidate = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{resolvedCandidate}^\"")).Trim();
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Recovered task baseline from host-validated atomic candidate plan={durable.PlanId} task={taskId} candidate={resolvedCandidate} baseline={baselineCandidate}.");
+        }
         if (string.IsNullOrWhiteSpace(baselineCandidate))
         {
             var history = (await RunGitAsync(workspace, "rev-list HEAD"))
@@ -17438,7 +17478,7 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null) return;
 
         var workspace = _currentWorkspace.FolderPath;
-        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
         var status = NormalizeGitSnapshot(await RunGitAsync(
@@ -51741,7 +51781,8 @@ public partial class MainWindow : Window
                 plan,
                 interruptionReason,
                 execution.LastCompletedIteration,
-                interruptedTaskId);
+                interruptedTaskId,
+                lastCommit: execution.TaskBaselineCommit);
             _planStore.Save(interrupted);
             _broker.Publish(new PlanProgressEvent(interrupted.PlanId, interrupted));
 

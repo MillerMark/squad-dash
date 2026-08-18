@@ -184,6 +184,40 @@ internal sealed class CodeHealthGroupRunner
     }
 
     /// <summary>
+    /// Restores the exact task owned by a durable verification envelope. Verification-pending
+    /// tasks are intentionally excluded from normal implementation scheduling, so restart must
+    /// bind them directly instead of asking the next-task selector to rediscover them.
+    /// </summary>
+    internal bool TryRestoreVerificationStep(Plan plan, string taskId, out string? error)
+    {
+        _currentStepId = null;
+        _currentRevision = plan.Revision;
+        error = null;
+
+        _taskById.Clear();
+        var canonicalGroup = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        foreach (var taskDefinition in canonicalGroup.Tasks)
+            _taskById[taskDefinition.Id] = taskDefinition;
+
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        if (task is null)
+        {
+            error = $"Verification task {taskId} is not present in durable plan {plan.PlanId}.";
+            return false;
+        }
+        if (task.Status != PlanTaskStatus.VerificationPending &&
+            !PlanTaskStatus.IsVerifying(task.Status))
+        {
+            error = $"Task {taskId} has durable status '{task.Status}', not a verification status.";
+            return false;
+        }
+
+        _currentStepId = task.TaskId;
+        return true;
+    }
+
+    /// <summary>
     /// Called when stop_loop is received while decompose mode is active.
     /// If the current step is still <c>[ ]</c> (i.e. the AI did not mark it <c>[x]</c>),
     /// marks it <c>[!]</c> in tasks.md.

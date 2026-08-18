@@ -215,6 +215,25 @@ internal static class PlanVerificationRecoveryPolicy
         return true;
     }
 
+    /// <summary>
+    /// Returns the host-recorded atomic candidate whose first parent is the reliable pre-task
+    /// boundary. This is available only for a resumable verification-stage handoff; arbitrary
+    /// repository HEAD values are never treated as task boundaries.
+    /// </summary>
+    internal static bool TryGetAtomicCandidateCommit(
+        Plan plan,
+        string taskId,
+        out string candidateCommit)
+    {
+        candidateCommit = string.Empty;
+        if (!CanResume(plan, taskId))
+            return false;
+
+        candidateCommit = plan.Tasks.Single(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal)).Handoff!.Commit;
+        return true;
+    }
+
     private static bool IsSafeGitCommitIdentifier(string? value) =>
         value is { Length: >= 7 and <= 64 } &&
         Regex.IsMatch(value, "^[0-9a-fA-F]+$", RegexOptions.CultureInvariant);

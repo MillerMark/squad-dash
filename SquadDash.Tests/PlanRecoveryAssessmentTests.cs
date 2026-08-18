@@ -518,6 +518,9 @@ internal sealed class PlanRecoveryAssessmentTests
         Assert.Multiple(() =>
         {
             Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.True);
+            Assert.That(PlanVerificationRecoveryPolicy.TryGetAtomicCandidateCommit(
+                plan, "TASK-1", out var atomicCandidate), Is.True);
+            Assert.That(atomicCandidate, Is.EqualTo("abcdef1"));
             Assert.That(created, Is.True, error);
             Assert.That(candidate, Is.Not.Null);
             Assert.That(candidate!.Status, Is.EqualTo("complete"));
@@ -544,7 +547,12 @@ internal sealed class PlanRecoveryAssessmentTests
             "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
             new PlanTimestamps(DateTimeOffset.UtcNow));
 
-        Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.False);
+            Assert.That(PlanVerificationRecoveryPolicy.TryGetAtomicCandidateCommit(
+                plan, "TASK-1", out _), Is.False);
+        });
     }
 
     [Test]
