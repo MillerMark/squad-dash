@@ -7271,7 +7271,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var top = pointer.Y - dragState.MouseOffsetWithinCard.Y;
         Canvas.SetTop(dragState.Element, top);
-        Canvas.SetLeft(dragState.Element, dragState.ColumnX);
     }
 
     private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
