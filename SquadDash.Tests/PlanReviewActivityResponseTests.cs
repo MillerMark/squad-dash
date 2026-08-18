@@ -35,6 +35,29 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void ActivityPolicy_UsesReviewCorrectionGateWhenCorrectionPromptRuns()
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1", "PLAN-1", "GATE-REVIEW");
+
+        var target = PlanReviewCorrectionActivityPolicy.Resolve(null, correction);
+
+        Assert.That(target, Is.EqualTo(("PLAN-1", "GATE-REVIEW")));
+    }
+
+    [Test]
+    public void ActivityPolicy_PrefersExplicitGateResponseContext()
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1", "PLAN-1", "GATE-REVIEW");
+
+        var target = PlanReviewCorrectionActivityPolicy.Resolve(
+            ("PLAN-1", "GATE-RESPONSE"), correction);
+
+        Assert.That(target, Is.EqualTo(("PLAN-1", "GATE-RESPONSE")));
+    }
+
+    [Test]
     public void ProtocolContext_InterruptedHumanReview_AllowsManualCorrectionWithoutPlanResume()
     {
         var plan = MakeInterruptedPlan();

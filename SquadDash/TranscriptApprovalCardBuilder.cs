@@ -789,6 +789,9 @@ internal static class TranscriptApprovalCardBuilder
     {
         SetReviewInteractionState(card, isInteractive: true);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Visible;
+        card.NoteSection.Visibility = Visibility.Visible;
+        card.ReworkIndicator.Visibility = Visibility.Collapsed;
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
@@ -823,17 +826,29 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Keeps approval available while the normal transcript asks what should change.</summary>
     internal static void ShowChangeRequestDraftingState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: false);
+        card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = false;
-        card.ReworkIndicator.Text = "Describe the requested changes in the prompt box.";
+        card.NoteTextBox.IsEnabled = false;
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.ReworkIndicator.Text = "Correction prompt prepared. Submit it to begin work.";
         card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
     /// <summary>Restores the approval actions when the next prompt was unrelated to this review.</summary>
     internal static void ClearChangeRequestDraftingState(CardResult card)
     {
+        SetReviewInteractionState(card, isInteractive: true);
+        card.ActionsPanel.Visibility = Visibility.Visible;
+        card.NoteSection.Visibility = Visibility.Visible;
+        card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
+        card.NoteTextBox.IsEnabled = true;
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ReworkIndicator.Visibility = Visibility.Collapsed;
     }
 

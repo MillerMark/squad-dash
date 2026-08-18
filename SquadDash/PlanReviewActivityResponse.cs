@@ -20,6 +20,25 @@ internal sealed record PlanReviewActivityResponse(
     [property: JsonPropertyName("taskIds")] IReadOnlyList<string> TaskIds,
     [property: JsonPropertyName("summary")] string Summary);
 
+/// <summary>
+/// Tracks the editable correction prompt created from an approval card so its action surface
+/// and matching Plan Viewer checkpoint can show one non-duplicable working state.
+/// </summary>
+internal sealed record PendingPlanReviewCorrectionContext(
+    string QueueItemId,
+    string PlanId,
+    string GateId);
+
+internal static class PlanReviewCorrectionActivityPolicy
+{
+    internal static (string PlanId, string GateId)? Resolve(
+        (string PlanId, string GateId)? gateResponse,
+        PendingPlanReviewCorrectionContext? reviewCorrection) =>
+        gateResponse ?? (reviewCorrection is null
+            ? null
+            : (reviewCorrection.PlanId, reviewCorrection.GateId));
+}
+
 internal static class PlanReviewActivityResponseParser
 {
     internal const string Marker = "PLAN_REVIEW_ACTIVITY_JSON:";

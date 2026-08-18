@@ -137,6 +137,42 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void ChangeRequestDraftingState_RemovesDuplicateActionsUntilRestored()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onRequestChanges: () => { });
+
+        TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(card.RequestChangesButton!.IsEnabled, Is.False);
+            Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReworkIndicator.Text, Does.Contain("Submit it to begin work"));
+        });
+
+        TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.True);
+            Assert.That(card.RequestChangesButton!.IsEnabled, Is.True);
+            Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void ReworkAndAmendmentStates_LockChecklistInteraction()
     {
         var plan = BuildTestPlan();

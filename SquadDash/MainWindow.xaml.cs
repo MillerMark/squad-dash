@@ -372,6 +372,7 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
+    private PendingPlanReviewCorrectionContext? _pendingPlanReviewCorrectionContext;
     private (string PlanId, string GateId)? _activeGateChangeActivity;
     private bool _planReviewActivityRepairPending;
     private bool _humanReviewClarificationRepairPending;
@@ -4643,6 +4644,11 @@ public partial class MainWindow : Window
             UpdateFollowUpStrip();
         }
         _promptQueue.Remove(id);
+        if (string.Equals(
+                _pendingPlanReviewCorrectionContext?.QueueItemId,
+                id,
+                StringComparison.Ordinal))
+            ClearPendingPlanReviewCorrection(restoreCard: true);
         SyncQueuePanel();
         if (_categorizationCallout is { IsVisible: true })
         {
@@ -5234,6 +5240,7 @@ public partial class MainWindow : Window
     {
         _isPromptRunning = false;
         SyncGateChangeActivity(isPromptRunning: false);
+        ClearPendingPlanReviewCorrection(restoreCard: true);
         UpdateRestartStatusPanelVisibility();
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
@@ -10378,7 +10385,7 @@ public partial class MainWindow : Window
             attachments);
     }
 
-    private void QueueEditablePlanPrompt(
+    private string QueueEditablePlanPrompt(
         string text,
         string selectedPlaceholder,
         string displayLabel,
@@ -10406,12 +10413,14 @@ public partial class MainWindow : Window
         OnQueueTabClicked(item.Id);
         PromptTextBox.Focus();
         SyncSendButton();
+        return item.Id;
     }
 
     private void QueueAddressUncheckedItems(
         Plan plan,
         string taskId,
-        IReadOnlyList<PlanHumanReviewChecklistItem> checklistItems)
+        IReadOnlyList<PlanHumanReviewChecklistItem> checklistItems,
+        string? activityGateId = null)
     {
         var uncheckedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
         if (uncheckedItems.Length == 0)
@@ -10453,7 +10462,7 @@ public partial class MainWindow : Window
                 RequiresRemovalConfirmation: true,
                 RemovalWarning: "This attachment identifies the unchecked verification items and keeps the plan paused correctly. Remove it anyway?"),
         };
-        QueueEditablePlanPrompt(
+        var queueItemId = QueueEditablePlanPrompt(
             $"Address the unchecked verification items for {stepLabel}.\r\n\r\n" +
             "What needs to be different?\r\n\r\n" +
             "[Describe the correction you want]\r\n",
@@ -10461,6 +10470,17 @@ public partial class MainWindow : Window
             "Address unchecked items",
             "plan-review-correction-draft",
             attachments);
+        activityGateId ??= uncheckedItems
+            .Select(item => item.GateId)
+            .FirstOrDefault(gateId => plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)));
+        if (!string.IsNullOrWhiteSpace(activityGateId))
+        {
+            _pendingPlanReviewCorrectionContext = new PendingPlanReviewCorrectionContext(
+                queueItemId,
+                plan.PlanId,
+                activityGateId);
+        }
     }
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
@@ -14176,7 +14196,8 @@ public partial class MainWindow : Window
         if (activeGates.Length > 0)
             snapshot = BuildLightweightApprovalSnapshot(plan, activeGates);
 
-        var cardResult = TranscriptApprovalCardBuilder.Build(
+        TranscriptApprovalCardBuilder.CardResult? cardResult = null;
+        cardResult = TranscriptApprovalCardBuilder.Build(
             snapshot,
             plan,
             gate,
@@ -14195,6 +14216,8 @@ public partial class MainWindow : Window
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
                 var reviewedTaskId = activeGates
                     .FirstOrDefault(candidate => string.Equals(
                         candidate.GateId,
@@ -14203,7 +14226,7 @@ public partial class MainWindow : Window
                     .AfterTaskIds.FirstOrDefault()
                     ?? gate.AfterTaskIds.FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(reviewedTaskId))
-                    QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems);
+                    QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
             });
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -14260,9 +14283,13 @@ public partial class MainWindow : Window
 
     private void SyncGateChangeActivity(bool isPromptRunning)
     {
-        if (isPromptRunning && _pendingGateResponseContext is { } context)
+        var pendingActivity = PlanReviewCorrectionActivityPolicy.Resolve(
+            _pendingGateResponseContext is { } gateContext
+                ? (gateContext.Token.PlanId, gateContext.GateId)
+                : null,
+            _pendingPlanReviewCorrectionContext);
+        if (isPromptRunning && pendingActivity is { } next)
         {
-            var next = (context.Token.PlanId, context.GateId);
             if (_activeGateChangeActivity == next)
                 return;
 
@@ -14273,6 +14300,12 @@ public partial class MainWindow : Window
             _activeGateChangeActivity = next;
             _broker.Publish(new PlanApprovalChangeActivityEvent(
                 next.PlanId, next.GateId, IsActive: true));
+            if (_pendingPlanReviewCorrectionContext is not null &&
+                _approvalTranscriptCards.TryGetValue(next.PlanId, out var cards))
+            {
+                foreach (var card in cards)
+                    TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+            }
             return;
         }
 
@@ -15385,7 +15418,10 @@ public partial class MainWindow : Window
             if (rawResponse?.Contains(
                     PlanReviewActivityResponseParser.Marker,
                     StringComparison.Ordinal) != true)
+            {
+                ClearPendingPlanReviewCorrection(restoreCard: true);
                 return false;
+            }
 
             if (!_planReviewActivityRepairPending && _planStore is not null)
             {
@@ -15415,7 +15451,11 @@ public partial class MainWindow : Window
 
     private async Task ApplyPlanReviewActivityResponseAsync(PlanReviewActivityResponse response)
     {
-        if (_planStore is null) return;
+        if (_planStore is null)
+        {
+            ClearPendingPlanReviewCorrection(restoreCard: true);
+            return;
+        }
 
         var plan = _planStore.Load(response.PlanId);
         if (plan is null ||
@@ -15425,6 +15465,7 @@ public partial class MainWindow : Window
         {
             AppendLine("⚠ The conversational review context changed before the response completed. " +
                        "No plan review activity was recorded.");
+            ClearPendingPlanReviewCorrection(restoreCard: true);
             return;
         }
 
@@ -15439,6 +15480,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Approval",
                 $"Related review discussion retained plan boundary plan={plan.PlanId} tasks={string.Join(",", response.TaskIds)}.");
+            ClearPendingPlanReviewCorrection(restoreCard: true);
             return;
         }
 
@@ -15450,6 +15492,7 @@ public partial class MainWindow : Window
         {
             AppendLine("⚠ SquadDash could not associate the conversational correction with the active review boundary. " +
                        "The plan remains unchanged.");
+            ClearPendingPlanReviewCorrection(restoreCard: true);
             return;
         }
 
@@ -15513,6 +15556,7 @@ public partial class MainWindow : Window
         {
             AppendLine("⚠ The conversational correction completed, but SquadDash could not record it for later plan assessment: " +
                        (saveError ?? "unknown persistence failure"));
+            ClearPendingPlanReviewCorrection(restoreCard: true);
             return;
         }
 
@@ -15527,6 +15571,7 @@ public partial class MainWindow : Window
             $"Conversational correction recorded for {string.Join(", ", labels)}. " +
             "The plan remains paused; use the refreshed recovery card to accept the step, continue working, or revise the remaining plan.");
         RefreshHumanReviewSurfaces(updated);
+        ClearPendingPlanReviewCorrection(restoreCard: false);
     }
 
     private void QueueGateResponseRepairOrExplainFailure()
@@ -15574,6 +15619,19 @@ public partial class MainWindow : Window
         if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
             foreach (var card in cards)
                 TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+    }
+
+    private void ClearPendingPlanReviewCorrection(bool restoreCard)
+    {
+        if (_pendingPlanReviewCorrectionContext is not { } context)
+            return;
+
+        _pendingPlanReviewCorrectionContext = null;
+        if (!restoreCard || !_approvalTranscriptCards.TryGetValue(context.PlanId, out var cards))
+            return;
+
+        foreach (var card in cards)
+            TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
     }
 
     private async Task<bool> ApplyGateReworkResponseAsync(
@@ -16810,8 +16868,9 @@ public partial class MainWindow : Window
                     humanChecklistItems.Select(item => item with
                     {
                         IsChecked = humanChecklistState[item.ItemId]
-                    }).ToArray()),
-                removeAfterAction: false);
+                    }).ToArray(),
+                    combinedHumanReviewGate.GateId),
+                removeAfterAction: true);
             AddAction(
                 "✎ Revise Remaining Plan…",
                 "Create an editable queued prompt with protected plan and replanning context attached. Nothing is sent until you review and submit it.",
