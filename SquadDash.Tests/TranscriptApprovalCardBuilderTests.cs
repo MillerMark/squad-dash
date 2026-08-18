@@ -103,6 +103,7 @@ public class TranscriptApprovalCardBuilderTests
         card.NoteTextBox.Text = "Reviewed locally";
 
         TranscriptApprovalCardBuilder.ShowResolvedState(card);
+        TranscriptApprovalCardBuilder.ShowHistoricalState(card);
 
         Assert.Multiple(() =>
         {
@@ -169,6 +170,34 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.ReviewSection!.IsEnabled, Is.True);
             Assert.That(card.RequestChangesButton!.IsEnabled, Is.True);
             Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void HistoricalState_KeepsCardButPermanentlyRetiresItsActions()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onRequestChanges: () => { });
+
+        TranscriptApprovalCardBuilder.ShowHistoricalState(card);
+        TranscriptApprovalCardBuilder.HideUpdatingState(card);
+        TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.IsRetired, Is.True);
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReworkIndicator.Text, Does.Contain("Inbox"));
+            Assert.That(card.ReworkIndicator.Text, Does.Contain("Plan Visualizer"));
         });
     }
 

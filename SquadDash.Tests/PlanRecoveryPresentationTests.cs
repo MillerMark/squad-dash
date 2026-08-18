@@ -325,6 +325,33 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void RecoveryAction_WithSavedVerificationCandidateNamesDirectVerification()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Verify me", "Work", [], "high",
+            PlanTaskStatus.Verifying,
+            Handoff: new PlanTaskHandoff(
+                "abcdef1",
+                "Implemented the task.",
+                ["Feature.cs"],
+                new DecomposeStepVerification("passed", "dotnet build", "Build passed."),
+                DateTimeOffset.UtcNow),
+            DisplayStepLabel: "1");
+        var plan = TestPlan(null) with { Tasks = [task] };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ResumeVerification));
+            Assert.That(action.Label, Is.EqualTo("Resume Verification for Step 1"));
+            Assert.That(action.ProtocolAction, Is.EqualTo("resume-verification"));
+            Assert.That(action.Hint, Does.Contain("directly to independent verification"));
+            Assert.That(action.Hint, Does.Contain("will not be repeated"));
+        });
+    }
+
+    [Test]
     public void SplitAnalysisSentences_PreservesCodeReferencesWhileSeparatingClaims()
     {
         var bullets = PlanRecoveryPresentationBuilder.SplitAnalysisSentences(

@@ -84,8 +84,8 @@ internal static class PlanRecoveryActionPresentationBuilder
         {
             return new PlanRecoveryPrimaryActionPresentation(
                 PlanRecoveryPrimaryActionKind.ResumeVerification,
-                "Resume Verification & Continue",
-                "Resume verification from the saved task handoff. Implementation work will not be repeated and no repository assessment will run.",
+                $"Resume Verification for {stepLabel}",
+                $"Send the preserved candidate for {stepLabel} directly to independent verification. Implementation work will not be repeated, replaced, or reassessed first.",
                 "resume-verification");
         }
 

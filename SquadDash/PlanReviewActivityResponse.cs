@@ -29,6 +29,15 @@ internal sealed record PendingPlanReviewCorrectionContext(
     string PlanId,
     string GateId);
 
+/// <summary>
+/// Tracks the editable bounded-correction prompt for an interrupted plan task. This is separate
+/// from approval-gate corrections so concurrent plans cannot suppress one another's controls.
+/// </summary>
+internal sealed record PendingPlanTaskCorrectionContext(
+    string QueueItemId,
+    string PlanId,
+    string TaskId);
+
 internal static class PlanReviewCorrectionActivityPolicy
 {
     internal static (string PlanId, string GateId)? Resolve(

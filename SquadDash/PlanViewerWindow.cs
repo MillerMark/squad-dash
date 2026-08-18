@@ -52,6 +52,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
+    private readonly Func<string, PlanTaskCorrectionActivityState>? _resolveTaskCorrectionActivity;
     private readonly Func<string, bool>? _isApprovalChangeActivityActive;
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
@@ -62,8 +63,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
     private Action<PlanValidationActivityPulseEvent>? _validationActivityPulseHandler;
     private Action<PlanRecoveryAssessmentActivityEvent>? _recoveryAssessmentActivityHandler;
+    private Action<PlanTaskCorrectionActivityEvent>? _taskCorrectionActivityHandler;
     private Action<PlanApprovalChangeActivityEvent>? _approvalChangeActivityHandler;
     private readonly HashSet<string> _recoveryAssessmentTaskIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlanTaskCorrectionActivityState> _taskCorrectionStates =
+        new(StringComparer.Ordinal);
     private readonly HashSet<string> _activeApprovalChangeGateIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
         new(StringComparer.Ordinal);
@@ -174,6 +178,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
         Func<string, bool>? isRecoveryAssessmentActive = null,
+        Func<string, PlanTaskCorrectionActivityState>? resolveTaskCorrectionActivity = null,
         Func<string, bool>? isApprovalChangeActivityActive = null,
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
@@ -220,6 +225,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
+        _resolveTaskCorrectionActivity = resolveTaskCorrectionActivity;
         _isApprovalChangeActivityActive = isApprovalChangeActivityActive;
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
@@ -312,6 +318,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             broker.Subscribe(_recoveryAssessmentActivityHandler);
             Closed += (_, _) => broker.Unsubscribe(_recoveryAssessmentActivityHandler);
+
+            _taskCorrectionActivityHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyActivity()
+                {
+                    if (activity.State == PlanTaskCorrectionActivityState.None)
+                        _taskCorrectionStates.Remove(activity.TaskId);
+                    else
+                        _taskCorrectionStates[activity.TaskId] = activity.State;
+                    if (_plan is not null && _durablePlan is not null)
+                        RebuildPreservingScroll(_plan, _durablePlan);
+                }
+                if (Dispatcher.CheckAccess()) ApplyActivity();
+                else Dispatcher.BeginInvoke(ApplyActivity);
+            };
+            broker.Subscribe(_taskCorrectionActivityHandler);
+            Closed += (_, _) => broker.Unsubscribe(_taskCorrectionActivityHandler);
 
             _approvalChangeActivityHandler = activity =>
             {
@@ -406,6 +431,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onUnapproveGate    = _onUnapproveGate;
         var onRetryValidation  = _onRetryValidation;
         var group = plan.Group;
+        var currentInterruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
+        var interruptedCorrectionState = string.IsNullOrWhiteSpace(currentInterruptedTaskId)
+            ? PlanTaskCorrectionActivityState.None
+            : ResolveTaskCorrectionActivity(currentInterruptedTaskId!);
+        var hasClaimedInterruptedCorrection =
+            interruptedCorrectionState != PlanTaskCorrectionActivityState.None;
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -505,7 +536,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-            durablePlan.InterruptionData?.RecoveryAssessment is not null)
+            durablePlan.InterruptionData?.RecoveryAssessment is not null &&
+            !hasClaimedInterruptedCorrection)
         {
             var assessmentPanel = new WrapPanel
             {
@@ -571,7 +603,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
                 PlanLifecycleStatus.WaitingForCleanWorktree &&
             (onResumePlan is not null || onAdoptVerifiedCommitRange is not null ||
-             onContinueInterruptedTask is not null || onEndPlan is not null))
+             onContinueInterruptedTask is not null || onEndPlan is not null) &&
+            !hasClaimedInterruptedCorrection)
         {
             var interruptedPanel = new WrapPanel
             {
@@ -682,6 +715,45 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 interruptedPanel.Children.Add(endButton);
             }
             header.Children.Add(interruptedPanel);
+        }
+
+        if (durablePlan is not null && hasClaimedInterruptedCorrection)
+        {
+            var correctedTask = durablePlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, currentInterruptedTaskId, StringComparison.Ordinal));
+            var correctedStep = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                correctedTask?.DisplayStepLabel,
+                correctedTask?.Title ?? currentInterruptedTaskId ?? "Interrupted Step");
+            var correctionStatus = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            if (interruptedCorrectionState == PlanTaskCorrectionActivityState.Running)
+            {
+                var spinner = new ActivitySpinner
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 0),
+                    AccentColor = ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"{correctedStep} is receiving the bounded correction requested from its recovery card."),
+                };
+                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                spinner.SetContinuousActive(true);
+                correctionStatus.Children.Add(spinner);
+            }
+            var statusText = new TextBlock
+            {
+                Text = interruptedCorrectionState == PlanTaskCorrectionActivityState.Running
+                    ? $"Correcting {correctedStep}…"
+                    : $"Correction prompt prepared for {correctedStep}.",
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            statusText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            correctionStatus.Children.Add(statusText);
+            header.Children.Add(correctionStatus);
         }
 
         if (durablePlan is not null &&
@@ -2053,6 +2125,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (_recoveryAssessmentTaskIds.Contains(task.Id) ||
                 (_isRecoveryAssessmentActive?.Invoke(task.Id) ?? false))
                 activityState = PlanTaskActivityState.Assessing;
+            if (ResolveTaskCorrectionActivity(task.Id) == PlanTaskCorrectionActivityState.Running)
+                activityState = PlanTaskActivityState.Reworking;
             var isTaskExecuting = activityState is PlanTaskActivityState.Executing or
                 PlanTaskActivityState.Assessing or
                 PlanTaskActivityState.Verifying or
@@ -3238,6 +3312,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Height = Math.Max(MinHeight, ActualHeight - previousApprovalHeight);
             _allocatedApprovalHeight = 0;
         }
+    }
+
+    private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
+    {
+        if (_taskCorrectionStates.TryGetValue(taskId, out var liveState))
+            return liveState;
+        return _resolveTaskCorrectionActivity?.Invoke(taskId) ??
+               PlanTaskCorrectionActivityState.None;
     }
 
     private void ShowPlanPreflightRecovery(

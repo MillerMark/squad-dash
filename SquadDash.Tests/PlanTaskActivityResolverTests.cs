@@ -317,6 +317,7 @@ internal sealed class PlanTaskActivityResolverTests
     [TestCase(PlanTaskActivityState.VerificationPending, "Step 2 - Verification pending")]
     [TestCase(PlanTaskActivityState.Verifying, "Step 2 - Verifying")]
     [TestCase(PlanTaskActivityState.Assessing, "Step 2 - Assessing")]
+    [TestCase(PlanTaskActivityState.Reworking, "Step 2 - Correcting")]
     [TestCase(PlanTaskActivityState.Queued, "Step 2")]
     public void StepLabel_DescribesVerificationPhase(
         PlanTaskActivityState activityState,
@@ -326,6 +327,7 @@ internal sealed class PlanTaskActivityResolverTests
     }
 
     [TestCase(PlanTaskActivityState.Assessing, true)]
+    [TestCase(PlanTaskActivityState.Reworking, true)]
     [TestCase(PlanTaskActivityState.Verifying, false)]
     [TestCase(PlanTaskActivityState.Executing, false)]
     public void KeepsSpinnerContinuouslyActive_IsReservedForRecoveryAssessment(

@@ -373,7 +373,10 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
     private PendingPlanReviewCorrectionContext? _pendingPlanReviewCorrectionContext;
+    private PendingPlanTaskCorrectionContext? _pendingPlanTaskCorrectionContext;
     private (string PlanId, string GateId)? _activeGateChangeActivity;
+    private (string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?
+        _publishedPlanTaskCorrectionActivity;
     private bool _planReviewActivityRepairPending;
     private bool _humanReviewClarificationRepairPending;
 
@@ -1571,6 +1574,7 @@ public partial class MainWindow : Window
             {
                 _isPromptRunning = v;
                 SyncGateChangeActivity(v);
+                SyncPlanTaskCorrectionActivity(v);
                 _idleDetectionService?.SetPromptActive(v);
                 if (v)
                 {
@@ -4649,6 +4653,11 @@ public partial class MainWindow : Window
                 id,
                 StringComparison.Ordinal))
             ClearPendingPlanReviewCorrection(restoreCard: true);
+        if (string.Equals(
+                _pendingPlanTaskCorrectionContext?.QueueItemId,
+                id,
+                StringComparison.Ordinal))
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
         SyncQueuePanel();
         if (_categorizationCallout is { IsVisible: true })
         {
@@ -5241,6 +5250,7 @@ public partial class MainWindow : Window
         _isPromptRunning = false;
         SyncGateChangeActivity(isPromptRunning: false);
         ClearPendingPlanReviewCorrection(restoreCard: true);
+        ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
         UpdateRestartStatusPanelVisibility();
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
@@ -10508,6 +10518,14 @@ public partial class MainWindow : Window
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
     {
+        if (_pendingPlanTaskCorrectionContext is not null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Correct Plan Step",
+                "A plan-step correction is already prepared or running. Submit or remove that queued correction before preparing another one.");
+            return;
+        }
+
         var durable = _planStore?.Load(plan.Group.GroupId);
         var task = durable?.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
@@ -10578,7 +10596,7 @@ public partial class MainWindow : Window
                 RequiresRemovalConfirmation: true,
                 RemovalWarning: "This context prevents completed work from being rerun and keeps the correction attached to the right step. Remove it anyway?"),
         };
-        QueueEditablePlanPrompt(
+        var queueItemId = QueueEditablePlanPrompt(
             $"Continue working on {stepLabel} without repeating its completed work.\r\n\r\n" +
             "What is incomplete or needs correction?\r\n\r\n" +
             "[Describe the bounded correction]\r\n",
@@ -10586,6 +10604,29 @@ public partial class MainWindow : Window
             $"Correct {stepLabel}",
             "plan-recovery-correction-draft",
             attachments);
+        _pendingPlanTaskCorrectionContext = new PendingPlanTaskCorrectionContext(
+            queueItemId,
+            durable.PlanId,
+            taskId);
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
+            CoordinatorThread.Document.Blocks,
+            durable.PlanId);
+        RetireRecoveryInboxActions(plan, taskId);
+        SyncPlanTaskCorrectionActivity(isPromptRunning: false);
+    }
+
+    private void RetireRecoveryInboxActions(PendingDecomposePlan plan, string taskId)
+    {
+        if (_inboxStore is null) return;
+        var messageId = DecomposePlanInbox.BuildRecoveryMessageId(plan, taskId);
+        var message = _inboxStore.GetById(messageId);
+        if (message is null) return;
+        foreach (var action in message.Actions)
+            _inboxStore.MarkActionUsed(messageId, action.Label);
+        var updated = _inboxStore.GetById(messageId);
+        if (updated is null) return;
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        RefreshOpenApprovalInboxWindows(messageId, updated);
     }
 
     private void QueueClarifyHumanReviewItem(Plan plan, PlanHumanReviewChecklistItem item)
@@ -11934,6 +11975,16 @@ public partial class MainWindow : Window
             isRecoveryAssessmentActive: taskId =>
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
+            resolveTaskCorrectionActivity: taskId =>
+                _pendingPlanTaskCorrectionContext is { } correction &&
+                string.Equals(correction.PlanId, groupId, StringComparison.Ordinal) &&
+                string.Equals(correction.TaskId, taskId, StringComparison.Ordinal)
+                    ? _publishedPlanTaskCorrectionActivity is { } published &&
+                      string.Equals(published.PlanId, groupId, StringComparison.Ordinal) &&
+                      string.Equals(published.TaskId, taskId, StringComparison.Ordinal)
+                        ? published.State
+                        : PlanTaskCorrectionActivityState.Drafting
+                    : PlanTaskCorrectionActivityState.None,
             isApprovalChangeActivityActive: gateId =>
                 _activeGateChangeActivity is { } activity &&
                 string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
@@ -14464,6 +14515,47 @@ public partial class MainWindow : Window
             active.PlanId, active.GateId, IsActive: false));
     }
 
+    private void SyncPlanTaskCorrectionActivity(bool isPromptRunning)
+    {
+        var context = _pendingPlanTaskCorrectionContext;
+        var dispatchedItem = _pec.CurrentDispatchedItem;
+        var isMatchingRunningPrompt = isPromptRunning && context is not null &&
+            (string.Equals(dispatchedItem?.Id, context.QueueItemId, StringComparison.Ordinal) ||
+             string.Equals(
+                 dispatchedItem?.SourceTag,
+                 "plan-recovery-correction-draft",
+                 StringComparison.Ordinal));
+        var next = context is null
+            ? ((string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?)null
+            : (context.PlanId,
+               context.TaskId,
+               isMatchingRunningPrompt
+                   ? PlanTaskCorrectionActivityState.Running
+                   : PlanTaskCorrectionActivityState.Drafting);
+        if (_publishedPlanTaskCorrectionActivity == next)
+            return;
+
+        if (_publishedPlanTaskCorrectionActivity is { } previous &&
+            (next is null ||
+             !string.Equals(previous.PlanId, next.Value.PlanId, StringComparison.Ordinal) ||
+             !string.Equals(previous.TaskId, next.Value.TaskId, StringComparison.Ordinal)))
+        {
+            _broker.Publish(new PlanTaskCorrectionActivityEvent(
+                previous.PlanId,
+                previous.TaskId,
+                PlanTaskCorrectionActivityState.None));
+        }
+
+        _publishedPlanTaskCorrectionActivity = next;
+        if (next is { } activity)
+        {
+            _broker.Publish(new PlanTaskCorrectionActivityEvent(
+                activity.PlanId,
+                activity.TaskId,
+                activity.State));
+        }
+    }
+
     /// <summary>
     /// Builds a lightweight <see cref="ApprovalReviewSnapshot"/> from in-memory plan data
     /// without requiring async git operations. Used for immediate transcript card rendering.
@@ -15554,7 +15646,36 @@ public partial class MainWindow : Window
             TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
                 CoordinatorThread.Document.Blocks, plan.PlanId);
             AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
+            RefreshRecoveryInboxMessage(plan, taskId);
         }
+    }
+
+    private void RefreshRecoveryInboxMessage(Plan plan, string taskId)
+    {
+        if (_inboxStore is null ||
+            (_pendingPlanTaskCorrectionContext is { } pending &&
+             string.Equals(pending.PlanId, plan.PlanId, StringComparison.Ordinal) &&
+             string.Equals(pending.TaskId, taskId, StringComparison.Ordinal)))
+            return;
+
+        var pendingPlan = PendingDecomposePlanAdapter.FromPlan(plan);
+        var messageId = DecomposePlanInbox.BuildRecoveryMessageId(pendingPlan, taskId);
+        var existing = _inboxStore.GetById(messageId);
+        if (existing is null) return;
+
+        var refreshed = DecomposePlanInbox.BuildRecoveryMessage(
+            pendingPlan,
+            taskId,
+            plan.InterruptionData?.Reason ?? "Plan recovery is waiting for a decision.",
+            existing.Timestamp,
+            plan.InterruptionData?.TaskCommitEvidence,
+            plan) with
+        {
+            Read = existing.Read,
+        };
+        _inboxStore.Save(refreshed);
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        RefreshOpenApprovalInboxWindows(messageId, refreshed);
     }
 
     private bool TryHandlePlanReviewActivityFromResponse(string? rawResponse)
@@ -15567,6 +15688,7 @@ public partial class MainWindow : Window
                     StringComparison.Ordinal) != true)
             {
                 ClearPendingPlanReviewCorrection(restoreCard: true);
+                ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
                 return false;
             }
 
@@ -15601,6 +15723,7 @@ public partial class MainWindow : Window
         if (_planStore is null)
         {
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15613,6 +15736,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ The conversational review context changed before the response completed. " +
                        "No plan review activity was recorded.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15628,6 +15752,7 @@ public partial class MainWindow : Window
                 "Approval",
                 $"Related review discussion retained plan boundary plan={plan.PlanId} tasks={string.Join(",", response.TaskIds)}.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15640,6 +15765,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ SquadDash could not associate the conversational correction with the active review boundary. " +
                        "The plan remains unchanged.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15704,6 +15830,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ The conversational correction completed, but SquadDash could not record it for later plan assessment: " +
                        (saveError ?? "unknown persistence failure"));
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15717,8 +15844,9 @@ public partial class MainWindow : Window
         ShowSystemTranscriptEntry(
             $"Conversational correction recorded for {string.Join(", ", labels)}. " +
             "The plan remains paused; use the refreshed recovery card to accept the step, continue working, or revise the remaining plan.");
-        RefreshHumanReviewSurfaces(updated);
         ClearPendingPlanReviewCorrection(restoreCard: false);
+        ClearPendingPlanTaskCorrection(restoreRecoverySurface: false);
+        RefreshHumanReviewSurfaces(updated);
     }
 
     private void QueueGateResponseRepairOrExplainFailure()
@@ -15779,6 +15907,18 @@ public partial class MainWindow : Window
 
         foreach (var card in cards)
             TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+    }
+
+    private void ClearPendingPlanTaskCorrection(bool restoreRecoverySurface)
+    {
+        if (_pendingPlanTaskCorrectionContext is not { } context)
+            return;
+
+        _pendingPlanTaskCorrectionContext = null;
+        SyncPlanTaskCorrectionActivity(isPromptRunning: false);
+        if (!restoreRecoverySurface || _planStore?.Load(context.PlanId) is not { } plan)
+            return;
+        RefreshHumanReviewSurfaces(plan);
     }
 
     private async Task<bool> ApplyGateReworkResponseAsync(
@@ -17346,12 +17486,12 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(
                     "Plan",
                     $"Could not reconstruct verification for plan={durable.PlanId} task={taskId}; " +
-                    $"falling back to repository assessment: {ex.Message}");
-                ShowSystemTranscriptEntry(
-                    "SquadDash could not safely restore the saved verification stage, so it is assessing the repository state instead. " +
-                    "Implementation work will remain stopped while the evidence is checked.");
-                durable = latest;
-                plan = PendingDecomposePlanAdapter.FromPlan(latest);
+                    $"preserving the candidate without fallback: {ex.Message}");
+                throw new InvalidOperationException(
+                    "SquadDash could not safely restore independent verification for the saved candidate. " +
+                    "The candidate remains preserved, and implementation work was not restarted or replaced. " +
+                    "Reopen the current recovery card after resolving the reported verification-restoration problem.",
+                    ex);
             }
         }
 
@@ -38124,6 +38264,7 @@ public partial class MainWindow : Window
             {
                 // Plan actions answer only the immediately preceding response. A newer turn makes
                 // the Inbox reminder the durable action surface, while the transcript link remains.
+                RetireHistoricalApprovalTranscriptCards();
                 RemovePendingDecomposeApprovalButtons();
                 TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
                 TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
@@ -38165,6 +38306,15 @@ public partial class MainWindow : Window
         }
 
         return thread.CurrentTurn;
+    }
+
+    private void RetireHistoricalApprovalTranscriptCards()
+    {
+        foreach (var cards in _approvalTranscriptCards.Values)
+        {
+            foreach (var card in cards)
+                TranscriptApprovalCardBuilder.ShowHistoricalState(card);
+        }
     }
 
     private TranscriptTurnView CreateTranscriptTurnView(
