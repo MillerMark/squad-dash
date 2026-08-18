@@ -372,6 +372,7 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationOriginalInboxVisible;
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
+    private (string PlanId, string GateId)? _activeGateChangeActivity;
     private bool _planReviewActivityRepairPending;
     private bool _humanReviewClarificationRepairPending;
 
@@ -1568,6 +1569,7 @@ public partial class MainWindow : Window
             setIsPromptRunning: v =>
             {
                 _isPromptRunning = v;
+                SyncGateChangeActivity(v);
                 _idleDetectionService?.SetPromptActive(v);
                 if (v)
                 {
@@ -5231,6 +5233,7 @@ public partial class MainWindow : Window
     private void ForceCoordinatorAbortCleanup(string marker = "[aborted]")
     {
         _isPromptRunning = false;
+        SyncGateChangeActivity(isPromptRunning: false);
         UpdateRestartStatusPanelVisibility();
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
@@ -11750,6 +11753,10 @@ public partial class MainWindow : Window
             isRecoveryAssessmentActive: taskId =>
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
+            isApprovalChangeActivityActive: gateId =>
+                _activeGateChangeActivity is { } activity &&
+                string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
+                string.Equals(activity.GateId, gateId, StringComparison.Ordinal),
             initializeRepository: InitializeRepositoryForPlanAsync,
             onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
             onContinueInterruptedTask: onContinueInterruptedTask,
@@ -14249,6 +14256,32 @@ public partial class MainWindow : Window
         AppendLine($"What would you like changed in “**{gate.Message}**”? Describe it in the prompt box. " +
                    "The plan will remain awaiting approval until SquadDash receives a valid rework decision.");
         PromptTextBox.Focus();
+    }
+
+    private void SyncGateChangeActivity(bool isPromptRunning)
+    {
+        if (isPromptRunning && _pendingGateResponseContext is { } context)
+        {
+            var next = (context.Token.PlanId, context.GateId);
+            if (_activeGateChangeActivity == next)
+                return;
+
+            if (_activeGateChangeActivity is { } previous)
+                _broker.Publish(new PlanApprovalChangeActivityEvent(
+                    previous.PlanId, previous.GateId, IsActive: false));
+
+            _activeGateChangeActivity = next;
+            _broker.Publish(new PlanApprovalChangeActivityEvent(
+                next.PlanId, next.GateId, IsActive: true));
+            return;
+        }
+
+        if (_activeGateChangeActivity is not { } active)
+            return;
+
+        _activeGateChangeActivity = null;
+        _broker.Publish(new PlanApprovalChangeActivityEvent(
+            active.PlanId, active.GateId, IsActive: false));
     }
 
     /// <summary>

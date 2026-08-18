@@ -19,6 +19,15 @@ internal sealed record PlanRecoveryAssessmentActivityEvent(
     string TaskId,
     bool IsActive);
 
+/// <summary>
+/// Live, non-durable activity for feedback submitted from a human approval checkpoint.
+/// The durable gate transition takes over once the feedback becomes rework or an amendment.
+/// </summary>
+internal sealed record PlanApprovalChangeActivityEvent(
+    string PlanId,
+    string GateId,
+    bool IsActive);
+
 internal static class PlanTaskActivityPulsePolicy
 {
     internal static bool MatchesLiveTarget(

@@ -95,6 +95,20 @@ internal sealed class PlanApprovalHistoricalPresentationPolicyTests
         Assert.That(state, Is.EqualTo(PlanApprovalControlVisualState.LockedOctagon));
     }
 
+    [TestCase(true, PlanApprovalControlVisualState.ActiveChangeQuestion)]
+    [TestCase(false, PlanApprovalControlVisualState.LockedOctagon)]
+    public void RequestedChanges_ShowActivityOnlyAtPrimaryQuestion(
+        bool isPrimary, PlanApprovalControlVisualState expected)
+    {
+        var state = PlanApprovalHistoricalPresentationPolicy.Resolve(
+            executionLocked: true,
+            controllingGateStatus: PlanGateStatus.Pending,
+            isPrimaryAnchor: isPrimary,
+            isApprovalChangeActive: true);
+
+        Assert.That(state, Is.EqualTo(expected));
+    }
+
     [Test]
     public void CollectivelyApprovedEquivalentBoundary_IsHiddenBeforeDependentStarts()
     {

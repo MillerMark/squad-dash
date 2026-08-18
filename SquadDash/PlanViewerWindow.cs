@@ -51,6 +51,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
+    private readonly Func<string, bool>? _isApprovalChangeActivityActive;
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
@@ -60,7 +61,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
     private Action<PlanValidationActivityPulseEvent>? _validationActivityPulseHandler;
     private Action<PlanRecoveryAssessmentActivityEvent>? _recoveryAssessmentActivityHandler;
+    private Action<PlanApprovalChangeActivityEvent>? _approvalChangeActivityHandler;
     private readonly HashSet<string> _recoveryAssessmentTaskIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _activeApprovalChangeGateIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _validationSpinnersById =
@@ -128,6 +131,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
         Func<string, bool>? isRecoveryAssessmentActive = null,
+        Func<string, bool>? isApprovalChangeActivityActive = null,
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
         Action<Plan>? onContinueInterruptedTask = null,
@@ -172,6 +176,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
+        _isApprovalChangeActivityActive = isApprovalChangeActivityActive;
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
@@ -262,6 +267,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             broker.Subscribe(_recoveryAssessmentActivityHandler);
             Closed += (_, _) => broker.Unsubscribe(_recoveryAssessmentActivityHandler);
+
+            _approvalChangeActivityHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyActivity()
+                {
+                    if (activity.IsActive)
+                        _activeApprovalChangeGateIds.Add(activity.GateId);
+                    else
+                        _activeApprovalChangeGateIds.Remove(activity.GateId);
+                    if (_plan is not null && _durablePlan is not null)
+                        RebuildPreservingScroll(_plan, _durablePlan);
+                }
+                if (Dispatcher.CheckAccess()) ApplyActivity();
+                else Dispatcher.BeginInvoke(ApplyActivity);
+            };
+            broker.Subscribe(_approvalChangeActivityHandler);
+            Closed += (_, _) => broker.Unsubscribe(_approvalChangeActivityHandler);
         }
     }
 
@@ -1009,6 +1033,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         bool IsPrimary(PlanApprovalGate? gate, string anchor) => gate is not null &&
             string.Equals(ResolvePresentationAnchor(gate), anchor, StringComparison.Ordinal);
 
+        bool IsApprovalChangeActive(PlanApprovalGate? gate) => gate is not null &&
+            ((_isApprovalChangeActivityActive?.Invoke(gate.GateId) ?? false) ||
+             _activeApprovalChangeGateIds.Contains(gate.GateId) ||
+             (durablePlan?.LifecycleStatus == PlanLifecycleStatus.Executing &&
+              gate.Status == PlanGateStatus.Pending &&
+              gate.ReworkCount > 0 &&
+              gate.LastReworkRequestedAt.HasValue));
+
         static bool IsUnresolvedApproval(PlanApprovalGate? gate) => gate?.Status is
             PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval;
 
@@ -1294,12 +1326,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(milestoneBand, -2);
             canvas.Children.Add(milestoneBand);
 
+            var milestoneChangeActive = IsApprovalChangeActive(existingGate);
             var milestoneVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                 milestoneExecutionLocked,
                 existingGate?.Status,
-                milestoneIsPrimary);
+                milestoneIsPrimary,
+                isApprovalChangeActive: milestoneChangeActive);
             var milestoneApproved = milestoneVisual == PlanApprovalControlVisualState.ApprovedCheck;
             var milestoneAwaiting = milestoneVisual == PlanApprovalControlVisualState.AwaitingQuestion;
+            var milestoneChanging = milestoneVisual == PlanApprovalControlVisualState.ActiveChangeQuestion;
+            var milestoneHasQuestion = milestoneAwaiting || milestoneChanging;
             if (milestoneVisual != PlanApprovalControlVisualState.Hidden)
             {
                 var milestoneStop = CreateApprovalStop(
@@ -1352,6 +1388,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     isLocked && !milestoneIsPrimary ? 0.5 : 1.0,
                     approved: milestoneApproved,
                     awaitingApproval: milestoneAwaiting,
+                    approvalChangeActive: milestoneChanging,
                     selectionAnchor: existingGate?.GateId,
                     toggleActionLabel: milestoneIsPrimary
                         ? "Remove this approval requirement"
@@ -1362,7 +1399,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     unapproveAction: milestoneApproved && existingGate is not null && onUnapproveGate is not null
                         ? () => { onUnapproveGate(durablePlan!, existingGate.GateId); }
                         : null);
-                Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneAwaiting ? 10 : 8) * _scaleFactor);
+                Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneHasQuestion ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
                 if (existingGate is not null && milestoneStop.ContextMenu is ContextMenu milestoneMenu)
@@ -1823,14 +1860,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var badgeContent = new Grid();
             badgeContent.Children.Add(badgeText);
 
+            var joinGate = existingJoinGate ?? coveringJoinGate;
+            var joinChangeActive = IsApprovalChangeActive(joinGate);
             var joinVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                 joinExecutionLocked,
-                (existingJoinGate ?? coveringJoinGate)?.Status,
-                IsPrimary(existingJoinGate ?? coveringJoinGate, joinAnchor),
+                joinGate?.Status,
+                IsPrimary(joinGate, joinAnchor),
                 hasUnresolvedEquivalent: collectivelyUnresolvedJoin,
-                hasResolvedEquivalent: collectivelyCoveredJoin && !collectivelyUnresolvedJoin);
+                hasResolvedEquivalent: collectivelyCoveredJoin && !collectivelyUnresolvedJoin,
+                isApprovalChangeActive: joinChangeActive);
             var joinApproved = joinVisual == PlanApprovalControlVisualState.ApprovedCheck;
             var joinAwaiting = joinVisual == PlanApprovalControlVisualState.AwaitingQuestion;
+            var joinChanging = joinVisual == PlanApprovalControlVisualState.ActiveChangeQuestion;
             if (joinVisual != PlanApprovalControlVisualState.Hidden)
             {
                 var joinStop = CreateApprovalStop(
@@ -1896,6 +1937,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                      collectivelyCoveredJoin) ? 0.5 : 1.0,
                     approved: joinApproved,
                     awaitingApproval: joinAwaiting,
+                    approvalChangeActive: joinChanging,
                     selectionAnchor: (existingJoinGate ?? coveringJoinGate)?.GateId,
                     toggleActionLabel: joinIsPrimary
                         ? "Remove this approval requirement"
@@ -2696,14 +2738,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         capturedTaskForStop.DependsOn.Any(id =>
                             candidate.AfterTaskIds.Contains(id, StringComparer.Ordinal)) &&
                         candidate.BeforeTaskIds.Contains(capturedTaskForStop.Id, StringComparer.Ordinal));
+                    var beforeChangeActive = IsApprovalChangeActive(controllingBeforeGate);
                     var beforeVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                         entryExecutionLocked,
                         controllingBeforeGate?.Status,
                         IsPrimary(controllingBeforeGate, beforeAnchor),
                         hasUnresolvedEquivalent: collectivelyUnresolvedEntry,
-                        hasResolvedEquivalent: collectivelyCoveredEntry && !collectivelyUnresolvedEntry);
+                        hasResolvedEquivalent: collectivelyCoveredEntry && !collectivelyUnresolvedEntry,
+                        isApprovalChangeActive: beforeChangeActive);
                     var beforeApproved = beforeVisual == PlanApprovalControlVisualState.ApprovedCheck;
                     var beforeAwaiting = beforeVisual == PlanApprovalControlVisualState.AwaitingQuestion;
+                    var beforeChanging = beforeVisual == PlanApprovalControlVisualState.ActiveChangeQuestion;
+                    var beforeHasQuestion = beforeAwaiting || beforeChanging;
                     if (beforeVisual != PlanApprovalControlVisualState.Hidden)
                     {
                         var beforeStop = CreateApprovalStop(
@@ -2771,6 +2817,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                               collectivelyCoveredEntry) ? 0.5 : 1.0,
                             approved: beforeApproved,
                             awaitingApproval: beforeAwaiting,
+                            approvalChangeActive: beforeChanging,
                             selectionAnchor: controllingBeforeGate?.GateId,
                             toggleActionLabel: beforeIsPrimary
                                 ? "Remove this approval requirement"
@@ -2781,8 +2828,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             unapproveAction: beforeApproved && existingBeforeGate is not null && onUnapproveGate is not null
                                 ? () => { onUnapproveGate(durablePlan, existingBeforeGate.GateId); }
                                 : null);
-                        Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeAwaiting ? 4 : 6) * _scaleFactor);
-                        Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeAwaiting ? 22 : 20) * _scaleFactor);
+                        Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeHasQuestion ? 4 : 6) * _scaleFactor);
+                        Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeHasQuestion ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
                         if (controllingBeforeGate is not null && beforeStop.ContextMenu is ContextMenu beforeMenu)
                         {
@@ -2852,14 +2899,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var controllingAfterGate = existingAfterGate ?? coveringAfterGate;
                     var collectivelyUnresolvedExit = collectivelyCoveredByAllJoins &&
                         lockedAllJoinGates.Any(IsUnresolvedApproval);
+                    var afterChangeActive = IsApprovalChangeActive(controllingAfterGate);
                     var afterVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                         exitExecutionLocked,
                         controllingAfterGate?.Status,
                         IsPrimary(controllingAfterGate, afterAnchor),
                         hasUnresolvedEquivalent: collectivelyUnresolvedExit,
-                        hasResolvedEquivalent: collectivelyCoveredByAllJoins && !collectivelyUnresolvedExit);
+                        hasResolvedEquivalent: collectivelyCoveredByAllJoins && !collectivelyUnresolvedExit,
+                        isApprovalChangeActive: afterChangeActive);
                     var afterApproved = afterVisual == PlanApprovalControlVisualState.ApprovedCheck;
                     var afterAwaiting = afterVisual == PlanApprovalControlVisualState.AwaitingQuestion;
+                    var afterChanging = afterVisual == PlanApprovalControlVisualState.ActiveChangeQuestion;
+                    var afterHasQuestion = afterAwaiting || afterChanging;
                     if (afterVisual != PlanApprovalControlVisualState.Hidden)
                     {
                         var afterStop = CreateApprovalStop(
@@ -2927,6 +2978,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                              collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
                             approved: afterApproved,
                             awaitingApproval: afterAwaiting,
+                            approvalChangeActive: afterChanging,
                             selectionAnchor: controllingAfterGate?.GateId,
                             toggleActionLabel: afterIsPrimary
                                 ? "Remove this approval requirement"
@@ -2937,8 +2989,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             unapproveAction: afterApproved && existingAfterGate is not null && onUnapproveGate is not null
                                 ? () => { onUnapproveGate(durablePlan, existingAfterGate.GateId); }
                                 : null);
-                        Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterAwaiting ? 24 : 22) * _scaleFactor);
-                        Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterAwaiting ? 22 : 20) * _scaleFactor);
+                        Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterHasQuestion ? 24 : 22) * _scaleFactor);
+                        Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterHasQuestion ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
                         if (controllingAfterGate is not null && afterStop.ContextMenu is ContextMenu afterMenu)
                         {
@@ -4438,6 +4490,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         double engagedOpacity = 1.0,
         bool approved = false,
         bool awaitingApproval = false,
+        bool approvalChangeActive = false,
         string? selectionAnchor = null,
         string? toggleActionLabel = null,
         Action? approveAction = null,
@@ -4446,7 +4499,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var s = _scaleFactor;
         FrameworkElement indicator;
         Polygon? stop = null;
-        if (approved || awaitingApproval)
+        var showsQuestion = awaitingApproval || approvalChangeActive;
+        if (approved || showsQuestion)
         {
             var bgSize = 18 * s;
             var bg = new Border
@@ -4454,22 +4508,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Width = bgSize,
                 Height = bgSize,
                 CornerRadius = new CornerRadius(3 * s),
-                BorderThickness = new Thickness(awaitingApproval ? 1.1 * s : 0),
+                BorderThickness = new Thickness(showsQuestion ? 1.1 * s : 0),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
             bg.SetResourceReference(Border.BackgroundProperty, "PlanApprovalResolvedBg");
-            if (awaitingApproval)
+            if (showsQuestion)
                 bg.SetResourceReference(Border.BorderBrushProperty, "PlanApprovalResolved");
 
             FrameworkElement glyph;
-            var resourceKey = awaitingApproval
+            var resourceKey = showsQuestion
                 ? "TaskAwaitingHumanApproval"
                 : "PlanApprovalResolvedCheck";
             if (Application.Current?.TryFindResource(resourceKey) is Viewbox resourceGlyph)
             {
-                resourceGlyph.Width = (awaitingApproval ? 8 : 13) * s;
-                resourceGlyph.Height = (awaitingApproval ? 13 : 13) * s;
+                resourceGlyph.Width = (showsQuestion ? 8 : 13) * s;
+                resourceGlyph.Height = 13 * s;
                 resourceGlyph.HorizontalAlignment = HorizontalAlignment.Center;
                 resourceGlyph.VerticalAlignment = VerticalAlignment.Center;
                 glyph = resourceGlyph;
@@ -4478,7 +4532,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var fallback = new TextBlock
                 {
-                    Text = awaitingApproval ? "?" : "✓",
+                    Text = showsQuestion ? "?" : "✓",
                     FontSize = 14 * s,
                     FontWeight = FontWeights.Bold,
                     HorizontalAlignment = HorizontalAlignment.Center,
@@ -4488,10 +4542,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 glyph = fallback;
             }
 
-            var approvedContainer = new Grid();
+            var approvedContainer = new Grid
+            {
+                Width = 20 * s,
+                Height = 20 * s,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
             approvedContainer.Children.Add(bg);
             approvedContainer.Children.Add(glyph);
-            if (awaitingApproval)
+            if (showsQuestion)
             {
                 var glow = new DropShadowEffect
                 {
@@ -4510,7 +4569,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
                     });
             }
-            indicator = approvedContainer;
+            if (approvalChangeActive)
+            {
+                var activityStack = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                };
+                activityStack.Children.Add(approvedContainer);
+                var spinner = new ActivitySpinner
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 1 * s, 0, 0),
+                    AccentColor = ResolvePlanSpinnerColor(),
+                    MinimumOpacity = 1.0,
+                };
+                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                spinner.SetContinuousActive(true);
+                activityStack.Children.Add(spinner);
+                indicator = activityStack;
+            }
+            else
+            {
+                indicator = approvedContainer;
+            }
         }
         else
         {
@@ -4532,11 +4613,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hitTarget = new Grid
         {
-            Width = (approved || awaitingApproval ? 20 : 16) * s,
-            Height = (approved || awaitingApproval ? 20 : 16) * s,
+            Width = (approved || showsQuestion ? 20 : 16) * s,
+            Height = (approvalChangeActive ? 36 : approved || showsQuestion ? 20 : 16) * s,
             Background = Brushes.Transparent,
             Cursor = toggle is null ? Cursors.Arrow : Cursors.Hand,
-            ToolTip = ToolTipHelper.MakeThemedToolTip(toolTip),
+            ToolTip = ToolTipHelper.MakeThemedToolTip(approvalChangeActive
+                ? "Making requested changes so this checkpoint can be reviewed again. Human approval remains pending until the changed work is verified."
+                : toolTip),
             Opacity = engaged ? engagedOpacity : 1.0,
         };
         hitTarget.Children.Add(indicator);

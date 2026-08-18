@@ -12,7 +12,8 @@ internal static class PlanApprovalHistoricalPresentationPolicy
         string? controllingGateStatus,
         bool isPrimaryAnchor,
         bool hasUnresolvedEquivalent = false,
-        bool hasResolvedEquivalent = false)
+        bool hasResolvedEquivalent = false,
+        bool isApprovalChangeActive = false)
     {
         // Resolution is authoritative even when the individual task boundary has not yet
         // crossed its execution frontier. A single approved gate can be projected at several
@@ -25,6 +26,13 @@ internal static class PlanApprovalHistoricalPresentationPolicy
 
         if (controllingGateStatus == PlanGateStatus.Skipped)
             return PlanApprovalControlVisualState.Hidden;
+
+        // Feedback submitted from this checkpoint keeps the question visible as the destination
+        // of the work. Only the primary projection owns the activity spinner.
+        if (isApprovalChangeActive)
+            return isPrimaryAnchor
+                ? PlanApprovalControlVisualState.ActiveChangeQuestion
+                : PlanApprovalControlVisualState.LockedOctagon;
 
         // A gate that is actively awaiting the human is already part of the execution record.
         // Its primary anchor becomes the attention-calling question control; equivalent
@@ -58,6 +66,7 @@ internal enum PlanApprovalControlVisualState
     EditableOctagon,
     LockedOctagon,
     AwaitingQuestion,
+    ActiveChangeQuestion,
     ApprovedCheck,
     Hidden,
 }
