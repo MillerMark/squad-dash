@@ -2878,7 +2878,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : null;
                     var afterEngaged = existingAfterGate is not null || coveringAfterGate is not null ||
                                        collectivelyCoveredByAllJoins;
-                    var afterIsPrimary = IsPrimary(existingAfterGate, afterAnchor);
+                    var afterIsPrimary = IsPrimary(existingAfterGate, afterAnchor) ||
+                        (existingAfterGate is null && IsPrimary(coveringAfterGate, afterAnchor));
                     var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
                     var controllingAfterGate = existingAfterGate ?? coveringAfterGate;
                     var collectivelyUnresolvedExit = collectivelyCoveredByAllJoins &&
@@ -2958,7 +2959,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                            afterEngaged && (!afterIsPrimary || coveringAfterGate is not null ||
+                            afterEngaged && (!afterIsPrimary ||
                                              collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
                             approved: afterApproved,
                             awaitingApproval: afterAwaiting,
@@ -5864,11 +5865,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text) ||
                 ParseEditorList(assertions.Text).Count == 0)
                 return "Title, description, and at least one assertion are required.";
-            ApplyStagedMutation(StagedPlanEditor.UpdateValidation(
+            var updatedGroup = StagedPlanEditor.UpdateValidation(
                 _plan!.Group, validationId, title.Text, description.Text, mode.Text,
                 ParseEditorList(after.Text), ParseEditorList(before.Text),
                 ParseEditorLines(assertions.Text), ParseEditorLines(commands.Text),
-                revalidate.IsChecked != false, ParseEditorList(outputIds.Text)));
+                revalidate.IsChecked != false, ParseEditorList(outputIds.Text));
+            // Proof-bearing plans require the final audit's afterTaskIds to exactly match
+            // the current leaf set. Re-reconcile so schema validation passes regardless of
+            // what the user typed into the after-task-IDs field for an audit validation.
+            updatedGroup = DependencyEditRecomputer.ReconcileAuditBoundary(updatedGroup);
+            ApplyStagedMutation(updatedGroup);
             return null;
         });
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));

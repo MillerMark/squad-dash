@@ -248,7 +248,9 @@ internal static class StagedPlanEditor
             "Describe the observable outcome and the production consumer for this step.",
             before ? anchor.DependsOn.ToArray() : [anchorTaskId],
             anchor.Priority,
-            before ? "New task before " + (anchor.Title ?? anchor.Id) : "New task after " + (anchor.Title ?? anchor.Id));
+            before ? "New task before " + (anchor.Title ?? anchor.Id) : "New task after " + (anchor.Title ?? anchor.Id),
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "Newly inserted task — assign a routing agent or update this reason before executing the plan.");
 
         var tasks = group.Tasks.ToList();
         tasks.Insert(before ? anchorIndex : anchorIndex + 1, inserted);
@@ -272,7 +274,7 @@ internal static class StagedPlanEditor
                 };
             }
         }
-        return group with { Tasks = tasks.ToArray() };
+        return DependencyEditRecomputer.ReconcileAuditBoundary(group with { Tasks = tasks.ToArray() });
     }
 
     internal static DecomposedTaskGroup DeleteTask(DecomposedTaskGroup group, string taskId)
