@@ -12097,7 +12097,7 @@ public partial class MainWindow : Window
                 attempt = PlanExecutionAttemptState.Create(
                     _activeDecomposeGroupId,
                     currentTaskId!,
-                    _CodeHealthGroupRunner.CurrentRevision,
+                    _CodeHealthGroupRunner.CurrentRevision ?? string.Empty,
                     _currentWorkspace.FolderPath,
                     _currentWorkspace.SquadFolderPath,
                     assignments,
@@ -12117,7 +12117,7 @@ public partial class MainWindow : Window
                 attempt = PlanExecutionAttemptState.CreateGeneric(
                     _activeDecomposeGroupId,
                     currentTaskId!,
-                    _CodeHealthGroupRunner.CurrentRevision,
+                    _CodeHealthGroupRunner.CurrentRevision ?? string.Empty,
                     _currentWorkspace.FolderPath);
             }
         }
