@@ -103,7 +103,7 @@ internal sealed class PlanPreflightTests
             Assert.That(content.Summary, Does.Contain("PLAN-005"));
             Assert.That(content.Summary, Does.Contain("plan remains stopped").IgnoreCase);
             Assert.That(content.RecoveryGuidance, Does.Contain("resume the remaining work automatically"));
-            Assert.That(content.RecoveryGuidance, Does.Contain("Continue Preserved Work"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("Resume With Uncommitted Files"));
             Assert.That(content.ChangedFilesSummary, Does.Contain("SquadDash/MainWindow.xaml.cs"));
             Assert.That(content.ClipboardText, Does.Contain("SquadDash.Tests/RecoveryTests.cs"));
         });

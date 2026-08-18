@@ -10756,7 +10756,9 @@ public partial class MainWindow : Window
                     assessedRecoveryContinuation,
                     allowUncommittedPreservedWork: true),
                 contentFactory: exception => PlanPreflightRecoveryContent.FromPreservedWork(exception, taskId),
-                retryLabel: "Continue Preserved Work",
+                retryLabel: "Resume With Uncommitted Files…",
+                retryToolTip: "Resume this task immediately from the listed uncommitted files so the task agent can finish and commit them. SquadDash will not wait for you to commit first.",
+                retryTone: QuickReplyTone.Warning,
                 readinessOverride: async () =>
                 {
                     var workspaceClean = await IsPlanPreflightWorkspaceCleanAsync(plan.Group.GroupId);
@@ -10921,6 +10923,8 @@ public partial class MainWindow : Window
         Func<Task<bool>>? retryOverride = null,
         Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent>? contentFactory = null,
         string retryLabel = "Retry",
+        string? retryToolTip = null,
+        QuickReplyTone retryTone = QuickReplyTone.Default,
         Func<Task<bool>>? readinessOverride = null,
         bool autoRetryWhenReady = true)
     {
@@ -11070,7 +11074,9 @@ public partial class MainWindow : Window
             exception.RequiresRepositoryInitialization
                 ? "Initialize repository and start plan"
                 : retryLabel,
-            _transcriptFontSize);
+            _transcriptFontSize,
+            toolTip: retryToolTip is null ? null : ToolTipHelper.MakeThemedToolTip(retryToolTip),
+            tone: retryTone);
         buttons.Children.Add(retryButton);
         stack.Children.Add(buttons);
 
@@ -11158,7 +11164,8 @@ public partial class MainWindow : Window
                 if (blocks.Contains(container)) blocks.Remove(container);
                 ShowTranscriptPlanPreflightRecovery(
                     plan, action, branchOverride, blocked, sourceActionsPanel, blocks,
-                    retryOverride, contentFactory, retryLabel, readinessOverride, autoRetryWhenReady);
+                    retryOverride, contentFactory, retryLabel, retryToolTip, retryTone,
+                    readinessOverride, autoRetryWhenReady);
             }
             catch (Exception ex)
             {

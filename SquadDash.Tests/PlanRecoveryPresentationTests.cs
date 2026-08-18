@@ -403,15 +403,15 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void Build_WithPreservedFiles_RecommendsContinuationWithoutWarning()
+    public void Build_WithPreservedFiles_ExplainsUncommittedResumeAsWarning()
     {
         var presentation = PlanRecoveryPresentationBuilder.Build(
             TestPlan(null), "PLAN-001", hasPreservedWork: true);
 
         Assert.Multiple(() =>
         {
-            Assert.That(presentation.RetryLabel, Is.EqualTo("Continue Preserved Work"));
-            Assert.That(presentation.RetryIsWarning, Is.False);
+            Assert.That(presentation.RetryLabel, Is.EqualTo("Resume With Uncommitted Files…"));
+            Assert.That(presentation.RetryIsWarning, Is.True);
         });
     }
 
