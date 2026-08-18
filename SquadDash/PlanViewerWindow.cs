@@ -950,30 +950,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 continue;
             }
 
-            var beforeTask = validation.BeforeTaskIds.Count == 1
-                ? group.Tasks.FirstOrDefault(task =>
-                    string.Equals(task.Id, validation.BeforeTaskIds[0], StringComparison.Ordinal) &&
-                    SameIds(task.DependsOn, validation.AfterTaskIds))
-                : null;
-            if (beforeTask is not null)
+            var taskAnchor = ValidationShieldPresenter.InferTaskAnchor(validation, group.Tasks);
+            if (taskAnchor is not null)
             {
-                validationAnchors[validation.ValidationId] = ("before", beforeTask.Id, -1, null);
-                continue;
-            }
-
-            var afterTask = validation.AfterTaskIds.Count == 1
-                ? group.Tasks.FirstOrDefault(task =>
-                {
-                    if (!string.Equals(task.Id, validation.AfterTaskIds[0], StringComparison.Ordinal)) return false;
-                    var dependents = group.Tasks
-                        .Where(candidate => candidate.DependsOn.Contains(task.Id, StringComparer.Ordinal))
-                        .Select(candidate => candidate.Id);
-                    return SameIds(dependents, validation.BeforeTaskIds);
-                })
-                : null;
-            if (afterTask is not null)
-            {
-                validationAnchors[validation.ValidationId] = ("after", afterTask.Id, -1, null);
+                validationAnchors[validation.ValidationId] = (
+                    taskAnchor.Kind == ValidationShieldPresenter.AnchorKind.After ? "after" : "before",
+                    taskAnchor.TaskId,
+                    -1,
+                    null);
                 continue;
             }
 

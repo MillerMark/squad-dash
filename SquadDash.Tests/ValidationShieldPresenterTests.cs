@@ -160,6 +160,53 @@ internal sealed class ValidationShieldPresenterTests
     }
 
     [Test]
+    public void InferTaskAnchor_SinglePrerequisiteStaysAfterTask_WhenBlockedTaskGainsAnotherDependency()
+    {
+        var tasks = new[]
+        {
+            new DecomposedSubTask("DATE", "Date and guests", [], "high", "Pick the date and guest list"),
+            new DecomposedSubTask("BUDGET", "Budget", [], "high", "Set the budget"),
+            new DecomposedSubTask("VENUE", "Venue", ["DATE", "BUDGET"], "high", "Book the venue"),
+            new DecomposedSubTask("INVITES", "Invites", ["DATE", "BUDGET"], "high", "Send invitations"),
+        };
+        var validation = new DecomposedValidationNode(
+            "VAL", "Codebase validation", "Validate the budget result",
+            ["BUDGET"], ["VENUE"], ["Budget is valid"]);
+
+        var anchor = ValidationShieldPresenter.InferTaskAnchor(validation, tasks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(anchor, Is.Not.Null);
+            Assert.That(anchor!.Kind, Is.EqualTo(ValidationShieldPresenter.AnchorKind.After));
+            Assert.That(anchor.TaskId, Is.EqualTo("BUDGET"));
+        });
+    }
+
+    [Test]
+    public void InferTaskAnchor_MultiplePrerequisitesCanAttachBeforeTheirSingleConsumer()
+    {
+        var tasks = new[]
+        {
+            new DecomposedSubTask("DATE", "Date and guests", [], "high", "Pick the date and guest list"),
+            new DecomposedSubTask("BUDGET", "Budget", [], "high", "Set the budget"),
+            new DecomposedSubTask("VENUE", "Venue", ["DATE", "BUDGET"], "high", "Book the venue"),
+        };
+        var validation = new DecomposedValidationNode(
+            "VAL", "Readiness validation", "Validate both inputs",
+            ["DATE", "BUDGET"], ["VENUE"], ["Inputs are ready"]);
+
+        var anchor = ValidationShieldPresenter.InferTaskAnchor(validation, tasks);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(anchor, Is.Not.Null);
+            Assert.That(anchor!.Kind, Is.EqualTo(ValidationShieldPresenter.AnchorKind.Before));
+            Assert.That(anchor.TaskId, Is.EqualTo("VENUE"));
+        });
+    }
+
+    [Test]
     public void ComputeValidationAwareLevels_MovesBlockedTaskAfterSameStagePrerequisite()
     {
         var tasks = new[]

@@ -197,6 +197,37 @@ internal static class ValidationShieldPresenter
         int StageIndex = -1,
         string? AllKey = null);
 
+    /// <summary>
+    /// Resolves a validation that is semantically attached to one task. A single
+    /// prerequisite is always an exit attachment, even when later dependency edits
+    /// change which downstream tasks the validation blocks.
+    /// </summary>
+    internal static ShieldAnchor? InferTaskAnchor(
+        DecomposedValidationNode validation,
+        IReadOnlyList<DecomposedSubTask> tasks)
+    {
+        if (validation.AfterTaskIds.Count == 1 &&
+            tasks.Any(task => string.Equals(
+                task.Id,
+                validation.AfterTaskIds[0],
+                StringComparison.Ordinal)))
+        {
+            return new ShieldAnchor(AnchorKind.After, TaskId: validation.AfterTaskIds[0]);
+        }
+
+        if (validation.BeforeTaskIds.Count != 1)
+            return null;
+
+        var beforeTask = tasks.FirstOrDefault(task => string.Equals(
+            task.Id,
+            validation.BeforeTaskIds[0],
+            StringComparison.Ordinal));
+        if (beforeTask is null || !SameIds(beforeTask.DependsOn, validation.AfterTaskIds))
+            return null;
+
+        return new ShieldAnchor(AnchorKind.Before, TaskId: beforeTask.Id);
+    }
+
     /// <summary>Computed position for a single validation shield.</summary>
     internal sealed record ShieldLayoutPosition(
         double Left,
@@ -358,6 +389,10 @@ internal static class ValidationShieldPresenter
             ? latestPrerequisiteStage
             : -1;
     }
+
+    private static bool SameIds(IEnumerable<string> left, IEnumerable<string> right) =>
+        left.OrderBy(id => id, StringComparer.Ordinal)
+            .SequenceEqual(right.OrderBy(id => id, StringComparer.Ordinal));
 
     /// <summary>
     /// Computes display-only task levels using both task dependencies and validation boundaries.
