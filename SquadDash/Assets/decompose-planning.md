@@ -57,21 +57,27 @@ responsibility in their descriptions and add first-class validation nodes for im
 contracts. A supporting-artifact task may complete before production integration, but its later
 consumers and the validation that proves their relationship must be explicit.
 
-### Tailored end-to-end proof
+### Proportional completion proof
 
-The final step of every plan must be a **tailored end-to-end proof** derived from the feature's
-acceptance criteria, not a generic documentation or test reminder. It must:
-- Restate the user-facing acceptance criteria.
-- Describe the exact verification scenario (which user action, which observable outcome).
-- Name the build, test, or demonstration command that proves the feature is live.
-- Declare at least one `proofRequirements` entry whose `proofType` accurately distinguishes an
-  automated check from a live UI, restart, or human observation. This makes the final completion
-  audit mandatory for every newly generated plan while legacy stored plans remain readable.
+Every plan must make completion objectively demonstrable, but it does **not** need a separate final
+proof task or final audit when the implementation tasks, their tests, and their accepted proof
+evidence already establish the feature's acceptance criteria. Prefer accumulating evidence along the
+execution path: require the task that changes behavior to add or update the focused tests that prove
+that behavior, and let later checks reuse those recorded results.
 
-Use `executionMode: "verification"` when this step only runs checks or records observations and is
-not expected to change source files. Verification-only steps report the current evaluated HEAD but
-do not create a commit and do not receive a redundant independent Verity Cross review. This is
-commonly the final step, but use it anywhere the approved task is genuinely non-mutating. If the
+Add a final verification task only when a material end-to-end or cross-task risk remains unproven.
+Keep that task cheap, non-mutating, and scoped to the missing evidence. It must:
+- Identify the specific acceptance criterion that earlier task evidence does not establish.
+- Reuse accepted proof evidence and focused tests rather than repeating full implementation reviews.
+- Run the smallest deterministic build, test, or demonstration command that closes the remaining gap.
+- Never add tests, modify production code, or redo independent verification; test creation belongs in
+  the implementation task whose behavior the test protects.
+- Declare only the proof requirements needed for the remaining gap.
+
+Use `executionMode: "verification"` only when a task runs checks or records observations and is not
+expected to change source files. Verification-only steps report the current evaluated HEAD but do not
+create a commit and do not receive a redundant independent Verity Cross review. Use this mode anywhere
+the approved task is genuinely non-mutating. If the
 step may repair failures or otherwise change the repository, use `executionMode: "implementation"`.
 
 Bad final steps: "Update documentation", "Run the test suite", "Clean up".
@@ -165,6 +171,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   verifiable true/false claim, where true means the check passed and false means it failed. If a
   reviewer must check three outcomes, emit three proof requirements with three stable IDs; never
   bundle them into one question. Example: `Does clicking an item show a selection highlight?`.
+  If a human observation was already accepted at an earlier gate and no later work can invalidate it,
+  do not ask for it again. Choose the smallest sufficient set of acceptance-level observations, with
+  at most seven human checks in one checkpoint. Do not convert every implementation detail into a
+  checkbox. The initial proposal must make the number and placement of all generated human
+  checkpoints obvious to the reviewer.
 - `tasks[].proofRequirements[].requirementId`: required unique lowercase kebab-case identifier.
 - `tasks[].proofRequirements[].proofType`: required supported proof type listed above.
 - `tasks[].proofRequirements[].description`: required non-empty evidence contract.
@@ -215,10 +226,13 @@ not required. Use the exact property names below; do not substitute familiar sho
   vague assertions such as "components work together."
 - `validations[].outputIds`: optional list of stable task output IDs whose relationship is covered.
 - `validations[].mode`: `command`, `evidence`, `hybrid`, or `audit`. `command` executes deterministic commands;
-  `evidence` requests evidence-backed assessment; `hybrid` requires both. A proof-bearing plan must
-  contain exactly one final `audit` validation whose `afterTaskIds` are every leaf task and whose
-  `beforeTaskIds` is empty. The audit compares approved requirements, commits, and returned proof
-  evidence; it must reject test-only work offered in place of a live observation.
+  `evidence` requests evidence-backed assessment; `hybrid` requires both. An `audit` is optional and
+  should be added only when a material cross-task completion claim cannot be established by task-level
+  proof and deterministic commands. Do not add an audit merely because a plan contains proof
+  requirements. If a final audit is warranted, it must cover every leaf task, have an empty
+  `beforeTaskIds`, compare the already recorded requirements, commits, and proof evidence, and avoid
+  rerunning implementation reviews or duplicating a final verification task. It must reject test-only
+  work offered in place of a required live observation.
 - `validations[].commands`: required for `command` and `hybrid`; omit for `evidence`. Commands must be
   non-mutating and scoped to the workspace.
 - `validations[].revalidateAtCompletion`: normally `true` when later work could invalidate the result.
@@ -270,11 +284,11 @@ TASKS_JSON:
     },
     {
       "id": "SEARCH-20260725-003",
-      "title": "Migrate the search UI to ISearchIndex and verify end-to-end search",
-      "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and run the full test suite. Observable outcome: typing a query in the search panel returns matching documents from the ISearchIndex-backed path. End-to-end proof: run `dotnet test --filter SearchIntegration` and confirm the test exercises SearchPanel → ISearchIndex → InMemorySearchIndex → document results.",
+      "title": "Migrate the search UI to ISearchIndex",
+      "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and add or update the focused SearchIntegration coverage in the same task. Observable outcome: typing a query in the search panel returns matching documents from the ISearchIndex-backed path, proven by `dotnet test --filter SearchIntegration` exercising SearchPanel → ISearchIndex → InMemorySearchIndex → document results.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
-      "executionMode": "verification",
+      "executionMode": "implementation",
       "inputs": ["search-index-contract", "indexed-document-path"],
       "proofRequirements": [
         {
@@ -294,23 +308,6 @@ TASKS_JSON:
       "afterTaskIds": ["SEARCH-20260725-002"],
       "beforeTaskIds": ["SEARCH-20260725-003"],
       "question": "Does the migrated document-indexing path preserve existing indexing behavior?"
-    }
-  ],
-  "validations": [
-    {
-      "validationId": "SEARCH-20260725-VAL-001",
-      "title": "Verify the UI uses the migrated search path",
-      "description": "Confirm the search UI reaches document indexing through ISearchIndex and the superseded direct path is no longer active.",
-      "afterTaskIds": ["SEARCH-20260725-003"],
-      "beforeTaskIds": [],
-      "assertions": [
-        "The search UI calls the ISearchIndex-backed path.",
-        "The former direct indexing path is not reachable from the search UI.",
-        "The user-visible search scenario still returns indexed documents."
-      ],
-      "outputIds": ["search-index-contract", "indexed-document-path"],
-      "mode": "audit",
-      "revalidateAtCompletion": true
     }
   ]
 }

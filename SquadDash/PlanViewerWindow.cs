@@ -2856,11 +2856,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 var hasFinalValidationBoundary =
                     PlanGateManager.HasFinalValidationAfterTask(durablePlan, capturedTaskForStop.Id);
-                if (!isLeaf || hasFinalValidationBoundary)
+                var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
+                if (PlanGateVisualizationPolicy.ShouldRenderTaskExitApprovalControl(
+                        isLeaf, hasFinalValidationBoundary, existingAfterGate is not null))
                 {
                     var exitExecutionLocked = PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
                         PlanApprovalControlLockPolicy.IsTaskExitLocked(durablePlan, capturedTaskForStop.Id);
-                    var existingAfterGate = FindTaskGateAfter(capturedTaskForStop.Id);
                     var afterAnchor = TaskAfterAnchor(capturedTaskForStop.Id);
                     var afterBoundary = DirectDependents(capturedTaskForStop.Id);
                     var lockedAllJoinGates = gates

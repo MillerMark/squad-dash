@@ -38,7 +38,9 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].role`"));
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].allowGenericChildren`"));
         Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
-        Assert.That(instruction, Does.Contain("final `audit` validation"));
+        Assert.That(instruction, Does.Contain("at most seven human checks"));
+        Assert.That(instruction, Does.Contain("An `audit` is optional"));
+        Assert.That(instruction, Does.Contain("does **not** need a separate final"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
         Assert.That(instruction, Does.Contain("Never claim that a plan was staged"));

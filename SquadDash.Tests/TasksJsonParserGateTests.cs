@@ -238,10 +238,9 @@ internal sealed class TasksJsonParserGateTests
     }
 
     [Test]
-    public void ProofBearingPlan_WithIncorrectFinalAuditAfterTaskIds_IsRejected()
+    public void ProofBearingPlan_WithSuppliedIncorrectFinalAuditAfterTaskIds_IsRejected()
     {
-        // Regression guard (scenario 7): a plan submitted externally through TryParse with a
-        // final audit whose AfterTaskIds does not match the actual leaf set must be rejected
+        // A supplied audit whose AfterTaskIds does not match the actual leaf set must be rejected
         // with a validation error — never silently repaired.  Reconciliation is only permitted
         // for authorized editor mutations (DependencyEditRecomputer / StagedPlanEditor.DeleteTask).
         //
@@ -292,7 +291,7 @@ internal sealed class TasksJsonParserGateTests
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.False,
-                "A proof-bearing plan with an incorrect final audit AfterTaskIds must be rejected, not silently repaired");
+                "A supplied final audit with incorrect AfterTaskIds must be rejected, not silently repaired");
             Assert.That(diagnostic?.Code, Is.EqualTo("invalid-proof-completion-audit"),
                 "The rejection diagnostic code must identify the audit boundary violation");
         });

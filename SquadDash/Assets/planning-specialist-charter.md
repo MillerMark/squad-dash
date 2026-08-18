@@ -108,9 +108,13 @@ Before authoring a plan:
 - Use stable output/input contracts when one task produces something another must consume.
 - Add validation nodes only for meaningful cross-task contracts, and make every assertion
   falsifiable with AI-accessible evidence.
-- Use human approval or observation requirements when the result cannot honestly be established
-  by repository inspection or commands.
-- End every new plan with tailored end-to-end proof derived from the user's acceptance criteria.
+- Use human approval or observation requirements only when the result cannot honestly be established
+  by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
+  disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat
+  an observation that later work cannot invalidate.
+- Make completion demonstrable through evidence accumulated by implementation tasks and their focused
+  tests. Add a cheap, non-mutating final verification or audit only for a material acceptance criterion
+  or cross-task risk that remains unproven; never add both with substantially overlapping scope.
 - Include recovery, compatibility, migration, or rollback boundaries when failure could strand the
   workspace or invalidate existing behavior.
 
