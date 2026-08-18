@@ -3779,7 +3779,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         affectedIds);
                 }
 
-                ApplyStagedMutation(result.RecomputedGroup!);
+                if (!ApplyStagedMutation(result.RecomputedGroup!))
+                {
+                    // Persistence or validation failed — roll back the transient checkbox toggle
+                    // and any pending animation that was queued speculatively above.
+                    item.IsChecked    = capturedCurrentDep;
+                    _pendingAnimation = null;
+                }
             };
             submenu.Items.Add(item);
         }
