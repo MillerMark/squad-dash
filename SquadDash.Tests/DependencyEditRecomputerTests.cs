@@ -401,6 +401,18 @@ internal sealed class DependencyEditRecomputerTests
 
     // ─── Audit boundary reconciliation ───────────────────────────────────────
 
+    // TODO (WPF coverage gap — scenario 8): the following two UI-layer scenarios from the
+    // dep-edit regression spec require a live WPF dispatcher and cannot be exercised as unit
+    // tests in this assembly:
+    //   a. PlanViewerWindow.CreateDependsOnSubmenu: verifies that IsChecked and _pendingAnimation
+    //      are atomically rolled back when DependencyEditRecomputer returns a cycle failure inside
+    //      the UI event handler (covered at the source level by Lyra's commit cd6817a).
+    //   b. PlanViewerWindow end-to-end edit round-trip: verifies that after a successful dep edit
+    //      the plan visualizer reflects the recomputed stage layout and the updated audit boundary
+    //      is rendered correctly in the connector overlay.
+    // Both require a WPF integration test harness with a live PlanViewerWindow instance and are
+    // flagged here for human review.
+
     [Test]
     public void Recompute_AuditValidation_AfterTaskIdsUpdatedWhenDepRemovalCreatesNewLeaf()
     {
@@ -501,6 +513,72 @@ internal sealed class DependencyEditRecomputerTests
             Assert.That(validation.Mode, Is.EqualTo("evidence"));
             Assert.That(validation.AfterTaskIds, Is.EqualTo(new[] { Id(1) }),
                 "Non-audit validation AfterTaskIds must not be modified by ReconcileAuditBoundary");
+        });
+    }
+
+    [Test]
+    public void Recompute_AuditValidation_AfterTaskIdsShrinks_WhenAddedDependencyTurnsLeafToNonLeaf()
+    {
+        // Both tasks start as leaves: {001, 002}.  Audit covers {001, 002}.
+        // Add: 002 depends on 001 → 001 becomes a non-leaf (002 consumes it).  Only 002 is a leaf.
+        // After recompute the audit AfterTaskIds must shrink to {002}.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit shrink plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, []),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Final audit", "Audit all leaves.",
+                    [Id(1), Id(2)], [],
+                    ["All tasks completed."], Mode: "audit"),
+            ]);
+
+        var edited = StagedPlanEditor.UpdateTask(
+            group, Id(2), "Task 2", "Task 2 result", "mid", [Id(1)]);
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.That(result.Success, Is.True);
+        var audit = result.RecomputedGroup!.Validations!.Single();
+        Assert.That(audit.AfterTaskIds, Is.EquivalentTo(new[] { Id(2) }),
+            "Audit AfterTaskIds must shrink to {002} when 001 becomes a non-leaf after the 002→001 dependency is added");
+    }
+
+    [Test]
+    public void Recompute_CycleDetected_ReturnsNullRecomputedGroupAndAuditBoundaryNotModified()
+    {
+        // Audit covers the only leaf {003}.  Introduce a cycle: 001→003 (creating 001→002→003→001).
+        // Recompute must return Success=false with RecomputedGroup=null — the audit boundary
+        // must not be mutated and no modified plan must reach the caller.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit cycle plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(2)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Final audit", "Audit all leaves.",
+                    [Id(3)], [],
+                    ["All tasks completed."], Mode: "audit"),
+            ]);
+
+        var cyclic = StagedPlanEditor.UpdateTask(
+            group, Id(1), "First", "First result", "mid", [Id(3)]);
+        var result = DependencyEditRecomputer.Recompute(cyclic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False,
+                "A cycle must cause Recompute to return a failure result");
+            Assert.That(result.RecomputedGroup, Is.Null,
+                "No RecomputedGroup must be returned on cycle failure — no mutations reach the caller");
+            Assert.That(result.CycleIds, Is.Not.Empty,
+                "CycleIds must identify the participating task IDs");
         });
     }
 

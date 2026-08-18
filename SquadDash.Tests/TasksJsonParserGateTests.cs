@@ -236,4 +236,65 @@ internal sealed class TasksJsonParserGateTests
             """;
         Assert.That(TasksJsonParser.TryParse(json, out _), Is.False);
     }
+
+    [Test]
+    public void ProofBearingPlan_WithIncorrectFinalAuditAfterTaskIds_IsRejected()
+    {
+        // Regression guard (scenario 7): a plan submitted externally through TryParse with a
+        // final audit whose AfterTaskIds does not match the actual leaf set must be rejected
+        // with a validation error — never silently repaired.  Reconciliation is only permitted
+        // for authorized editor mutations (DependencyEditRecomputer / StagedPlanEditor.DeleteTask).
+        //
+        // Plan topology: 001 (root) → 002 (leaf).  Leaf set = {002}.
+        // Audit AfterTaskIds = {001}  (wrong — 001 is non-leaf because 002 depends on it).
+        var json = """
+            TASKS_JSON:
+            {
+              "groupId": "SANDBOX-20260818",
+              "groupTitle": "Party planning regression test",
+              "branch": "feature/party-planning",
+              "summary": "Verifies that TryParse rejects an incorrect audit boundary.",
+              "tasks": [
+                {
+                  "id": "SANDBOX-20260818-001",
+                  "title": "Set the date",
+                  "description": "Pick a suitable date for the party.",
+                  "dependsOn": [],
+                  "priority": "high",
+                  "proofRequirements": [
+                    { "requirementId": "date-set", "proofType": "automated-test", "description": "Date is persisted in the system." }
+                  ]
+                },
+                {
+                  "id": "SANDBOX-20260818-002",
+                  "title": "Set the budget",
+                  "description": "Define the party budget.",
+                  "dependsOn": ["SANDBOX-20260818-001"],
+                  "priority": "high"
+                }
+              ],
+              "validations": [
+                {
+                  "validationId": "SANDBOX-20260818-VAL-001",
+                  "title": "Final audit",
+                  "description": "Audit all leaf tasks.",
+                  "afterTaskIds": ["SANDBOX-20260818-001"],
+                  "beforeTaskIds": [],
+                  "assertions": ["All tasks have been completed."],
+                  "mode": "audit"
+                }
+              ]
+            }
+            """;
+
+        var ok = TasksJsonParser.TryParse(json, out _, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.False,
+                "A proof-bearing plan with an incorrect final audit AfterTaskIds must be rejected, not silently repaired");
+            Assert.That(diagnostic?.Code, Is.EqualTo("invalid-proof-completion-audit"),
+                "The rejection diagnostic code must identify the audit boundary violation");
+        });
+    }
 }
