@@ -5,10 +5,12 @@ import path from "node:path";
 import { test } from "node:test";
 import {
     approvePermissionRequest,
+    analyzeProviderThrottle,
     buildDelegationHiddenContext,
     buildNamedAgentExecutionPrompt,
     buildNamedAgentPrompt,
     buildProviderNeutralCliEnvironment,
+    computeProviderThrottleDelayMs,
     enrichCopilotAuthenticationFailure,
     findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
@@ -239,6 +241,102 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(started[0].agent.providerType, "openai");
     assert.equal(started[0].agent.wireApi, "responses");
     assert.equal(completed[0].agent.agentName, "lyra-morn");
+});
+
+test("provider throttling distinguishes transient rate limits from terminal quota failures", () => {
+    const transient = analyzeProviderThrottle(Object.assign(
+        new Error("HTTP 429: tokens per minute rate limit exceeded"),
+        { headers: { "retry-after": "2" } }));
+    const terminal = analyzeProviderThrottle(
+        new Error("HTTP 429 insufficient_quota: billing credits exhausted"));
+    const unrelated = analyzeProviderThrottle(new Error("HTTP 401 unauthorized"));
+
+    assert.deepEqual(transient, {
+        retryable: true,
+        retryAfterMs: 2_000,
+        classification: "transient-rate-limit"
+    });
+    assert.equal(computeProviderThrottleDelayMs(transient, 0, 0), 2_000);
+    assert.deepEqual(terminal, {
+        retryable: false,
+        classification: "terminal-quota"
+    });
+    assert.deepEqual(unrelated, {
+        retryable: false,
+        classification: "not-rate-limit"
+    });
+});
+
+test("named roster tool waits and resumes the same session after transient throttling", async () => {
+    const configs = [];
+    const throttled = [];
+    const failed = [];
+    const completed = [];
+    const namedPrompts = [];
+    let sessionNumber = 0;
+    let namedAttempts = 0;
+    const service = new SquadBridgeService({
+        onSubagentThrottled(sessionId, agent) {
+            throttled.push({ sessionId, agent });
+        },
+        onSubagentFailed(sessionId, agent) {
+            failed.push({ sessionId, agent });
+        },
+        onSubagentCompleted(sessionId, agent) {
+            completed.push({ sessionId, agent });
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            const sessionId = `session-${sessionNumber}`;
+            return {
+                sessionId,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async ({ prompt }) => {
+                    if (sessionId === "session-1")
+                        return { content: "Coordinator done" };
+
+                    namedPrompts.push(prompt);
+                    namedAttempts++;
+                    if (namedAttempts === 1)
+                        throw new Error("HTTP 429 tokens per minute rate limit exceeded; retry after 1 ms");
+                    return { content: "Rory resumed report" };
+                }
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate planning", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{ handle: "rory", displayName: "Rory", role: "Planning Architect" }]
+    });
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    const report = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: "Inspect the repository and produce the implementation plan."
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-throttle",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Rory resumed report");
+    assert.equal(configs.length, 2, "retry must reuse the named-agent session instead of creating another one");
+    assert.equal(namedPrompts.length, 2);
+    assert.match(namedPrompts[0], /Inspect the repository and produce the implementation plan/);
+    assert.match(namedPrompts[1], /Continue the delegated task from this existing session/);
+    assert.doesNotMatch(namedPrompts[1], /Inspect the repository and produce the implementation plan/);
+    assert.equal(throttled.length, 1);
+    assert.equal(throttled[0].agent.retryCount, 1);
+    assert.equal(throttled[0].agent.retryDelayMs, 1);
+    assert.equal(failed.length, 0);
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].agent.retryCount, 1);
 });
 
 test("staged plan revision request correlation accepts marked and unmarked routing envelopes", () => {

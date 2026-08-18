@@ -735,10 +735,12 @@ internal sealed class AgentThreadRegistry {
         var providerError = FirstNonEmpty(evt.Reason, evt.Message, evt.OutputText, evt.PartialOutput, evt.Text, evt.Description, detailText, thread.ErrorText);
         var retryParts = new List<string>();
 
-        if (evt.TotalToolCalls is { } retryCount && retryCount > 0)
+        if (evt.RetryCount is { } retryCount && retryCount > 0)
             retryParts.Add(retryCount == 1 ? "1 retry" : $"{retryCount} retries");
-        if (evt.DurationMs is { } durationMs && durationMs > 0)
-            retryParts.Add($"{durationMs}ms total retry delay");
+        if (evt.TotalRetryDelayMs is { } totalRetryDelayMs && totalRetryDelayMs > 0)
+            retryParts.Add($"{totalRetryDelayMs}ms total retry delay");
+        if (evt.RetryDelayMs is { } retryDelayMs && retryDelayMs > 0)
+            retryParts.Add($"{retryDelayMs}ms until next retry");
         if (evt.SessionResumeDurationMs is { } resumeDelay && resumeDelay > 0)
             retryParts.Add($"{resumeDelay}ms resume delay");
         if (evt.TimeToFirstResponseMs is { } responseMs && responseMs > 0)

@@ -90,6 +90,10 @@ public sealed class SquadSdkEvent {
     public string? WorkingDirectory { get; set; }
     public int? TotalTokens { get; set; }
     public int? DurationMs { get; set; }
+    public int? RetryCount { get; set; }
+    public int? RetryDelayMs { get; set; }
+    public int? TotalRetryDelayMs { get; set; }
+    public string? RetryAt { get; set; }
     public SquadBackgroundAgentInfo[]? BackgroundAgents { get; set; }
     public SquadBackgroundShellInfo[]? BackgroundShells { get; set; }
     // Watch lifecycle event fields

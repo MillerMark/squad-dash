@@ -70,6 +70,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("do not run shell extraction"));
             Assert.That(guidance, Does.Contain("required marker at the top level"));
             Assert.That(guidance, Does.Contain("Never drop the\n   structured-output requirement"));
+            Assert.That(guidance, Does.Contain("rate-limit waits are not delegation unavailability"));
+            Assert.That(guidance, Does.Contain("do not take over the specialist's work"));
             Assert.That(guidance, Does.Contain("read the live protocol directly"));
             Assert.That(guidance, Does.Contain("`{groupId}-NNN`"));
             Assert.That(guidance, Does.Contain("`{groupId}-VAL-NNN`"));

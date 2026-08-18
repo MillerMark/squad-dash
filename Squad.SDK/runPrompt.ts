@@ -252,6 +252,10 @@ function emitSubagentLifecycle(
         totalToolCalls: subagent.totalToolCalls,
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
+        retryCount: subagent.retryCount,
+        retryDelayMs: subagent.retryDelayMs,
+        totalRetryDelayMs: subagent.totalRetryDelayMs,
+        retryAt: subagent.retryAt,
         workingDirectory: subagent.workingDirectory,
         latestResponse: subagent.latestResponse,
         hostProtocolVerified: subagent.hostProtocolVerified,
@@ -326,6 +330,12 @@ const bridge = new SquadBridgeService({
     },
     onSubagentFailed(sessionId, subagent) {
         emitSubagentLifecycle("subagent_failed", sessionId, subagent, { message: subagent.error });
+    },
+    onSubagentThrottled(sessionId, subagent) {
+        emitSubagentLifecycle("subagent_throttled", sessionId, subagent, {
+            message: subagent.error,
+            status: "throttled"
+        });
     },
     onSubagentMessageDelta(sessionId, subagent) {
         emit({

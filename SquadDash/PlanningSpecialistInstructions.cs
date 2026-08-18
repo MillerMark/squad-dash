@@ -101,8 +101,11 @@ internal static class PlanningSpecialistInstructions
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan
                was staged, added to the Plans panel, delivered to Inbox, or made available for approval;
                only the host may report those outcomes after durable persistence and validation.
-            5. If delegation is unavailable after one reasonable attempt, apply the shipped Planning
-               Architect charter yourself and still emit the required top-level payload. Never drop the
+            5. Provider throttling and rate-limit waits are not delegation unavailability. While the host
+               is waiting or resuming the same specialist session, do not take over the specialist's work.
+               If delegation reaches a terminal failure after the host exhausts its bounded recovery,
+               apply the shipped Planning Architect charter yourself and still emit the required top-level
+               payload. Never drop the
                structured-output requirement because a roster specialist is absent.
             6. If the delegated candidate is invalid, re-engage the same specialist with the complete
                rejected candidate, the exact validation diagnostics, and the live protocol path. Require

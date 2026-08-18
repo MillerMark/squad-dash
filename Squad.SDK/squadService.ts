@@ -9,6 +9,15 @@ const SessionIdleTimeoutMs = 60 * 60 * 1000;
 const CopilotAuthenticationLogLookbackMs = 2 * 60 * 1000;
 const CopilotAuthenticationLogReadLimit = 256 * 1024;
 const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
+const NamedAgentThrottleMaxRetries = 3;
+const NamedAgentThrottleMaxTotalDelayMs = 5 * 60 * 1000;
+const NamedAgentThrottleBaseDelayMs = 30 * 1000;
+const NamedAgentThrottleMaxSingleDelayMs = 90 * 1000;
+const NamedAgentThrottleContinuationPrompt = [
+    "Continue the delegated task from this existing session after provider throttling.",
+    "Keep and use the analysis, repository reads, and tool results already gathered.",
+    "Do not restart completed exploration or repeat the original assignment; finish the requested deliverable."
+].join(" ");
 
 type CopilotAuthenticationDiagnosticOptions = {
     logDirectory?: string;
@@ -232,6 +241,10 @@ export type SubagentLifecycleInfo = {
     totalToolCalls?: number;
     totalTokens?: number;
     durationMs?: number;
+    retryCount?: number;
+    retryDelayMs?: number;
+    totalRetryDelayMs?: number;
+    retryAt?: string;
     workingDirectory?: string;
     latestResponse?: string;
     hostProtocolVerified?: boolean;
@@ -305,6 +318,7 @@ export type SquadBridgeHandlers = {
     onSubagentStarted?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentCompleted?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentFailed?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
+    onSubagentThrottled?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentMessageDelta?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
     onSubagentThinkingDelta?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
     onSubagentMessage?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
@@ -1723,6 +1737,175 @@ function extractErrorMessage(error: unknown): string {
     return String(error);
 }
 
+export type ProviderThrottleAnalysis = {
+    retryable: boolean;
+    retryAfterMs?: number;
+    classification: "transient-rate-limit" | "terminal-quota" | "not-rate-limit";
+};
+
+function readErrorHeader(error: unknown, headerName: string, depth = 0): string | undefined {
+    if (!error || typeof error !== "object" || depth > 3)
+        return undefined;
+
+    const record = error as Record<string, unknown>;
+    const headers = record.headers;
+    if (headers && typeof headers === "object") {
+        const headerAccessor = headers as { get?: (name: string) => unknown } & Record<string, unknown>;
+        const accessorValue = headerAccessor.get?.(headerName);
+        if (typeof accessorValue === "string" && accessorValue.trim())
+            return accessorValue.trim();
+
+        const expected = headerName.toLowerCase();
+        for (const [key, value] of Object.entries(headerAccessor)) {
+            if (key.toLowerCase() === expected && (typeof value === "string" || typeof value === "number"))
+                return String(value).trim();
+        }
+    }
+
+    for (const nestedKey of ["cause", "error", "response"]) {
+        const value = readErrorHeader(record[nestedKey], headerName, depth + 1);
+        if (value)
+            return value;
+    }
+
+    return undefined;
+}
+
+function collectProviderErrorText(error: unknown, depth = 0, seen = new Set<object>()): string {
+    if (error === null || error === undefined || depth > 3)
+        return "";
+    if (typeof error !== "object")
+        return String(error);
+    if (seen.has(error))
+        return "";
+
+    seen.add(error);
+    const record = error as Record<string, unknown>;
+    const parts = [extractErrorMessage(error)];
+    for (const key of ["status", "statusCode", "code", "type", "message"]) {
+        const value = record[key];
+        if (typeof value === "string" || typeof value === "number")
+            parts.push(String(value));
+    }
+    for (const key of ["cause", "error", "response", "body"])
+        parts.push(collectProviderErrorText(record[key], depth + 1, seen));
+
+    return parts.filter(Boolean).join(" ");
+}
+
+function parseDurationMs(value: string, numericValueIsSeconds: boolean): number | undefined {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized)
+        return undefined;
+
+    const duration = normalized.match(/^(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?)?$/i);
+    if (!duration)
+        return undefined;
+
+    const amount = Number(duration[1]);
+    if (!Number.isFinite(amount) || amount < 0)
+        return undefined;
+
+    const unit = duration[2]?.toLowerCase();
+    const multiplier = unit?.startsWith("m") && unit !== "ms" && !unit.startsWith("milli")
+        ? 60_000
+        : unit?.startsWith("ms") || unit?.startsWith("milli")
+            ? 1
+            : unit?.startsWith("s")
+                ? 1_000
+                : numericValueIsSeconds
+                    ? 1_000
+                    : 1;
+    return Math.ceil(amount * multiplier);
+}
+
+function parseRetryAfterMs(error: unknown, combinedText: string): number | undefined {
+    const retryAfter = readErrorHeader(error, "retry-after");
+    if (retryAfter) {
+        const seconds = parseDurationMs(retryAfter, true);
+        if (seconds !== undefined)
+            return seconds;
+
+        const retryDateMs = Date.parse(retryAfter);
+        if (Number.isFinite(retryDateMs))
+            return Math.max(0, retryDateMs - Date.now());
+    }
+
+    for (const resetHeader of ["x-ratelimit-reset-tokens", "x-ratelimit-reset-requests"]) {
+        const reset = readErrorHeader(error, resetHeader);
+        if (reset) {
+            const resetMs = parseDurationMs(reset, false);
+            if (resetMs !== undefined)
+                return resetMs;
+        }
+    }
+
+    const textDelay = combinedText.match(
+        /(?:retry(?:\s+the\s+request)?(?:\s+again)?\s+(?:after|in)|try\s+again\s+in)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(milliseconds?|ms|seconds?|secs?|s|minutes?|mins?|m)\b/i);
+    if (!textDelay)
+        return undefined;
+
+    return parseDurationMs(`${textDelay[1]}${textDelay[2]}`, false);
+}
+
+export function analyzeProviderThrottle(error: unknown): ProviderThrottleAnalysis {
+    const combinedText = collectProviderErrorText(error);
+    const normalized = combinedText.toLowerCase();
+    const terminalQuota = /\b(insufficient_quota|billing(?:_|\s)|payment required|credits? exhausted|account quota|hard limit|monthly usage limit)\b/i.test(normalized);
+    const transientRateLimit = /\b429\b|rate[\s_-]*limit|ratelimit|too many requests|throttl|tokens? per minute|requests? per minute|capacity exceeded/i.test(normalized);
+
+    if (terminalQuota) {
+        return {
+            retryable: false,
+            classification: "terminal-quota"
+        };
+    }
+    if (!transientRateLimit) {
+        return {
+            retryable: false,
+            classification: "not-rate-limit"
+        };
+    }
+
+    return {
+        retryable: true,
+        retryAfterMs: parseRetryAfterMs(error, combinedText),
+        classification: "transient-rate-limit"
+    };
+}
+
+export function computeProviderThrottleDelayMs(
+    analysis: ProviderThrottleAnalysis,
+    completedRetries: number,
+    randomValue = Math.random()
+): number {
+    const boundedRandom = Math.max(0, Math.min(1, randomValue));
+    if (analysis.retryAfterMs !== undefined) {
+        const minimumDelay = Math.max(0, analysis.retryAfterMs);
+        const jitterCeiling = Math.min(1_000, Math.floor(minimumDelay * 0.1));
+        return minimumDelay + Math.floor(jitterCeiling * boundedRandom);
+    }
+
+    const exponentialDelay = Math.min(
+        NamedAgentThrottleMaxSingleDelayMs,
+        NamedAgentThrottleBaseDelayMs * (2 ** Math.max(0, completedRetries)));
+    return exponentialDelay + Math.floor(Math.min(5_000, exponentialDelay * 0.1) * boundedRandom);
+}
+
+async function waitForNamedAgentThrottleDelay(
+    delayMs: number,
+    isCancelled: () => boolean
+): Promise<boolean> {
+    const deadline = Date.now() + Math.max(0, delayMs);
+    while (Date.now() < deadline) {
+        if (isCancelled())
+            return false;
+        await new Promise<void>(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+    }
+
+    return !isCancelled();
+}
+
 function summarizeErrorForDiagnostics(error: unknown, depth = 0): Record<string, unknown> {
     if (depth > 2)
         return { truncated: true };
@@ -2644,6 +2827,9 @@ export class SquadBridgeService {
         const startedAt = Date.now();
         let totalToolCalls = 0;
         let totalTokens = 0;
+        let retryCount = 0;
+        let totalRetryDelayMs = 0;
+        let namedAgentSessionId: string | undefined;
         const lifecycle: SubagentLifecycleInfo = {
             toolCallId: invocation.toolCallId,
             agentId: `named-${invocation.toolCallId}`,
@@ -2663,64 +2849,123 @@ export class SquadBridgeService {
         this.bridgeHandlers.onSubagentStarted?.(invocation.sessionId, lifecycle);
 
         try {
-            const response = await this.runSessionRequest(
-                buildNamedAgentPrompt({
-                    selectedOption: prompt,
-                    targetAgent: handle,
-                    charterContent: route.charterContent
-                }),
-                {
-                    onThinking: text => this.bridgeHandlers.onSubagentThinkingDelta?.(
-                        invocation.sessionId,
+            let attemptPrompt = buildNamedAgentPrompt({
+                selectedOption: prompt,
+                targetAgent: handle,
+                charterContent: route.charterContent
+            });
+            let response: string | undefined;
+
+            while (true) {
+                try {
+                    response = await this.runSessionRequest(
+                        attemptPrompt,
                         {
-                            parentToolCallId: invocation.toolCallId,
-                            agentId: lifecycle.agentId,
-                            agentName: handle,
-                            agentDisplayName: route.displayName,
-                            agentDescription: lifecycle.agentDescription,
-                            reasoningText: text
-                        }),
-                    onDelta: text => this.bridgeHandlers.onSubagentMessageDelta?.(
-                        invocation.sessionId,
+                            onSessionReady: session => {
+                                namedAgentSessionId = session.sessionId;
+                            },
+                            onThinking: text => this.bridgeHandlers.onSubagentThinkingDelta?.(
+                                invocation.sessionId,
+                                {
+                                    parentToolCallId: invocation.toolCallId,
+                                    agentId: lifecycle.agentId,
+                                    agentName: handle,
+                                    agentDisplayName: route.displayName,
+                                    agentDescription: lifecycle.agentDescription,
+                                    reasoningText: text
+                                }),
+                            onDelta: text => this.bridgeHandlers.onSubagentMessageDelta?.(
+                                invocation.sessionId,
+                                {
+                                    parentToolCallId: invocation.toolCallId,
+                                    agentId: lifecycle.agentId,
+                                    agentName: handle,
+                                    agentDisplayName: route.displayName,
+                                    agentDescription: lifecycle.agentDescription,
+                                    text
+                                }),
+                            onUsage: usage => {
+                                totalTokens = usage.totalTokens ??
+                                    ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+                                if (!lifecycle.model && usage.model)
+                                    lifecycle.model = usage.model;
+                            },
+                            onToolStart: tool => {
+                                totalToolCalls++;
+                                this.bridgeHandlers.onSubagentToolStart?.(
+                                    invocation.sessionId,
+                                    lifecycle,
+                                    { ...tool, parentToolCallId: invocation.toolCallId });
+                            },
+                            onToolProgress: tool => this.bridgeHandlers.onSubagentToolProgress?.(
+                                invocation.sessionId,
+                                lifecycle,
+                                { ...tool, parentToolCallId: invocation.toolCallId }),
+                            onToolComplete: tool => this.bridgeHandlers.onSubagentToolComplete?.(
+                                invocation.sessionId,
+                                lifecycle,
+                                { ...tool, parentToolCallId: invocation.toolCallId })
+                        },
                         {
-                            parentToolCallId: invocation.toolCallId,
-                            agentId: lifecycle.agentId,
-                            agentName: handle,
-                            agentDisplayName: route.displayName,
-                            agentDescription: lifecycle.agentDescription,
-                            text
-                        }),
-                    onUsage: usage => {
-                        totalTokens = usage.totalTokens ??
-                            ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
-                        if (!lifecycle.model && usage.model)
-                            lifecycle.model = usage.model;
-                    },
-                    onToolStart: tool => {
-                        totalToolCalls++;
-                        this.bridgeHandlers.onSubagentToolStart?.(
-                            invocation.sessionId,
-                            lifecycle,
-                            { ...tool, parentToolCallId: invocation.toolCallId });
-                    },
-                    onToolProgress: tool => this.bridgeHandlers.onSubagentToolProgress?.(
-                        invocation.sessionId,
-                        lifecycle,
-                        { ...tool, parentToolCallId: invocation.toolCallId }),
-                    onToolComplete: tool => this.bridgeHandlers.onSubagentToolComplete?.(
-                        invocation.sessionId,
-                        lifecycle,
-                        { ...tool, parentToolCallId: invocation.toolCallId })
-                },
-                {
-                    cwd: outerOptions.cwd,
-                    configDir: outerOptions.configDir,
-                    model: route.model,
-                    providerOverride: route.provider ?? null,
-                    providerOverrideSpecified: true,
-                    exposeNamedAgentTool: false,
-                    requireSameSession: false
-                });
+                            cwd: outerOptions.cwd,
+                            sessionId: retryCount > 0 ? namedAgentSessionId : undefined,
+                            configDir: outerOptions.configDir,
+                            model: route.model,
+                            providerOverride: route.provider ?? null,
+                            providerOverrideSpecified: true,
+                            exposeNamedAgentTool: false,
+                            requireSameSession: retryCount > 0
+                        });
+                    break;
+                }
+                catch (error) {
+                    const throttle = analyzeProviderThrottle(error);
+                    if (!throttle.retryable || !namedAgentSessionId || retryCount >= NamedAgentThrottleMaxRetries)
+                        throw error;
+
+                    const retryDelayMs = computeProviderThrottleDelayMs(throttle, retryCount);
+                    const remainingDelayBudgetMs = NamedAgentThrottleMaxTotalDelayMs - totalRetryDelayMs;
+                    if (remainingDelayBudgetMs <= 0 ||
+                        (throttle.retryAfterMs !== undefined && retryDelayMs > remainingDelayBudgetMs)) {
+                        throw error;
+                    }
+
+                    const boundedRetryDelayMs = Math.min(retryDelayMs, remainingDelayBudgetMs);
+                    retryCount++;
+                    totalRetryDelayMs += boundedRetryDelayMs;
+                    const retryAt = new Date(Date.now() + boundedRetryDelayMs).toISOString();
+                    const message = extractErrorMessage(error);
+                    bridgeDiagnostic("namedAgent:throttled", {
+                        toolCallId: invocation.toolCallId,
+                        agent: handle,
+                        namedAgentSessionId,
+                        retryCount,
+                        retryDelayMs: boundedRetryDelayMs,
+                        totalRetryDelayMs,
+                        retryAt,
+                        error: summarizeErrorForDiagnostics(error)
+                    });
+                    this.bridgeHandlers.onSubagentThrottled?.(invocation.sessionId, {
+                        ...lifecycle,
+                        error: message,
+                        totalToolCalls,
+                        totalTokens,
+                        durationMs: Date.now() - startedAt,
+                        retryCount,
+                        retryDelayMs: boundedRetryDelayMs,
+                        totalRetryDelayMs,
+                        retryAt
+                    });
+
+                    const continued = await waitForNamedAgentThrottleDelay(
+                        boundedRetryDelayMs,
+                        () => this.sessions.get(invocation.sessionId)?.currentRequest?.aborted === true);
+                    if (!continued)
+                        throw new Error("Named-agent throttling recovery was cancelled.");
+
+                    attemptPrompt = NamedAgentThrottleContinuationPrompt;
+                }
+            }
 
             const responseText = response ?? "";
             const finalResponse = responseText || `@${handle} completed the delegated task without a textual report.`;
@@ -2747,6 +2992,8 @@ export class SquadBridgeService {
                 totalToolCalls,
                 totalTokens,
                 durationMs: Date.now() - startedAt,
+                retryCount,
+                totalRetryDelayMs,
                 latestResponse: finalResponse,
                 hostProtocolVerified: isDirectStagedRevision,
                 hostProtocol: isDirectStagedRevision ? StagedPlanRevisionHostProtocol : undefined,
@@ -2770,7 +3017,9 @@ export class SquadBridgeService {
                 error: message,
                 totalToolCalls,
                 totalTokens,
-                durationMs: Date.now() - startedAt
+                durationMs: Date.now() - startedAt,
+                retryCount,
+                totalRetryDelayMs
             });
             throw error;
         }

@@ -50,6 +50,10 @@ internal sealed record ProviderFailurePresentation(
         context ??= new ProviderFailureContext();
         var raw = RedactSecrets(string.IsNullOrWhiteSpace(error) ? "No provider error details were returned." : error.Trim());
         var normalized = raw.ToLowerInvariant();
+        var isTerminalAccountQuota = ContainsAny(
+            normalized,
+            "insufficient_quota", "billing", "payment required", "credits exhausted",
+            "credit exhausted", "account quota", "hard limit", "monthly usage limit");
         var isAzure = ContainsAny(
             (context.ProviderBaseUrl ?? string.Empty).ToLowerInvariant(),
             "azure.com", "azure.net", "services.ai.azure.com") ||
@@ -97,9 +101,15 @@ internal sealed record ProviderFailurePresentation(
                  ContainsAny(normalized, "rate limit", "ratelimit", "too many requests", "insufficient_quota", "quota exceeded", "capacity exceeded"))
         {
             category = ProviderFailureCategory.RateLimitOrQuota;
-            title = "Provider rate limit or quota reached";
-            explanation = "The provider temporarily refused the request because capacity, rate, or account quota was exhausted.";
-            guidance = "Wait and retry, reduce concurrency, or review the provider account's quota, billing, and deployment capacity.";
+            title = isTerminalAccountQuota
+                ? "Provider quota or billing requires action"
+                : "Provider rate limit persisted after retries";
+            explanation = isTerminalAccountQuota
+                ? "The provider rejected the request because the account's usable quota or billing allowance is exhausted. Waiting alone is not expected to resolve it."
+                : "The provider continued throttling the request after SquadDash used its bounded wait-and-resume recovery.";
+            guidance = isTerminalAccountQuota
+                ? "Review the provider account's quota, credits, billing, and deployment access before retrying."
+                : "Wait for the provider's rate window to reset, reduce concurrent model work, or review the deployment's rate allocation before retrying.";
         }
         else if (normalized.Contains("deploymentnotfound", StringComparison.Ordinal) ||
                  (isAzure && HasHttpStatus(normalized, 404) &&

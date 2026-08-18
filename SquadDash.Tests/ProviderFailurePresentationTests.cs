@@ -70,6 +70,25 @@ internal sealed class ProviderFailurePresentationTests
     }
 
     [Test]
+    public void Analyze_DistinguishesRetryExhaustionFromQuotaThatRequiresAction()
+    {
+        var throttled = ProviderFailurePresentation.Analyze(
+            "HTTP 429 tokens per minute rate limit exceeded");
+        var quota = ProviderFailurePresentation.Analyze(
+            "HTTP 429 insufficient_quota: billing credits exhausted");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(throttled.Category, Is.EqualTo(ProviderFailureCategory.RateLimitOrQuota));
+            Assert.That(throttled.Title, Does.Contain("persisted after retries"));
+            Assert.That(throttled.Guidance, Does.Contain("rate window"));
+            Assert.That(quota.Category, Is.EqualTo(ProviderFailureCategory.RateLimitOrQuota));
+            Assert.That(quota.Title, Does.Contain("requires action"));
+            Assert.That(quota.Explanation, Does.Contain("Waiting alone is not expected"));
+        });
+    }
+
+    [Test]
     public void Analyze_CliStartupExit_DoesNotMisdiagnoseStderrWarningAsProfileFailure()
     {
         const string message = "Failed to connect to Copilot CLI: CLI server exited with code 1\n" +

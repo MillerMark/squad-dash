@@ -372,6 +372,39 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void SquadSdkEvent_DeserializesSubagentThrottlePayload() {
+        const string json = """
+            {
+              "type": "subagent_throttled",
+              "sessionId": "coordinator-1",
+              "agentName": "rory",
+              "status": "throttled",
+              "retryCount": 2,
+              "retryDelayMs": 60000,
+              "totalRetryDelayMs": 90000,
+              "retryAt": "2026-08-18T15:30:00.000Z"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions {
+                PropertyNameCaseInsensitive = true
+            });
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(evt!.Type, Is.EqualTo("subagent_throttled"));
+            Assert.That(evt.AgentName, Is.EqualTo("rory"));
+            Assert.That(evt.Status, Is.EqualTo("throttled"));
+            Assert.That(evt.RetryCount, Is.EqualTo(2));
+            Assert.That(evt.RetryDelayMs, Is.EqualTo(60000));
+            Assert.That(evt.TotalRetryDelayMs, Is.EqualTo(90000));
+            Assert.That(evt.RetryAt, Is.EqualTo("2026-08-18T15:30:00.000Z"));
+        });
+    }
+
+    [Test]
     public void SquadSdkEvent_DeserializesSdkDiagnosticsPayload() {
         const string json = """
             {

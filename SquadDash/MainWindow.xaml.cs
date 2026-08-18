@@ -5376,6 +5376,10 @@ public partial class MainWindow : Window
                 HandleSubagentFailed(evt);
                 break;
 
+            case "subagent_throttled":
+                HandleSubagentThrottled(evt);
+                break;
+
             case "subagent_cancelled":
                 HandleSubagentCancelled(evt);
                 break;
@@ -6365,6 +6369,30 @@ public partial class MainWindow : Window
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
         DrainQueueAfterBackgroundWorkChanged("subagent-failed");
         TryCompletePendingRestart("subagent-failed");
+    }
+
+    private void HandleSubagentThrottled(SquadSdkEvent evt)
+    {
+        if (ShouldSuppressSilentBackgroundAgent(evt))
+            return;
+
+        var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        MaybeReactivateThread(thread);
+        _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        var retryLabel = evt.RetryCount is > 0 ? $"retry {evt.RetryCount}" : "retry";
+        var delayLabel = evt.RetryDelayMs is > 0
+            ? $" in {TimeSpan.FromMilliseconds(evt.RetryDelayMs.Value):g}"
+            : string.Empty;
+        var detail = $"Provider throttled this request. Waiting to resume {retryLabel}{delayLabel}; the agent keeps ownership of the task.";
+        _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Throttled", detailText: detail);
+        SyncThreadChip(thread);
+        PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Thinking, thread);
+        UpdateAgentCardFromThread(thread, syncBuckets: true);
+        _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_throttled");
+        _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
+        SquadDashTrace.Write(
+            "UI",
+            $"Subagent throttled agent={evt.AgentDisplayName ?? evt.AgentName ?? evt.AgentId ?? "(unknown)"} retry={evt.RetryCount?.ToString() ?? "(unknown)"} delayMs={evt.RetryDelayMs?.ToString() ?? "(unknown)"}");
     }
 
     private void StopRequiredPlanWorkAfterProviderFailure(
