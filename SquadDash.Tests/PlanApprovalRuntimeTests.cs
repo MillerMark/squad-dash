@@ -356,6 +356,37 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task Restore_RebindsRevisedPlanActionAndAllowsOnlyFreshApproval()
+    {
+        var first = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Pending));
+        var oldToken = first.ClickToken!;
+        var revised = first.UpdatedPlan with { Revision = "rev-2" };
+
+        await _runtime.RestoreAsync([revised]);
+
+        var freshToken = _runtime.Actions.GetCurrentToken(revised.PlanId);
+        var message = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(revised.PlanId));
+        var action = message!.Actions.Single(candidate => string.Equals(
+            candidate.RouteMode,
+            DurableApprovalRequestManager.ApprovalReviewRouteMode,
+            StringComparison.Ordinal));
+        Assert.That(ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(freshToken, Is.Not.Null);
+            Assert.That(freshToken!.PlanRevision, Is.EqualTo("rev-2"));
+            Assert.That(payload!.ToClickToken().Matches(freshToken), Is.True);
+        });
+
+        Assert.That(
+            (await _runtime.ApproveAsync(oldToken, revised, null, _ => true)).Result,
+            Is.EqualTo(ApprovalClickResult.StaleRejected));
+        Assert.That(
+            (await _runtime.ApproveAsync(freshToken!, revised, null, _ => true)).Result,
+            Is.EqualTo(ApprovalClickResult.Approved));
+    }
+
+    [Test]
     public async Task Restore_UpgradesLegacyApprovalBodyFromFreshReviewEvidence()
     {
         var first = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Pending));

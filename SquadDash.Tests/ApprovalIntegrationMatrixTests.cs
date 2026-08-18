@@ -347,8 +347,8 @@ internal sealed class ApprovalIntegrationMatrixTests
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B", "GATE-C"]);
 
         Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Is.EqualTo("Approve all checkpoints and continue"));
-        Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
+        Assert.That(actions[0].Label, Is.EqualTo("Open approval review"));
+        Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalReviewRouteMode));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-A", "GATE-B", "GATE-C" }));
     }

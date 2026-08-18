@@ -351,6 +351,8 @@ public partial class MainWindow : Window
     private ApprovalCardNotificationCoordinator? _approvalNotificationCoordinator;
     private readonly Dictionary<string, List<TranscriptApprovalCardBuilder.CardResult>>
         _approvalTranscriptCards = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlanApprovalReviewWindow>
+        _openPlanApprovalReviewWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private DispatcherTimer? _approvalResumeRetryTimer;
     private string? _approvalResumeRetryPlanId;
@@ -1399,6 +1401,8 @@ public partial class MainWindow : Window
             void ApplyPlanProgress()
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
+                if (_openPlanApprovalReviewWindows.ContainsKey(evt.PlanId))
+                    _ = RefreshOpenPlanApprovalReviewWindowAsync(evt.UpdatedPlan);
             }
 
             if (Dispatcher.CheckAccess())
@@ -14131,6 +14135,9 @@ public partial class MainWindow : Window
         // workspace switch.
         ClearDeveloperApprovalSimulation(restoreInboxVisibility: false, refreshInbox: false);
         _inboxStore?.Delete(DeveloperApprovalSimulator.MessageId);
+        foreach (var reviewWindow in _openPlanApprovalReviewWindows.Values.ToArray())
+            reviewWindow.Close();
+        _openPlanApprovalReviewWindows.Clear();
         _approvalTranscriptCards.Clear();
         _approvalPlansUpdating.Clear();
         _activePlanAwaitingGateApproval = null;
@@ -14369,25 +14376,77 @@ public partial class MainWindow : Window
 
     private void SuppressCheckpointApprovalCardsForPendingRevision(string planId)
     {
-        if (!_approvalTranscriptCards.Remove(planId, out var cards)) return;
-
-        foreach (var card in cards)
+        if (_approvalTranscriptCards.Remove(planId, out var cards))
         {
-            if (card.Container.Parent is FlowDocument document)
-                document.Blocks.Remove(card.Container);
+            foreach (var card in cards)
+            {
+                if (card.Container.Parent is FlowDocument document)
+                    document.Blocks.Remove(card.Container);
+            }
         }
+        if (_openPlanApprovalReviewWindows.Remove(planId, out var reviewWindow))
+            reviewWindow.Close();
 
         _approvalAttentionCallout?.Close();
         _approvalAttentionCallout = null;
         SquadDashTrace.Write("PlanRevision",
-            $"Suppressed checkpoint approval card while plan revision is pending plan={planId}.");
+            $"Suppressed checkpoint approval surface while plan revision is pending plan={planId}.");
     }
 
-    /// <summary>
-    /// Appends a rich transcript approval card explaining the gate and a host-owned
-    /// "Approve Checkpoint &amp; Continue" button.
-    /// Must be called on the UI thread.
-    /// </summary>
+    private async Task RefreshOpenPlanApprovalReviewWindowAsync(Plan publishedPlan)
+    {
+        if (!_openPlanApprovalReviewWindows.TryGetValue(publishedPlan.PlanId, out var window) ||
+            _planStore is null ||
+            _planApprovalRuntime is null)
+            return;
+
+        try
+        {
+            var plan = _planStore.Load(publishedPlan.PlanId) ?? publishedPlan;
+            var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                candidate.Status == PlanGateStatus.AwaitingApproval);
+            if (gate is null)
+            {
+                _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+                window.Close();
+                return;
+            }
+
+            await RefreshApprovalInboxMessageForUseAsync(
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId));
+            plan = _planStore.Load(plan.PlanId) ?? plan;
+            gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                candidate.Status == PlanGateStatus.AwaitingApproval);
+            var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+            if (gate is null || token is null)
+            {
+                _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+                window.Close();
+                return;
+            }
+            if (window.Matches(token))
+                return;
+
+            ShowGateApprovalReviewWindow(
+                plan,
+                gate,
+                BuildLightweightApprovalSnapshot(plan, gate),
+                token,
+                activate: false,
+                status: "The approval changed while this window was open. Review the refreshed checklist.");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not live-refresh approval review window plan={publishedPlan.PlanId}: {ex.Message}");
+            if (_openPlanApprovalReviewWindows.TryGetValue(publishedPlan.PlanId, out var currentWindow))
+                currentWindow.CancelApprovalUpdate(
+                    "The approval may have changed. Close and reopen this window to refresh it.");
+        }
+    }
+
+    /// <summary>Appends the normal execution-time approval card to the transcript.</summary>
     private void AppendGateApprovalActions(
         Plan plan,
         PlanApprovalGate gate,
@@ -14407,7 +14466,12 @@ public partial class MainWindow : Window
             gate,
             _transcriptFontSize,
             onApprove: note => _ = HandleApprovalClickAsync(clickToken, note),
-            onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
+            onRequestChanges: () =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken);
+            },
             requestVersion: clickToken.RequestVersion,
             onOpenPlan: () => OpenPlanFromStore(plan),
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
@@ -14439,10 +14503,111 @@ public partial class MainWindow : Window
             _approvalTranscriptCards[plan.PlanId] = cards;
         }
         cards.Add(cardResult);
-
-        var blocks = CoordinatorThread.Document.Blocks;
-        blocks.Add(cardResult.Container);
+        CoordinatorThread.Document.Blocks.Add(cardResult.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    /// <summary>
+    /// Opens or refreshes the modeless per-plan approval window used by the Inbox action.
+    /// This is additive and does not replace or retire a naturally rendered transcript card.
+    /// </summary>
+    private void ShowGateApprovalReviewWindow(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalReviewSnapshot snapshot,
+        ApprovalClickToken clickToken,
+        bool activate = true,
+        string? status = null)
+    {
+        var activeGates = plan.ApprovalGates
+            .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        if (activeGates.Length > 0)
+            snapshot = BuildLightweightApprovalSnapshot(plan, activeGates);
+
+        TranscriptApprovalCardBuilder.CardResult? cardResult = null;
+        cardResult = TranscriptApprovalCardBuilder.Build(
+            snapshot,
+            plan,
+            gate,
+            _transcriptFontSize,
+            onApprove: note =>
+            {
+                if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var window))
+                    window.BeginApprovalUpdate();
+                _ = HandleApprovalClickAsync(clickToken, note, openedFromReviewWindow: true);
+            },
+            onRequestChanges: () =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken);
+            },
+            requestVersion: clickToken.RequestVersion,
+            onOpenPlan: () => OpenPlanFromStore(plan),
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            onOpenInbox: () => OpenOrFocusInboxMessage(
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId)),
+            onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
+            onChecklistChanged: (item, isChecked) =>
+                RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
+            onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
+            onAddressUncheckedItems: uncheckedItems =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                var reviewedTaskId = activeGates
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.GateId,
+                        uncheckedItems.FirstOrDefault()?.GateId,
+                        StringComparison.Ordinal))?
+                    .AfterTaskIds.FirstOrDefault()
+                    ?? gate.AfterTaskIds.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                    QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+            });
+
+        if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var existing))
+        {
+            existing.Replace(plan.Title, clickToken, cardResult, status);
+            if (activate)
+            {
+                if (existing.WindowState == WindowState.Minimized)
+                    existing.WindowState = WindowState.Normal;
+                existing.Activate();
+                NativeMethods.TryActivateWindow(
+                    new System.Windows.Interop.WindowInteropHelper(existing).Handle);
+            }
+            return;
+        }
+
+        var reviewWindow = new PlanApprovalReviewWindow(
+            plan.PlanId,
+            plan.Title,
+            clickToken,
+            cardResult)
+        {
+            Owner = CanShowOwnedWindow() ? this : null,
+        };
+        if (!string.IsNullOrWhiteSpace(status))
+            reviewWindow.ShowStatus(status);
+        _openPlanApprovalReviewWindows[plan.PlanId] = reviewWindow;
+        reviewWindow.Closed += (_, _) =>
+        {
+            _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+            FloatingWindowPositionStore.Shared.Save(
+                $"PlanApproval:{plan.PlanId}", reviewWindow);
+        };
+        FloatingWindowPositionStore.Shared.TryRestore(
+            $"PlanApproval:{plan.PlanId}", reviewWindow);
+        reviewWindow.Show();
+        if (activate)
+        {
+            reviewWindow.Activate();
+            NativeMethods.TryActivateWindow(
+                new System.Windows.Interop.WindowInteropHelper(reviewWindow).Handle);
+        }
     }
 
     private void BeginGateChangeRequest(
@@ -15084,14 +15249,21 @@ public partial class MainWindow : Window
     private async Task HandleApprovalClickAsync(
         ApprovalClickToken clickToken,
         string? note = null,
-        IReadOnlyList<string>? gateIdsToResolve = null)
+        IReadOnlyList<string>? gateIdsToResolve = null,
+        bool openedFromReviewWindow = false)
     {
         if (await TryHandleDeveloperApprovalSimulationClickAsync(clickToken, note))
             return;
         if (_planStore is null || _planApprovalRuntime is null) return;
         if (HasPendingPlanRevision(clickToken.PlanId))
         {
-            AppendLine("Resolve the pending plan revision proposal before approving this checkpoint. No approval state changed.");
+            const string pendingRevisionMessage =
+                "Resolve the pending plan revision proposal before approving this checkpoint. No approval state changed.";
+            if (openedFromReviewWindow &&
+                _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var pendingWindow))
+                pendingWindow.CancelApprovalUpdate(pendingRevisionMessage);
+            else
+                AppendLine(pendingRevisionMessage);
             return;
         }
         if (_approvalPlansUpdating.Contains(clickToken.PlanId))
@@ -15117,7 +15289,13 @@ public partial class MainWindow : Window
         var plan = _planStore.Load(clickToken.PlanId);
         if (plan is null)
         {
-            AppendLine($"⚠ Approval could not be applied because plan {clickToken.PlanId} no longer exists.");
+            var missingPlanText =
+                $"Approval could not be applied because plan {clickToken.PlanId} no longer exists.";
+            if (openedFromReviewWindow &&
+                _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var missingPlanWindow))
+                missingPlanWindow.CancelApprovalUpdate(missingPlanText);
+            else
+                AppendLine($"⚠ {missingPlanText}");
             if (_inboxStore?.GetById(messageId) is { } missingPlanMessage)
                 RefreshOpenApprovalInboxWindows(messageId, missingPlanMessage);
             return;
@@ -15164,11 +15342,28 @@ public partial class MainWindow : Window
             {
                 var remainingGate = resolution.UpdatedPlan.ApprovalGates.First(gate =>
                     gate.Status == PlanGateStatus.AwaitingApproval);
-                AppendGateApprovalActions(
-                    resolution.UpdatedPlan,
-                    remainingGate,
-                    BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
-                    resolution.NextClickToken);
+                if (openedFromReviewWindow ||
+                    _openPlanApprovalReviewWindows.ContainsKey(clickToken.PlanId))
+                {
+                    ShowGateApprovalReviewWindow(
+                        resolution.UpdatedPlan,
+                        remainingGate,
+                        BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
+                        resolution.NextClickToken,
+                        activate: openedFromReviewWindow);
+                }
+                if (!openedFromReviewWindow)
+                {
+                    AppendGateApprovalActions(
+                        resolution.UpdatedPlan,
+                        remainingGate,
+                        BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
+                        resolution.NextClickToken);
+                }
+            }
+            else if (_openPlanApprovalReviewWindows.Remove(clickToken.PlanId, out var resolvedWindow))
+            {
+                resolvedWindow.Close();
             }
             var completedAtApproval = false;
             if (resolution.UpdatedPlan.Progress.CompletedCount == resolution.UpdatedPlan.Progress.TotalCount &&
@@ -15236,13 +15431,78 @@ public partial class MainWindow : Window
 
         if (cards is not null)
             foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
+
+        if (resolution.Result == ApprovalClickResult.StaleRejected)
+        {
+            if (cards is not null)
+            {
+                foreach (var card in cards)
+                    TranscriptApprovalCardBuilder.ShowHistoricalState(card);
+                _approvalTranscriptCards.Remove(clickToken.PlanId);
+            }
+
+            try
+            {
+                var refreshedMessage = await RefreshApprovalInboxMessageForUseAsync(messageId);
+                var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+                var currentGate = plan.ApprovalGates.FirstOrDefault(gate =>
+                    gate.Status == PlanGateStatus.AwaitingApproval);
+                if (refreshedMessage is not null && currentToken is not null && currentGate is not null)
+                {
+                    const string refreshedStatus =
+                        "The approval changed, so the old action was not applied. " +
+                        "SquadDash refreshed it from the current plan; review it and click again.";
+                    if (!openedFromReviewWindow)
+                        AppendLine($"⚠ {refreshedStatus}");
+                    if (openedFromReviewWindow)
+                    {
+                        ShowGateApprovalReviewWindow(
+                            plan,
+                            currentGate,
+                            BuildLightweightApprovalSnapshot(plan, currentGate),
+                            currentToken,
+                            status: refreshedStatus);
+                    }
+                    else
+                    {
+                        AppendGateApprovalActions(
+                            plan,
+                            currentGate,
+                            BuildLightweightApprovalSnapshot(plan, currentGate),
+                            currentToken);
+                        if (_openPlanApprovalReviewWindows.ContainsKey(plan.PlanId))
+                        {
+                            ShowGateApprovalReviewWindow(
+                                plan,
+                                currentGate,
+                                BuildLightweightApprovalSnapshot(plan, currentGate),
+                                currentToken,
+                                activate: false,
+                                status: refreshedStatus);
+                        }
+                    }
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Could not refresh stale approval action plan={clickToken.PlanId}: {ex.Message}");
+            }
+        }
+
         var reason = resolution.Result switch
         {
             ApprovalClickResult.AlreadyResolved => "This approval was already handled from another surface.",
             ApprovalClickResult.PersistenceFailed => "SquadDash could not save the plan transition; no approval was recorded.",
-            _ => "This approval action is stale because the plan or approval request changed.",
+            _ => "This approval action is stale because the plan or approval request changed. Reopen the approval to refresh it.",
         };
-        AppendLine($"⚠ {reason}");
+        if (openedFromReviewWindow &&
+            _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var failedWindow))
+            failedWindow.CancelApprovalUpdate(reason);
+        else
+            AppendLine($"⚠ {reason}");
 
         if (_inboxStore?.GetById(messageId) is { } currentMessage)
             RefreshOpenApprovalInboxWindows(messageId, currentMessage);
@@ -15261,7 +15521,12 @@ public partial class MainWindow : Window
         var simulator = _developerApprovalSimulator;
         if (simulator is null || !simulator.IsActive)
         {
-            AppendLine("⚠ This developer approval simulation is no longer active. Clear it and start a fresh simulation.");
+            const string inactiveMessage =
+                "This developer approval simulation is no longer active. Clear it and start a fresh simulation.";
+            if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var inactiveWindow))
+                inactiveWindow.CancelApprovalUpdate(inactiveMessage);
+            else
+                AppendLine($"⚠ {inactiveMessage}");
             return true;
         }
 
@@ -15284,6 +15549,8 @@ public partial class MainWindow : Window
             if (cards is not null)
                 foreach (var card in cards) TranscriptApprovalCardBuilder.ShowResolvedState(card);
             _approvalTranscriptCards.Remove(clickToken.PlanId);
+            if (_openPlanApprovalReviewWindows.Remove(clickToken.PlanId, out var resolvedWindow))
+                resolvedWindow.Close();
 
             RefreshDeveloperApprovalSimulationInbox();
             SquadDashTrace.Write(
@@ -15294,9 +15561,13 @@ public partial class MainWindow : Window
 
         if (cards is not null)
             foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
-        AppendLine(resolution.Result == ApprovalClickResult.AlreadyResolved
+        var failureMessage = resolution.Result == ApprovalClickResult.AlreadyResolved
             ? "This simulated approval was already handled."
-            : "⚠ The simulated approval action became stale. Clear it and start a fresh simulation.");
+            : "The simulated approval action became stale. Clear it and start a fresh simulation.";
+        if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var failedWindow))
+            failedWindow.CancelApprovalUpdate(failureMessage);
+        else
+            AppendLine($"⚠ {failureMessage}");
         RefreshDeveloperApprovalSimulationInbox();
         return true;
     }
@@ -15639,13 +15910,20 @@ public partial class MainWindow : Window
         if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
             _planApprovalRuntime is not null)
         {
+            var transcriptCardWasVisible = _approvalTranscriptCards.ContainsKey(plan.PlanId);
+            var reviewWindowWasOpen = _openPlanApprovalReviewWindows.ContainsKey(plan.PlanId);
             SuppressCheckpointApprovalCardsForPendingRevision(plan.PlanId);
             var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
                 candidate.Status == PlanGateStatus.AwaitingApproval);
             var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
             if (gate is not null && token is not null)
-                AppendGateApprovalActions(
-                    plan, gate, BuildLightweightApprovalSnapshot(plan, gate), token);
+            {
+                var snapshot = BuildLightweightApprovalSnapshot(plan, gate);
+                if (transcriptCardWasVisible || !reviewWindowWasOpen)
+                    AppendGateApprovalActions(plan, gate, snapshot, token);
+                if (reviewWindowWasOpen)
+                    ShowGateApprovalReviewWindow(plan, gate, snapshot, token);
+            }
             return;
         }
 
@@ -30093,6 +30371,10 @@ public partial class MainWindow : Window
         }
 
         _approvalTranscriptCards.Remove(DeveloperApprovalSimulator.PlanId);
+        if (_openPlanApprovalReviewWindows.Remove(
+                DeveloperApprovalSimulator.PlanId,
+                out var simulationWindow))
+            simulationWindow.Close();
         var simulatedCards = CoordinatorThread.Document.Blocks
             .OfType<BlockUIContainer>()
             .Where(block => block.Tag is TranscriptApprovalCardTag tag &&
@@ -50318,7 +50600,7 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
-    private void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
+    private async void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
         if (!TryPrepareRecoveryInboxMessageForUse(messageId, out var preparedMessage))
@@ -50326,6 +50608,20 @@ public partial class MainWindow : Window
             _inboxPanel?.ShowTransientNotice("This recovery request is no longer active.");
             return;
         }
+
+        try
+        {
+            preparedMessage = await RefreshApprovalInboxMessageForUseAsync(messageId) ?? preparedMessage;
+        }
+        catch (Exception ex)
+        {
+            // Opening the existing durable message is still useful when evidence refresh fails.
+            // A captured action remains protected by normal stale-token validation.
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not refresh approval message before opening message={messageId}: {ex.Message}");
+        }
+
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
         if (existing is not null)
         {
@@ -50368,6 +50664,54 @@ public partial class MainWindow : Window
         win.Activated += (_, _) => _inboxPanel?.SelectMessageById(messageId);
         FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
+    }
+
+    /// <summary>
+    /// Rebinds an approval Inbox message and the live action coordinator to the authoritative
+    /// durable plan when either surface still carries an older revision. Returns the current
+    /// message when <paramref name="messageId"/> belongs to a known approval plan; otherwise null.
+    /// </summary>
+    private async Task<InboxMessage?> RefreshApprovalInboxMessageForUseAsync(string messageId)
+    {
+        if (_planStore is null || _planApprovalRuntime is null || _inboxStore is null)
+            return null;
+
+        var plan = _planStore.LoadAll().FirstOrDefault(candidate => string.Equals(
+            DurableApprovalRequestManager.BuildMessageId(candidate.PlanId),
+            messageId,
+            StringComparison.Ordinal));
+        if (plan is null)
+            return null;
+
+        var message = _inboxStore.GetById(messageId);
+        var renderedToken = message?.Actions
+            .Where(action =>
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            .Select(action => ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload)
+                ? payload?.ToClickToken()
+                : null)
+            .FirstOrDefault(token => token is not null);
+        var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+        if (renderedToken is not null &&
+            currentToken is not null &&
+            renderedToken.Matches(currentToken) &&
+            string.Equals(renderedToken.PlanRevision, plan.Revision, StringComparison.Ordinal))
+            return message;
+
+        await _planApprovalRuntime.RestoreAsync([plan]);
+        var messages = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(messages);
+        message = _inboxStore.GetById(messageId);
+        if (message is not null)
+            RefreshOpenApprovalInboxWindows(messageId, message);
+        return message;
     }
 
     private void OpenOrFocusInboxMessageAndSelectText(string messageId, string excerptText)
@@ -52338,12 +52682,16 @@ public partial class MainWindow : Window
         {
             if (string.Equals(
                     action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
                     DurableApprovalRequestManager.ApprovalRouteMode,
                     StringComparison.OrdinalIgnoreCase))
             {
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
-                await HandleApprovalClickAsync(payload.ToClickToken());
+                await ShowCurrentApprovalCardFromInboxAsync(payload, message);
                 return;
             }
 
@@ -52457,6 +52805,45 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(DispatchInboxAction), ex);
         }
+    }
+
+    private async Task ShowCurrentApprovalCardFromInboxAsync(
+        ApprovalInboxActionPayload payload,
+        InboxMessage sourceMessage)
+    {
+        if (_planStore is null || _planApprovalRuntime is null)
+            return;
+        if (!string.Equals(
+                sourceMessage.Id,
+                DurableApprovalRequestManager.BuildMessageId(payload.PlanId),
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("This approval action does not belong to the selected Inbox message.");
+
+        await RefreshApprovalInboxMessageForUseAsync(sourceMessage.Id);
+        var plan = _planStore.Load(payload.PlanId);
+        var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(payload.PlanId);
+        var currentGate = plan?.ApprovalGates.FirstOrDefault(gate =>
+            gate.Status == PlanGateStatus.AwaitingApproval);
+        if (plan is null || currentToken is null || currentGate is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Approval Review",
+                "This approval is no longer waiting for review. Open the plan to see its current state.");
+            return;
+        }
+        if (HasPendingPlanRevision(plan.PlanId))
+        {
+            UIErrorHelper.ShowWarning(
+                "Approval Review",
+                "Resolve the pending plan revision proposal before reviewing this approval checkpoint.");
+            return;
+        }
+
+        ShowGateApprovalReviewWindow(
+            plan,
+            currentGate,
+            BuildLightweightApprovalSnapshot(plan, currentGate),
+            currentToken);
     }
 
     /// <summary>
