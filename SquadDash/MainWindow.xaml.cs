@@ -41259,9 +41259,7 @@ public partial class MainWindow : Window
         var prefixRun = new Run($"{thought.Speaker}: ") { FontWeight = FontWeights.SemiBold };
         prefixRun.SetResourceReference(TextElement.ForegroundProperty, "ThinkingText");
         thought.TextBlock.Inlines.Add(prefixRun);
-        var bodyRun = new Run(text);
-        bodyRun.SetResourceReference(TextElement.ForegroundProperty, "ThinkingText");
-        thought.TextBlock.Inlines.Add(new Italic(bodyRun));
+        ThinkingInlineFormatter.AppendTo(thought.TextBlock.Inlines, text);
     }
 
     private static string NormalizeThinkingChunk(string? text)

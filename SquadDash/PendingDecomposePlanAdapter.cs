@@ -90,6 +90,7 @@ internal static class PendingDecomposePlanAdapter
                 Status:       PlanGateStatus.Pending,
                 PlanRevision: revision,
                 Question: g.Question,
+                PresentationAnchor: g.PresentationAnchor,
                 ProofRequirements: g.ProofRequirements?.Select(requirement =>
                     new PlanTaskProofRequirement(
                         requirement.RequirementId,
@@ -160,6 +161,7 @@ internal static class PendingDecomposePlanAdapter
                     AfterTaskIds: RestoreOptionalIds(g.AfterTaskIds, g.AfterTaskIdsSpecified),
                     BeforeTaskIds: RestoreOptionalIds(g.BeforeTaskIds, g.BeforeTaskIdsSpecified),
                     Question:     g.Question,
+                    PresentationAnchor: g.PresentationAnchor,
                     ProofRequirements: g.ProofRequirements?.Select(requirement =>
                         new DecomposedTaskProofRequirement(
                             requirement.RequirementId,

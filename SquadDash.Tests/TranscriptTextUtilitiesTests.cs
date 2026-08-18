@@ -284,6 +284,16 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void FormatThinkingText_PreservesParagraphsListsAndIndentation() {
+        const string text = "First paragraph.\r\n\r\nI need to add:\r\n  - `afterTaskIds`: value\r\n  - `beforeTaskIds`: value";
+
+        var result = TranscriptTextUtilities.FormatThinkingText(text);
+
+        Assert.That(result, Is.EqualTo(
+            "First paragraph.\n\nI need to add:\n  - `afterTaskIds`: value\n  - `beforeTaskIds`: value"));
+    }
+
+    [Test]
     public void SanitizeResponseText_PartialPlanValidationResult_HidesStreamingPayload()
     {
         const string text = "Validation complete.\n\nPLAN_VALIDATION_RESULT_JSON:\n{\n  \"validationId\": \"V1\",";

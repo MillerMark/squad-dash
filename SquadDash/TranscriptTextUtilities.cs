@@ -31,8 +31,8 @@ internal static class TranscriptTextUtilities
         PlanHumanReviewClarificationResponseParser.Marker,
     ];
 
-    private static readonly Regex WhitespaceNormRegex = new(
-        @"\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex HorizontalWhitespaceNormRegex = new(
+        @"[^\S\r\n]+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex WordApostropheRegex = new(
         @"(?<=\w)\s+'(?=\w)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private static readonly Regex SuffixSplitRegex = new(
@@ -181,12 +181,34 @@ internal static class TranscriptTextUtilities
             return string.Empty;
 
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
-        normalized = WhitespaceNormRegex.Replace(normalized, " ").Trim();
-        normalized = WordApostropheRegex.Replace(normalized, "'");
-        normalized = SuffixSplitRegex.Replace(normalized, string.Empty);
-        normalized = SpaceBeforePunctRegex.Replace(normalized, "$1");
-        normalized = SpaceAfterOpenRegex.Replace(normalized, "$1");
-        return normalized;
+        var lines = normalized.Split('\n');
+
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                lines[index] = string.Empty;
+                continue;
+            }
+
+            // Preserve authored indentation while retaining the streaming-text repairs that
+            // remove accidental whitespace within prose. Most importantly, process one line at
+            // a time so paragraph breaks and list layout are not flattened into a single run.
+            var contentStart = 0;
+            while (contentStart < line.Length && line[contentStart] is ' ' or '\t')
+                contentStart++;
+
+            var indentation = line[..contentStart];
+            var content = HorizontalWhitespaceNormRegex.Replace(line[contentStart..], " ").TrimEnd();
+            content = WordApostropheRegex.Replace(content, "'");
+            content = SuffixSplitRegex.Replace(content, string.Empty);
+            content = SpaceBeforePunctRegex.Replace(content, "$1");
+            content = SpaceAfterOpenRegex.Replace(content, "$1");
+            lines[index] = indentation + content;
+        }
+
+        return string.Join('\n', lines).Trim('\n');
     }
 
     internal static string BuildThreadPreview(string text)

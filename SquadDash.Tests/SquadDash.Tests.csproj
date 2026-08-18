@@ -272,6 +272,7 @@
     <Compile Include="..\SquadDash\ProcessIdentity.cs" Link="Source\ProcessIdentity.cs" />
     <Compile Include="..\SquadDash\ColorUtilities.cs" Link="Source\ColorUtilities.cs" />
     <Compile Include="..\SquadDash\TranscriptTextUtilities.cs" Link="Source\TranscriptTextUtilities.cs" />
+    <Compile Include="..\SquadDash\ThinkingInlineFormatter.cs" Link="Source\ThinkingInlineFormatter.cs" />
     <Compile Include="..\SquadDash\StructuredJsonBlockParser.cs" Link="Source\StructuredJsonBlockParser.cs" />
     <Compile Include="..\SquadDash\AgentArtifactStore.cs" Link="Source\AgentArtifactStore.cs" />
     <Compile Include="..\SquadDash\AgentArtifactBlockExpander.cs" Link="Source\AgentArtifactBlockExpander.cs" />

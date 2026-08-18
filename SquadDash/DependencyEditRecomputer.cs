@@ -134,7 +134,7 @@ internal static class DependencyEditRecomputer
             .Select((task, index) => (task.Id, Label: (index + 1).ToString()))
             .ToDictionary(item => item.Id, item => item.Label, StringComparer.Ordinal);
 
-        var recomputedGroup = group with { Tasks = sortedTasks };
+        var recomputedGroup = group with { Tasks = StripOrphanedInputs(sortedTasks) };
 
         // Approval boundary anchors: resolve each gate using the new stage assignments.
         var approvalBoundaryAnchors = ResolveApprovalBoundaryAnchors(
@@ -304,6 +304,71 @@ internal static class DependencyEditRecomputer
     }
 
     // ── Shared utilities ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Removes <see cref="DecomposedSubTask.Inputs"/> entries that reference outputs no longer
+    /// reachable through the task's new dependency graph. Called after every recompute so that
+    /// removing a dependency edge also cleans up dangling input references on the consumer.
+    /// </summary>
+    private static IReadOnlyList<DecomposedSubTask> StripOrphanedInputs(
+        IReadOnlyList<DecomposedSubTask> tasks)
+    {
+        if (tasks.All(t => t.Inputs is null or { Count: 0 }))
+            return tasks;
+
+        // Build output-ID → owning task-ID map.
+        var outputOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var t in tasks)
+            foreach (var output in t.Outputs ?? [])
+                outputOwners[output.OutputId] = t.Id;
+
+        if (outputOwners.Count == 0)
+        {
+            // No outputs exist — all input references are stale.
+            return tasks.Select(t => t.Inputs is { Count: > 0 } ? t with { Inputs = null } : t).ToArray();
+        }
+
+        // Build direct-dependency adjacency for transitive ancestor traversal.
+        var dependsOn = tasks.ToDictionary(
+            t => t.Id,
+            t => (IReadOnlySet<string>)t.DependsOn.ToHashSet(StringComparer.Ordinal),
+            StringComparer.Ordinal);
+
+        return tasks.Select(t =>
+        {
+            if (t.Inputs is null or { Count: 0 }) return t;
+            var ancestors = ComputeAncestors(t.Id, dependsOn);
+            var reachableOutputIds = outputOwners
+                .Where(pair => ancestors.Contains(pair.Value))
+                .Select(pair => pair.Key)
+                .ToHashSet(StringComparer.Ordinal);
+            var cleaned = t.Inputs.Where(reachableOutputIds.Contains).ToArray();
+            if (cleaned.Length == t.Inputs.Count) return t;
+            return t with { Inputs = cleaned.Length == 0 ? null : cleaned };
+        }).ToArray();
+    }
+
+    private static HashSet<string> ComputeAncestors(
+        string taskId,
+        IReadOnlyDictionary<string, IReadOnlySet<string>> dependsOn)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<string>();
+        if (dependsOn.TryGetValue(taskId, out var directDeps))
+            foreach (var dep in directDeps)
+                queue.Enqueue(dep);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!visited.Add(current)) continue;
+            if (dependsOn.TryGetValue(current, out var deps))
+                foreach (var dep in deps)
+                    queue.Enqueue(dep);
+        }
+        return visited;
+    }
+
+    // ── Original shared utilities ─────────────────────────────────────────────
 
     private static int GetLevel(IReadOnlyDictionary<string, int> levels, string taskId) =>
         levels.TryGetValue(taskId, out var level) ? level : 0;

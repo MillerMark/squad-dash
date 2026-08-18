@@ -319,6 +319,31 @@ internal static class StagedPlanEditor
             BeforeTaskIds = RewireBoundary(validation.BeforeTaskIds, taskId, dependentIds),
         }).ToArray();
 
+        // Strip input references and validation outputIds that point to outputs of the deleted task.
+        var removedOutputIds = (removed.Outputs ?? [])
+            .Select(output => output.OutputId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (removedOutputIds.Count > 0)
+        {
+            tasks = tasks.Select(task =>
+            {
+                if (task.Inputs is null or { Count: 0 }) return task;
+                var cleaned = task.Inputs.Where(id => !removedOutputIds.Contains(id)).ToArray();
+                return cleaned.Length == task.Inputs.Count
+                    ? task
+                    : task with { Inputs = cleaned.Length == 0 ? null : cleaned };
+            }).ToArray();
+
+            validations = validations.Select(validation =>
+            {
+                if (validation.OutputIds is null or { Count: 0 }) return validation;
+                var cleaned = validation.OutputIds.Where(id => !removedOutputIds.Contains(id)).ToArray();
+                return cleaned.Length == validation.OutputIds.Count
+                    ? validation
+                    : validation with { OutputIds = cleaned.Length == 0 ? null : cleaned };
+            }).ToArray();
+        }
+
         return group with
         {
             Tasks = tasks,

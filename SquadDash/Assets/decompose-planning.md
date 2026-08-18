@@ -191,6 +191,9 @@ not required. Use the exact property names below; do not substitute familiar sho
   Each entry must likewise be one atomic true/false verification item.
 - `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.description`, and `.question`:
   use the same exact fields and rules as task proof requirements; every gate proof must be human-only.
+- `approvalGates[].presentationAnchor`: optional host-managed display hint; the Plan Visualizer sets
+  this to indicate which task node is the primary visual anchor for the gate control. Do not emit it
+  in new plans; the host writes and preserves it across edits.
 - `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
   replacements. Keep the original parent task in the full proposal and point every replacement at it.
   SquadDash marks the parent superseded only after the revised plan is approved.
