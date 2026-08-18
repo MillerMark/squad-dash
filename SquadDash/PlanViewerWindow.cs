@@ -104,6 +104,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private record SelectedElementIdentity(string Kind, string Id);
+    [Flags]
+    private enum ConnectorEndpointRole
+    {
+        None = 0,
+        Start = 1,
+        End = 2,
+    }
+    private sealed class DragConnectorState
+    {
+        public ConnectorGroup Group { get; init; } = null!;
+        public ConnectorEndpointRole Role { get; init; }
+        public double? StartOffsetWithinCard { get; init; }
+        public double? EndOffsetWithinCard { get; init; }
+    }
     private sealed class TaskCardDragState
     {
         public FrameworkElement Element { get; init; } = null!;
@@ -114,12 +128,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public double ColumnX { get; init; }
         public double MilestoneTop { get; init; }
         public double MilestoneBottom { get; init; }
+        public Effect? OriginalCardEffect { get; init; }
+        public IReadOnlyList<DragConnectorState> ConnectedConnectorStates { get; init; } = [];
+        public IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> ConnectedConnectors { get; init; } = [];
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private FrameworkElement? _selectionGlowElement;
     private TaskCardDragState? _taskCardDragState;
+    private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private bool _suppressTaskCardCancelOnLostCapture;
 
     internal string? CurrentRevision => _plan?.Revision;
@@ -1147,6 +1166,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     attachedCount, NodeHeight, RowSpacing, _scaleFactor);
             }
         }
+        _taskCardPositions.Clear();
+        foreach (var entry in positions)
+            _taskCardPositions[entry.Key] = entry.Value;
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
         // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
@@ -1701,15 +1723,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             leftEntryAnchors.ResolveY(taskId, otherY, positions[taskId].Y, NodeHeight);
 
         // Pass 4: per-task connector tracking for hover highlight.
-        var connectorsByTask = new Dictionary<string, List<ConnectorGroup>>(StringComparer.Ordinal);
+        var connectorsByTask = _connectorsByTask;
+        connectorsByTask.Clear();
         // Deferred badge hover wiring — populated during badge draw, executed after borderByTask is ready.
         var _deferredBadgeHovers = new List<(Border Badge, List<ConnectorGroup> Cgs)>();
-        void RegisterConnector(string taskId, ConnectorGroup cg)
+        void RegisterConnector(string taskId, ConnectorGroup cg, ConnectorEndpointRole role)
         {
             if (!connectorsByTask.TryGetValue(taskId, out var list))
                 connectorsByTask[taskId] = list = [];
             if (!list.Contains(cg)) list.Add(cg);
             if (!cg.TaskIds.Contains(taskId, StringComparer.Ordinal)) cg.TaskIds.Add(taskId);
+            cg.RegisterEndpointRole(taskId, role);
         }
 
         // Find the leftmost locked milestone boundary X strictly between fromX and toX, or NaN if none.
@@ -1739,7 +1763,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     skipCount: Math.Max(0, depSkip),
                     dashed: targets.Any(target => dashedTaskEdges.Contains((dependency, target.Id))),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(dependency, cg);
+                RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
                 cgsForGate.Add(cg);
             }
             foreach (var target in targets)
@@ -1758,7 +1782,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     skipCount: Math.Max(0, targetSkip),
                     dashed: joinIsLocked || combinedDashed,
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(target.Id, cg);
+                RegisterConnector(target.Id, cg, ConnectorEndpointRole.End);
                 cgsForGate.Add(cg);
             }
             gateConnectorGroups.Add(cgsForGate);
@@ -1792,8 +1816,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         dashed: dashedTaskEdges.Contains((dependency, task.Id)),
                         toolTip: "Alternate connector color: no clear route around an ALL group was available.",
                         splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg);
-                    RegisterConnector(task.Id, cg);
+                    RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
+                    RegisterConnector(task.Id, cg, ConnectorEndpointRole.End);
                 }
                 else if (detour is null || detour.Count <= 2)
                 {
@@ -1803,8 +1827,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         skipCount: skipCount,
                         dashed: dashedTaskEdges.Contains((dependency, task.Id)),
                         splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg);
-                    RegisterConnector(task.Id,   cg);
+                    RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
+                    RegisterConnector(task.Id,   cg, ConnectorEndpointRole.End);
                 }
                 else
                 {
@@ -1817,8 +1841,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         arrowHead: true,
                         skipCount: skipCount,
                         dashed: dashedTaskEdges.Contains((dependency, task.Id)));
-                    RegisterConnector(dependency, routeGroup);
-                    RegisterConnector(task.Id, routeGroup);
+                    RegisterConnector(dependency, routeGroup, ConnectorEndpointRole.Start);
+                    RegisterConnector(task.Id, routeGroup, ConnectorEndpointRole.End);
                 }
             }
         }
@@ -4860,6 +4884,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // ALL-gate badge Borders that this connector enters or exits; highlighted on hover.
         public readonly List<Border>    GateBadges    = [];
         public int SkipCount { get; set; }
+        public Point OriginalFrom { get; private set; }
+        public Point OriginalTo { get; private set; }
+        public Point CurrentFrom { get; private set; }
+        public Point CurrentTo { get; private set; }
+        private readonly Dictionary<string, ConnectorEndpointRole> _endpointRoles = new(StringComparer.Ordinal);
+        private Action<Point, Point>? _endpointUpdater;
 
         // Recompute the glow brush from the current theme and update all glow elements.
         public void RefreshGlowBrushes()
@@ -4875,6 +4905,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         shape.Stroke = brush;
                 }
             }
+        }
+
+        public void InitializeEndpoints(Point from, Point to, Action<Point, Point> endpointUpdater)
+        {
+            OriginalFrom = from;
+            OriginalTo = to;
+            CurrentFrom = from;
+            CurrentTo = to;
+            _endpointUpdater = endpointUpdater;
+        }
+
+        public void RegisterEndpointRole(string taskId, ConnectorEndpointRole role)
+        {
+            _endpointRoles.TryGetValue(taskId, out var existing);
+            _endpointRoles[taskId] = existing | role;
+        }
+
+        public ConnectorEndpointRole GetEndpointRole(string taskId) =>
+            _endpointRoles.TryGetValue(taskId, out var role) ? role : ConnectorEndpointRole.None;
+
+        public void UpdateEndpoints(Point from, Point to)
+        {
+            CurrentFrom = from;
+            CurrentTo = to;
+            _endpointUpdater?.Invoke(from, to);
         }
     }
 
@@ -4905,8 +4960,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
+        var renderStraight = skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0 || Math.Abs(to.X - from.X) < 1.0;
+        var doLineSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
 
-        if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0 || Math.Abs(to.X - from.X) < 1.0)
+        if (renderStraight)
         {
             // Straight line.
             var glowLine = new Line
@@ -4921,14 +4978,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             group.GlowElements.Add(glowLine);
 
             // Main line — split at a locked milestone boundary if one crosses this segment.
-            bool doLineSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            Line? leftLine = null;
+            Line? rightLine = null;
+            Line? mainLine = null;
             if (doLineSplit)
             {
                 double tSplit  = (splitAtX - from.X) / (lineEnd.X - from.X);
                 double splitY  = from.Y + tSplit * (lineEnd.Y - from.Y);
                 var    splitPt = new Point(splitAtX, splitY);
 
-                var leftLine = new Line
+                leftLine = new Line
                 {
                     X1 = from.X, Y1 = from.Y, X2 = splitPt.X, Y2 = splitPt.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4937,7 +4996,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 canvas.Children.Add(leftLine);
                 group.MainElements.Add(leftLine);
 
-                var rightLine = new Line
+                rightLine = new Line
                 {
                     X1 = splitPt.X, Y1 = splitPt.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4949,7 +5008,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                var mainLine = new Line
+                mainLine = new Line
                 {
                     X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4972,6 +5031,75 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null) hitLine.ToolTip = toolTip;
             canvas.Children.Add(hitLine);
             group.MainElements.Add(hitLine);
+
+            Polygon? glowArrow = null;
+            Polygon? mainArrow = null;
+            if (arrowHead)
+            {
+                // Glow arrowhead: same tip, wider wings.
+                var perp = new Vector(0, 1);
+                glowArrow = new Polygon
+                {
+                    Fill       = glowBrush,
+                    Visibility = Visibility.Hidden,
+                    Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
+                };
+                canvas.Children.Add(glowArrow);
+                group.GlowElements.Add(glowArrow);
+
+                // Main arrowhead.
+                mainArrow = new Polygon
+                {
+                    Fill   = mainBrush,
+                    Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+                };
+                canvas.Children.Add(mainArrow);
+                group.MainElements.Add(mainArrow);
+            }
+
+            group.InitializeEndpoints(from, to, (updatedFrom, updatedTo) =>
+            {
+                var updatedLineEnd = arrowHead
+                    ? new Point(updatedTo.X - arrowLength, updatedTo.Y)
+                    : updatedTo;
+                glowLine.X1 = updatedFrom.X;
+                glowLine.Y1 = updatedFrom.Y;
+                glowLine.X2 = updatedLineEnd.X;
+                glowLine.Y2 = updatedLineEnd.Y;
+                if (doLineSplit && leftLine is not null && rightLine is not null)
+                {
+                    double tSplit = (splitAtX - updatedFrom.X) / (updatedLineEnd.X - updatedFrom.X);
+                    double splitY = updatedFrom.Y + tSplit * (updatedLineEnd.Y - updatedFrom.Y);
+                    var splitPt = new Point(splitAtX, splitY);
+                    leftLine.X1 = updatedFrom.X;
+                    leftLine.Y1 = updatedFrom.Y;
+                    leftLine.X2 = splitPt.X;
+                    leftLine.Y2 = splitPt.Y;
+                    rightLine.X1 = splitPt.X;
+                    rightLine.Y1 = splitPt.Y;
+                    rightLine.X2 = updatedLineEnd.X;
+                    rightLine.Y2 = updatedLineEnd.Y;
+                }
+                else if (mainLine is not null)
+                {
+                    mainLine.X1 = updatedFrom.X;
+                    mainLine.Y1 = updatedFrom.Y;
+                    mainLine.X2 = updatedLineEnd.X;
+                    mainLine.Y2 = updatedLineEnd.Y;
+                }
+
+                hitLine.X1 = updatedFrom.X;
+                hitLine.Y1 = updatedFrom.Y;
+                hitLine.X2 = updatedLineEnd.X;
+                hitLine.Y2 = updatedLineEnd.Y;
+
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var perp = new Vector(0, 1);
+                    glowArrow.Points = [updatedTo, updatedLineEnd + perp * glowArrowHalf, updatedLineEnd - perp * glowArrowHalf];
+                    mainArrow.Points = [updatedTo, updatedLineEnd + perp * arrowHalfWidth, updatedLineEnd - perp * arrowHalfWidth];
+                }
+            });
         }
         else
         {
@@ -5005,6 +5133,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             // Main path — split at a locked milestone boundary if one crosses this segment.
             bool doBezSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            Path? leftPath = null;
+            Path? rightPath = null;
+            Path? mainPath = null;
             if (doBezSplit)
             {
                 // Binary search for t where x(t) = splitAtX (monotone for left-to-right S-curves).
@@ -5021,7 +5152,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var leftFig = new PathFigure { StartPoint = lp0 };
                 leftFig.Segments.Add(new BezierSegment(lp1, lp2, lp3, isStroked: true));
                 var leftGeo  = new PathGeometry(); leftGeo.Figures.Add(leftFig);
-                var leftPath = new Path { Data = leftGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent };
+                leftPath = new Path { Data = leftGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent };
                 if (dashArray is not null) leftPath.StrokeDashArray = dashArray;
                 canvas.Children.Add(leftPath);
                 group.MainElements.Add(leftPath);
@@ -5029,7 +5160,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var rightFig = new PathFigure { StartPoint = rp0 };
                 rightFig.Segments.Add(new BezierSegment(rp1, rp2, rp3, isStroked: true));
                 var rightGeo  = new PathGeometry(); rightGeo.Figures.Add(rightFig);
-                var rightPath = new Path
+                rightPath = new Path
                 {
                     Data = rightGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent,
                     StrokeDashArray = new DoubleCollection { 7, 2 },
@@ -5040,7 +5171,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                var mainPath = new Path
+                mainPath = new Path
                 {
                     Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
                     Fill = Brushes.Transparent,
@@ -5062,29 +5193,86 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null) hitPath.ToolTip = toolTip;
             canvas.Children.Add(hitPath);
             group.MainElements.Add(hitPath);
-        }
 
-        if (arrowHead)
-        {
-            // Glow arrowhead: same tip, wider wings.
-            var perp = new Vector(0, 1);
-            var glowArrow = new Polygon
+            Polygon? glowArrow = null;
+            Polygon? mainArrow = null;
+            if (arrowHead)
             {
-                Fill       = glowBrush,
-                Visibility = Visibility.Hidden,
-                Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
-            };
-            canvas.Children.Add(glowArrow);
-            group.GlowElements.Add(glowArrow);
+                // Glow arrowhead: same tip, wider wings.
+                var perp = new Vector(0, 1);
+                glowArrow = new Polygon
+                {
+                    Fill       = glowBrush,
+                    Visibility = Visibility.Hidden,
+                    Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
+                };
+                canvas.Children.Add(glowArrow);
+                group.GlowElements.Add(glowArrow);
 
-            // Main arrowhead.
-            var mainArrow = new Polygon
+                // Main arrowhead.
+                mainArrow = new Polygon
+                {
+                    Fill   = mainBrush,
+                    Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+                };
+                canvas.Children.Add(mainArrow);
+                group.MainElements.Add(mainArrow);
+            }
+
+            group.InitializeEndpoints(from, to, (updatedFrom, updatedTo) =>
             {
-                Fill   = mainBrush,
-                Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
-            };
-            canvas.Children.Add(mainArrow);
-            group.MainElements.Add(mainArrow);
+                var updatedLineEnd = arrowHead
+                    ? new Point(updatedTo.X - arrowLength, updatedTo.Y)
+                    : updatedTo;
+                var updatedDx = updatedLineEnd.X - updatedFrom.X;
+                var updatedHandleLen = Math.Max(0, updatedDx * 0.5);
+                var updatedCp1 = new Point(updatedFrom.X + updatedHandleLen, updatedFrom.Y);
+                var updatedCp2 = new Point(updatedLineEnd.X - updatedHandleLen, updatedLineEnd.Y);
+                PathGeometry MakeUpdatedBezierGeometry()
+                {
+                    var fig = new PathFigure { StartPoint = updatedFrom };
+                    fig.Segments.Add(new BezierSegment(updatedCp1, updatedCp2, updatedLineEnd, isStroked: true));
+                    var geo = new PathGeometry();
+                    geo.Figures.Add(fig);
+                    return geo;
+                }
+
+                glowPath.Data = MakeUpdatedBezierGeometry();
+                if (doBezSplit && leftPath is not null && rightPath is not null)
+                {
+                    double lo = 0.0, hi = 1.0;
+                    for (var index = 0; index < 50; index++)
+                    {
+                        var mid = (lo + hi) * 0.5;
+                        if (BezierX(updatedFrom, updatedCp1, updatedCp2, updatedLineEnd, mid) < splitAtX) lo = mid; else hi = mid;
+                    }
+                    SplitBezier(updatedFrom, updatedCp1, updatedCp2, updatedLineEnd, (lo + hi) * 0.5,
+                        out var lp0, out var lp1, out var lp2, out var lp3,
+                        out var rp0, out var rp1, out var rp2, out var rp3);
+                    var leftFig = new PathFigure { StartPoint = lp0 };
+                    leftFig.Segments.Add(new BezierSegment(lp1, lp2, lp3, isStroked: true));
+                    var leftGeo = new PathGeometry();
+                    leftGeo.Figures.Add(leftFig);
+                    leftPath.Data = leftGeo;
+                    var rightFig = new PathFigure { StartPoint = rp0 };
+                    rightFig.Segments.Add(new BezierSegment(rp1, rp2, rp3, isStroked: true));
+                    var rightGeo = new PathGeometry();
+                    rightGeo.Figures.Add(rightFig);
+                    rightPath.Data = rightGeo;
+                }
+                else if (mainPath is not null)
+                {
+                    mainPath.Data = MakeUpdatedBezierGeometry();
+                }
+
+                hitPath.Data = MakeUpdatedBezierGeometry();
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var perp = new Vector(0, 1);
+                    glowArrow.Points = [updatedTo, updatedLineEnd + perp * glowArrowHalf, updatedLineEnd - perp * glowArrowHalf];
+                    mainArrow.Points = [updatedTo, updatedLineEnd + perp * arrowHalfWidth, updatedLineEnd - perp * arrowHalfWidth];
+                }
+            });
         }
 
         return group;
@@ -5110,16 +5298,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var target = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
         if (arrowHead)
             drawableRoute[^1] = (drawableRoute[^1].X - arrowLength, drawableRoute[^1].Y);
-        var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(drawableRoute)
-            .ToDictionary(corner => corner.PointIndex);
 
-        PathGeometry MakeGeometry()
+        PathGeometry MakeGeometry(IReadOnlyList<(double X, double Y)> geometryRoute)
         {
+            var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(geometryRoute)
+                .ToDictionary(corner => corner.PointIndex);
             var figure = new PathFigure
             {
-                StartPoint = new Point(drawableRoute[0].X, drawableRoute[0].Y),
+                StartPoint = new Point(geometryRoute[0].X, geometryRoute[0].Y),
             };
-            for (var index = 1; index < drawableRoute.Length - 1; index++)
+            for (var index = 1; index < geometryRoute.Count - 1; index++)
             {
                 if (!corners.TryGetValue(index, out var corner)) continue;
                 figure.Segments.Add(new LineSegment(
@@ -5130,7 +5318,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     isStroked: true));
             }
             figure.Segments.Add(new LineSegment(
-                new Point(drawableRoute[^1].X, drawableRoute[^1].Y), isStroked: true));
+                new Point(geometryRoute[^1].X, geometryRoute[^1].Y), isStroked: true));
             var geometry = new PathGeometry();
             geometry.Figures.Add(figure);
             return geometry;
@@ -5142,7 +5330,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var glowBrush = new SolidColorBrush(glowColor);
         var glowPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = glowThickness,
             Stroke = glowBrush,
             Fill = Brushes.Transparent,
@@ -5155,7 +5343,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var mainPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = 2,
             Stroke = mainBrush,
             Fill = Brushes.Transparent,
@@ -5167,7 +5355,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hitPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = 12,
             Fill = Brushes.Transparent,
             Opacity = 0.01,
@@ -5177,11 +5365,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         canvas.Children.Add(hitPath);
         group.MainElements.Add(hitPath);
 
+        Polygon? glowArrow = null;
+        Polygon? mainArrow = null;
         if (arrowHead)
         {
             var lineEnd = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
             var perpendicular = new Vector(0, 1);
-            var glowArrow = new Polygon
+            glowArrow = new Polygon
             {
                 Fill = glowBrush,
                 Visibility = Visibility.Hidden,
@@ -5190,7 +5380,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(glowArrow);
             group.GlowElements.Add(glowArrow);
 
-            var mainArrow = new Polygon
+            mainArrow = new Polygon
             {
                 Fill = mainBrush,
                 Points = [target, lineEnd + perpendicular * arrowHalfWidth, lineEnd - perpendicular * arrowHalfWidth],
@@ -5198,6 +5388,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(mainArrow);
             group.MainElements.Add(mainArrow);
         }
+
+        var baseRoute = route.ToArray();
+        group.InitializeEndpoints(
+            new Point(baseRoute[0].X, baseRoute[0].Y),
+            new Point(baseRoute[^1].X, baseRoute[^1].Y),
+            (fromPoint, toPoint) =>
+            {
+                var adjustedRoute = baseRoute.ToArray();
+                adjustedRoute[0] = (fromPoint.X, fromPoint.Y);
+                adjustedRoute[^1] = (toPoint.X, toPoint.Y);
+                var adjustedDrawableRoute = adjustedRoute.ToArray();
+                var adjustedTarget = new Point(adjustedDrawableRoute[^1].X, adjustedDrawableRoute[^1].Y);
+                if (arrowHead)
+                    adjustedDrawableRoute[^1] = (adjustedDrawableRoute[^1].X - arrowLength, adjustedDrawableRoute[^1].Y);
+
+                var geometry = MakeGeometry(adjustedDrawableRoute);
+                glowPath.Data = geometry;
+                mainPath.Data = geometry.Clone();
+                hitPath.Data = geometry.Clone();
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var adjustedLineEnd = new Point(adjustedDrawableRoute[^1].X, adjustedDrawableRoute[^1].Y);
+                    var perpendicular = new Vector(0, 1);
+                    glowArrow.Points = [adjustedTarget, adjustedLineEnd + perpendicular * glowArrowHalf, adjustedLineEnd - perpendicular * glowArrowHalf];
+                    mainArrow.Points = [adjustedTarget, adjustedLineEnd + perpendicular * arrowHalfWidth, adjustedLineEnd - perpendicular * arrowHalfWidth];
+                }
+            });
 
         return group;
     }
@@ -7222,6 +7439,105 @@ internal sealed class PlanViewerWindow : ChromedWindow
         element.LostMouseCapture += OnTaskCardLostMouseCapture;
     }
 
+    private static IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> CaptureConnectorEffects(
+        IReadOnlyList<DragConnectorState> connectorStates) =>
+        connectorStates
+            .SelectMany(state => state.Group.MainElements)
+            .Distinct()
+            .Select(element => (Connector: element, OriginalEffect: (Effect?)element.Effect))
+            .ToArray();
+
+    private IReadOnlyList<DragConnectorState> BuildDragConnectorStates(string taskId, double originalTop)
+    {
+        if (!_connectorsByTask.TryGetValue(taskId, out var groups))
+            return [];
+
+        var states = new List<DragConnectorState>();
+        foreach (var group in groups.Distinct())
+        {
+            var role = group.GetEndpointRole(taskId);
+            if (role == ConnectorEndpointRole.None)
+                continue;
+
+            var state = new DragConnectorState
+            {
+                Group = group,
+                Role = role,
+                StartOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.Start)
+                    ? group.CurrentFrom.Y - originalTop
+                    : null,
+                EndOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.End)
+                    ? group.CurrentTo.Y - originalTop
+                    : null,
+            };
+            states.Add(state);
+        }
+
+        return states;
+    }
+
+    private void ApplyTaskCardDragGlow(TaskCardDragState dragState)
+    {
+        dragState.Element.Effect = TaskNodeGlowEffect();
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var connectorGroup = connectorState.Group;
+            connectorGroup.RefreshGlowBrushes();
+            foreach (var element in connectorGroup.GlowElements)
+            {
+                element.Visibility = Visibility.Visible;
+                Panel.SetZIndex(element, 3);
+            }
+            foreach (var element in connectorGroup.MainElements)
+                Panel.SetZIndex(element, 4);
+        }
+        foreach (var (connector, _) in dragState.ConnectedConnectors)
+            connector.Effect = TaskNodeGlowEffect();
+    }
+
+    private void UpdateTaskCardDragConnectors(TaskCardDragState dragState, double top)
+    {
+        var left = dragState.ColumnX;
+        _taskCardPositions[dragState.TaskId] = new Point(left, top);
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var group = connectorState.Group;
+            var updatedFrom = group.CurrentFrom;
+            var updatedTo = group.CurrentTo;
+            if (connectorState.Role.HasFlag(ConnectorEndpointRole.Start) &&
+                connectorState.StartOffsetWithinCard.HasValue)
+            {
+                updatedFrom = new Point(left + NodeWidth, top + connectorState.StartOffsetWithinCard.Value);
+            }
+            if (connectorState.Role.HasFlag(ConnectorEndpointRole.End) &&
+                connectorState.EndOffsetWithinCard.HasValue)
+            {
+                updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
+            }
+
+            group.UpdateEndpoints(updatedFrom, updatedTo);
+        }
+    }
+
+    private void RestoreTaskCardDragGlow(TaskCardDragState dragState)
+    {
+        dragState.Element.Effect = dragState.OriginalCardEffect;
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var connectorGroup = connectorState.Group;
+            foreach (var element in connectorGroup.GlowElements)
+            {
+                element.Visibility = Visibility.Hidden;
+                Panel.SetZIndex(element, 0);
+            }
+            foreach (var element in connectorGroup.MainElements)
+                Panel.SetZIndex(element, 0);
+        }
+
+        foreach (var (connector, originalEffect) in dragState.ConnectedConnectors)
+            connector.Effect = originalEffect;
+    }
+
     private void OnTaskCardPreviewMouseLeftButtonDown(
         FrameworkElement element,
         string taskId,
@@ -7246,6 +7562,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             milestoneBottom = resolvedBottom;
         }
 
+        var connectedConnectorStates = BuildDragConnectorStates(taskId, originalTop);
+        var connectedConnectors = CaptureConnectorEffects(connectedConnectorStates);
+
         _taskCardDragState = new TaskCardDragState
         {
             Element = element,
@@ -7256,12 +7575,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             ColumnX = columnX,
             MilestoneTop = milestoneTop,
             MilestoneBottom = milestoneBottom,
+            OriginalCardEffect = element.Effect,
+            ConnectedConnectorStates = connectedConnectorStates,
+            ConnectedConnectors = connectedConnectors,
             IsActive = false,
         };
+        ApplyTaskCardDragGlow(_taskCardDragState);
         _suppressTaskCardCancelOnLostCapture = false;
 
         if (!element.CaptureMouse())
+        {
+            RestoreTaskCardDragGlow(_taskCardDragState);
             _taskCardDragState = null;
+        }
     }
 
     private void OnGraphCanvasMouseMove(object? sender, MouseEventArgs e)
@@ -7313,6 +7639,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         Canvas.SetTop(dragState.Element, constrainedTop);
+        UpdateTaskCardDragConnectors(dragState, constrainedTop);
     }
 
     private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
@@ -7350,6 +7677,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_taskCardDragState is not { } dragState)
             return;
 
+        var top = Canvas.GetTop(dragState.Element);
+        if (double.IsNaN(top))
+            top = dragState.OriginalTop;
+        UpdateTaskCardDragConnectors(dragState, top);
+        RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;
         _suppressTaskCardCancelOnLostCapture = true;
         if (dragState.Element.IsMouseCaptured)
@@ -7364,6 +7696,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         Canvas.SetTop(dragState.Element, dragState.OriginalTop);
         Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+        UpdateTaskCardDragConnectors(dragState, dragState.OriginalTop);
+        RestoreTaskCardDragGlow(dragState);
 
         _taskCardDragState = null;
         _suppressTaskCardCancelOnLostCapture = true;
