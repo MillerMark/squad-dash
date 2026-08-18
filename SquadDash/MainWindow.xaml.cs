@@ -10936,7 +10936,8 @@ public partial class MainWindow : Window
             CoordinatorThread.Document.Blocks,
             plan.Group.GroupId);
 
-        var content = (contentFactory ?? PlanPreflightRecoveryContent.From)(exception);
+        var buildContent = contentFactory ?? PlanPreflightRecoveryContent.From;
+        var content = buildContent(exception);
         var stack = new StackPanel();
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition());
@@ -11183,8 +11184,24 @@ public partial class MainWindow : Window
             pollInFlight = true;
             try
             {
+                var currentDirtyPaths = await GetPlanPreflightDirtyPathsAsync(plan.Group.GroupId);
+                if (currentDirtyPaths is not null)
+                {
+                    var currentException = new PlanPreflightBlockedException(
+                        exception.Condition,
+                        currentDirtyPaths,
+                        exception.TargetBranch);
+                    content = buildContent(currentException);
+                    summary.Text = content.Summary;
+                    files.Text = content.ChangedFilesSummary;
+                    files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                        ? Visibility.Collapsed
+                        : Visibility.Visible;
+                    detailsText.Text = content.TechnicalDetails;
+                }
+
                 var ready = readinessOverride is null
-                    ? await IsPlanPreflightWorkspaceCleanAsync()
+                    ? currentDirtyPaths is { Count: 0 }
                     : await readinessOverride();
                 if (!ready) return;
                 timer.Stop();
@@ -11897,7 +11914,8 @@ public partial class MainWindow : Window
             interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
             onUnapproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
-            isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(),
+            isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(groupId),
+            getPreflightDirtyPaths: () => GetPlanPreflightDirtyPathsAsync(groupId),
             broker: _broker,
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
@@ -52305,7 +52323,10 @@ public partial class MainWindow : Window
             viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
             isWorkspaceClean: exception.RequiresRepositoryInitialization
                 ? null
-                : () => IsPlanPreflightWorkspaceCleanAsync());
+                : () => IsPlanPreflightWorkspaceCleanAsync(),
+            getDirtyPaths: exception.RequiresRepositoryInitialization
+                ? null
+                : () => GetPlanPreflightDirtyPathsAsync());
         if (window.WindowState == WindowState.Minimized)
             window.WindowState = WindowState.Normal;
         window.Activate();
@@ -52313,7 +52334,17 @@ public partial class MainWindow : Window
 
     private async Task<bool> IsPlanPreflightWorkspaceCleanAsync(string? planId = null)
     {
-        if (_currentWorkspace is null) return false;
+        var dirtyPaths = await GetPlanPreflightDirtyPathsAsync(planId);
+        return dirtyPaths is { Count: 0 };
+    }
+
+    /// <summary>
+    /// Returns the current non-host-owned dirty paths for live preflight presentation. Null
+    /// means the repository could not be inspected; callers retain their last known snapshot.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> GetPlanPreflightDirtyPathsAsync(string? planId = null)
+    {
+        if (_currentWorkspace is null) return null;
         try
         {
             var status = await RunGitAsync(
@@ -52326,13 +52357,12 @@ public partial class MainWindow : Window
                     status,
                     allowedPlanPaths,
                     out var candidates))
-                return true;
-            var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                return [];
+            return await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
                 candidates,
                 cmd => RunGitAsync(_currentWorkspace.FolderPath, cmd));
-            return genuinelyDirty.Count == 0;
         }
-        catch { return false; }
+        catch { return null; }
     }
 
     private async Task ShowPlanPreflightChangesAsync(PlanPreflightBlockedException exception)

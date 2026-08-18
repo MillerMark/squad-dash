@@ -43,6 +43,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onUnapproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
+    private readonly Func<Task<IReadOnlyList<string>?>>? _getPreflightDirtyPaths;
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
@@ -138,6 +139,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onUnapproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
+        Func<Task<IReadOnlyList<string>?>>? getPreflightDirtyPaths = null,
         WeakEventBroker? broker = null,
         Action<string>? onOpenCommit = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
@@ -180,6 +182,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onUnapproveGate    = onUnapproveGate;
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
+        _getPreflightDirtyPaths = getPreflightDirtyPaths;
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
@@ -3385,7 +3388,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 pollInFlight = true;
                 try
                 {
-                    if (!await _isPreflightWorkspaceClean()) return;
+                    IReadOnlyList<string>? currentDirtyPaths = null;
+                    if (_getPreflightDirtyPaths is not null)
+                    {
+                        currentDirtyPaths = await _getPreflightDirtyPaths();
+                        if (currentDirtyPaths is not null)
+                        {
+                            content = PlanPreflightRecoveryContent.From(
+                                new PlanPreflightBlockedException(
+                                    exception.Condition,
+                                    currentDirtyPaths,
+                                    exception.TargetBranch));
+                            summary.Text = content.Summary;
+                            files.Text = content.ChangedFilesSummary;
+                            files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                                ? Visibility.Collapsed
+                                : Visibility.Visible;
+                            detailText.Text = content.TechnicalDetails;
+                        }
+                    }
+                    var clean = currentDirtyPaths is not null
+                        ? currentDirtyPaths.Count == 0
+                        : await _isPreflightWorkspaceClean();
+                    if (!clean) return;
                     _preflightPollTimer?.Stop();
                     readiness.Text = "Workspace is clean. Retry is ready.";
                     retryButton.FontWeight = FontWeights.SemiBold;
