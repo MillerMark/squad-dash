@@ -103,9 +103,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private record SelectedElementIdentity(string Kind, string Id);
+    private sealed class TaskCardDragState
+    {
+        public FrameworkElement Element { get; init; } = null!;
+        public string TaskId { get; init; } = string.Empty;
+        public Point MouseOffsetWithinCard { get; init; }
+        public Point DragStartCanvasPoint { get; init; }
+        public double OriginalTop { get; init; }
+        public double ColumnX { get; init; }
+        public bool IsActive { get; set; }
+    }
     private SelectedElementIdentity? _selectedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private FrameworkElement? _selectionGlowElement;
+    private TaskCardDragState? _taskCardDragState;
+    private bool _suppressTaskCardCancelOnLostCapture;
 
     internal string? CurrentRevision => _plan?.Revision;
 
@@ -192,6 +204,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
+        PreviewKeyDown += OnPlanViewerPreviewKeyDown;
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
@@ -831,6 +844,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RefreshDetailPanel();
             }
         };
+        canvas.MouseMove += OnGraphCanvasMouseMove;
+        canvas.MouseLeftButtonUp += OnGraphCanvasMouseLeftButtonUp;
         var scroll = new ScrollViewer
         {
             Content = canvas,
@@ -2235,6 +2250,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
             border.Tag = $"task:{task.Id}";
             WireSelectionClick(border);
+            WireTaskCardDrag(border, task.Id);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
 
@@ -3127,7 +3143,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
             };
         }
-
+
         // Kick off any pending dependency-edit animation after the new layout is applied.
         if (_pendingAnimation is { } animData)
         {
@@ -7169,5 +7185,123 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 e.Handled = true;
             }
         };
+    }
+
+    private void WireTaskCardDrag(FrameworkElement element, string taskId)
+    {
+        element.PreviewMouseLeftButtonDown += (_, e) => OnTaskCardPreviewMouseLeftButtonDown(element, taskId, e);
+        element.MouseLeftButtonUp += OnTaskCardMouseLeftButtonUp;
+        element.LostMouseCapture += OnTaskCardLostMouseCapture;
+    }
+
+    private void OnTaskCardPreviewMouseLeftButtonDown(
+        FrameworkElement element,
+        string taskId,
+        MouseButtonEventArgs e)
+    {
+        if (_graphCanvas is null)
+            return;
+
+        var originalTop = Canvas.GetTop(element);
+        if (double.IsNaN(originalTop))
+            originalTop = 0;
+
+        var columnX = Canvas.GetLeft(element);
+        if (double.IsNaN(columnX))
+            columnX = 0;
+
+        _taskCardDragState = new TaskCardDragState
+        {
+            Element = element,
+            TaskId = taskId,
+            MouseOffsetWithinCard = e.GetPosition(element),
+            DragStartCanvasPoint = e.GetPosition(_graphCanvas),
+            OriginalTop = originalTop,
+            ColumnX = columnX,
+            IsActive = false,
+        };
+        _suppressTaskCardCancelOnLostCapture = false;
+
+        if (!element.CaptureMouse())
+            _taskCardDragState = null;
+    }
+
+    private void OnGraphCanvasMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_graphCanvas is null || _taskCardDragState is not { } dragState)
+            return;
+
+        var pointer = e.GetPosition(_graphCanvas);
+        if (!dragState.IsActive)
+        {
+            var deltaX = Math.Abs(pointer.X - dragState.DragStartCanvasPoint.X);
+            var deltaY = Math.Abs(pointer.Y - dragState.DragStartCanvasPoint.Y);
+            if (deltaX < SystemParameters.MinimumHorizontalDragDistance &&
+                deltaY < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            dragState.IsActive = true;
+        }
+
+        var top = pointer.Y - dragState.MouseOffsetWithinCard.Y;
+        Canvas.SetTop(dragState.Element, top);
+        Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+    }
+
+    private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
+    {
+        CommitTaskCardDrag();
+    }
+
+    private void OnTaskCardMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
+    {
+        CommitTaskCardDrag();
+    }
+
+    private void OnTaskCardLostMouseCapture(object? sender, MouseEventArgs e)
+    {
+        if (_suppressTaskCardCancelOnLostCapture || _taskCardDragState is not { } dragState)
+            return;
+
+        if (!ReferenceEquals(sender, dragState.Element))
+            return;
+
+        CancelTaskCardDrag();
+    }
+
+    private void OnPlanViewerPreviewKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || _taskCardDragState is null)
+            return;
+
+        CancelTaskCardDrag();
+        e.Handled = true;
+    }
+
+    private void CommitTaskCardDrag()
+    {
+        if (_taskCardDragState is not { } dragState)
+            return;
+
+        _taskCardDragState = null;
+        _suppressTaskCardCancelOnLostCapture = true;
+        if (dragState.Element.IsMouseCaptured)
+            dragState.Element.ReleaseMouseCapture();
+        _suppressTaskCardCancelOnLostCapture = false;
+    }
+
+    private void CancelTaskCardDrag()
+    {
+        if (_taskCardDragState is not { } dragState)
+            return;
+
+        Canvas.SetTop(dragState.Element, dragState.OriginalTop);
+        Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+
+        _taskCardDragState = null;
+        _suppressTaskCardCancelOnLostCapture = true;
+        if (dragState.Element.IsMouseCaptured)
+            dragState.Element.ReleaseMouseCapture();
+        _suppressTaskCardCancelOnLostCapture = false;
     }
 }
