@@ -20,6 +20,9 @@ The Tasks Panel surfaces the open task backlog from `.squad/tasks.md`. It groups
 
 Tasks are read from `.squad/tasks.md` in the workspace's `.squad/` folder and grouped into three priority buckets, always in High → Mid → Low order:
 
+Host-managed structured Plan projections are intentionally hidden here. Open the Plans panel or
+Plan Viewer to inspect their tasks, dependencies, and live status.
+
 
 ![Screenshot: Tasks panel showing prioritised task groups](images/tasks-panel.png)
 

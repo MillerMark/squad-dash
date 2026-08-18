@@ -78,7 +78,12 @@ internal sealed class TasksPanelController {
         _allToggleItems.Clear();
         _decomposeGroups = result.DecomposeGroups;
 
-        var openGroups = result.OpenGroups;
+        // Structured plan tasks have their own authoritative Plans surface and Plan Viewer.
+        // Keep parsing them for host execution/recovery, but do not duplicate them in the
+        // ordinary backlog panel.
+        var openGroups = result.OpenGroups
+            .Where(group => group.DecomposeGroupId is null)
+            .ToArray();
         var hasOpen    = openGroups.Any(g => g.Items.Count > 0);
 
         if (!hasOpen) {
@@ -112,7 +117,7 @@ internal sealed class TasksPanelController {
             }
         }
 
-        foreach (var item in result.CompletedItems)
+        foreach (var item in result.CompletedItems.Where(item => item.DecomposeGroupId is null))
             _completedPanel.Children.Add(BuildDoneRow(item));
 
         ApplyFilter();

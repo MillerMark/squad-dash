@@ -39,7 +39,7 @@ Example actions array:
 
 ## Approved Plan Execution — Iteration {{iteration}}
 
-You are Argus Weld executing the single approved plan identified here: [**FILTER**]
+You are Argus Weld executing the single approved plan supplied in the host context below.
 
 SquadDash has already selected the exact dependency-eligible task and supplies its approved contract,
 plan intent, revision, and upstream handoffs in this turn's host context. Do not scan or select work

@@ -6601,6 +6601,21 @@ public partial class MainWindow : Window
     private async Task ExecuteLoopIterationAsync(string prompt, string? sessionId)
     {
         var isExecutingPlan = _activeDecomposeGroupId is not null;
+
+        async Task ExecuteWithTaskContextPolicyAsync(Func<Task> execute)
+        {
+            var previous = _pec.SuppressTasksContextForCurrentPrompt;
+            _pec.SuppressTasksContextForCurrentPrompt = isExecutingPlan;
+            try
+            {
+                await execute();
+            }
+            finally
+            {
+                _pec.SuppressTasksContextForCurrentPrompt = previous;
+            }
+        }
+
         if (isExecutingPlan &&
             _CodeHealthGroupRunner?.CurrentRevision is { } currentRevision &&
             _CodeHealthGroupRunner.CurrentStepId is { } currentTaskId &&
@@ -6673,7 +6688,7 @@ public partial class MainWindow : Window
             _pendingPromptIsSystemInjected = true;
         try
         {
-            await _pec.ExecutePromptAsync(
+            await ExecuteWithTaskContextPolicyAsync(() => _pec.ExecutePromptAsync(
                 prompt,
                 addToHistory: false,
                 clearPromptBox: false,
@@ -6682,7 +6697,7 @@ public partial class MainWindow : Window
                     ? string.IsNullOrEmpty(displayPrompt)
                         ? string.Empty
                         : SystemTranscriptStatusPrefix + displayPrompt
-                    : displayPrompt);
+                    : displayPrompt));
         }
         finally
         {
@@ -6714,11 +6729,11 @@ public partial class MainWindow : Window
                 item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
             try
             {
-                await _pec.ExecutePromptAsync(
+                await ExecuteWithTaskContextPolicyAsync(() => _pec.ExecutePromptAsync(
                     ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                     addToHistory: !item.IsSystemInjected,
                     clearPromptBox: false,
-                    displayPrompt: BuildQueuedPromptDisplayText(item));
+                    displayPrompt: BuildQueuedPromptDisplayText(item)));
             }
             finally
             {
@@ -8836,7 +8851,8 @@ public partial class MainWindow : Window
         BackupAndClearLoopOutput();
 
         await _loopController.StartAsync(config, continuousContext: true,
-            _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId, featureGroups: _featureGroupStore?.Load());
+            _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId,
+            featureGroups: _featureGroupStore?.Load(), hostAssignsExactPlanTask: true);
         return true;
     }
 
@@ -11099,8 +11115,13 @@ public partial class MainWindow : Window
         if (currentPlan is null || !string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("This task-plan approval is stale. Use the controls on the latest plan response.");
         var group = plan.Group;
-        if (!TasksJsonParser.TryParse("TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group), out _))
-            throw new InvalidOperationException("The saved task plan no longer passes schema validation.");
+        if (!TasksJsonParser.TryParse(
+                "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(group),
+                out _,
+                out var schemaDiagnostic))
+            throw new InvalidOperationException(
+                "The saved task plan no longer passes schema validation: " +
+                (schemaDiagnostic?.Message ?? "unknown schema error"));
         if (!PlanAgentAssignmentCatalogValidator.TryValidate(
                 group,
                 _currentWorkspace.SquadFolderPath,
@@ -23931,6 +23952,7 @@ public partial class MainWindow : Window
 
         foreach (var group in result.OpenGroups)
         {
+            if (group.DecomposeGroupId is not null) continue;
             foreach (var item in group.Items)
             {
                 if (item.IsUserOwned)

@@ -2,6 +2,16 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class PromptExecutionControllerTests {
+
+    [Test]
+    public void ShouldInjectTasksContext_SuppressesOrdinaryBacklogDuringPlanIteration()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PromptExecutionController.ShouldInjectTasksContext(false), Is.True);
+            Assert.That(PromptExecutionController.ShouldInjectTasksContext(true), Is.False);
+        });
+    }
     [Test]
     public void PromptDispatchDiagnosticsStore_AppendsExactPromptTextAndQueueMetadata() {
         using var workspace = new TestWorkspace();

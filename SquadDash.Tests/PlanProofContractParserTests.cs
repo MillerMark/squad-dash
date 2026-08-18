@@ -47,6 +47,38 @@ internal sealed class PlanProofContractParserTests
     }
 
     [Test]
+    public void RoutedHumanProof_OnVerificationTask_ReparsesForCollection()
+    {
+        var original = MakeGroup(true);
+        var humanProof = new DecomposedTaskProofRequirement(
+            "live-ui", "human-observation", "Observe the rendered UI.",
+            "Does the rendered UI show the expected result?");
+        var authored = original with
+        {
+            Tasks =
+            [
+                original.Tasks[0] with
+                {
+                    ExecutionMode = PlanTaskExecutionMode.Verification,
+                    ProofRequirements = [humanProof],
+                },
+            ],
+        };
+
+        Assert.That(TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(authored), out var routed, out var firstDiagnostic),
+            Is.True, firstDiagnostic?.Message);
+        Assert.That(routed!.Tasks.Single().ProofRequirements, Is.Null);
+        Assert.That(routed.ApprovalGates?.Single().ProofRequirements?.Single().RequirementId,
+            Is.EqualTo(humanProof.RequirementId));
+
+        var reparsed = TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(routed), out _, out var secondDiagnostic);
+
+        Assert.That(reparsed, Is.True, secondDiagnostic?.Message);
+    }
+
+    [Test]
     public void ProofBearingPlan_WithWrongAuditBoundary_ReturnsExpectedAndActualLeafIds()
     {
         var original = MakeGroup(true);

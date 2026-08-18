@@ -558,13 +558,13 @@ internal sealed class DecomposePlanInboxTests
             Assert.That(message.Attachments[0].Type, Is.EqualTo(DecomposePlanInbox.AttachmentType));
             Assert.That(message.Attachments[0].PlanGroupId, Is.EqualTo(group.GroupId));
             Assert.That(message.Actions.Select(a => a.Label), Is.EqualTo(new[]
-                { "Add to Backlog", "Add to Plans", "Execute in feature/plan Branch", "Execute in Active Branch" }));
+                { "Add to Plans", "Execute in feature/plan Branch", "Execute in Active Branch" }));
             Assert.That(message.Actions.All(a => a.RouteMode == DecomposePlanInbox.ActionRouteMode), Is.True);
         });
 
         Assert.That(DecomposePlanInbox.TryReadSnapshot(message.Attachments[0], out var restored), Is.True);
         Assert.That(restored!.Group.GroupTitle, Is.EqualTo(group.GroupTitle));
-        Assert.That(DecomposeDecisionParser.TryParse(message.Actions[2].Prompt, out var decision), Is.True);
+        Assert.That(DecomposeDecisionParser.TryParse(message.Actions[1].Prompt, out var decision), Is.True);
         Assert.That(decision!.Action, Is.EqualTo("execute-new-branch"));
         Assert.That(decision.Branch, Is.EqualTo(group.Branch));
     }
@@ -583,7 +583,7 @@ internal sealed class DecomposePlanInboxTests
             activeBranch: "feature/plan");
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
-            { "Add to Backlog", "Add to Plans", "Execute in Active Branch" }));
+            { "Add to Plans", "Execute in Active Branch" }));
     }
 
     [Test]
@@ -1402,20 +1402,19 @@ internal sealed class DecomposePlanCollectActionTests
     }
 
     [Test]
-    public void BuildActionDefinitions_AddToPlansAppearsAfterBacklogBeforeExecution()
+    public void BuildActionDefinitions_AddToPlansAppearsBeforeExecutionAndBacklogIsAbsent()
     {
         var pending = MakePending();
         var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: null);
         var labels = actions.Select(a => a.Label).ToList();
 
-        var backlogIdx = labels.IndexOf("Add to Backlog");
         var collectIdx = labels.IndexOf("Add to Plans");
         var execIdx = labels.FindIndex(l => l.Contains("Execute"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(backlogIdx, Is.GreaterThanOrEqualTo(0), "Add to Backlog should be present");
-            Assert.That(collectIdx, Is.GreaterThan(backlogIdx), "Add to Plans should follow Add to Backlog");
+            Assert.That(labels, Does.Not.Contain("Add to Backlog"));
+            Assert.That(collectIdx, Is.GreaterThanOrEqualTo(0));
             Assert.That(execIdx, Is.GreaterThan(collectIdx), "Execution actions should follow Add to Plans");
         });
     }
@@ -1427,7 +1426,7 @@ internal sealed class DecomposePlanCollectActionTests
         var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: "main");
 
         Assert.That(actions.Select(a => a.Action), Is.EqualTo(new[]
-            { "add-to-backlog", "collect", "execute-new-branch", "execute-active-branch" }));
+            { "collect", "execute-new-branch", "execute-active-branch" }));
     }
 
     [Test]
@@ -1437,7 +1436,7 @@ internal sealed class DecomposePlanCollectActionTests
         var actions = DecomposePlanInbox.BuildActionDefinitions(pending, activeBranch: "feature/plan");
 
         Assert.That(actions.Select(a => a.Action), Is.EqualTo(new[]
-            { "add-to-backlog", "collect", "execute-active-branch" }));
+            { "collect", "execute-active-branch" }));
     }
 
     [Test]

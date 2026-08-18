@@ -428,7 +428,7 @@ free text, emit:
 
 Only emit a decision for a group already staged by SquadDash. If the user changes an unapproved
 staged proposal's tasks, dependencies, validations, assignments, or other graph content, do not
-emit this decision; follow `STAGED_PLAN_REVISION_JSON` above. `action` must be exactly one of `add-to-backlog`,
+emit this decision; follow `STAGED_PLAN_REVISION_JSON` above. `action` must be exactly one of `collect`,
 `execute-new-branch`, or `execute-active-branch`. Omit `branch` unless the user requests an override.
 The `revision` must exactly match the revision supplied by SquadDash for that pending group.
 

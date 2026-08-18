@@ -245,11 +245,6 @@ internal static class DecomposePlanInbox
         var actions = new List<DecomposePlanActionDefinition>
         {
             new(
-                "Add to Backlog",
-                "add-to-backlog",
-                null,
-                "Add all tasks and their dependencies to tasks.md."),
-            new(
                 "Add to Plans",
                 "collect",
                 null,

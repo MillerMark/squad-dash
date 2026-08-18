@@ -250,10 +250,11 @@ internal static class TasksJsonParser
                     $"task '{task.Id}' executionMode must be implementation or verification");
             }
             if (executionMode == PlanTaskExecutionMode.Verification &&
-                task.ProofRequirements is not { Count: > 0 })
+                !HasVerificationProofContract(parsed, task))
             {
                 return Fail("verification-task-without-proof",
-                    $"verification task '{task.Id}' must declare at least one proof requirement");
+                    $"verification task '{task.Id}' must declare at least one proof requirement " +
+                    "or have its human-only proof routed to an approval gate");
             }
 
             var proofIds = new HashSet<string>(StringComparer.Ordinal);
@@ -742,8 +743,10 @@ internal static class TasksJsonParser
                 executionMode is not (PlanTaskExecutionMode.Implementation or PlanTaskExecutionMode.Verification))
                 Add("invalid-task-execution-mode", $"task '{taskId}' executionMode must be implementation or verification");
             else if (executionMode == PlanTaskExecutionMode.Verification &&
-                     task.ProofRequirements is not { Count: > 0 })
-                Add("verification-task-without-proof", $"verification task '{taskId}' must declare at least one proof requirement");
+                     !HasVerificationProofContract(parsed, task))
+                Add("verification-task-without-proof",
+                    $"verification task '{taskId}' must declare at least one proof requirement " +
+                    "or have its human-only proof routed to an approval gate");
         }
 
         var gateIds = new HashSet<string>(StringComparer.Ordinal);
@@ -783,6 +786,14 @@ internal static class TasksJsonParser
 
         return diagnostics;
     }
+
+    private static bool HasVerificationProofContract(
+        DecomposedTaskGroup group,
+        DecomposedSubTask task) =>
+        task.ProofRequirements is { Count: > 0 } ||
+        (group.ApprovalGates ?? []).Any(gate =>
+            gate.ProofRequirements is { Count: > 0 } &&
+            (gate.AfterTaskIds ?? []).Contains(task.Id, StringComparer.Ordinal));
 
     private static bool DependsTransitivelyOn(
         IReadOnlyDictionary<string, DecomposedSubTask> tasksById,

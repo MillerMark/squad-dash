@@ -105,7 +105,6 @@ Inbox messages for plan proposals include additional action buttons:
 
 | Button | Effect |
 |--------|--------|
-| **Add to Backlog** | Writes the plan's tasks and dependencies to `.squad/tasks.md`. |
 | **Add to Plans** | Collects the plan into the Plans panel as an Approved durable record without starting execution. See [Collecting a Plan](plans.md#collecting-a-plan-add-to-plans). |
 | **Execute in _branch_** | Switches to the target branch and starts the execution loop immediately. |
 | **Execute in Active Branch** | Starts execution on the current branch. |

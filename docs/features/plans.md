@@ -22,7 +22,7 @@ SquadDash surfaces plan information across several panels. Each has a distinct r
 |---|---|
 | **Transcript** | Where plans are created and discussed. Plan-creation intent (via `/plan` or natural language) is detected here and triggers the plan-proposal flow. |
 | **Inbox** | Attention surface. Staged plan proposals, gate approval requests, and recovery alerts appear as inbox messages with action buttons. |
-| **Tasks Panel** | Actionable-work projection showing the `.squad/tasks.md` backlog of open items — not the plan graph itself. |
+| **Tasks Panel** | Ordinary actionable backlog items from `.squad/tasks.md`. Structured Plan tasks stay consolidated in the Plans panel and Plan Viewer. |
 | **Plans Panel** | System of record. Shows live plan status, progress bar, approval gate state, and provides access to the Plan Viewer. |
 | **Code Health** | Separate quality cycle. Not part of plan execution. |
 
@@ -246,7 +246,7 @@ Every completed plan round is appended to `.squad/logs/plan-execution.ndjson` (N
 
 Use this checklist to verify the collected-plan workflow end-to-end:
 
-1. **Create a plan proposal** — Send a multi-step prompt (e.g., `/plan refactor auth, add tests, update docs`). Verify the Inbox shows a staged plan with **Add to Backlog** and **Add to Plans** action buttons.
+1. **Create a plan proposal** — Send a multi-step prompt (e.g., `/plan refactor auth, add tests, update docs`). Verify the Inbox shows a staged plan with **Add to Plans** and execution action buttons.
 2. **Collect the plan** — Click **Add to Plans**. Verify:
    - The plan row appears in the Plans panel with ✅ Approved status.
    - No branch switch occurred. No loop started. `.squad/tasks.md` was not written.

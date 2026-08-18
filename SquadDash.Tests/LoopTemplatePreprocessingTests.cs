@@ -216,6 +216,20 @@ internal sealed class LoopTemplatePreprocessingTests
         Assert.That(template, Does.Not.Contain("then stop. The next iteration"));
     }
 
+    [Test]
+    public void ExecutingPlanFilter_PreservesNormalLoopSelectionButUsesHostAssignmentForPlanLoop()
+    {
+        var normal = LoopController.BuildFilterInstruction("PLAN-20260818", hostAssignsExactPlanTask: false);
+        var executingPlan = LoopController.BuildFilterInstruction("PLAN-20260818", hostAssignsExactPlanTask: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(normal, Does.Contain("Read `.squad/tasks.md`"));
+            Assert.That(executingPlan, Does.Contain("host supplies the exact task"));
+            Assert.That(executingPlan, Does.Not.Contain("tasks.md"));
+        });
+    }
+
     // ── BuildFilterInstruction ────────────────────────────────────────────────
 
     [Test]

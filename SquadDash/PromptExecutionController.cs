@@ -65,6 +65,12 @@ internal sealed class PromptExecutionController {
     /// </summary>
     internal string? TasksFilePath { get; set; }
 
+    /// <summary>
+    /// Suppresses the ordinary backlog summary for a host-assigned Executing Plan turn. The
+    /// authoritative plan/task contract is supplied separately for those turns.
+    /// </summary>
+    internal bool SuppressTasksContextForCurrentPrompt { get; set; }
+
     // Cache for tasks.md — avoids re-reading the file on every prompt dispatch.
     private string?   _tasksFilePathCached;
     private string[]? _tasksLinesCache;
@@ -2296,7 +2302,9 @@ internal sealed class PromptExecutionController {
     private string BuildBridgePrompt(string prompt) {
         var pending   = _getPendingSupplementalInstruction();
         var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
-        var tasksCtx  = BuildTasksContextInstruction();
+        var tasksCtx  = ShouldInjectTasksContext(SuppressTasksContextForCurrentPrompt)
+            ? BuildTasksContextInstruction()
+            : null;
         var queueCtx      = PendingQueueItemCount > 0 ? BuildQueueContextInstruction(PendingQueueItemCount) : null;
         var questionCtx   = PendingQueueItemCount > 0 && prompt.Contains('?') ? BuildQueuedQuestionInboxHint() : null;
 
@@ -2362,6 +2370,9 @@ internal sealed class PromptExecutionController {
         bool isLoopRunning,
         PromptQueueItem? dispatchedItem) =>
         !isLoopRunning || dispatchedItem is { IsSystemInjected: false };
+
+    internal static bool ShouldInjectTasksContext(bool suppressForCurrentPrompt) =>
+        !suppressForCurrentPrompt;
 
     private static void SavePromptDispatchDiagnostic(
         SessionWorkspace workspace,

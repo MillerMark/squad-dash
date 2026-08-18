@@ -35,6 +35,7 @@ internal sealed class LoopController {
     private string? _workspacePath;
     private string? _filterText;
     private IReadOnlyList<string>? _featureGroups;
+    private bool _hostAssignsExactPlanTask;
 
     internal bool          IsRunning  { get; private set; }
     internal LoopStopState StopState  { get; private set; }
@@ -84,7 +85,14 @@ internal sealed class LoopController {
     /// When resuming after an auto-pause (e.g. queue interrupt), pass the last
     /// completed iteration number so the counter continues rather than restarting at 1.
     /// </param>
-    internal Task StartAsync(LoopMdConfig config, bool continuousContext, string? workspacePath = null, int resumeFromIteration = 0, string? filterText = null, IReadOnlyList<string>? featureGroups = null) {
+    internal Task StartAsync(
+        LoopMdConfig config,
+        bool continuousContext,
+        string? workspacePath = null,
+        int resumeFromIteration = 0,
+        string? filterText = null,
+        IReadOnlyList<string>? featureGroups = null,
+        bool hostAssignsExactPlanTask = false) {
         if (IsRunning)
             return Task.CompletedTask;
 
@@ -92,6 +100,7 @@ internal sealed class LoopController {
         _workspacePath = workspacePath;
         _filterText    = filterText;
         _featureGroups = featureGroups;
+        _hostAssignsExactPlanTask = hostAssignsExactPlanTask;
         _cts           = new CancellationTokenSource();
         // Fire-and-forget; the loop reports completion via callbacks.
         _ = Task.Run(() => RunLoopAsync(config, continuousContext, _cts.Token, resumeFromIteration));
@@ -156,7 +165,14 @@ internal sealed class LoopController {
                 // agent state does not accumulate across rounds.
                 var sessionId = continuousContext ? null : Guid.NewGuid().ToString("N");
 
-                var expandedInstructions = ExpandVariables(config.Instructions, config, iteration, _workspacePath, _filterText, _featureGroups);
+                var expandedInstructions = ExpandVariables(
+                    config.Instructions,
+                    config,
+                    iteration,
+                    _workspacePath,
+                    _filterText,
+                    _featureGroups,
+                    _hostAssignsExactPlanTask);
                 var prompt     = BuildAugmentedPrompt(expandedInstructions, config.Commands);
                 var promptTask = _executePromptAsync(prompt, sessionId);
 
@@ -307,7 +323,14 @@ internal sealed class LoopController {
         return sb.ToString().TrimEnd();
     }
 
-    private static string ExpandVariables(string text, LoopMdConfig config, int iteration, string? workspacePath, string? filterText = null, IReadOnlyList<string>? featureGroups = null) {
+    private static string ExpandVariables(
+        string text,
+        LoopMdConfig config,
+        int iteration,
+        string? workspacePath,
+        string? filterText = null,
+        IReadOnlyList<string>? featureGroups = null,
+        bool hostAssignsExactPlanTask = false) {
         // Conditional blocks must be evaluated before plain substitution so that {{key}}
         // tokens inside included blocks are resolved in the pass below.
         text = LoopMdParser.PreprocessConditionals(text, config.Options);
@@ -329,10 +352,18 @@ internal sealed class LoopController {
         text = text.Replace("{{feature_groups}}", BuildFeatureGroupsBlock(featureGroups), StringComparison.Ordinal);
 
         // [**FILTER**] — inject the task-filter instruction (bracket syntax, not {{...}}).
-        text = text.Replace("[**FILTER**]", LoopMdParser.BuildFilterInstruction(filterText), StringComparison.Ordinal);
+        text = text.Replace(
+            "[**FILTER**]",
+            BuildFilterInstruction(filterText, hostAssignsExactPlanTask),
+            StringComparison.Ordinal);
 
         return text;
     }
+
+    internal static string BuildFilterInstruction(string? filterText, bool hostAssignsExactPlanTask) =>
+        hostAssignsExactPlanTask
+            ? $"Approved plan ID: {filterText?.Trim() ?? string.Empty}. The host supplies the exact task for this iteration."
+            : LoopMdParser.BuildFilterInstruction(filterText);
 
     internal static string BuildFeatureGroupsBlock(IReadOnlyList<string>? featureGroups) {
         if (featureGroups is null || featureGroups.Count == 0)

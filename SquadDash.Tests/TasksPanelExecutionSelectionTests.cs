@@ -8,7 +8,7 @@ using System.Windows.Controls;
 internal sealed class TasksPanelExecutionSelectionTests
 {
     [Test]
-    public void ResolveVisibleExecutionSelection_SingleFilteredPlan_UsesDecomposeEngine()
+    public void ResolveVisibleExecutionSelection_StructuredPlanRowsAreHidden()
     {
         var parsed = TasksPanelParser.Parse(PlanLines());
         // MainWindow merges completed-tasks.md history before refreshing the controller.
@@ -19,12 +19,7 @@ internal sealed class TasksPanelExecutionSelectionTests
         controller.SetFilter("God");
         var selection = controller.ResolveVisibleExecutionSelection();
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(selection.Kind, Is.EqualTo(TasksPanelExecutionKind.DecomposeGroup));
-            Assert.That(selection.Group?.GroupId, Is.EqualTo("GODCLASS-20260725"));
-            Assert.That(selection.VisibleTaskCount, Is.EqualTo(2));
-        });
+        Assert.That(selection.Kind, Is.EqualTo(TasksPanelExecutionKind.NoTasks));
     }
 
     [Test]
@@ -49,7 +44,7 @@ internal sealed class TasksPanelExecutionSelectionTests
     }
 
     [Test]
-    public void ResolveVisibleExecutionSelection_MixedPlanAndBacklog_FailsClosed()
+    public void ResolveVisibleExecutionSelection_MixedSourceShowsOnlyOrdinaryBacklog()
     {
         var lines = PlanLines().Concat([
             "## 🟡 Mid Priority",
@@ -59,7 +54,12 @@ internal sealed class TasksPanelExecutionSelectionTests
 
         var selection = controller.ResolveVisibleExecutionSelection();
 
-        Assert.That(selection.Kind, Is.EqualTo(TasksPanelExecutionKind.InvalidPlanSelection));
+        Assert.Multiple(() =>
+        {
+            Assert.That(selection.Kind, Is.EqualTo(TasksPanelExecutionKind.GenericTasks));
+            Assert.That(selection.VisibleTaskCount, Is.EqualTo(1));
+            Assert.That(selection.GenericTasks?.Single().Text, Is.EqualTo("Ordinary backlog task"));
+        });
     }
 
     [Test]
