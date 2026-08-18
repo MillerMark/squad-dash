@@ -89,6 +89,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private string? _reviewStatusMessage;
     private DecomposedTaskGroup? _deferredDefinitionEdit;
     private (Dictionary<string, Point> OldPositions, IReadOnlyList<string> AffectedTaskIds)? _pendingAnimation;
+    private int _buildSeq;
 
     private enum AutomaticScrollTarget
     {
@@ -311,6 +312,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        var currentBuildSeq = ++_buildSeq;
         var previousApprovalHeight = _approvalSummary is { ActualHeight: > 0 } currentSummary
             ? currentSummary.ActualHeight
             : _allocatedApprovalHeight;
@@ -1372,6 +1374,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         milestoneMenu.Items.Add(blocksSubmenu);
                     }
                 }
+                if (!milestoneIsPrimary && existingGate is not null && PlanGateManager.CanEditGate(existingGate)
+                    && !milestoneExecutionLocked && onGatesChanged is not null
+                    && milestoneStop.ContextMenu is ContextMenu milestoneRemoveMenu)
+                {
+                    var capturedMilestoneRemoveId = existingGate.GateId;
+                    var removeMilestoneItem = new MenuItem { Header = "Remove this approval requirement" };
+                    removeMilestoneItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    removeMilestoneItem.Click += (_, _) =>
+                    {
+                        var u = PlanGateManager.RemoveGate(durablePlan!, capturedMilestoneRemoveId);
+                        if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
+                    };
+                    milestoneRemoveMenu.Items.Add(new Separator());
+                    milestoneRemoveMenu.Items.Add(removeMilestoneItem);
+                }
                 canvas.Children.Add(milestoneStop);
                 approvalControlsByAnchor[milestoneAnchor] = milestoneStop;
             }
@@ -1844,8 +1861,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         if (coveringJoinGate is not null)
                         {
-                            if (joinController is not null)
-                                ShowCoveredGuidance(joinController, ApprovalLabel(joinController));
+                            var coveringUpdated = PlanGateManager.SetPresentationAnchor(
+                                durablePlan!, coveringJoinGate.GateId, joinAnchor);
+                            if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                             return;
                         }
                         Plan updated;
@@ -1900,6 +1918,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         joinMenu.Items.Add(new Separator());
                         joinMenu.Items.Add(blocksSubmenu);
                     }
+                }
+                if (!joinIsPrimary && joinGateForBlocks is not null && PlanGateManager.CanEditGate(joinGateForBlocks)
+                    && !joinExecutionLocked && onGatesChanged is not null
+                    && joinStop.ContextMenu is ContextMenu joinRemoveMenu)
+                {
+                    var capturedJoinRemoveId = joinGateForBlocks.GateId;
+                    var removeJoinItem = new MenuItem { Header = "Remove this approval requirement" };
+                    removeJoinItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    removeJoinItem.Click += (_, _) =>
+                    {
+                        var u = PlanGateManager.RemoveGate(durablePlan!, capturedJoinRemoveId);
+                        if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
+                    };
+                    joinRemoveMenu.Items.Add(new Separator());
+                    joinRemoveMenu.Items.Add(removeJoinItem);
                 }
                 badgeContent.Children.Add(joinStop);
                 approvalControlsByAnchor[joinAnchor] = joinStop;
@@ -2221,6 +2254,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         $"Review before: {capturedTask.Title ?? capturedTask.Id}");
                     if (msg is null) return;
                     var updated = PlanGateManager.AddGateBefore(durablePlan, capturedTask.Id, msg);
+                    var ctxBeforeGate = updated.ApprovalGates.FirstOrDefault(g =>
+                        PlanGateManager.CanEditGate(g) &&
+                        g.BeforeTaskIds.Contains(capturedTask.Id, StringComparer.Ordinal));
+                    if (ctxBeforeGate is not null)
+                    {
+                        var ctxBeforeAnchor = TaskBeforeAnchor(capturedTask.Id);
+                        var withAnchor = PlanGateManager.SetPresentationAnchor(updated, ctxBeforeGate.GateId, ctxBeforeAnchor);
+                        if (!ReferenceEquals(withAnchor, updated)) updated = withAnchor;
+                    }
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 };
 
@@ -2258,6 +2300,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         $"Review after: {capturedTask.Title ?? capturedTask.Id}");
                     if (msg is null) return;
                     var updated = PlanGateManager.AddGateAfter(durablePlan, capturedTask.Id, msg);
+                    var ctxAfterGate = updated.ApprovalGates.FirstOrDefault(g =>
+                        PlanGateManager.CanEditGate(g) &&
+                        g.AfterTaskIds.Contains(capturedTask.Id, StringComparer.Ordinal));
+                    if (ctxAfterGate is not null)
+                    {
+                        var ctxAfterAnchor = TaskAfterAnchor(capturedTask.Id);
+                        var withAnchor = PlanGateManager.SetPresentationAnchor(updated, ctxAfterGate.GateId, ctxAfterAnchor);
+                        if (!ReferenceEquals(withAnchor, updated)) updated = withAnchor;
+                    }
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 };
 
@@ -2682,8 +2733,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringBeforeGate is not null)
                             {
-                                if (beforeController is not null)
-                                    ShowCoveredGuidance(beforeController, ApprovalLabel(beforeController));
+                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
+                                    durablePlan, coveringBeforeGate.GateId, beforeAnchor);
+                                if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
                             Plan updated;
@@ -2703,6 +2755,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 if (string.IsNullOrWhiteSpace(question)) return;
                                 updated = PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
                                     $"Review before starting: {taskTitle}", question: question);
+                                // Ensure the clicked octagon is primary (ExpandCompatiblePendingGate may not update PresentationAnchor)
+                                var expandedBeforeGate = updated.ApprovalGates.FirstOrDefault(g =>
+                                    PlanGateManager.CanEditGate(g) &&
+                                    g.BeforeTaskIds.Contains(capturedTaskForStop.Id, StringComparer.Ordinal));
+                                if (expandedBeforeGate is not null)
+                                {
+                                    var withAnchor = PlanGateManager.SetPresentationAnchor(updated, expandedBeforeGate.GateId, beforeAnchor);
+                                    if (!ReferenceEquals(withAnchor, updated)) updated = withAnchor;
+                                }
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
@@ -2731,6 +2792,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 beforeMenu.Items.Add(new Separator());
                                 beforeMenu.Items.Add(blocksSubmenu);
                             }
+                        }
+                        if (!beforeIsPrimary && controllingBeforeGate is not null && PlanGateManager.CanEditGate(controllingBeforeGate)
+                            && !entryExecutionLocked && onGatesChanged is not null
+                            && beforeStop.ContextMenu is ContextMenu beforeRemoveMenu)
+                        {
+                            var capturedBeforeRemoveId = controllingBeforeGate.GateId;
+                            var removeBeforeItem = new MenuItem { Header = "Remove this approval requirement" };
+                            removeBeforeItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            removeBeforeItem.Click += (_, _) =>
+                            {
+                                var u = PlanGateManager.RemoveGate(durablePlan, capturedBeforeRemoveId);
+                                if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
+                            };
+                            beforeRemoveMenu.Items.Add(new Separator());
+                            beforeRemoveMenu.Items.Add(removeBeforeItem);
                         }
                         canvas.Children.Add(beforeStop);
                         approvalControlsByAnchor[beforeAnchor] = beforeStop;
@@ -2813,8 +2889,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringAfterGate is not null)
                             {
-                                if (afterController is not null)
-                                    ShowCoveredGuidance(afterController, ApprovalLabel(afterController));
+                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
+                                    durablePlan, coveringAfterGate.GateId, afterAnchor);
+                                if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
                             Plan updated;
@@ -2834,6 +2911,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 if (string.IsNullOrWhiteSpace(question)) return;
                                 updated = PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
                                     $"Review after completing: {taskTitle}", question: question);
+                                // Ensure the clicked octagon is primary (ExpandCompatiblePendingGate may not update PresentationAnchor)
+                                var expandedAfterGate = updated.ApprovalGates.FirstOrDefault(g =>
+                                    PlanGateManager.CanEditGate(g) &&
+                                    g.AfterTaskIds.Contains(capturedTaskForStop.Id, StringComparer.Ordinal));
+                                if (expandedAfterGate is not null)
+                                {
+                                    var withAnchor = PlanGateManager.SetPresentationAnchor(updated, expandedAfterGate.GateId, afterAnchor);
+                                    if (!ReferenceEquals(withAnchor, updated)) updated = withAnchor;
+                                }
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
@@ -2862,6 +2948,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 afterMenu.Items.Add(new Separator());
                                 afterMenu.Items.Add(blocksSubmenu);
                             }
+                        }
+                        if (!afterIsPrimary && controllingAfterGate is not null && PlanGateManager.CanEditGate(controllingAfterGate)
+                            && !exitExecutionLocked && onGatesChanged is not null
+                            && afterStop.ContextMenu is ContextMenu afterRemoveMenu)
+                        {
+                            var capturedAfterRemoveId = controllingAfterGate.GateId;
+                            var removeAfterItem = new MenuItem { Header = "Remove this approval requirement" };
+                            removeAfterItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            removeAfterItem.Click += (_, _) =>
+                            {
+                                var u = PlanGateManager.RemoveGate(durablePlan, capturedAfterRemoveId);
+                                if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
+                            };
+                            afterRemoveMenu.Items.Add(new Separator());
+                            afterRemoveMenu.Items.Add(removeAfterItem);
                         }
                         canvas.Children.Add(afterStop);
                         approvalControlsByAnchor[afterAnchor] = afterStop;
@@ -2994,11 +3095,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Kick off any pending dependency-edit animation after the new layout is applied.
         if (_pendingAnimation is { } animData)
         {
-            _pendingAnimation = null;
             var capturedBorderByTask = borderByTask;
-            var capturedPositions    = positions;
+            var capturedSeq          = currentBuildSeq;
             Dispatcher.BeginInvoke(() =>
             {
+                // If a newer build has run since we queued this callback, skip — our elements
+                // are no longer in the visual tree and _pendingAnimation is still valid for the
+                // newer build to consume.
+                if (_buildSeq != capturedSeq) return;
+                _pendingAnimation = null;
                 foreach (var animTaskId in animData.AffectedTaskIds)
                 {
                     if (!capturedBorderByTask.TryGetValue(animTaskId, out var animBorder)) continue;
