@@ -8228,7 +8228,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 continue;
             sibling.Card.BeginAnimation(Canvas.TopProperty, null);
             Canvas.SetTop(sibling.Card, displacedTop);
-            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
 
             if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
             {
@@ -8245,6 +8244,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (double.IsNaN(top))
             top = dragState.OriginalTop;
         UpdateTaskCardDragConnectors(dragState, top);
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            if (!dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+                continue;
+            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
+        }
         if (dragState.CurrentColumnOrder.Count > 0 &&
             !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal))
         {
@@ -8285,6 +8290,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var (element, originalTop) in dragState.DragOverlayElements)
             Canvas.SetTop(element, originalTop);
         UpdateTaskCardDragConnectors(dragState, dragState.OriginalTop);
+        foreach (var sibling in dragState.SiblingCards)
+            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, sibling.OriginalTop);
         RestoreTaskCardDragGlow(dragState);
 
         _taskCardDragState = null;
