@@ -112,6 +112,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public Point DragStartCanvasPoint { get; init; }
         public double OriginalTop { get; init; }
         public double ColumnX { get; init; }
+        public double MilestoneTop { get; init; }
+        public double MilestoneBottom { get; init; }
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
@@ -7236,6 +7238,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (double.IsNaN(columnX))
             columnX = 0;
 
+        var milestoneTop = double.MinValue;
+        var milestoneBottom = double.MaxValue;
+        if (TryResolveMilestoneVerticalBoundsForColumn(columnX, element.ActualWidth, out var resolvedTop, out var resolvedBottom))
+        {
+            milestoneTop = resolvedTop;
+            milestoneBottom = resolvedBottom;
+        }
+
         _taskCardDragState = new TaskCardDragState
         {
             Element = element,
@@ -7244,6 +7254,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             DragStartCanvasPoint = e.GetPosition(_graphCanvas),
             OriginalTop = originalTop,
             ColumnX = columnX,
+            MilestoneTop = milestoneTop,
+            MilestoneBottom = milestoneBottom,
             IsActive = false,
         };
         _suppressTaskCardCancelOnLostCapture = false;
@@ -7269,8 +7281,38 @@ internal sealed class PlanViewerWindow : ChromedWindow
             dragState.IsActive = true;
         }
 
-        var top = pointer.Y - dragState.MouseOffsetWithinCard.Y;
-        Canvas.SetTop(dragState.Element, top);
+        var rawTop = pointer.Y - dragState.MouseOffsetWithinCard.Y;
+        var cardHeight = dragState.Element.ActualHeight;
+        if (cardHeight <= 0 || double.IsNaN(cardHeight))
+            cardHeight = dragState.Element.Height;
+        if (cardHeight < 0 || double.IsNaN(cardHeight))
+            cardHeight = 0;
+
+        var freeTop = dragState.MilestoneTop;
+        var freeBottom = dragState.MilestoneBottom - cardHeight;
+
+        var constrainedTop = rawTop;
+        if (double.IsFinite(freeTop) &&
+            double.IsFinite(freeBottom) &&
+            freeTop <= freeBottom)
+        {
+            if (rawTop >= freeTop && rawTop <= freeBottom)
+            {
+                constrainedTop = rawTop;
+            }
+            else if (rawTop < freeTop)
+            {
+                var excess = freeTop - rawTop;
+                constrainedTop = freeTop - RubberBandDistance(excess);
+            }
+            else
+            {
+                var excess = rawTop - freeBottom;
+                constrainedTop = freeBottom + RubberBandDistance(excess);
+            }
+        }
+
+        Canvas.SetTop(dragState.Element, constrainedTop);
     }
 
     private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
@@ -7328,5 +7370,63 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (dragState.Element.IsMouseCaptured)
             dragState.Element.ReleaseMouseCapture();
         _suppressTaskCardCancelOnLostCapture = false;
+    }
+
+    private bool TryResolveMilestoneVerticalBoundsForColumn(
+        double columnX,
+        double cardWidth,
+        out double milestoneTop,
+        out double milestoneBottom)
+    {
+        milestoneTop = 0;
+        milestoneBottom = 0;
+        if (_graphCanvas is null)
+            return false;
+
+        var columnCenterX = columnX + (cardWidth > 0 ? cardWidth / 2.0 : 0);
+        Border? nearestMilestone = null;
+        var nearestDistance = double.MaxValue;
+
+        foreach (var milestoneBand in _graphCanvas.Children.OfType<Border>())
+        {
+            if (milestoneBand.Tag is not string tag ||
+                !tag.StartsWith("milestone:", StringComparison.Ordinal))
+                continue;
+
+            var bandLeft = Canvas.GetLeft(milestoneBand);
+            var bandTop = Canvas.GetTop(milestoneBand);
+            if (double.IsNaN(bandLeft) || double.IsNaN(bandTop))
+                continue;
+
+            var bandHeight = milestoneBand.ActualHeight > 0 ? milestoneBand.ActualHeight : milestoneBand.Height;
+            if (bandHeight <= 0 || double.IsNaN(bandHeight))
+                continue;
+
+            var bandCenterX = bandLeft + (milestoneBand.ActualWidth > 0 ? milestoneBand.ActualWidth / 2.0 : 0);
+            var distance = Math.Abs(columnCenterX - bandCenterX);
+            if (distance >= nearestDistance)
+                continue;
+
+            nearestDistance = distance;
+            nearestMilestone = milestoneBand;
+        }
+
+        if (nearestMilestone is null)
+            return false;
+
+        var resolvedTop = Canvas.GetTop(nearestMilestone);
+        var resolvedHeight = nearestMilestone.ActualHeight > 0 ? nearestMilestone.ActualHeight : nearestMilestone.Height;
+        if (!double.IsFinite(resolvedTop) || !double.IsFinite(resolvedHeight) || resolvedHeight <= 0)
+            return false;
+
+        milestoneTop = resolvedTop;
+        milestoneBottom = resolvedTop + resolvedHeight;
+        return true;
+    }
+
+    private static double RubberBandDistance(double excess)
+    {
+        const double MaxPull = 40.0;
+        return MaxPull * (1.0 - Math.Exp(-Math.Max(0, excess) / MaxPull));
     }
 }
