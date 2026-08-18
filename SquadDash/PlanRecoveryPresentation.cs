@@ -27,6 +27,7 @@ internal sealed record PlanHumanReviewAnalysisItem(
 internal enum PlanRecoveryPrimaryActionKind
 {
     AcceptStep,
+    ReviewCompletedWork,
     ApproveAmendment,
     ResumeVerification,
     RetryVerification,
@@ -98,10 +99,10 @@ internal static class PlanRecoveryActionPresentationBuilder
         }
 
         return new PlanRecoveryPrimaryActionPresentation(
-            PlanRecoveryPrimaryActionKind.ContinueWorking,
-            $"Continue Working on {stepLabel}",
-            $"Keep {stepLabel} incomplete and continue from the preserved repository state. No preliminary AI assessment runs.",
-            "continue-working");
+            PlanRecoveryPrimaryActionKind.ReviewCompletedWork,
+            $"Review Completed Work for {stepLabel}…",
+            $"Inspect the host-validated commit range since the task baseline, then accept {stepLabel} or leave it incomplete.",
+            "accept-step-complete");
     }
 }
 

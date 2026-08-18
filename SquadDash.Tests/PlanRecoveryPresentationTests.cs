@@ -305,7 +305,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void RecoveryAction_WithoutHostRecordedCandidateContinuesWithoutAssessment()
+    public void RecoveryAction_WithoutHostRecordedCandidateOffersCommitRangeReview()
     {
         var task = new PlanTask(
             "PLAN-007", "Review me", "Work", [], "high",
@@ -317,10 +317,10 @@ internal sealed class PlanRecoveryPresentationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ContinueWorking));
-            Assert.That(action.Label, Is.EqualTo("Continue Working on Step 7"));
-            Assert.That(action.ProtocolAction, Is.EqualTo("continue-working"));
-            Assert.That(action.Hint, Does.Contain("No preliminary AI assessment"));
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ReviewCompletedWork));
+            Assert.That(action.Label, Is.EqualTo("Review Completed Work for Step 7…"));
+            Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
+            Assert.That(action.Hint, Does.Contain("host-validated commit range"));
         });
     }
 

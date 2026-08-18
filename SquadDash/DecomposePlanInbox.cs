@@ -179,6 +179,13 @@ internal static class DecomposePlanInbox
                 "request-corrections",
                 $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch."));
         }
+        else if (primary.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork)
+        {
+            actions.Add(BuildAction(
+                $"Continue Working on {stepLabel}",
+                "continue-working",
+                $"Keep {stepLabel} incomplete and continue from the preserved repository state."));
+        }
         actions.Add(BuildAction(
             "✎ Revise Remaining Plan…",
             "replan-failed-task",

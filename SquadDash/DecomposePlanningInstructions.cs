@@ -181,7 +181,7 @@ internal static class DecomposePlanningInstructions
                         var group = parsed.DecomposeGroups[item.DecomposeGroupId!];
                         var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
                         return $"- groupId={group.GroupId}; revision={revision}; blockedTask={item.TaskId}; " +
-                               "actions=retry-as-written|replan-failed-task";
+                               "actions=accept-step-complete|continue-working|request-corrections|replan-failed-task";
                     })
                     .Distinct(StringComparer.Ordinal)
                     .ToArray();
@@ -251,7 +251,10 @@ internal static class DecomposePlanningInstructions
                     "or emit DECOMPOSE_RECOVERY_JSON with action continue-working. Do not independently rerun the task; " +
                     "SquadDash owns the durable plan transition and preserves existing repository work. If exact completed-work " +
                     "evidence is awaiting acceptance and the user says the step needs a bounded correction, emit action " +
-                    "request-corrections instead; SquadDash will open an editable correction draft and will not rerun the task.");
+                    "request-corrections instead; SquadDash will open an editable correction draft and will not rerun the task. " +
+                    "If the user explicitly says the interrupted step is already complete or asks to mark it complete, emit " +
+                    "DECOMPOSE_RECOVERY_JSON with action accept-step-complete. SquadDash will perform host-controlled commit-range " +
+                    "review; do not emit DECOMPOSE_STEP_RESULT_JSON from an ordinary recovery conversation.");
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -393,6 +393,7 @@
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />
     <Compile Include="..\SquadDash\ReportedCommitReconciler.cs" Link="Source\ReportedCommitReconciler.cs" />
+    <Compile Include="..\SquadDash\InterruptedStepResultRecoveryPolicy.cs" Link="Source\InterruptedStepResultRecoveryPolicy.cs" />
     <Compile Include="..\SquadDash\InterruptedPlanEvidenceResolver.cs" Link="Source\InterruptedPlanEvidenceResolver.cs" />
     <Compile Include="..\SquadDash\DecomposeEnvelopeRepairPrompt.cs" Link="Source\DecomposeEnvelopeRepairPrompt.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryDecision.cs" Link="Source\DecomposeRecoveryDecision.cs" />

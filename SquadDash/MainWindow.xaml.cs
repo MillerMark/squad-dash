@@ -5656,7 +5656,8 @@ public partial class MainWindow : Window
                             TryApplyDecomposeDecisionFromResponse(rawResponse);
                             TryApplyPlanRecoveryAssessmentFromResponse(rawResponse);
                             TryApplyRecoveryOptionsFromResponse(rawResponse);
-                            _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                            if (!TryRouteInterruptedStepResultToRecovery(rawResponse))
+                                _ = ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
                             var expectsReviewClarification =
                                 HumanReviewResponseContractPolicy.RequiresClarificationProtocol(
                                     _pec.CurrentDispatchedItem?.SourceTag);
@@ -10208,6 +10209,37 @@ public partial class MainWindow : Window
         catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
     }
 
+    private bool TryRouteInterruptedStepResultToRecovery(string? rawResponse)
+    {
+        if (!DecomposeStepResultParser.TryParse(rawResponse, out var result, out _) || result is null)
+            return false;
+
+        var plan = _planStore?.Load(result.GroupId);
+        if (!InterruptedStepResultRecoveryPolicy.CanRouteToCommitReview(plan, result))
+            return false;
+
+        ScheduleDecomposeSystemEntry(
+            $"Received a completed result for interrupted task {result.TaskId}. " +
+            "Opening host-validated commit review before changing plan state.");
+        Dispatcher.InvokeAsync(
+            async () =>
+            {
+                try
+                {
+                    var latest = _planStore?.Load(result.GroupId);
+                    if (!InterruptedStepResultRecoveryPolicy.CanRouteToCommitReview(latest, result))
+                        return;
+                    await AdoptVerifiedCommitRangeAsync(latest!, explicitStepAcceptance: false);
+                }
+                catch (Exception ex)
+                {
+                    HandleUiCallbackException("Interrupted step-result recovery", ex);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Background);
+        return true;
+    }
+
     private async Task<bool> TryApplyDecomposeRecoveryFromResponseAsync(string? rawResponse)
     {
         if (!DecomposeRecoveryDecisionParser.TryParse(rawResponse, out var decision) || decision is null)
@@ -11524,6 +11556,8 @@ public partial class MainWindow : Window
                     PlanRecoveryPrimaryActionKind.AcceptStep or
                     PlanRecoveryPrimaryActionKind.ApproveAmendment =>
                         planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: true),
+                    PlanRecoveryPrimaryActionKind.ReviewCompletedWork =>
+                        planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: false),
                     PlanRecoveryPrimaryActionKind.ResumeVerification when !hasRecoveryAssessment =>
                         AssessInterruptedPlanFromDurableAsync,
                     PlanRecoveryPrimaryActionKind.RetryVerification or
@@ -11542,6 +11576,9 @@ public partial class MainWindow : Window
             interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
                 ? current => _ = QueuePlanRecoveryCorrectionAsync(
                     PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork
+                    ? current => _ = RetryDecomposeTaskAsync(
+                        PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
                 : hasRecoveryAssessment
             ? current =>
             {
@@ -16762,6 +16799,7 @@ public partial class MainWindow : Window
 
         if (durablePlan is not null &&
             primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
+                PlanRecoveryPrimaryActionKind.ReviewCompletedWork or
                 PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
             AddAsyncResultAction(
@@ -16770,7 +16808,10 @@ public partial class MainWindow : Window
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
-                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                    return await AdoptVerifiedCommitRangeAsync(
+                        latest,
+                        explicitStepAcceptance: primaryRecoveryAction.Kind !=
+                            PlanRecoveryPrimaryActionKind.ReviewCompletedWork);
                 });
             if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
             {
@@ -16778,6 +16819,13 @@ public partial class MainWindow : Window
                     $"✎ Continue Working on {stepLabel}…",
                     $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch.",
                     async () => await QueuePlanRecoveryCorrectionAsync(plan, taskId));
+            }
+            else if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork)
+            {
+                AddAsyncAction(
+                    $"Continue Working on {stepLabel}",
+                    $"Keep {stepLabel} incomplete and continue from the preserved repository state.",
+                    async () => await RetryDecomposeTaskAsync(plan, taskId));
             }
             AddAction(
                 "✎ Revise Remaining Plan…",
@@ -17049,6 +17097,7 @@ public partial class MainWindow : Window
             switch (action.Kind)
             {
                 case PlanRecoveryPrimaryActionKind.AcceptStep:
+                case PlanRecoveryPrimaryActionKind.ReviewCompletedWork:
                 case PlanRecoveryPrimaryActionKind.ApproveAmendment:
                     // Acceptance is a human decision. Open the evidence-bearing surface instead
                     // of silently accepting work from the Plans panel's compact resume control.
