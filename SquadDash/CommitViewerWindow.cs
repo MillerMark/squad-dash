@@ -1,6 +1,4 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -103,7 +101,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
     internal static async Task<CommitViewerWindow> CreateAsync(string repositoryPath, string commitSha)
     {
-        var window = new CommitViewerWindow(repositoryPath, [new CommitViewerEntry(commitSha)]);
+        var repositoryRoot = await CommitViewerGit.ResolveRepositoryRootAsync(repositoryPath);
+        var window = new CommitViewerWindow(repositoryRoot, [new CommitViewerEntry(commitSha)]);
         await window.LoadCommitAsync();
         return window;
     }
@@ -112,7 +111,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
         string repositoryPath, IReadOnlyList<CommitViewerEntry> commits)
     {
         if (commits.Count == 0) throw new ArgumentException("At least one commit is required.", nameof(commits));
-        var window = new CommitViewerWindow(repositoryPath, commits);
+        var repositoryRoot = await CommitViewerGit.ResolveRepositoryRootAsync(repositoryPath);
+        var window = new CommitViewerWindow(repositoryRoot, commits);
         var alignUncertainGlyphs = commits.Any(commit => commit.IsUncertain);
         foreach (var commit in commits)
         {
@@ -286,27 +286,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
         _diffPanel.Children.Add(text);
     }
 
-    private async Task<string> RunGitAsync(params string[] arguments)
-    {
-        var startInfo = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = _repositoryPath,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8
-        };
-        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Git could not be started.");
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        var output = await outputTask;
-        var error = await errorTask;
-        if (process.ExitCode != 0) throw new InvalidOperationException(error.Trim());
-        return output;
-    }
+    private Task<string> RunGitAsync(params string[] arguments) =>
+        CommitViewerGit.RunAsync(_repositoryPath, arguments);
 
     private static List<CommitFile> ParseNumStat(string text)
     {

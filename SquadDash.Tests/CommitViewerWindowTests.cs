@@ -3,6 +3,30 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class CommitViewerWindowTests
 {
+    [Test]
+    public async Task ResolveRepositoryRootAsync_FromNestedWorkspace_ReturnsTopLevelDirectory()
+    {
+        var repositoryRoot = Path.Combine(
+            Path.GetTempPath(),
+            "SquadDashCommitViewer",
+            Guid.NewGuid().ToString("N"));
+        var nestedWorkspace = Path.Combine(repositoryRoot, "Package");
+        Directory.CreateDirectory(nestedWorkspace);
+
+        try
+        {
+            await CommitViewerGit.RunAsync(repositoryRoot, "init", "--quiet");
+
+            var resolved = await CommitViewerGit.ResolveRepositoryRootAsync(nestedWorkspace);
+
+            Assert.That(resolved, Is.EqualTo(Path.GetFullPath(repositoryRoot)).IgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(repositoryRoot, recursive: true);
+        }
+    }
+
     [TestCase(1920, 1440)]
     [TestCase(2560, 1600)]
     [TestCase(3840, 1600)]
