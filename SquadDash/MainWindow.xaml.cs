@@ -42108,8 +42108,8 @@ public partial class MainWindow : Window
         detailPanel.Children.Add(detailTextBox);
         expander.Content = detailPanel;
 
-        // Wire up diff hover popup for edit tool entries
-        if (string.Equals(descriptor.ToolName, "edit", StringComparison.OrdinalIgnoreCase)) {
+        // Wire up diff hover popup for file-edit tool entries.
+        if (ToolTranscriptFormatter.IsEditToolName(descriptor.ToolName)) {
             DiffHoverPopup? diffPopup = null;
             headerPanel.MouseEnter += (sender, _) => {
                 if (!entry.IsCompleted || string.IsNullOrWhiteSpace(entry.OutputText))
@@ -42312,7 +42312,9 @@ public partial class MainWindow : Window
 
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
-        var iconKey = $"ToolIcon_{entry.Descriptor.ToolName.Trim()}";
+        var iconKey = ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName)
+            ? "ToolIcon_edit"
+            : $"ToolIcon_{entry.Descriptor.ToolName.Trim()}";
         if (entry.Descriptor.ToolName.Trim() == "read_powershell" && entry.ArgsJson is { } argsJsonForIcon)
         {
             try
@@ -42568,6 +42570,8 @@ public partial class MainWindow : Window
                       ?? TryGetJsonString(evt.Args, "pattern"),
             "view" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "edit" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
+            "apply_patch" => BuildRelativeToolPathLabel(
+                ToolTranscriptFormatter.TryExtractEditTargetPath(GetApplyPatchText(evt.Args)) ?? evt.Path),
             "create" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "web_fetch" => StripUrlScheme(TryGetJsonString(evt.Args, "url")),
             "task" => TryGetJsonString(evt.Args, "description"),
@@ -42587,6 +42591,24 @@ public partial class MainWindow : Window
             "fetch_copilot_cli_documentation" => null,
             _ => null
         };
+    }
+
+    private static string? GetApplyPatchText(JsonElement args)
+    {
+        if (args.ValueKind == JsonValueKind.String)
+            return args.GetString();
+
+        if (args.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var propertyName in new[] { "patch", "input" })
+        {
+            if (args.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.String)
+                return property.GetString();
+        }
+
+        return null;
     }
 
     private string? LookupShellLabel(string? shellId)
