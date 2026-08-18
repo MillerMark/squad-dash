@@ -10492,7 +10492,7 @@ public partial class MainWindow : Window
         };
         var queueItemId = QueueEditablePlanPrompt(
             $"Address the unchecked verification items for {stepLabel}.\r\n\r\n" +
-            "What needs to be different?\r\n\r\n" +
+            "Correct the following behavior:\r\n\r\n" +
             "[Describe the correction you want]\r\n",
             "[Describe the correction you want]",
             "Address unchecked items",
