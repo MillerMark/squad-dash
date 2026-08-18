@@ -7656,68 +7656,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void ApplyTaskCardTopAndConnectors(string taskId, double left, double top)
     {
+        var priorTop = _taskCardPositions.TryGetValue(taskId, out var priorPosition)
+            ? priorPosition.Y
+            : top;
         _taskCardPositions[taskId] = new Point(left, top);
         if (!_connectorsByTask.TryGetValue(taskId, out var groups) || groups.Count == 0)
             return;
-
-        foreach (var group in groups.Distinct().ToArray())
+        var connectedConnectorStates = BuildDragConnectorStates(taskId, priorTop);
+        var siblingDragState = new TaskCardDragState
         {
-            var fromTaskId = group.TaskIds.FirstOrDefault(id =>
-                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.Start));
-            var toTaskId = group.TaskIds.FirstOrDefault(id =>
-                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
-            if (string.IsNullOrWhiteSpace(fromTaskId) ||
-                string.IsNullOrWhiteSpace(toTaskId) ||
-                !_taskCardPositions.TryGetValue(fromTaskId, out var fromPoint) ||
-                !_taskCardPositions.TryGetValue(toTaskId, out var toPoint))
-                continue;
-
-            var skipCount = 0;
-            if (_plan?.Group is { } sourceGroup)
-            {
-                var (_, levels) = ResolveTasksAndLevels();
-                if (levels.TryGetValue(fromTaskId, out var sourceLevel) &&
-                    levels.TryGetValue(toTaskId, out var targetLevel))
-                {
-                    skipCount = Math.Max(0, targetLevel - sourceLevel - 1);
-                }
-                else
-                {
-                    var sourceTask = sourceGroup.Tasks.FirstOrDefault(task =>
-                        string.Equals(task.Id, fromTaskId, StringComparison.Ordinal));
-                    if (sourceTask is not null)
-                        skipCount = Math.Max(0, sourceTask.DependsOn.Count - 1);
-                }
-            }
-
-            var dashedTaskEdges = ResolveDashedTaskEdgeKeys();
-            var isDashed = dashedTaskEdges.Contains(EdgeKey(fromTaskId, toTaskId));
-            var updatedFrom = new Point(fromPoint.X + NodeWidth, fromPoint.Y + NodeHeight / 2.0);
-            var updatedTo = new Point(toPoint.X, toPoint.Y + NodeHeight / 2.0);
-
-            if (_graphCanvas is null)
-                continue;
-            RemoveConnectorGroupElements(_graphCanvas, group);
-            var replacementGroup = AddDirectTaskConnector(_graphCanvas, updatedFrom, updatedTo, skipCount, isDashed);
-            replacementGroup.TaskIds.Clear();
-            foreach (var endpointTaskId in group.TaskIds.Distinct(StringComparer.Ordinal))
-            {
-                replacementGroup.TaskIds.Add(endpointTaskId);
-                replacementGroup.RegisterEndpointRole(endpointTaskId, group.GetEndpointRole(endpointTaskId));
-            }
-            replacementGroup.GateBadges.Clear();
-            foreach (var badge in group.GateBadges.Distinct())
-                replacementGroup.GateBadges.Add(badge);
-
-            foreach (var endpointTaskId in replacementGroup.TaskIds)
-            {
-                if (!_connectorsByTask.TryGetValue(endpointTaskId, out var endpointGroups))
-                    continue;
-                endpointGroups.RemoveAll(existing => ReferenceEquals(existing, group));
-                if (!endpointGroups.Contains(replacementGroup))
-                    endpointGroups.Add(replacementGroup);
-            }
-        }
+            TaskId = taskId,
+            ColumnX = left,
+            ConnectedConnectorStates = connectedConnectorStates,
+        };
+        UpdateTaskCardDragConnectors(siblingDragState, top);
     }
 
     private bool TryPerformDragSwap(TaskCardDragState dragState, double draggedMidpoint)
