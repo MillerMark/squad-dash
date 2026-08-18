@@ -113,10 +113,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
     private sealed class DragConnectorState
     {
-        public ConnectorGroup Group { get; init; } = null!;
+        public ConnectorGroup Group { get; set; } = null!;
         public ConnectorEndpointRole Role { get; init; }
         public double? StartOffsetWithinCard { get; init; }
         public double? EndOffsetWithinCard { get; init; }
+        public string? SourceTaskId { get; init; }
+        public string? TargetTaskId { get; init; }
+        public int BaseSkipCount { get; init; }
+        public bool IsDashed { get; init; }
     }
     private sealed class TaskCardDragState
     {
@@ -141,6 +145,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
+    private readonly List<ValidationShieldPresenter.LayoutRect> _allClusterFootprints = [];
+    private readonly List<double> _lockedMilestoneBoundaryXs = [];
     private bool _suppressTaskCardCancelOnLostCapture;
 
     internal string? CurrentRevision => _plan?.Revision;
@@ -1696,6 +1702,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ValidationShieldPresenter.ComputeAllClusterFootprint(
                     gateCenter.X, gateCenter.Y, attachedCount, _scaleFactor));
         }
+        _allClusterFootprints.Clear();
+        _allClusterFootprints.AddRange(allClusterFootprints);
+        _lockedMilestoneBoundaryXs.Clear();
+        _lockedMilestoneBoundaryXs.AddRange(lockedMilestoneBoundaryXs);
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
@@ -1806,51 +1816,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var fromPt    = new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0));
                 var toPt      = new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0));
 
-                var detour = allClusterFootprints.Count > 0
-                    ? ValidationShieldPresenter.ComputeConnectorDetour(
-                        (fromPt.X, fromPt.Y), (toPt.X, toPt.Y), allClusterFootprints, _scaleFactor)
-                    : null;
-
-                if (detour is { Count: 0 })
-                {
-                    // No collision-free forward-only route was available. Preserve the dependency
-                    // with the same alternate hue used for a stage-bypassing connector so the
-                    // overlap is visibly distinct rather than appearing to enter the ALL badge.
-                    var cg = AddConnector(canvas,
-                        fromPt, toPt,
-                        arrowHead: true,
-                        skipCount: Math.Max(1, skipCount),
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                        toolTip: "Alternate connector color: no clear route around an ALL group was available.",
-                        splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
-                    RegisterConnector(task.Id, cg, ConnectorEndpointRole.End);
-                }
-                else if (detour is null || detour.Count <= 2)
-                {
-                    var cg = AddConnector(canvas,
-                        fromPt, toPt,
-                        arrowHead: true,
-                        skipCount: skipCount,
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                        splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
-                    RegisterConnector(task.Id,   cg, ConnectorEndpointRole.End);
-                }
-                else
-                {
-                    // Render the complete collision-safe route as one rounded path. Each corner
-                    // cuts back by half its shorter adjacent segment, producing proportional
-                    // curves without allowing a long segment to overwhelm a nearby short turn.
-                    var routeGroup = AddRoundedConnectorRoute(
-                        canvas,
-                        detour,
-                        arrowHead: true,
-                        skipCount: skipCount,
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)));
-                    RegisterConnector(dependency, routeGroup, ConnectorEndpointRole.Start);
-                    RegisterConnector(task.Id, routeGroup, ConnectorEndpointRole.End);
-                }
+                var isDashed = dashedTaskEdges.Contains((dependency, task.Id));
+                var directConnector = AddDirectTaskConnector(
+                    canvas,
+                    fromPt,
+                    toPt,
+                    skipCount,
+                    isDashed);
+                RegisterConnector(dependency, directConnector, ConnectorEndpointRole.Start);
+                RegisterConnector(task.Id, directConnector, ConnectorEndpointRole.End);
             }
         }
 
@@ -7461,6 +7435,37 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .Select(element => (Connector: element, OriginalEffect: (Effect?)element.Effect))
             .ToArray();
 
+    private static string EdgeKey(string sourceTaskId, string targetTaskId) =>
+        $"{sourceTaskId}\u001f{targetTaskId}";
+
+    private HashSet<string> ResolveDashedTaskEdgeKeys()
+    {
+        var sourceGroup = _plan?.Group;
+        if (sourceGroup is null)
+            return [];
+
+        var (tasks, _) = ResolveTasksAndLevels();
+        if (tasks is null || tasks.Count == 0)
+            return [];
+
+        var visualizationGates = _durablePlan?.ApprovalGates ?? (sourceGroup.ApprovalGates ?? [])
+            .Select(gate => new PlanApprovalGate(
+                gate.GateId,
+                gate.Message,
+                gate.AfterTaskIds ?? [],
+                gate.BeforeTaskIds ?? [],
+                PlanGateStatus.Pending,
+                Question: gate.Question))
+            .ToArray();
+        var dashedTaskEdges = PlanGateVisualizationPolicy.DashedEdges(
+            tasks,
+            visualizationGates,
+            requireEveryIncomingAtConvergence: true);
+        return dashedTaskEdges
+            .Select(edge => EdgeKey(edge.Item1, edge.Item2))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
     private void RegisterTaskDragOverlay(string taskId, UIElement overlay)
     {
         if (!_taskDragOverlaysByTask.TryGetValue(taskId, out var overlays))
@@ -7491,6 +7496,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (!_connectorsByTask.TryGetValue(taskId, out var groups))
             return [];
 
+        var (_, levels) = ResolveTasksAndLevels();
+        var dashedTaskEdges = ResolveDashedTaskEdgeKeys();
         var states = new List<DragConnectorState>();
         foreach (var group in groups.Distinct())
         {
@@ -7498,6 +7505,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (role == ConnectorEndpointRole.None)
                 continue;
 
+            var sourceTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.Start));
+            var targetTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+            var hasDirectTaskPair =
+                !string.IsNullOrWhiteSpace(sourceTaskId) &&
+                !string.IsNullOrWhiteSpace(targetTaskId) &&
+                !string.Equals(sourceTaskId, targetTaskId, StringComparison.Ordinal);
+            var baseSkipCount = hasDirectTaskPair &&
+                                levels.TryGetValue(sourceTaskId!, out var sourceLevel) &&
+                                levels.TryGetValue(targetTaskId!, out var targetLevel)
+                ? Math.Max(0, targetLevel - sourceLevel - 1)
+                : group.SkipCount;
             var state = new DragConnectorState
             {
                 Group = group,
@@ -7508,6 +7528,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 EndOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.End)
                     ? group.CurrentTo.Y - originalTop
                     : null,
+                SourceTaskId = sourceTaskId,
+                TargetTaskId = targetTaskId,
+                BaseSkipCount = baseSkipCount,
+                IsDashed = hasDirectTaskPair &&
+                           dashedTaskEdges.Contains(EdgeKey(sourceTaskId!, targetTaskId!)),
             };
             states.Add(state);
         }
@@ -7536,6 +7561,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void UpdateTaskCardDragConnectors(TaskCardDragState dragState, double top)
     {
+        if (_graphCanvas is null)
+            return;
         var left = dragState.ColumnX;
         _taskCardPositions[dragState.TaskId] = new Point(left, top);
         foreach (var connectorState in dragState.ConnectedConnectorStates)
@@ -7554,7 +7581,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
             }
 
-            group.UpdateEndpoints(updatedFrom, updatedTo);
+            if (!string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
+                !string.IsNullOrWhiteSpace(connectorState.TargetTaskId) &&
+                group.TaskIds.Count >= 2)
+            {
+                RemoveConnectorGroupElements(_graphCanvas, group);
+                var replacementGroup = AddDirectTaskConnector(
+                    _graphCanvas,
+                    updatedFrom,
+                    updatedTo,
+                    connectorState.BaseSkipCount,
+                    connectorState.IsDashed);
+                ReplaceConnectorGroupForDrag(connectorState, replacementGroup);
+                replacementGroup.RefreshGlowBrushes();
+                foreach (var element in replacementGroup.GlowElements)
+                {
+                    element.Visibility = Visibility.Visible;
+                    Panel.SetZIndex(element, 3);
+                }
+                foreach (var element in replacementGroup.MainElements)
+                    Panel.SetZIndex(element, 4);
+            }
+            else
+            {
+                group.UpdateEndpoints(updatedFrom, updatedTo);
+            }
         }
     }
 
@@ -7570,11 +7621,105 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Panel.SetZIndex(element, 0);
             }
             foreach (var element in connectorGroup.MainElements)
+            {
                 Panel.SetZIndex(element, 0);
+                element.Effect = null;
+            }
         }
 
         foreach (var (connector, originalEffect) in dragState.ConnectedConnectors)
             connector.Effect = originalEffect;
+    }
+
+    private double FindLockedMilestoneSplitX(double fromX, double toX) =>
+        _lockedMilestoneBoundaryXs
+            .Where(boundaryX => boundaryX > fromX + 1.0 && boundaryX < toX - 1.0)
+            .OrderBy(boundaryX => boundaryX)
+            .Cast<double?>()
+            .FirstOrDefault() ?? double.NaN;
+
+    private ConnectorGroup AddDirectTaskConnector(
+        Canvas canvas,
+        Point fromPoint,
+        Point toPoint,
+        int skipCount,
+        bool dashed)
+    {
+        var detour = _allClusterFootprints.Count > 0
+            ? ValidationShieldPresenter.ComputeConnectorDetour(
+                (fromPoint.X, fromPoint.Y),
+                (toPoint.X, toPoint.Y),
+                _allClusterFootprints,
+                _scaleFactor)
+            : null;
+
+        if (detour is { Count: 0 })
+        {
+            return AddConnector(
+                canvas,
+                fromPoint,
+                toPoint,
+                arrowHead: true,
+                skipCount: Math.Max(1, skipCount),
+                dashed: dashed,
+                toolTip: "Alternate connector color: no clear route around an ALL group was available.",
+                splitAtX: FindLockedMilestoneSplitX(fromPoint.X, toPoint.X));
+        }
+
+        if (detour is null || detour.Count <= 2)
+        {
+            return AddConnector(
+                canvas,
+                fromPoint,
+                toPoint,
+                arrowHead: true,
+                skipCount: skipCount,
+                dashed: dashed,
+                splitAtX: FindLockedMilestoneSplitX(fromPoint.X, toPoint.X));
+        }
+
+        // Render the complete collision-safe route as one rounded path. Each corner
+        // cuts back by half its shorter adjacent segment, producing proportional
+        // curves without allowing a long segment to overwhelm a nearby short turn.
+        return AddRoundedConnectorRoute(
+            canvas,
+            detour,
+            arrowHead: true,
+            skipCount: skipCount,
+            dashed: dashed);
+    }
+
+    private static void RemoveConnectorGroupElements(Canvas canvas, ConnectorGroup group)
+    {
+        foreach (var element in group.GlowElements.Concat(group.MainElements).Distinct())
+            canvas.Children.Remove(element);
+    }
+
+    private void ReplaceConnectorGroupForDrag(DragConnectorState state, ConnectorGroup replacementGroup)
+    {
+        var priorGroup = state.Group;
+        foreach (var taskId in priorGroup.TaskIds.Distinct(StringComparer.Ordinal))
+        {
+            if (!replacementGroup.TaskIds.Contains(taskId, StringComparer.Ordinal))
+                replacementGroup.TaskIds.Add(taskId);
+            var role = priorGroup.GetEndpointRole(taskId);
+            if (role != ConnectorEndpointRole.None)
+                replacementGroup.RegisterEndpointRole(taskId, role);
+
+            if (!_connectorsByTask.TryGetValue(taskId, out var groups))
+                continue;
+            groups.RemoveAll(group => ReferenceEquals(group, priorGroup));
+            if (!groups.Contains(replacementGroup))
+                groups.Add(replacementGroup);
+        }
+
+        foreach (var badge in priorGroup.GateBadges)
+        {
+            if (!replacementGroup.GateBadges.Contains(badge))
+                replacementGroup.GateBadges.Add(badge);
+        }
+
+        state.Group = replacementGroup;
     }
 
     private void OnTaskCardPreviewMouseLeftButtonDown(
