@@ -26,6 +26,7 @@
     <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Shared\IWorkspacePaths.cs" />
     <Compile Include="..\SquadDash\WorkspacePathsProvider.cs" Link="Shared\WorkspacePathsProvider.cs" />
     <Compile Include="..\SquadDash\RuntimeSlotStateStore.cs" Link="Shared\RuntimeSlotStateStore.cs" />
+    <Compile Include="..\SquadDash\RuntimeSlotDeploymentPolicy.cs" Link="Shared\RuntimeSlotDeploymentPolicy.cs" />
     <Compile Include="..\SquadDash\RunningInstanceRegistry.cs" Link="Shared\RunningInstanceRegistry.cs" />
     <Compile Include="..\SquadDash\RestartCoordinatorStateStore.cs" Link="Shared\RestartCoordinatorStateStore.cs" />
   </ItemGroup>

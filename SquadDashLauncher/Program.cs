@@ -575,22 +575,46 @@ internal static class Program {
     }
 
     private static string PrepareNextSlot(RuntimeSlotStateStore slotStore, string? activeSlot) {
-        var preferredSlot = RuntimeSlotNames.Toggle(activeSlot);
-        var fallbackSlot = RuntimeSlotNames.Toggle(preferredSlot);
-        var candidates = new[] { preferredSlot, fallbackSlot }.Distinct(StringComparer.OrdinalIgnoreCase);
+        var candidate = RuntimeSlotDeploymentPolicy.GetInactiveSlot(activeSlot);
+        var runningPayloadPaths = GetRunningPayloadPaths();
+        if (RuntimeSlotDeploymentPolicy.IsSlotOccupied(slotStore, candidate, runningPayloadPaths)) {
+            throw new IOException(
+                $"Could not prepare runtime slot {candidate} because a SquadDash process is still running from it.");
+        }
 
-        Exception? lastError = null;
-        foreach (var candidate in candidates) {
-            try {
-                ResetDirectory(slotStore.GetSlotDirectory(candidate), _workspacePaths.RunRootDirectory);
-                return candidate;
-            }
-            catch (Exception ex) {
-                lastError = ex;
+        // Never fall back to the active slot. Directory.Delete can remove unlocked assets
+        // before it encounters a locked executable, so attempting the live slot after a
+        // failed inactive-slot reset can corrupt a running app in place.
+        ResetDirectory(slotStore.GetSlotDirectory(candidate), _workspacePaths.RunRootDirectory);
+        return candidate;
+    }
+
+    private static IReadOnlyList<string> GetRunningPayloadPaths() {
+        var paths = new List<string>();
+        var processName = Path.GetFileNameWithoutExtension(RuntimeSlotNames.PayloadFileName);
+
+        foreach (var process in Process.GetProcessesByName(processName)) {
+            using (process) {
+                try {
+                    var executablePath = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(executablePath))
+                        paths.Add(executablePath);
+                }
+                catch (InvalidOperationException) when (process.HasExited) {
+                    // The process exited between enumeration and inspection.
+                }
+                catch (ArgumentException) {
+                    // The process exited between enumeration and inspection.
+                }
+                catch (Exception ex) {
+                    throw new IOException(
+                        $"Could not verify whether SquadDash process {process.Id} owns a runtime slot.",
+                        ex);
+                }
             }
         }
 
-        throw new IOException("Could not prepare either runtime slot for deployment.", lastError);
+        return paths;
     }
 
     private static void NormalizeAttributes(string targetDirectory) {

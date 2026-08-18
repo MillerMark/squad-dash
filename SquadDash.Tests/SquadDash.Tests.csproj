@@ -252,6 +252,7 @@
     <Compile Include="..\SquadDash\ToolTranscriptFormatter.cs" Link="Source\ToolTranscriptFormatter.cs" />
     <Compile Include="..\SquadDash\ToolTranscriptData.cs" Link="Source\ToolTranscriptData.cs" />
     <Compile Include="..\SquadDash\RuntimeSlotStateStore.cs" Link="Source\RuntimeSlotStateStore.cs" />
+    <Compile Include="..\SquadDash\RuntimeSlotDeploymentPolicy.cs" Link="Source\RuntimeSlotDeploymentPolicy.cs" />
     <Compile Include="..\SquadDash\RunningInstanceRegistry.cs" Link="Source\RunningInstanceRegistry.cs" />
     <Compile Include="..\SquadDash\RestartCoordinatorStateStore.cs" Link="Source\RestartCoordinatorStateStore.cs" />
     <Compile Include="..\SquadDash\InstanceActivationChannel.cs" Link="Source\InstanceActivationChannel.cs" />

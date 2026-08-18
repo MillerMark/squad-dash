@@ -185,6 +185,7 @@
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\IWorkspacePaths.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\WorkspacePathsProvider.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\RuntimeSlotStateStore.cs" />
+    <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\RuntimeSlotDeploymentPolicy.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\RunningInstanceRegistry.cs" />
     <SquadDashLauncherBuildInput Include="$(MSBuildProjectDirectory)\RestartCoordinatorStateStore.cs" />
   </ItemGroup>
