@@ -96,7 +96,10 @@ internal static class PlanningSpecialistInstructions
                `{groupId}-NNN`; validation IDs use the `validationId` field and
                `{groupId}-VAL-NNN`; command or hybrid validations use `commands`; proof requirements
                use `requirementId`, `proofType`, and `description`. Also check dependency references,
-               validation boundaries, and the final audit frontier. Do not merely summarize or paraphrase
+               validation boundaries, and any declared audit frontier. Confirm that completion proof reuses
+               task-level evidence and that a final verification or audit is present only for a material
+               remaining gap, never as overlapping ceremonial work. Limit each human review checkpoint to
+               at most seven atomic checks. Do not merely summarize or paraphrase
                a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan
                was staged, added to the Plans panel, delivered to Inbox, or made available for approval;

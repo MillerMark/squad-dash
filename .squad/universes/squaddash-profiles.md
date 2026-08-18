@@ -522,7 +522,7 @@ This file describes the available characters in the SquadDash Universe.
 - Repository-grounded decomposition into independently verifiable outcomes
 - Dependency graphs, parallelization boundaries, and stable task input/output contracts
 - Roster-aware assignment using active team handles and routing ownership
-- Validation nodes, approval gates, recovery boundaries, and tailored end-to-end proof
+- Validation nodes, approval gates, recovery boundaries, and proportional completion proof
 
 **Secondary Skills:**
 - Assumption testing and material-question identification

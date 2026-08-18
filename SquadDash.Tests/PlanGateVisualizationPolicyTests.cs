@@ -6,6 +6,17 @@ internal sealed class PlanGateVisualizationPolicyTests
     private static PlanTask Task(string id, params string[] dependsOn) =>
         new(id, id, id, dependsOn, "mid", PlanTaskStatus.Pending);
 
+    [TestCase(false, false, false, ExpectedResult = true)]
+    [TestCase(true, true, false, ExpectedResult = true)]
+    [TestCase(true, false, true, ExpectedResult = true)]
+    [TestCase(true, false, false, ExpectedResult = false)]
+    public bool ShouldRenderTaskExitApprovalControl_PreservesTerminalHumanGate(
+        bool isLeaf,
+        bool hasFinalValidationBoundary,
+        bool hasTaskExitGate) =>
+        PlanGateVisualizationPolicy.ShouldRenderTaskExitApprovalControl(
+            isLeaf, hasFinalValidationBoundary, hasTaskExitGate);
+
     [Test]
     public void DownstreamTaskIds_PropagatesThroughEveryFollowingTask()
     {

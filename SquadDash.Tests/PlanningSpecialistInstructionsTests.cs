@@ -22,7 +22,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("`.squad/team.md`"));
             Assert.That(charter, Does.Contain("`.squad/routing.md`"));
             Assert.That(charter, Does.Contain("Never implement source changes"));
-            Assert.That(charter, Does.Contain("tailored end-to-end proof"));
+            Assert.That(charter, Does.Contain("cheap, non-mutating final verification or audit"));
+            Assert.That(charter, Does.Contain("never add both with substantially overlapping scope"));
+            Assert.That(charter, Does.Contain("at most seven checks per checkpoint"));
             Assert.That(charter, Does.Contain("## Protocol Conformance Preflight"));
             Assert.That(charter, Does.Contain("Read the live host-owned planning or revision protocol directly"));
             Assert.That(charter, Does.Contain("Never treat a Coordinator-authored schema summary"));

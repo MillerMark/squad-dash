@@ -15,6 +15,7 @@ internal sealed record TasksJsonParseDiagnostic(string Code, string Message);
 internal static class TasksJsonParser
 {
     private const string Marker = "TASKS_JSON:";
+    private const int MaxHumanProofRequirementsPerCheckpoint = 7;
 
     private static readonly Regex GroupIdPattern =
         new(@"^[A-Z]+-\d{8}$", RegexOptions.Compiled);
@@ -258,6 +259,14 @@ internal static class TasksJsonParser
             }
 
             var proofIds = new HashSet<string>(StringComparer.Ordinal);
+            var humanProofCount = (task.ProofRequirements ?? [])
+                .Count(requirement => PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType));
+            if (humanProofCount > MaxHumanProofRequirementsPerCheckpoint)
+            {
+                return Fail("too-many-human-proof-requirements",
+                    $"task '{task.Id}' declares {humanProofCount} human checks; " +
+                    $"a checkpoint may contain at most {MaxHumanProofRequirementsPerCheckpoint}");
+            }
             foreach (var requirement in task.ProofRequirements ?? [])
             {
                 var requirementId = requirement.RequirementId ?? string.Empty;
@@ -377,6 +386,13 @@ internal static class TasksJsonParser
                 }
 
                 var gateProofIds = new HashSet<string>(StringComparer.Ordinal);
+                var humanProofCount = gate.ProofRequirements?.Count ?? 0;
+                if (humanProofCount > MaxHumanProofRequirementsPerCheckpoint)
+                {
+                    return Fail("too-many-human-proof-requirements",
+                        $"gate '{gate.GateId}' declares {humanProofCount} human checks; " +
+                        $"a checkpoint may contain at most {MaxHumanProofRequirementsPerCheckpoint}");
+                }
                 foreach (var requirement in gate.ProofRequirements ?? [])
                 {
                     var requirementId = requirement.RequirementId ?? string.Empty;
@@ -499,9 +515,9 @@ internal static class TasksJsonParser
         }
 
 
-        // Structured proof contracts opt a plan into a mandatory completion audit. This is a
-        // declarative contract, not a filename/description heuristic: legacy plans remain valid,
-        // while new proof-bearing plans cannot silently substitute tests for a live observation.
+        // A completion audit is optional: task-level proof and deterministic checks may already
+        // establish the plan. When an audit is authored, keep its frontier exact so it cannot
+        // silently omit a completion leaf or block downstream work.
         if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }) ||
             (parsed.ApprovalGates ?? []).Any(gate => gate.ProofRequirements is { Count: > 0 }))
         {
@@ -530,9 +546,10 @@ internal static class TasksJsonParser
             var completionAudits = (parsed.Validations ?? [])
                 .Where(validation => string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
                 .ToArray();
-            if (completionAudits.Length != 1 ||
-                (completionAudits[0].BeforeTaskIds?.Count ?? 0) != 0 ||
-                !leafIds.SetEquals(completionAudits[0].AfterTaskIds ?? []))
+            if (completionAudits.Length > 1 ||
+                (completionAudits.Length == 1 &&
+                 ((completionAudits[0].BeforeTaskIds?.Count ?? 0) != 0 ||
+                  !leafIds.SetEquals(completionAudits[0].AfterTaskIds ?? []))))
             {
                 var auditIds = completionAudits.Select(audit => audit.ValidationId).ToArray();
                 var actualAfterIds = completionAudits.Length == 1
@@ -543,8 +560,9 @@ internal static class TasksJsonParser
                     : [];
                 return Fail(
                     "invalid-proof-completion-audit",
-                    "proof-bearing plans require exactly one final audit validation with beforeTaskIds=[] and " +
-                    $"afterTaskIds equal to every leaf task. Expected leaf task IDs: [{string.Join(", ", leafIds.Order())}]. " +
+                    "a proof-bearing plan may omit a final audit, but when supplied it must be the only audit, " +
+                    "use beforeTaskIds=[], and set afterTaskIds equal to every leaf task. " +
+                    $"Expected leaf task IDs: [{string.Join(", ", leafIds.Order())}]. " +
                     $"Found audit IDs: [{string.Join(", ", auditIds)}]; actual afterTaskIds: " +
                     $"[{string.Join(", ", actualAfterIds)}]; actual beforeTaskIds: [{string.Join(", ", actualBeforeIds)}]");
             }

@@ -5,7 +5,7 @@ namespace SquadDash.Tests;
 /// <summary>
 /// Tests for cohesion-aware plan generation, parsing, and validation.
 /// Covers: observable outcomes, production consumers, artifact-only rejection,
-/// tailored final proof, round-trip through Inbox, and backward compatibility.
+/// proportional completion proof, round-trip through Inbox, and backward compatibility.
 /// </summary>
 [TestFixture]
 internal sealed class PlanCohesionTests
@@ -119,12 +119,12 @@ internal sealed class PlanCohesionTests
         {
             Assert.That(issues, Has.Count.GreaterThanOrEqualTo(1));
             Assert.That(issues, Has.Some.Contain("artifact-only"));
-            Assert.That(issues, Has.Some.Contain("tailored end-to-end proof"));
+            Assert.That(issues, Has.None.Contain("tailored end-to-end proof"));
         });
     }
 
     [Test]
-    public void Validate_GenericFinalStep_ReportsIssue()
+    public void Validate_GenericImplementationFinalStep_DoesNotRequireSeparateProof()
     {
         var group = new DecomposedTaskGroup(
             "PLAN-20260803", "Plan", "feature/plan", "Summary",
@@ -137,6 +137,26 @@ internal sealed class PlanCohesionTests
                     ["PLAN-20260803-001"], "low", "Update documentation"),
             ]);
         var issues = PlanCohesionValidator.Validate(group);
+        Assert.That(issues, Has.None.Contain("tailored end-to-end proof"));
+    }
+
+    [Test]
+    public void Validate_GenericVerificationFinalStep_ReportsIssue()
+    {
+        var group = new DecomposedTaskGroup(
+            "PLAN-20260803", "Plan", "feature/plan", "Summary",
+            [
+                new DecomposedSubTask("PLAN-20260803-001",
+                    "Observable outcome: the implementation works and its focused tests pass.",
+                    [], "high", "Implement behavior"),
+                new DecomposedSubTask("PLAN-20260803-002",
+                    "Run the test suite.",
+                    ["PLAN-20260803-001"], "low", "Run the test suite",
+                    ExecutionMode: "verification"),
+            ]);
+
+        var issues = PlanCohesionValidator.Validate(group);
+
         Assert.That(issues, Has.Some.Contain("tailored end-to-end proof"));
     }
 
@@ -341,7 +361,8 @@ internal sealed class PlanCohesionTests
             Assert.That(spec, Does.Contain("Observable outcome"));
             Assert.That(spec, Does.Contain("Production consumer"));
             Assert.That(spec, Does.Contain("Artifact-only"));
-            Assert.That(spec, Does.Contain("tailored end-to-end proof"));
+            Assert.That(spec, Does.Contain("Proportional completion proof"));
+            Assert.That(spec, Does.Contain("cheap, non-mutating"));
             Assert.That(spec, Does.Contain("observable outcome"));
             Assert.That(spec, Does.Contain("Production consumer"));
         });

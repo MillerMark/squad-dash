@@ -29,12 +29,15 @@
 
 - Always read the live `decompose-planning.md` instructions before authoring a plan — never
   reproduce a remembered schema.
-- A proof-bearing plan requires exactly one final `audit` validation whose `afterTaskIds` equals
-  every leaf task and whose `beforeTaskIds` is empty (`[]`).
+- A proof-bearing plan does not automatically require a final `audit`. Prefer proof accumulated by
+  implementation tasks and focused tests. Add one leaf-covering final audit only for a material
+  cross-task claim that remains unproven, and never duplicate a final verification task.
 - The `agentRoutingMode` field is required on every task; omitting it causes parser rejection.
 - `agentAssignments` requires exactly one entry when `agentRoutingMode` is `"assigned"`.
 - Human-only proof requirements (`live-ui-observation`, `restart-observation`, `human-observation`)
   must be declared in `proofRequirements` — they are promoted to approval checkpoints by the host.
+  Keep the set minimal and at most seven per checkpoint, show it in the initial proposal, and do not
+  repeat an already accepted observation unless later work can invalidate it.
 - Return `TASKS_JSON` to the Coordinator; do not emit it directly to the user in a nested context.
 
 ## Work Log

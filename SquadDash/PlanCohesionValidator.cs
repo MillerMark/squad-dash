@@ -149,9 +149,11 @@ internal static class PlanCohesionValidator
             }
         }
 
-        // Validate final task is a tailored proof
+        // A separate final proof task is optional. If the planner explicitly makes the final task
+        // verification-only, ensure it is tailored rather than ceremonial.
         var finalTask = group.Tasks[^1];
-        if (!HasTailoredFinalProof(finalTask))
+        if (string.Equals(finalTask.ExecutionMode, "verification", StringComparison.Ordinal) &&
+            !HasTailoredFinalProof(finalTask))
         {
             issues.Add(
                 $"Final task '{finalTask.Id}' does not describe a tailored end-to-end proof with an observable outcome.");

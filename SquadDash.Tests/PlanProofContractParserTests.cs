@@ -5,6 +5,15 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PlanProofContractParserTests
 {
+    private static DecomposedTaskProofRequirement[] HumanProofs(int count) =>
+        Enumerable.Range(1, count)
+            .Select(index => new DecomposedTaskProofRequirement(
+                $"human-check-{index}",
+                "human-observation",
+                $"Observe acceptance outcome {index}.",
+                $"Does acceptance outcome {index} pass?"))
+            .ToArray();
+
     private static DecomposedTaskGroup MakeGroup(bool includeAudit)
     {
         var task = new DecomposedSubTask(
@@ -28,14 +37,15 @@ internal sealed class PlanProofContractParserTests
             : null;
         return new DecomposedTaskGroup(
             "PROOF-20260803", "Proof Contract", "feature/proof-contract",
-            "Require typed proof and a final audit.", [task], Validations: audits);
+            "Require typed proof with an optional audit.", [task], Validations: audits);
     }
 
     [Test]
-    public void ProofBearingPlan_WithoutFinalAudit_IsRejected()
+    public void ProofBearingPlan_WithoutFinalAudit_IsAccepted()
     {
         var text = "TASKS_JSON:\n" + JsonSerializer.Serialize(MakeGroup(false));
-        Assert.That(TasksJsonParser.TryParse(text, out _), Is.False);
+        Assert.That(TasksJsonParser.TryParse(text, out var parsed), Is.True);
+        Assert.That(parsed?.Validations, Is.Null);
     }
 
     [Test]
@@ -47,9 +57,9 @@ internal sealed class PlanProofContractParserTests
     }
 
     [Test]
-    public void RoutedHumanProof_OnVerificationTask_ReparsesForCollection()
+    public void RoutedTerminalHumanProof_WithoutFinalAudit_ReparsesForCollection()
     {
-        var original = MakeGroup(true);
+        var original = MakeGroup(false);
         var humanProof = new DecomposedTaskProofRequirement(
             "live-ui", "human-observation", "Observe the rendered UI.",
             "Does the rendered UI show the expected result?");
@@ -79,7 +89,83 @@ internal sealed class PlanProofContractParserTests
     }
 
     [Test]
-    public void ProofBearingPlan_WithWrongAuditBoundary_ReturnsExpectedAndActualLeafIds()
+    public void HumanProofCheckpoint_WithSevenChecks_IsAccepted()
+    {
+        var original = MakeGroup(false);
+        var authored = original with
+        {
+            Tasks = [original.Tasks[0] with { ProofRequirements = HumanProofs(7) }],
+        };
+
+        var parsed = TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(authored),
+            out var routed,
+            out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, diagnostic?.Message);
+            Assert.That(routed?.ApprovalGates?.Single().ProofRequirements, Has.Count.EqualTo(7));
+        });
+    }
+
+    [Test]
+    public void TaskHumanProofCheckpoint_WithEightChecks_IsRejected()
+    {
+        var original = MakeGroup(false);
+        var authored = original with
+        {
+            Tasks = [original.Tasks[0] with { ProofRequirements = HumanProofs(8) }],
+        };
+
+        var parsed = TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(authored),
+            out _,
+            out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Code, Is.EqualTo("too-many-human-proof-requirements"));
+            Assert.That(diagnostic?.Message, Does.Contain("at most 7"));
+        });
+    }
+
+    [Test]
+    public void ExplicitHumanProofGate_WithEightChecks_IsRejected()
+    {
+        var original = MakeGroup(false);
+        var task = original.Tasks[0] with { ProofRequirements = null };
+        var authored = original with
+        {
+            Tasks = [task],
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "PROOF-20260803-GATE-001",
+                    "Review the acceptance outcomes.",
+                    [task.Id],
+                    [],
+                    HumanProofs(8),
+                    "Do all listed acceptance outcomes pass?"),
+            ],
+        };
+
+        var parsed = TasksJsonParser.TryParse(
+            "TASKS_JSON:\n" + JsonSerializer.Serialize(authored),
+            out _,
+            out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Code, Is.EqualTo("too-many-human-proof-requirements"));
+            Assert.That(diagnostic?.Message, Does.Contain("at most 7"));
+        });
+    }
+
+    [Test]
+    public void OptionalAudit_WithWrongBoundary_ReturnsExpectedAndActualLeafIds()
     {
         var original = MakeGroup(true);
         var finalTask = new DecomposedSubTask(

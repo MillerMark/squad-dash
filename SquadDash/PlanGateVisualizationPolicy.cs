@@ -6,6 +6,12 @@ namespace SquadDash;
 /// <summary>Pure graph rules used by the plan viewer to project approval boundaries.</summary>
 internal static class PlanGateVisualizationPolicy
 {
+    internal static bool ShouldRenderTaskExitApprovalControl(
+        bool isLeaf,
+        bool hasFinalValidationBoundary,
+        bool hasTaskExitGate) =>
+        !isLeaf || hasFinalValidationBoundary || hasTaskExitGate;
+
     internal static bool GraphEquivalent(
         IReadOnlyList<PlanTask> tasks,
         IReadOnlyList<string> firstAfter,
