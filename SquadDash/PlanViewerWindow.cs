@@ -131,6 +131,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public Effect? OriginalCardEffect { get; init; }
         public IReadOnlyList<DragConnectorState> ConnectedConnectorStates { get; init; } = [];
         public IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> ConnectedConnectors { get; init; } = [];
+        public IReadOnlyList<(UIElement Element, double OriginalTop)> DragOverlayElements { get; init; } = [];
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
@@ -139,6 +140,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private TaskCardDragState? _taskCardDragState;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
     private bool _suppressTaskCardCancelOnLostCapture;
 
     internal string? CurrentRevision => _plan?.Revision;
@@ -942,6 +944,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         _taskSpinnersById.Clear();
         _validationSpinnersById.Clear();
+        _taskDragOverlaysByTask.Clear();
         var displayedValidations = group.Validations ?? [];
         // Validation boundaries are graph constraints even though they do not mutate task
         // dependencies. Use them only for display-level calculation so the visual sequence
@@ -1617,6 +1620,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(visual, top);
                 Panel.SetZIndex(visual, 30);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
+                if (anchor.TaskId is { } shieldTaskId)
+                    RegisterTaskDragOverlay(shieldTaskId, visual);
 
                 // Show Verity Cross avatar while a validation is actively running.
                 if (validationStatus == PlanValidationStatus.Validating && _resolveAgentAvatar is not null)
@@ -1635,6 +1640,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Canvas.SetTop(verityChip, top);
                         Panel.SetZIndex(verityChip, 31);
                         canvas.Children.Add(verityChip);
+                        if (anchor.TaskId is { } validationTaskId)
+                            RegisterTaskDragOverlay(validationTaskId, verityChip);
                     }
                 }
                 validationRailRight = Math.Max(validationRailRight, left + validationWidth);
@@ -2682,6 +2689,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
                 Panel.SetZIndex(avatarPanel, 35);
                 canvas.Children.Add(avatarPanel);
+                RegisterTaskDragOverlay(task.Id, avatarPanel);
             }
 
             // Show Verity Cross avatar on the right side while a task is being verified.
@@ -2699,6 +2707,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(verityChip, position.Y - chipSize);
                     Panel.SetZIndex(verityChip, 35);
                     canvas.Children.Add(verityChip);
+                    RegisterTaskDragOverlay(task.Id, verityChip);
                 }
             }
 
@@ -2720,6 +2729,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(coordinatorChip, position.Y - chipSize);
                     Panel.SetZIndex(coordinatorChip, 35);
                     canvas.Children.Add(coordinatorChip);
+                    RegisterTaskDragOverlay(task.Id, coordinatorChip);
                 }
             }
 
@@ -2886,6 +2896,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             beforeRemoveMenu.Items.Add(removeBeforeItem);
                         }
                         canvas.Children.Add(beforeStop);
+                        RegisterTaskDragOverlay(task.Id, beforeStop);
                         approvalControlsByAnchor[beforeAnchor] = beforeStop;
                     }
                 }
@@ -3047,6 +3058,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             afterRemoveMenu.Items.Add(removeAfterItem);
                         }
                         canvas.Children.Add(afterStop);
+                        RegisterTaskDragOverlay(task.Id, afterStop);
                         approvalControlsByAnchor[afterAnchor] = afterStop;
                     }
                 }
@@ -3075,6 +3087,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(beforeStop, 25);
                     canvas.Children.Add(beforeStop);
+                    RegisterTaskDragOverlay(task.Id, beforeStop);
                 }
 
                 if (!isLeaf)
@@ -3090,6 +3103,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(afterStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(afterStop, 25);
                     canvas.Children.Add(afterStop);
+                    RegisterTaskDragOverlay(task.Id, afterStop);
                 }
             }
         }
@@ -7447,6 +7461,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .Select(element => (Connector: element, OriginalEffect: (Effect?)element.Effect))
             .ToArray();
 
+    private void RegisterTaskDragOverlay(string taskId, UIElement overlay)
+    {
+        if (!_taskDragOverlaysByTask.TryGetValue(taskId, out var overlays))
+            _taskDragOverlaysByTask[taskId] = overlays = [];
+        if (!overlays.Contains(overlay))
+            overlays.Add(overlay);
+    }
+
+    private IReadOnlyList<(UIElement Element, double OriginalTop)> CaptureTaskDragOverlays(string taskId)
+    {
+        if (!_taskDragOverlaysByTask.TryGetValue(taskId, out var overlays) || overlays.Count == 0)
+            return [];
+
+        var captured = new List<(UIElement Element, double OriginalTop)>();
+        foreach (var overlay in overlays.Distinct())
+        {
+            var top = Canvas.GetTop(overlay);
+            if (double.IsNaN(top))
+                continue;
+            captured.Add((overlay, top));
+        }
+
+        return captured;
+    }
+
     private IReadOnlyList<DragConnectorState> BuildDragConnectorStates(string taskId, double originalTop)
     {
         if (!_connectorsByTask.TryGetValue(taskId, out var groups))
@@ -7564,6 +7603,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var connectedConnectorStates = BuildDragConnectorStates(taskId, originalTop);
         var connectedConnectors = CaptureConnectorEffects(connectedConnectorStates);
+        var dragOverlayElements = CaptureTaskDragOverlays(taskId);
 
         _taskCardDragState = new TaskCardDragState
         {
@@ -7578,6 +7618,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             OriginalCardEffect = element.Effect,
             ConnectedConnectorStates = connectedConnectorStates,
             ConnectedConnectors = connectedConnectors,
+            DragOverlayElements = dragOverlayElements,
             IsActive = false,
         };
         ApplyTaskCardDragGlow(_taskCardDragState);
@@ -7639,6 +7680,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         Canvas.SetTop(dragState.Element, constrainedTop);
+        var dragDeltaY = constrainedTop - dragState.OriginalTop;
+        foreach (var (element, originalTop) in dragState.DragOverlayElements)
+            Canvas.SetTop(element, originalTop + dragDeltaY);
         UpdateTaskCardDragConnectors(dragState, constrainedTop);
     }
 
@@ -7696,6 +7740,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         Canvas.SetTop(dragState.Element, dragState.OriginalTop);
         Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+        foreach (var (element, originalTop) in dragState.DragOverlayElements)
+            Canvas.SetTop(element, originalTop);
         UpdateTaskCardDragConnectors(dragState, dragState.OriginalTop);
         RestoreTaskCardDragGlow(dragState);
 
