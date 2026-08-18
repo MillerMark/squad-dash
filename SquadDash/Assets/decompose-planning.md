@@ -463,7 +463,7 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "revision": "revision from the persisted group header",
   "executionAttemptId": "host-supplied attempt ID when this task has an assigned roster agent",
   "status": "complete",
-  "commit": "Git commit SHA",
+  "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
   "summary": "concise outcome",
   "remainingWork": [],
   "deferredWork": [
@@ -494,6 +494,10 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   ]
 }
 ```
+
+For implementation results, run `git rev-parse --short HEAD` after committing and copy that
+command's output into `commit` exactly. Do not retype the SHA from memory or from the `git commit`
+summary. SquadDash resolves the abbreviation and validates the full commit itself.
 
 `status` must be `complete`, `partial`, or `failed`. Complete requires a new commit and passed
 verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash

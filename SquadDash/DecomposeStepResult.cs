@@ -67,6 +67,7 @@ internal static class DecomposeStepResultParser
         result = result with
         {
             Status = result.Status?.Trim().ToLowerInvariant() ?? string.Empty,
+            Commit = result.Commit?.Trim(),
             RemainingWork = (result.RemainingWork ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())

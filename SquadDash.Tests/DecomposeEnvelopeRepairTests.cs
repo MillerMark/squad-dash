@@ -251,6 +251,25 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void RepairPrompt_UnresolvableCommit_AllowsOnlyReadOnlyHeadLookup()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "Git validation failed: fatal: Needed a single revision.",
+            envelopeWasPresent: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("The reported commit did not resolve"));
+            Assert.That(prompt, Does.Contain("git rev-parse --short HEAD"));
+            Assert.That(prompt, Does.Contain("do not inspect or change any files"));
+            Assert.That(prompt, Does.Not.Contain("Do not re-run any tools"));
+        });
+    }
+
+    [Test]
     public void ProofEvidenceCorrection_ShowsActualResultSchemaWithRequiredSummary()
     {
         var prompt = DecomposeEnvelopeRepairPrompt.BuildProofEvidenceCorrection(

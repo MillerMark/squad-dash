@@ -403,6 +403,7 @@ public partial class MainWindow : Window
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
+    private string?                 _capturedDecomposeTranscriptCommit;
     private PlanValidationResultPayload? _capturedValidationResult;
     private string?                 _capturedValidationResultError;
     private PlanTaskVerificationResult? _capturedTaskVerificationResult;
@@ -5517,6 +5518,8 @@ public partial class MainWindow : Window
 
                     // Extract git commit info (SHA + message when available from git native output)
                     var commitInfo = PushNotificationService.ExtractGitCommitInfo(allToolOutputs, rawResponse);
+                    if (_activeDecomposeGroupId is not null)
+                        _capturedDecomposeTranscriptCommit = commitInfo?.CommitSha;
                     if (commitInfo is not null)
                     {
                         var readAgentOutputs = doneCurrentTurn?.ToolEntries
@@ -8672,9 +8675,28 @@ public partial class MainWindow : Window
         }
         else
         {
-            var persisted = File.Exists(tasksPath)
-                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                : null;
+            // The durable plan is canonical. tasks.md is only its compatibility projection and
+            // may legitimately be absent (for example after accepting a plan in a workspace
+            // whose backlog file predates durable plans). Restore that one managed block before
+            // attempting to resume instead of refusing an otherwise valid approved plan.
+            var durablePlan = _planStore?.Load(groupId);
+            if (durablePlan is not null)
+            {
+                var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durablePlan);
+                if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                {
+                    _CodeHealthGroupRunner = null;
+                    _conversationManager.UpdateActiveLoopExecutionState(null);
+                    throw new InvalidDataException(
+                        $"Plan {groupId} could not restore its tasks.md projection: {repair.Error}");
+                }
+            }
+
+            var persisted = durablePlan is not null
+                ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId)
+                : File.Exists(tasksPath)
+                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
+                    : null;
             if (persisted?.Errors.Count > 0)
             {
                 _CodeHealthGroupRunner = null;
@@ -8691,8 +8713,16 @@ public partial class MainWindow : Window
                     $"Refused Executing Plan resume because group '{groupId}' is missing from tasks.md.");
                 return false;
             }
-            revision = persistedGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
-            executionGroup = persistedGroup;
+            revision = durablePlan?.Revision
+                ?? persistedGroup.HostRevision
+                ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
+            executionGroup = durablePlan is not null
+                ? PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
+                {
+                    HostRevision = durablePlan.Revision,
+                }
+                : persistedGroup;
+            _CodeHealthGroupRunner.RefreshTaskDefinitions(executionGroup);
         }
 
         if (!string.IsNullOrWhiteSpace(expectedRevision) &&
@@ -11817,6 +11847,7 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
+        _capturedDecomposeTranscriptCommit = null;
         _capturedValidationResult = null;
         _capturedValidationResultError = null;
         _capturedTaskVerificationResult = null;
@@ -12520,7 +12551,8 @@ public partial class MainWindow : Window
                 var branchEnforcement = await EnforcePlanBranchLeaseAsync(
                     branchLease,
                     result?.Commit,
-                    mutationAllowed: !verificationOnly);
+                    mutationAllowed: !verificationOnly,
+                    transcriptCommit: _capturedDecomposeTranscriptCommit);
                 if (!branchEnforcement.CanContinue)
                 {
                     branchLeaseFailure = true;
@@ -12542,7 +12574,10 @@ public partial class MainWindow : Window
             (executionAttempt is null ||
              string.Equals(result.ExecutionAttemptId, executionAttempt.AttemptId, StringComparison.Ordinal)))
         {
-            var commitValidation = await ValidateDecomposeStepCommitAsync(result, verificationOnly);
+            var commitValidation = await ValidateDecomposeStepCommitAsync(
+                result,
+                verificationOnly,
+                transcriptCommit: _capturedDecomposeTranscriptCommit);
             if (commitValidation.Error is null &&
                 !string.IsNullOrWhiteSpace(commitValidation.EffectiveCommit) &&
                 !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
@@ -13587,7 +13622,8 @@ public partial class MainWindow : Window
     private async Task<(string? Error, string? EffectiveCommit)> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
         bool verificationOnly,
-        string? baselineOverride = null)
+        string? baselineOverride = null,
+        string? transcriptCommit = null)
     {
         if (_currentWorkspace is null) return ("No workspace is active.", null);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
@@ -13597,9 +13633,33 @@ public partial class MainWindow : Window
         try
         {
             var workspace = _currentWorkspace.FolderPath;
-            var resolved = (await RunGitAsync(workspace, $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
             var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
             var baseline = baselineOverride ?? _decomposeIterationBaselineCommit;
+            string resolved;
+            try
+            {
+                resolved = (await RunGitAsync(
+                    workspace,
+                    $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
+            }
+            catch when (!string.IsNullOrWhiteSpace(baseline) &&
+                        ReportedCommitReconciler.MatchesObservedHead(transcriptCommit, head))
+            {
+                resolved = head;
+                SquadDashTrace.Write(
+                    "PlanExecution",
+                    $"Reconciled unresolvable reported commit '{result.Commit}' from transcript commit " +
+                    $"'{transcriptCommit}' at observed HEAD '{head}'. Normal ancestry and atomic-commit validation will still run.");
+            }
+            catch when (!string.IsNullOrWhiteSpace(baseline) &&
+                        ReportedCommitReconciler.IsSingleCharacterSubstitution(result.Commit, head))
+            {
+                resolved = head;
+                SquadDashTrace.Write(
+                    "PlanExecution",
+                    $"Reconciled one-character reported commit typo '{result.Commit}' to observed HEAD '{head}'. " +
+                    "Normal ancestry and atomic-commit validation will still run.");
+            }
             if (!verificationOnly)
             {
                 try
@@ -51069,7 +51129,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (!await StartDecomposeLoopAsync(plan.PlanId))
+            if (!await StartDurablePlanExecutionAsync(plan))
                 AppendLine($"⚠ Plan “{plan.Title}” did not start. Open the plan to review its current state.");
         }
         catch (PlanPreflightBlockedException blocked)
@@ -51092,7 +51152,7 @@ public partial class MainWindow : Window
                 exception: blocked,
                 sourceActionsPanel: null,
                 blocks: CoordinatorThread.Document.Blocks,
-                retryOverride: async () => await StartDecomposeLoopAsync(latest.PlanId),
+                retryOverride: async () => await StartDurablePlanExecutionAsync(latest),
                 contentFactory: isAmendmentPause
                     ? exception => PlanPreflightRecoveryContent.FromAmendment(
                         exception,
@@ -51343,6 +51403,20 @@ public partial class MainWindow : Window
                 TraceCategory.General,
                 $"ReconcileCollectedPendingPlans: {ex.Message}");
         }
+    }
+
+    private async Task<bool> StartDurablePlanExecutionAsync(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        // A collected approved plan has not passed through the immediate-execution branch
+        // preparation path. Create or select its canonical branch before establishing the
+        // branch lease. Interrupted plans already own that branch and retain their statuses.
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Approved)
+            await PrepareDecomposeBranchAsync(_currentWorkspace.FolderPath, plan.Branch.Trim());
+
+        return await StartDecomposeLoopAsync(plan.PlanId);
     }
 
     private void RepairActivePlanTaskProjections()
@@ -53917,7 +53991,8 @@ public partial class MainWindow : Window
     private async Task<PlanBranchEnforcementResult> EnforcePlanBranchLeaseAsync(
         PlanBranchLease lease,
         string? candidateCommit,
-        bool mutationAllowed)
+        bool mutationAllowed,
+        string? transcriptCommit = null)
     {
         if (_currentWorkspace is null)
             return new(false, false, false, "No workspace is active.");
@@ -53939,9 +54014,28 @@ public partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(candidateCommit) &&
                 Regex.IsMatch(candidateCommit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
             {
-                resolvedCandidate = (await RunGitAsync(
-                    workspace,
-                    $"rev-parse --verify \"{candidateCommit}^{{commit}}\"")).Trim();
+                try
+                {
+                    resolvedCandidate = (await RunGitAsync(
+                        workspace,
+                        $"rev-parse --verify \"{candidateCommit}^{{commit}}\"")).Trim();
+                }
+                catch when (ReportedCommitReconciler.MatchesObservedHead(transcriptCommit, activeHead))
+                {
+                    resolvedCandidate = activeHead;
+                    SquadDashTrace.Write(
+                        "PlanBranchLease",
+                        $"Reconciled unresolvable reported commit '{candidateCommit}' from transcript commit " +
+                        $"'{transcriptCommit}' at active HEAD '{activeHead}'. Branch ancestry and single-commit validation will still run.");
+                }
+                catch when (ReportedCommitReconciler.IsSingleCharacterSubstitution(candidateCommit, activeHead))
+                {
+                    resolvedCandidate = activeHead;
+                    SquadDashTrace.Write(
+                        "PlanBranchLease",
+                        $"Reconciled one-character reported commit typo '{candidateCommit}' to active HEAD '{activeHead}'. " +
+                        "Branch ancestry and single-commit validation will still run.");
+                }
             }
 
             var worktreeIsSafe = true;

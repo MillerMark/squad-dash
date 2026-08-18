@@ -65,7 +65,7 @@ DECOMPOSE_STEP_RESULT_JSON:
   "revision": "revision from the group header",
   "executionAttemptId": "host-supplied attempt ID for assigned tasks",
   "status": "complete",
-  "commit": "full or short Git commit SHA",
+  "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
   "summary": "concise first-person handoff explaining what was changed and how it connects to the supplied upstream work and plan intent",
   "remainingWork": [],
   "deferredWork": [],
@@ -82,6 +82,15 @@ DECOMPOSE_STEP_RESULT_JSON:
   ]
 }
 ```
+
+After committing, run `git rev-parse --short HEAD` and copy that command's output into `commit`
+exactly. Do not retype the SHA from memory or from the `git commit` summary. SquadDash resolves the
+abbreviation to the full commit and validates it against the host-recorded task baseline.
+
+When an assigned worker reports a commit, treat the SHA as untrusted handoff data. Resolve it
+immediately with `git rev-parse --verify "<reported-sha>^{commit}"`. If Git rejects it, ask that same
+worker to run `git rev-parse --short HEAD` and return the exact output, then verify the correction
+before emitting `DECOMPOSE_STEP_RESULT_JSON`.
 
 When the task has agent assignments, `executionAttemptId` and `agentExecutions` are required. The
 attempt ID must match the host-supplied value, and each requested/actual handle must match one exact

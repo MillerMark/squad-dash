@@ -11,11 +11,15 @@ internal static class DecomposeEnvelopeRepairPrompt
         string reason,
         bool envelopeWasPresent = false)
     {
+        var correctionInstruction = IsCommitLookupFailure(reason)
+            ? "The reported commit did not resolve. Run only `git rev-parse --short HEAD`, copy its output exactly into `commit`, and do not inspect or change any files."
+            : "Do not re-run any tools, re-examine files, or repeat previous work.";
+
         return $$"""
             SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not match the required schema" : "was missing or invalid")}}.
             Validation error: {{reason}}
 
-            Correct the validation error and provide ONLY the result envelope now, based on the work you just completed. Do not re-run any tools, re-examine files, or repeat previous work.
+            Correct the validation error and provide ONLY the result envelope now, based on the work you just completed. {{correctionInstruction}}
 
             Required format:
             DECOMPOSE_STEP_RESULT_JSON:
@@ -24,7 +28,7 @@ internal static class DecomposeEnvelopeRepairPrompt
               "taskId": "{{taskId}}",
               "revision": "{{revision}}",
               "status": "complete",
-              "commit": "<7-char SHA of the commit you made>",
+              "commit": "<exact abbreviated SHA previously returned by git rev-parse --short HEAD>",
               "summary": "concise description of what was done",
               "remainingWork": [],
               "deferredWork": [],
@@ -38,6 +42,10 @@ internal static class DecomposeEnvelopeRepairPrompt
             Preserve every deliberate deferral from the previous handoff. Each deferredWork entry must name the exact requirement, reason, and downstream ownerTaskIds. Do not invent a deferral while repairing the envelope.
             """;
     }
+
+    private static bool IsCommitLookupFailure(string reason) =>
+        reason.Contains("Git validation failed", StringComparison.OrdinalIgnoreCase) ||
+        reason.Contains("reported commit was missing or malformed", StringComparison.OrdinalIgnoreCase);
 
     internal static string BuildProofEvidenceCorrection(
         IReadOnlyList<DecomposedTaskProofRequirement> requirements)

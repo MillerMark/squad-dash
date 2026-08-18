@@ -85,6 +85,9 @@ internal sealed class PlanExecutionAttemptTests
                 Assert.That(context, Does.Contain(charter));
                 Assert.That(context, Does.Contain("\"canonicalBranch\":\"feature/canonical-plan\""));
                 Assert.That(context, Does.Contain("must not create or switch branches"));
+                Assert.That(context, Does.Contain("Treat every worker-reported commit SHA as untrusted"));
+                Assert.That(context, Does.Contain("git rev-parse --verify"));
+                Assert.That(context, Does.Contain("ask that same worker"));
             });
         }
         finally

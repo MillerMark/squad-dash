@@ -27,6 +27,27 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
+    public void CompleteResult_TrimsCommitBeforeHostValidation()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"PLAN-20260725",
+              "taskId":"PLAN-20260725-001",
+              "revision":"abc123",
+              "status":"complete",
+              "commit":"  d77372ade488034a121e57051ab65abb7ab1bf91  ",
+              "summary":"Implemented the step.",
+              "remainingWork":[],
+              "verification":{"status":"passed","command":"dotnet test","summary":"All tests passed."}
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.That(result!.Commit, Is.EqualTo("d77372ade488034a121e57051ab65abb7ab1bf91"));
+    }
+
+    [Test]
     public void CompleteResult_WithoutPassedVerification_IsRejected()
     {
         var text = """

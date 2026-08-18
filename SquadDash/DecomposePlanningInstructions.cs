@@ -449,10 +449,12 @@ internal static class DecomposePlanningInstructions
             builder.AppendLine(assignment.AllowGenericChildren
                 ? "This assigned worker may spawn generic read-only research children. Children must not modify files, retain generic identity, and report through the assigned parent."
                 : "This assigned worker must not spawn child workers.");
+            builder.AppendLine("Before reporting a commit, the worker must run `git rev-parse --short HEAD` and copy that output exactly rather than retyping an abbreviated SHA from memory.");
             builder.AppendLine();
         }
 
         builder.AppendLine("After every assigned worker finishes, perform coordinator synthesis and return one task result.");
+        builder.AppendLine("Treat every worker-reported commit SHA as untrusted handoff data. Immediately resolve it with `git rev-parse --verify \"<reported-sha>^{commit}\"`. If Git rejects it, ask that same worker to run `git rev-parse --short HEAD` and return the exact output; verify the correction before writing DECOMPOSE_STEP_RESULT_JSON.");
         builder.AppendLine($"Its DECOMPOSE_STEP_RESULT_JSON must include `executionAttemptId`: `{executionAttempt.AttemptId}`.");
         builder.AppendLine("It must also include `agentExecutions`, one object per assignment, with only `requestedAgent` and `actualPrimaryAgent` set to the assigned roster handle.");
         builder.AppendLine("Do not report tool-call IDs or child lineage. Those values are host-internal evidence that SquadDash correlates and validates directly.");
