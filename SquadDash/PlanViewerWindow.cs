@@ -383,16 +383,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_plan is null) return;
         var autoScrollForPlanProgress = HasNewActiveTask(_durablePlan, updatedPlan) ||
                                         HasJustCompleted(_durablePlan, updatedPlan);
-        var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
+        var displayedPlan = ApplyCommittedColumnReorder(updatedPlan);
+        var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(displayedPlan);
         _plan = updatedDefinition;
-        _durablePlan = updatedPlan;
+        _durablePlan = displayedPlan;
         _editHistory?.ReplaceCurrent(updatedDefinition.Group);
         if (!CanEditSelectedElement())
             _isInspectorEditing = false;
-        RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForPlanProgress);
-        Title = $"Plan — {updatedPlan.DisplayName}";
+        RebuildPreservingScroll(updatedDefinition, displayedPlan, autoScrollForPlanProgress);
+        Title = $"Plan — {displayedPlan.DisplayName}";
         if (_deferredDefinitionEdit is not null &&
-            updatedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
+            displayedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
         {
             var deferred = _deferredDefinitionEdit;
             _deferredDefinitionEdit = null;
@@ -3569,9 +3570,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
     {
-        _editHistory?.ReplaceCurrent(plan.Group);
-        RebuildPreservingScroll(plan, durablePlan);
-        Title = $"Plan — {durablePlan.DisplayName}";
+        var displayedDurablePlan = ApplyCommittedColumnReorder(durablePlan);
+        var displayedPlan = _lastCommittedColumnOrder is null
+            ? plan
+            : PendingDecomposePlanAdapter.FromPlan(displayedDurablePlan);
+        _editHistory?.ReplaceCurrent(displayedPlan.Group);
+        RebuildPreservingScroll(displayedPlan, displayedDurablePlan);
+        Title = $"Plan — {displayedDurablePlan.DisplayName}";
     }
 
     private bool ApplyStagedMutation(
@@ -7619,6 +7624,185 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return nearestStage;
     }
 
+    private static bool TryParseStageIndex(string columnIdentifier, out int stageIndex)
+    {
+        const string stagePrefix = "stage:";
+        if (columnIdentifier.StartsWith(stagePrefix, StringComparison.Ordinal) &&
+            int.TryParse(columnIdentifier[stagePrefix.Length..], out var parsed) &&
+            parsed >= 0)
+        {
+            stageIndex = parsed;
+            return true;
+        }
+
+        stageIndex = -1;
+        return false;
+    }
+
+    private static IReadOnlyList<string> BuildReorderedStageTaskIds(
+        IReadOnlyList<string> existingStageTaskIds,
+        IReadOnlyList<string> requestedStageOrder)
+    {
+        var stageTaskIdSet = existingStageTaskIds.ToHashSet(StringComparer.Ordinal);
+        var reordered = requestedStageOrder
+            .Where(taskId => !string.IsNullOrWhiteSpace(taskId) && stageTaskIdSet.Contains(taskId))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        foreach (var taskId in existingStageTaskIds)
+        {
+            if (!reordered.Contains(taskId, StringComparer.Ordinal))
+                reordered.Add(taskId);
+        }
+        return reordered;
+    }
+
+    private Plan ApplyCommittedColumnReorder(Plan plan)
+    {
+        if (_lastCommittedColumnOrder is not { } committed)
+            return plan;
+        return TryApplyCommittedColumnReorder(plan, committed, out var reorderedPlan)
+            ? reorderedPlan
+            : plan;
+    }
+
+    private bool TryApplyCommittedColumnReorder(Plan plan, CommittedColumnReorder committed, out Plan reorderedPlan)
+    {
+        reorderedPlan = plan;
+        if (committed.NewTaskOrder.Count == 0)
+            return false;
+        if (!TryParseStageIndex(committed.ColumnTaskId, out var stageIndex))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: unresolved column identifier '{committed.ColumnTaskId}'.");
+            return false;
+        }
+        if (plan.Tasks.Count == 0)
+            return false;
+
+        var tasksById = plan.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        var decomposedTasks = plan.Tasks
+            .Select(task => new DecomposedSubTask(
+                task.TaskId,
+                task.Description ?? string.Empty,
+                task.DependsOn ?? [],
+                task.Priority ?? "normal",
+                task.Title))
+            .ToArray();
+        var levels = CalculateLevels(
+            decomposedTasks,
+            decomposedTasks.ToDictionary(task => task.Id, StringComparer.Ordinal));
+        var stageTaskIds = plan.Tasks
+            .Where(task => levels.TryGetValue(task.TaskId, out var level) && level == stageIndex)
+            .Select(task => task.TaskId)
+            .ToArray();
+        if (stageTaskIds.Length == 0)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: no stage {stageIndex} found for '{committed.ColumnTaskId}'.");
+            return false;
+        }
+
+        var reorderedStageTaskIds = BuildReorderedStageTaskIds(stageTaskIds, committed.NewTaskOrder);
+        if (stageTaskIds.SequenceEqual(reorderedStageTaskIds, StringComparer.Ordinal))
+            return false;
+
+        var reorderedStageTasks = new Queue<PlanTask>(
+            reorderedStageTaskIds
+                .Where(tasksById.ContainsKey)
+                .Select(taskId => tasksById[taskId]));
+        reorderedPlan = plan with
+        {
+            Tasks = plan.Tasks
+                .Select(task =>
+                    levels.TryGetValue(task.TaskId, out var level) && level == stageIndex
+                        ? reorderedStageTasks.Dequeue()
+                        : task)
+                .ToArray(),
+        };
+        return true;
+    }
+
+    private bool TryApplyCommittedColumnReorder(
+        DecomposedTaskGroup group,
+        CommittedColumnReorder committed,
+        out DecomposedTaskGroup reorderedGroup)
+    {
+        reorderedGroup = group;
+        if (committed.NewTaskOrder.Count == 0)
+            return false;
+        if (!TryParseStageIndex(committed.ColumnTaskId, out var stageIndex))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: unresolved column identifier '{committed.ColumnTaskId}'.");
+            return false;
+        }
+        if (group.Tasks.Count == 0)
+            return false;
+
+        var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var levels = CalculateLevels(group.Tasks, tasksById);
+        var stageTaskIds = group.Tasks
+            .Where(task => levels.TryGetValue(task.Id, out var level) && level == stageIndex)
+            .Select(task => task.Id)
+            .ToArray();
+        if (stageTaskIds.Length == 0)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: no stage {stageIndex} found for '{committed.ColumnTaskId}'.");
+            return false;
+        }
+
+        var reorderedStageTaskIds = BuildReorderedStageTaskIds(stageTaskIds, committed.NewTaskOrder);
+        if (stageTaskIds.SequenceEqual(reorderedStageTaskIds, StringComparer.Ordinal))
+            return false;
+
+        var reorderedStageTasks = new Queue<DecomposedSubTask>(
+            reorderedStageTaskIds
+                .Where(tasksById.ContainsKey)
+                .Select(taskId => tasksById[taskId]));
+        reorderedGroup = group with
+        {
+            Tasks = group.Tasks
+                .Select(task =>
+                    levels.TryGetValue(task.Id, out var level) && level == stageIndex
+                        ? reorderedStageTasks.Dequeue()
+                        : task)
+                .ToArray(),
+        };
+        return true;
+    }
+
+    private void PersistCommittedTaskCardReorder()
+    {
+        if (_lastCommittedColumnOrder is not { } committed)
+            return;
+
+        if (_saveDefinitionEdit is not null &&
+            _plan is not null &&
+            TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedGroup))
+        {
+            ApplyStagedMutation(reorderedGroup, preserveReview: true);
+            return;
+        }
+
+        if (_durablePlan is not null &&
+            TryApplyCommittedColumnReorder(_durablePlan, committed, out var reorderedDurablePlan))
+        {
+            _durablePlan = reorderedDurablePlan;
+            _plan = PendingDecomposePlanAdapter.FromPlan(reorderedDurablePlan);
+            return;
+        }
+
+        if (_plan is null)
+            return;
+        if (TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedPendingGroup))
+            _plan = _plan with { Group = reorderedPendingGroup };
+    }
+
     private static double ResolveSlotTop(TaskCardDragState dragState, int orderIndex)
     {
         if (orderIndex >= 0 && orderIndex < dragState.ColumnSlotTops.Count)
@@ -8209,6 +8393,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _lastCommittedColumnOrder = new CommittedColumnReorder(
                 dragState.ColumnIdentifier,
                 dragState.CurrentColumnOrder.ToArray());
+            PersistCommittedTaskCardReorder();
         }
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;
