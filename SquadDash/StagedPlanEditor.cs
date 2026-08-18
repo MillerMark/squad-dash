@@ -344,12 +344,12 @@ internal static class StagedPlanEditor
             }).ToArray();
         }
 
-        return group with
+        return DependencyEditRecomputer.ReconcileAuditBoundary(group with
         {
             Tasks = tasks,
             ApprovalGates = gates.Length == 0 ? null : gates,
             Validations = validations.Length == 0 ? null : validations,
-        };
+        });
     }
 
     internal static DecomposedTaskGroup DeleteValidation(

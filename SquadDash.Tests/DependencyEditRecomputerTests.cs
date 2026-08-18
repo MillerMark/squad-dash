@@ -399,6 +399,111 @@ internal sealed class DependencyEditRecomputerTests
         Assert.That(taskIds, Is.EqualTo(new[] { Id(1), Id(2), Id(3) }));
     }
 
+    // ─── Audit boundary reconciliation ───────────────────────────────────────
+
+    [Test]
+    public void Recompute_AuditValidation_AfterTaskIdsUpdatedWhenDepRemovalCreatesNewLeaf()
+    {
+        // Linear chain: 001 → 002 → 003.  Task 003 is the only leaf.
+        // Audit validation covers {003}.
+        // Remove task 002's dependency on 001 → 001 no longer has any successors
+        // in its dep graph, so it becomes a new leaf alongside 003.
+        // After recompute the audit's AfterTaskIds must be {001, 003}.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(2)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Final audit", "Audit all leaves.",
+                    [Id(3)], [],
+                    ["All tasks completed."], Mode: "audit"),
+            ]);
+
+        var edited = StagedPlanEditor.UpdateTask(group, Id(2), "Second", "Second result", "mid", []);
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.That(result.Success, Is.True);
+        var audit = result.RecomputedGroup!.Validations!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(audit.Mode, Is.EqualTo("audit"));
+            Assert.That(audit.AfterTaskIds,
+                Is.EquivalentTo(new[] { Id(1), Id(3) }),
+                "Audit AfterTaskIds must include both the original leaf and the newly created leaf");
+        });
+    }
+
+    [Test]
+    public void Recompute_AuditValidation_UnchangedWhenLeafSetDoesNotChange()
+    {
+        // Linear chain: 001 → 002 → 003.  Only leaf is 003.
+        // Remove 003's dep on 002: now both 002 and 003 are parallel leaves.
+        // But audit's AfterTaskIds was already {003}; it must become {002, 003}.
+        // Separate concern: ensure that if we instead change an interior dep that leaves the
+        // leaf set intact, the audit is NOT changed.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit stable plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(2)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Final audit", "Audit all leaves.",
+                    [Id(3)], [],
+                    ["All tasks completed."], Mode: "audit"),
+            ]);
+
+        // Move task 002 to depend directly on task 001 (no structural change to leaves).
+        var edited = StagedPlanEditor.UpdateTask(group, Id(2), "Second", "Second result", "mid", [Id(1)]);
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.That(result.Success, Is.True);
+        var audit = result.RecomputedGroup!.Validations!.Single();
+        Assert.That(audit.AfterTaskIds, Is.EquivalentTo(new[] { Id(3) }),
+            "Audit AfterTaskIds must remain {003} when the leaf set is unchanged");
+    }
+
+    [Test]
+    public void Recompute_NonAuditValidations_AfterTaskIdsNotModified()
+    {
+        // Ensure that evidence-mode (non-audit) validations are never touched by
+        // ReconcileAuditBoundary, even when the leaf set changes.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Mixed validation plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(2)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Evidence check", "Review step 1.",
+                    [Id(1)], [Id(2)],
+                    ["Output is observable."], Mode: "evidence"),
+            ]);
+
+        var edited = StagedPlanEditor.UpdateTask(group, Id(2), "Second", "Second result", "mid", []);
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.That(result.Success, Is.True);
+        var validation = result.RecomputedGroup!.Validations!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation.Mode, Is.EqualTo("evidence"));
+            Assert.That(validation.AfterTaskIds, Is.EqualTo(new[] { Id(1) }),
+                "Non-audit validation AfterTaskIds must not be modified by ReconcileAuditBoundary");
+        });
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static string Id(int number) => $"{GroupId}-{number:000}";

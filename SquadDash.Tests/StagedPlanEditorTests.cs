@@ -376,6 +376,92 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void DeleteTask_AuditValidationBoundaryReconciled_WhenDeletionChangesLeafSet()
+    {
+        // Diamond: 1 at top, 2 and 3 in the middle, 4 at the bottom.
+        // 001 → 002, 001 → 003, 002 → 004.  Leaves: {003, 004}.
+        // Audit: afterTaskIds=[003, 004], beforeTaskIds=[].
+        // Delete task 002: task 004 is rewired to [001] (task 002's dependencies).
+        // New task set: [001, 003, 004] where 004 depends on [001] and 003 depends on [001].
+        // New leaves: {003, 004} — unchanged, so audit afterTaskIds stays {003, 004}.
+        //
+        // Delete task 003 (a leaf): remaining = [001, 002, 004].
+        // Task 004 depends on [002]; task 002 depends on [001]. Non-leaves: {001, 002}. Leaves: {004}.
+        // The raw RewireBoundary would set afterTaskIds=[001, 004] (replacing 003 with its dep [001]).
+        // ReconcileAuditBoundary must correct this to {004} only.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit diamond plan", "feature/audit-diamond", "Test audit reconcile.",
+            [
+                new DecomposedSubTask(Id(1), "Root result",   [],              "mid", "Root"),
+                new DecomposedSubTask(Id(2), "Branch result", [Id(1)],         "mid", "Branch"),
+                new DecomposedSubTask(Id(3), "Leaf A result", [Id(1)],         "mid", "Leaf A"),
+                new DecomposedSubTask(Id(4), "Leaf B result", [Id(2)],         "mid", "Leaf B"),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Final audit", "Audit all leaves.",
+                    [Id(3), Id(4)], [],
+                    ["All leaves completed."], Mode: "audit"),
+            ]);
+
+        var updated = StagedPlanEditor.DeleteTask(group, Id(3));
+
+        var audit = updated.Validations!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.Tasks.Select(t => t.Id), Does.Not.Contain(Id(3)));
+            Assert.That(audit.AfterTaskIds, Is.EquivalentTo(new[] { Id(4) }),
+                "Audit AfterTaskIds must be reconciled to the actual leaf set {004}, " +
+                "not the raw rewired set {001, 004}");
+        });
+    }
+
+    [Test]
+    public void DeleteTask_AuditValidationOtherFieldsPreservedAfterReconcile()
+    {
+        // Verify that ReconcileAuditBoundary only changes AfterTaskIds and leaves all
+        // other audit validation fields intact.
+        var group = new DecomposedTaskGroup(
+            GroupId, "Audit preserve plan", "feature/audit-preserve", "Preserve audit fields.",
+            [
+                new DecomposedSubTask(Id(1), "First result",  [],      "mid", "First"),
+                new DecomposedSubTask(Id(2), "Second result", [Id(1)], "mid", "Second"),
+                new DecomposedSubTask(Id(3), "Third result",  [Id(1)], "mid", "Third"),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001",
+                    "Custom audit title",
+                    "Custom audit description.",
+                    [Id(2), Id(3)], [],
+                    ["Assertion one.", "Assertion two."],
+                    Mode: "audit",
+                    Commands: ["dotnet test"],
+                    RevalidateAtCompletion: false),
+            ]);
+
+        // Delete task 002; leaf set becomes {003} (003 still depends on 001, and 001 is non-leaf).
+        var updated = StagedPlanEditor.DeleteTask(group, Id(2));
+
+        var audit = updated.Validations!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(audit.ValidationId, Is.EqualTo(GroupId + "-VAL-001"));
+            Assert.That(audit.Title, Is.EqualTo("Custom audit title"));
+            Assert.That(audit.Description, Is.EqualTo("Custom audit description."));
+            Assert.That(audit.Mode, Is.EqualTo("audit"));
+            Assert.That(audit.BeforeTaskIds, Is.Empty);
+            Assert.That(audit.Assertions, Is.EqualTo(new[] { "Assertion one.", "Assertion two." }));
+            Assert.That(audit.Commands, Is.EqualTo(new[] { "dotnet test" }));
+            Assert.That(audit.RevalidateAtCompletion, Is.False);
+            Assert.That(audit.AfterTaskIds, Is.EquivalentTo(new[] { Id(3) }),
+                "AfterTaskIds must be updated to the new leaf set after deletion");
+        });
+    }
+
+    [Test]
     public void EditHistory_PeekDoesNotMoveTheUndoOrRedoCursor()
     {
         var first = MakeGroup();

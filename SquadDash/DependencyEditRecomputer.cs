@@ -134,7 +134,7 @@ internal static class DependencyEditRecomputer
             .Select((task, index) => (task.Id, Label: (index + 1).ToString()))
             .ToDictionary(item => item.Id, item => item.Label, StringComparer.Ordinal);
 
-        var recomputedGroup = group with { Tasks = StripOrphanedInputs(sortedTasks) };
+        var recomputedGroup = ReconcileAuditBoundary(group with { Tasks = StripOrphanedInputs(sortedTasks) });
 
         // Approval boundary anchors: resolve each gate using the new stage assignments.
         var approvalBoundaryAnchors = ResolveApprovalBoundaryAnchors(
@@ -301,6 +301,53 @@ internal static class DependencyEditRecomputer
             return true;
 
         return false;
+    }
+
+    // ── Audit boundary reconciliation ────────────────────────────────────────────
+
+    /// <summary>
+    /// Updates the final audit validation's <c>AfterTaskIds</c> to match the current leaf task
+    /// set, where a leaf is any task whose ID does not appear in any other task's
+    /// <c>DependsOn</c> list.  Only the single validation whose <c>mode == "audit"</c> and
+    /// whose <c>BeforeTaskIds</c> is empty is updated; all other validations and all other
+    /// fields are preserved unchanged.  If no such validation exists the group is returned
+    /// as-is.
+    /// </summary>
+    internal static DecomposedTaskGroup ReconcileAuditBoundary(DecomposedTaskGroup group)
+    {
+        var validations = group.Validations;
+        if (validations is null or { Count: 0 })
+            return group;
+
+        var auditIndex = -1;
+        for (var i = 0; i < validations.Count; i++)
+        {
+            var v = validations[i];
+            if (string.Equals(v.Mode, "audit", StringComparison.Ordinal) &&
+                (v.BeforeTaskIds is null or { Count: 0 }))
+            {
+                auditIndex = i;
+                break;
+            }
+        }
+
+        if (auditIndex < 0)
+            return group;
+
+        // Leaf tasks: task IDs that do not appear in any other task's DependsOn list.
+        var nonLeafIds = group.Tasks
+            .SelectMany(t => t.DependsOn)
+            .ToHashSet(StringComparer.Ordinal);
+        var leafIds = group.Tasks
+            .Select(t => t.Id)
+            .Where(id => !nonLeafIds.Contains(id))
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        var updatedValidations = validations.ToArray();
+        updatedValidations[auditIndex] = validations[auditIndex] with { AfterTaskIds = leafIds };
+
+        return group with { Validations = updatedValidations };
     }
 
     // ── Shared utilities ─────────────────────────────────────────────────────────
