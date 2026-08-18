@@ -19,7 +19,8 @@ internal sealed class PlanViewerRefreshArchitectureTests
         var refreshMethod = source[methodStart..nextMethod];
         Assert.Multiple(() =>
         {
-            Assert.That(refreshMethod, Does.Contain("RebuildPreservingScroll(plan, durablePlan)"),
+            Assert.That(refreshMethod, Does.Contain("var displayedDurablePlan = ApplyCommittedColumnReorder(durablePlan);")
+                .And.Contain("RebuildPreservingScroll(displayedPlan, displayedDurablePlan)"),
                 "Refresh should rebuild the existing viewer's visual tree through the scroll-preserving helper.");
             Assert.That(source, Does.Contain("private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)")
                 .And.Contain("BuildContent(plan, durablePlan)"),
