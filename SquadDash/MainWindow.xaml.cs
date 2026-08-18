@@ -2967,6 +2967,8 @@ public partial class MainWindow : Window
         {
             ResetQueuePausedState();
             HandleOpenEditorsBeforeSend(id);
+            _pec.PendingQueueItemCount = _promptQueue.Count;
+            _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             _pendingPromptSuppressTranscript = string.Equals(
                 item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
@@ -2984,6 +2986,8 @@ public partial class MainWindow : Window
         {
             _pendingPromptIsSystemInjected = false;
             _pendingPromptSuppressTranscript = false;
+            _pec.PendingQueueItemCount = 0;
+            _pec.CurrentDispatchedItem = null;
         }
     }
 
@@ -3021,6 +3025,8 @@ public partial class MainWindow : Window
         try
         {
             SquadDashTrace.Write("UI", $"Prompt sent: rightmost queued tab as quick-reply answer id={id}");
+            _pec.PendingQueueItemCount = _promptQueue.Count;
+            _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             _pendingPromptSuppressTranscript = string.Equals(
                 item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
@@ -3038,6 +3044,8 @@ public partial class MainWindow : Window
         {
             _pendingPromptIsSystemInjected = false;
             _pendingPromptSuppressTranscript = false;
+            _pec.PendingQueueItemCount = 0;
+            _pec.CurrentDispatchedItem = null;
             _loopFollowUpTcs?.TrySetResult(true);
         }
     }
