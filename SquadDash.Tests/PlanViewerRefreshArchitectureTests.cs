@@ -68,7 +68,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
             Assert.That(source, Does.Contain("element.PreviewMouseRightButtonDown")
                 .And.Contain("SelectTaggedElement(sender)"),
                 "Every tagged visualizer element must select itself before its context menu opens.");
-            Assert.That(source, Does.Contain("IsEnabled   = definitionEditable && !wouldCycle")
+            Assert.That(source, Does.Contain("var itemEnabled = definitionEditable && !wouldCycle && lockTip is null;")
                 .And.Contain("!IsTaskDefinitionEditable(taskId)"),
                 "Completed steps must not expose actionable dependency edits.");
             Assert.That(source, Does.Contain("\"Required verification checkpoint\"")

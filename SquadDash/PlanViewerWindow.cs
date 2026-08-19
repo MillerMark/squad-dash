@@ -3717,6 +3717,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return item;
     }
 
+    private bool TryValidateUnlockedCandidate(
+        DecomposedTaskGroup candidate,
+        out string? error)
+    {
+        error = null;
+        if (_durablePlan is null || _durablePlan.LifecycleStatus == PlanLifecycleStatus.Staged)
+            return true;
+        return StagedPlanEditor.TryValidateUnlockedChanges(_durablePlan, candidate, out error);
+    }
+
     /// <summary>
     /// Builds a "This approval blocks" submenu for a pending gate's right-click context menu.
     /// Lists the useful blocking frontier after the gate; descendants of an already-blocked
@@ -3747,12 +3757,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var candidate in candidates)
         {
             var capturedCandidate = candidate;
+            var include = !beforeSet.Contains(capturedCandidate.Id);
+            var prospectiveGroup = PlanGateManager.ApplyGateConsolidation(
+                group,
+                capturedAfterTaskIds,
+                capturedCandidate.Id,
+                include,
+                capturedGateId,
+                capturedMessage,
+                capturedQuestion);
+            var canEdit = TryValidateUnlockedCandidate(prospectiveGroup, out var lockError);
             var item = new MenuItem
             {
                 Header = capturedCandidate.Title ?? capturedCandidate.Id,
                 IsCheckable = true,
                 IsChecked = beforeSet.Contains(capturedCandidate.Id),
+                IsEnabled = canEdit,
             };
+            if (!canEdit)
+                item.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    lockError ?? "This approval boundary is locked by execution history.");
             // IsChecked is already toggled before Click fires on a checkable MenuItem.
             item.Click += (_, _) =>
             {
@@ -3838,15 +3862,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             (levels.TryGetValue(t.Id, out var l) ? l : 0) >= selectedLevel).ToArray();
 
         var definitionEditable = IsTaskDefinitionEditable(taskId);
-        var submenu = new MenuItem
-        {
-            Header = "Depends On",
-            IsEnabled = definitionEditable,
-            ToolTip = definitionEditable
-                ? null
-                : ToolTipHelper.MakeThemedToolTip(
-                    "Dependencies cannot be changed after this step has entered execution history."),
-        };
+        var submenu = new MenuItem { Header = "Depends On" };
 
         void AddGroupHeader(string label)
         {
@@ -3866,31 +3882,37 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             bool wouldCycle    = false;
             string? cycleTip   = null;
-            if (!isCurrentDep)
+            string? lockTip = null;
+            var testGroup = WithToggledDependency(group, taskId, candidate.Id, add: !isCurrentDep);
+            var testResult = DependencyEditRecomputer.Recompute(testGroup);
+            if (!testResult.Success || testResult.RecomputedGroup is null)
             {
-                var testGroup  = WithToggledDependency(group, taskId, candidate.Id, add: true);
-                var testResult = DependencyEditRecomputer.Recompute(testGroup);
-                if (!testResult.Success)
-                {
-                    wouldCycle = true;
-                    cycleTip   = testResult.CycleIds is { Count: > 0 }
-                        ? "Adding this dependency would create a cycle: " +
-                          string.Join(" → ", testResult.CycleIds)
-                        : "Adding this dependency would create a cycle.";
-                }
+                wouldCycle = true;
+                cycleTip = testResult.CycleIds is { Count: > 0 }
+                    ? "Adding this dependency would create a cycle: " +
+                      string.Join(" → ", testResult.CycleIds)
+                    : "Adding this dependency would create a cycle.";
+            }
+            else if (!TryValidateUnlockedCandidate(testResult.RecomputedGroup, out var unlockError))
+            {
+                lockTip = unlockError ?? "Dependencies cannot be changed after this step has entered execution history.";
             }
 
             var capturedCandidate  = candidate;
             var capturedCurrentDep = isCurrentDep;
+            var itemEnabled = definitionEditable && !wouldCycle && lockTip is null;
             var item = new MenuItem
             {
                 Header      = capturedCandidate.Title ?? capturedCandidate.Id,
                 IsCheckable = true,
                 IsChecked   = capturedCurrentDep,
-                IsEnabled   = definitionEditable && !wouldCycle,
+                IsEnabled   = itemEnabled,
             };
             if (wouldCycle && cycleTip is not null)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(cycleTip);
+            else if (!itemEnabled)
+                item.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    lockTip ?? "Dependencies cannot be changed after this step has entered execution history.");
 
             // IsChecked is already toggled before Click fires on a checkable MenuItem.
             item.Click += (_, _) =>
