@@ -9,7 +9,7 @@ namespace SquadDash.Tests;
 internal sealed class DurablePlanStartProjectionTests
 {
     [Test]
-    public void StartDecomposeLoop_DurablePlanRepairsManagedProjectionBeforeReadingIt()
+    public void StartDecomposeLoop_DurablePlanIsExecutionSourceAndProjectionIsWriteOnly()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var method = ExtractMethod(
@@ -18,19 +18,22 @@ internal sealed class DurablePlanStartProjectionTests
             "private void TryStartDecomposeGroupFromResponse(");
 
         var loadIndex = method.IndexOf("_planStore?.Load(groupId)", StringComparison.Ordinal);
-        var repairIndex = method.IndexOf(
-            "PlanTaskProjectionRepair.Ensure(tasksPath, durablePlan)",
+        var reconstructionIndex = method.IndexOf(
+            "PendingDecomposePlanAdapter.FromPlan(durablePlan)",
             StringComparison.Ordinal);
-        var readIndex = method.IndexOf(
-            "PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId)",
+        var projectionRefreshIndex = method.IndexOf(
+            "RefreshPlanProjectionBestEffort(durablePlan, \"loop-start\")",
             StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(loadIndex, Is.GreaterThanOrEqualTo(0));
-            Assert.That(repairIndex, Is.GreaterThan(loadIndex));
-            Assert.That(readIndex, Is.GreaterThan(repairIndex));
+            Assert.That(reconstructionIndex, Is.GreaterThan(loadIndex));
+            Assert.That(projectionRefreshIndex, Is.GreaterThan(reconstructionIndex));
             Assert.That(method, Does.Contain("HostRevision = durablePlan.Revision"));
+            Assert.That(method, Does.Not.Contain("TasksPanelParser.Parse"));
+            Assert.That(method, Does.Not.Contain("ReadManagedProjection"));
+            Assert.That(method, Does.Not.Contain("TryStartGroup"));
         });
     }
 

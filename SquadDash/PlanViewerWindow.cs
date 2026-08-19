@@ -43,6 +43,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onUnapproveGate;
     private readonly Func<PlanPreflightBlockedException, Task>? _viewPreflightChanges;
     private readonly Func<Task<bool>>? _isPreflightWorkspaceClean;
+    private readonly Func<Task<IReadOnlyList<string>?>>? _getPreflightDirtyPaths;
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
@@ -51,6 +52,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
+    private readonly Func<string, PlanTaskCorrectionActivityState>? _resolveTaskCorrectionActivity;
     private readonly Func<string, bool>? _isApprovalChangeActivityActive;
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
@@ -61,8 +63,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
     private Action<PlanValidationActivityPulseEvent>? _validationActivityPulseHandler;
     private Action<PlanRecoveryAssessmentActivityEvent>? _recoveryAssessmentActivityHandler;
+    private Action<PlanTaskCorrectionActivityEvent>? _taskCorrectionActivityHandler;
     private Action<PlanApprovalChangeActivityEvent>? _approvalChangeActivityHandler;
     private readonly HashSet<string> _recoveryAssessmentTaskIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlanTaskCorrectionActivityState> _taskCorrectionStates =
+        new(StringComparer.Ordinal);
     private readonly HashSet<string> _activeApprovalChangeGateIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
         new(StringComparer.Ordinal);
@@ -103,9 +108,60 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private record SelectedElementIdentity(string Kind, string Id);
+    private record CommittedColumnReorder(string ColumnTaskId, IReadOnlyList<string> NewTaskOrder);
+    [Flags]
+    private enum ConnectorEndpointRole
+    {
+        None = 0,
+        Start = 1,
+        End = 2,
+    }
+    private sealed class DragConnectorState
+    {
+        public ConnectorGroup Group { get; set; } = null!;
+        public ConnectorEndpointRole Role { get; init; }
+        public double? StartOffsetWithinCard { get; init; }
+        public double? EndOffsetWithinCard { get; init; }
+        public string? SourceTaskId { get; init; }
+        public string? TargetTaskId { get; init; }
+        public int BaseSkipCount { get; init; }
+        public bool IsDashed { get; init; }
+    }
+    private sealed class TaskCardDragState
+    {
+        public FrameworkElement Element { get; init; } = null!;
+        public string TaskId { get; init; } = string.Empty;
+        public Point MouseOffsetWithinCard { get; init; }
+        public Point DragStartCanvasPoint { get; init; }
+        public double OriginalTop { get; init; }
+        public double ColumnX { get; init; }
+        public double MilestoneTop { get; init; }
+        public double MilestoneBottom { get; init; }
+        public Effect? OriginalCardEffect { get; init; }
+        public IReadOnlyList<DragConnectorState> ConnectedConnectorStates { get; init; } = [];
+        public IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> ConnectedConnectors { get; init; } = [];
+        public IReadOnlyList<(UIElement Element, double OriginalTop)> DragOverlayElements { get; init; } = [];
+        public IReadOnlyList<(FrameworkElement Card, double OriginalTop, string TaskId)> SiblingCards { get; init; } = [];
+        public List<string> CurrentColumnOrder { get; init; } = [];
+        public IReadOnlyList<string> PreDragColumnOrder { get; init; } = [];
+        public Dictionary<string, double> DisplacedSiblingTops { get; init; } = new(StringComparer.Ordinal);
+        public Dictionary<string, IReadOnlyList<(UIElement Element, double OriginalTop)>> SiblingOverlayElements { get; init; } =
+            new(StringComparer.Ordinal);
+        public IReadOnlyList<double> ColumnSlotTops { get; init; } = [];
+        public string ColumnIdentifier { get; init; } = string.Empty;
+        public bool IsActive { get; set; }
+    }
     private SelectedElementIdentity? _selectedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private FrameworkElement? _selectionGlowElement;
+    private TaskCardDragState? _taskCardDragState;
+    private CommittedColumnReorder? _lastCommittedColumnOrder;
+    private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
+    private readonly List<ValidationShieldPresenter.LayoutRect> _allClusterFootprints = [];
+    private readonly List<double> _lockedMilestoneBoundaryXs = [];
+    private bool _suppressTaskCardCancelOnLostCapture;
 
     internal string? CurrentRevision => _plan?.Revision;
 
@@ -126,11 +182,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onUnapproveGate = null,
         Func<PlanPreflightBlockedException, Task>? viewPreflightChanges = null,
         Func<Task<bool>>? isPreflightWorkspaceClean = null,
+        Func<Task<IReadOnlyList<string>?>>? getPreflightDirtyPaths = null,
         WeakEventBroker? broker = null,
         Action<string>? onOpenCommit = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
         Func<string, bool>? isRecoveryAssessmentActive = null,
+        Func<string, PlanTaskCorrectionActivityState>? resolveTaskCorrectionActivity = null,
         Func<string, bool>? isApprovalChangeActivityActive = null,
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
@@ -168,6 +226,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onUnapproveGate    = onUnapproveGate;
         _viewPreflightChanges = viewPreflightChanges;
         _isPreflightWorkspaceClean = isPreflightWorkspaceClean;
+        _getPreflightDirtyPaths = getPreflightDirtyPaths;
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
@@ -176,6 +235,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
+        _resolveTaskCorrectionActivity = resolveTaskCorrectionActivity;
         _isApprovalChangeActivityActive = isApprovalChangeActivityActive;
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
@@ -192,6 +252,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
+        PreviewKeyDown += OnPlanViewerPreviewKeyDown;
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
@@ -268,6 +329,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             broker.Subscribe(_recoveryAssessmentActivityHandler);
             Closed += (_, _) => broker.Unsubscribe(_recoveryAssessmentActivityHandler);
 
+            _taskCorrectionActivityHandler = activity =>
+            {
+                if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
+                    return;
+                void ApplyActivity()
+                {
+                    if (activity.State == PlanTaskCorrectionActivityState.None)
+                        _taskCorrectionStates.Remove(activity.TaskId);
+                    else
+                        _taskCorrectionStates[activity.TaskId] = activity.State;
+                    if (_plan is not null && _durablePlan is not null)
+                        RebuildPreservingScroll(_plan, _durablePlan);
+                }
+                if (Dispatcher.CheckAccess()) ApplyActivity();
+                else Dispatcher.BeginInvoke(ApplyActivity);
+            };
+            broker.Subscribe(_taskCorrectionActivityHandler);
+            Closed += (_, _) => broker.Unsubscribe(_taskCorrectionActivityHandler);
+
             _approvalChangeActivityHandler = activity =>
             {
                 if (!string.Equals(activity.PlanId, durablePlan.PlanId, StringComparison.Ordinal))
@@ -303,16 +383,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_plan is null) return;
         var autoScrollForPlanProgress = HasNewActiveTask(_durablePlan, updatedPlan) ||
                                         HasJustCompleted(_durablePlan, updatedPlan);
-        var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(updatedPlan);
+        var displayedPlan = ApplyCommittedColumnReorder(updatedPlan);
+        var updatedDefinition = PendingDecomposePlanAdapter.FromPlan(displayedPlan);
         _plan = updatedDefinition;
-        _durablePlan = updatedPlan;
+        _durablePlan = displayedPlan;
         _editHistory?.ReplaceCurrent(updatedDefinition.Group);
         if (!CanEditSelectedElement())
             _isInspectorEditing = false;
-        RebuildPreservingScroll(updatedDefinition, updatedPlan, autoScrollForPlanProgress);
-        Title = $"Plan — {updatedPlan.DisplayName}";
+        RebuildPreservingScroll(updatedDefinition, displayedPlan, autoScrollForPlanProgress);
+        Title = $"Plan — {displayedPlan.DisplayName}";
         if (_deferredDefinitionEdit is not null &&
-            updatedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
+            displayedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
         {
             var deferred = _deferredDefinitionEdit;
             _deferredDefinitionEdit = null;
@@ -361,6 +442,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onUnapproveGate    = _onUnapproveGate;
         var onRetryValidation  = _onRetryValidation;
         var group = plan.Group;
+        var currentInterruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
+        var interruptedCorrectionState = string.IsNullOrWhiteSpace(currentInterruptedTaskId)
+            ? PlanTaskCorrectionActivityState.None
+            : ResolveTaskCorrectionActivity(currentInterruptedTaskId!);
+        var hasClaimedInterruptedCorrection =
+            interruptedCorrectionState != PlanTaskCorrectionActivityState.None;
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -423,7 +510,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         actionsPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
                             $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
-                        UIErrorHelper.ShowError("Task Plan", ex.Message, this);
+                        UIErrorHelper.ShowError("Plan", ex.Message, this);
                     }
                 };
                 actionsPanel.Children.Add(button);
@@ -446,7 +533,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 "Retry Validation",
                 quickReplyFontSize,
                 toolTip: ToolTipHelper.MakeThemedToolTip(
-                    $"Retry the non-mutating validation “{failedValidation.Title}.” Completed implementation tasks and commits remain accepted."));
+                    $"Retry the non-mutating validation “{failedValidation.Title}.” Completed implementation steps and commits remain accepted."));
             retryValidationButton.Focusable = false;
             retryValidationButton.Click += (_, _) =>
             {
@@ -460,7 +547,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-            durablePlan.InterruptionData?.RecoveryAssessment is not null)
+            durablePlan.InterruptionData?.RecoveryAssessment is not null &&
+            !hasClaimedInterruptedCorrection)
         {
             var assessmentPanel = new WrapPanel
             {
@@ -523,9 +611,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null &&
             durablePlan.InterruptionData?.RecoveryAssessment is null &&
-            durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+            durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
+                PlanLifecycleStatus.WaitingForCleanWorktree &&
             (onResumePlan is not null || onAdoptVerifiedCommitRange is not null ||
-             onContinueInterruptedTask is not null || onEndPlan is not null))
+             onContinueInterruptedTask is not null || onEndPlan is not null) &&
+            !hasClaimedInterruptedCorrection)
         {
             var interruptedPanel = new WrapPanel
             {
@@ -605,11 +695,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         safeResume
                             ? PlanRecoveryResumePolicy.IsAmendmentPreflightPause(capturedPlan)
-                                ? "Resume the added amendment; completed tasks remain accepted."
+                                ? "Resume the added amendment; completed steps remain accepted."
                                 : PlanRecoveryResumePolicy.IsReworkPreflightPause(capturedPlan)
                                     ? "Resume the already-prepared rework. The change request will not be submitted again."
                                     : "Resume with the next runnable plan step."
-                            : "Resume without assessing repository evidence. This may repeat work from the interrupted task."),
+                            : "Resume without assessing repository evidence. This may repeat work from the interrupted step."),
                     tone: safeResume ? QuickReplyTone.Default : QuickReplyTone.Warning);
                 resumeButton.Focusable = false;
                 resumeButton.Click += (_, _) =>
@@ -636,6 +726,45 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 interruptedPanel.Children.Add(endButton);
             }
             header.Children.Add(interruptedPanel);
+        }
+
+        if (durablePlan is not null && hasClaimedInterruptedCorrection)
+        {
+            var correctedTask = durablePlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, currentInterruptedTaskId, StringComparison.Ordinal));
+            var correctedStep = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                correctedTask?.DisplayStepLabel,
+                correctedTask?.Title ?? currentInterruptedTaskId ?? "Interrupted Step");
+            var correctionStatus = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            if (interruptedCorrectionState == PlanTaskCorrectionActivityState.Running)
+            {
+                var spinner = new ActivitySpinner
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 0),
+                    AccentColor = ResolvePlanActivityColor("PriorityMid", Colors.DarkOrange),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"{correctedStep} is receiving the bounded correction requested from its recovery card."),
+                };
+                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
+                spinner.SetContinuousActive(true);
+                correctionStatus.Children.Add(spinner);
+            }
+            var statusText = new TextBlock
+            {
+                Text = interruptedCorrectionState == PlanTaskCorrectionActivityState.Running
+                    ? $"Correcting {correctedStep}…"
+                    : $"Correction prompt prepared for {correctedStep}.",
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            statusText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            correctionStatus.Children.Add(statusText);
+            header.Children.Add(correctionStatus);
         }
 
         if (durablePlan is not null &&
@@ -676,7 +805,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hintBlock = new TextBlock
         {
-            Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming task must finish.  Tasks in the same stage with no arrow between them are independent and may run in any order.",
+            Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming step must finish.  Steps in the same stage with no arrow between them are independent and may run in any order.",
             TextWrapping = TextWrapping.Wrap,
             Margin       = new Thickness(22, 6, 22, 8),
         };
@@ -709,7 +838,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var sourceLabel = durablePlan.Source switch
             {
-                PlanSource.TasksJson         => "Task plan",
+                PlanSource.TasksJson         => "Plan",
                 PlanSource.DecomposeDecision => "Decomposition",
                 PlanSource.Inbox             => "Inbox",
                 PlanSource.Manual            => "Manual",
@@ -738,7 +867,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             if (interruptionData.InterruptedTaskId is { } interruptedTaskId)
             {
-                var intRow2 = new TextBlock { Text = $"Last task: {interruptedTaskId}" };
+                var intRow2 = new TextBlock { Text = $"Last step: {interruptedTaskId}" };
                 intRow2.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 intRow2.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 interruptionStack.Children.Add(intRow2);
@@ -831,6 +960,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 RefreshDetailPanel();
             }
         };
+        canvas.MouseMove += OnGraphCanvasMouseMove;
+        canvas.MouseLeftButtonUp += OnGraphCanvasMouseLeftButtonUp;
         var scroll = new ScrollViewer
         {
             Content = canvas,
@@ -902,6 +1033,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         _taskSpinnersById.Clear();
         _validationSpinnersById.Clear();
+        _taskDragOverlaysByTask.Clear();
         var displayedValidations = group.Validations ?? [];
         // Validation boundaries are graph constraints even though they do not mutate task
         // dependencies. Use them only for display-level calculation so the visual sequence
@@ -1126,6 +1258,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     attachedCount, NodeHeight, RowSpacing, _scaleFactor);
             }
         }
+        _taskCardPositions.Clear();
+        foreach (var entry in positions)
+            _taskCardPositions[entry.Key] = entry.Value;
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
         // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
@@ -1574,6 +1709,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(visual, top);
                 Panel.SetZIndex(visual, 30);
                 _deferredShieldHovers.Add((visual, validation.AfterTaskIds, validation.BeforeTaskIds));
+                if (anchor.TaskId is { } shieldTaskId)
+                    RegisterTaskDragOverlay(shieldTaskId, visual);
 
                 // Show Verity Cross avatar while a validation is actively running.
                 if (validationStatus == PlanValidationStatus.Validating && _resolveAgentAvatar is not null)
@@ -1592,6 +1729,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Canvas.SetTop(verityChip, top);
                         Panel.SetZIndex(verityChip, 31);
                         canvas.Children.Add(verityChip);
+                        if (anchor.TaskId is { } validationTaskId)
+                            RegisterTaskDragOverlay(validationTaskId, verityChip);
                     }
                 }
                 validationRailRight = Math.Max(validationRailRight, left + validationWidth);
@@ -1646,6 +1785,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ValidationShieldPresenter.ComputeAllClusterFootprint(
                     gateCenter.X, gateCenter.Y, attachedCount, _scaleFactor));
         }
+        _allClusterFootprints.Clear();
+        _allClusterFootprints.AddRange(allClusterFootprints);
+        _lockedMilestoneBoundaryXs.Clear();
+        _lockedMilestoneBoundaryXs.AddRange(lockedMilestoneBoundaryXs);
 
         // Pass 3: scan every edge to build sorted per-task exit/entry Y lists for spread rendering.
         // When a task has N connectors leaving its right edge, they are spread at heights
@@ -1680,15 +1823,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             leftEntryAnchors.ResolveY(taskId, otherY, positions[taskId].Y, NodeHeight);
 
         // Pass 4: per-task connector tracking for hover highlight.
-        var connectorsByTask = new Dictionary<string, List<ConnectorGroup>>(StringComparer.Ordinal);
+        var connectorsByTask = _connectorsByTask;
+        connectorsByTask.Clear();
         // Deferred badge hover wiring — populated during badge draw, executed after borderByTask is ready.
         var _deferredBadgeHovers = new List<(Border Badge, List<ConnectorGroup> Cgs)>();
-        void RegisterConnector(string taskId, ConnectorGroup cg)
+        void RegisterConnector(string taskId, ConnectorGroup cg, ConnectorEndpointRole role)
         {
             if (!connectorsByTask.TryGetValue(taskId, out var list))
                 connectorsByTask[taskId] = list = [];
             if (!list.Contains(cg)) list.Add(cg);
             if (!cg.TaskIds.Contains(taskId, StringComparer.Ordinal)) cg.TaskIds.Add(taskId);
+            cg.RegisterEndpointRole(taskId, role);
         }
 
         // Find the leftmost locked milestone boundary X strictly between fromX and toX, or NaN if none.
@@ -1718,7 +1863,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     skipCount: Math.Max(0, depSkip),
                     dashed: targets.Any(target => dashedTaskEdges.Contains((dependency, target.Id))),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(dependency, cg);
+                RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
                 cgsForGate.Add(cg);
             }
             foreach (var target in targets)
@@ -1737,7 +1882,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     skipCount: Math.Max(0, targetSkip),
                     dashed: joinIsLocked || combinedDashed,
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(target.Id, cg);
+                RegisterConnector(target.Id, cg, ConnectorEndpointRole.End);
                 cgsForGate.Add(cg);
             }
             gateConnectorGroups.Add(cgsForGate);
@@ -1754,51 +1899,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var fromPt    = new Point(source.X + NodeWidth, SpreadExitY(dependency, target.Y + NodeHeight / 2.0));
                 var toPt      = new Point(target.X,             SpreadEntryY(task.Id,   source.Y + NodeHeight / 2.0));
 
-                var detour = allClusterFootprints.Count > 0
-                    ? ValidationShieldPresenter.ComputeConnectorDetour(
-                        (fromPt.X, fromPt.Y), (toPt.X, toPt.Y), allClusterFootprints, _scaleFactor)
-                    : null;
-
-                if (detour is { Count: 0 })
-                {
-                    // No collision-free forward-only route was available. Preserve the dependency
-                    // with the same alternate hue used for a stage-bypassing connector so the
-                    // overlap is visibly distinct rather than appearing to enter the ALL badge.
-                    var cg = AddConnector(canvas,
-                        fromPt, toPt,
-                        arrowHead: true,
-                        skipCount: Math.Max(1, skipCount),
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                        toolTip: "Alternate connector color: no clear route around an ALL group was available.",
-                        splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg);
-                    RegisterConnector(task.Id, cg);
-                }
-                else if (detour is null || detour.Count <= 2)
-                {
-                    var cg = AddConnector(canvas,
-                        fromPt, toPt,
-                        arrowHead: true,
-                        skipCount: skipCount,
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)),
-                        splitAtX: FindSplitX(fromPt.X, toPt.X));
-                    RegisterConnector(dependency, cg);
-                    RegisterConnector(task.Id,   cg);
-                }
-                else
-                {
-                    // Render the complete collision-safe route as one rounded path. Each corner
-                    // cuts back by half its shorter adjacent segment, producing proportional
-                    // curves without allowing a long segment to overwhelm a nearby short turn.
-                    var routeGroup = AddRoundedConnectorRoute(
-                        canvas,
-                        detour,
-                        arrowHead: true,
-                        skipCount: skipCount,
-                        dashed: dashedTaskEdges.Contains((dependency, task.Id)));
-                    RegisterConnector(dependency, routeGroup);
-                    RegisterConnector(task.Id, routeGroup);
-                }
+                var isDashed = dashedTaskEdges.Contains((dependency, task.Id));
+                var directConnector = AddDirectTaskConnector(
+                    canvas,
+                    fromPt,
+                    toPt,
+                    skipCount,
+                    isDashed);
+                RegisterConnector(dependency, directConnector, ConnectorEndpointRole.Start);
+                RegisterConnector(task.Id, directConnector, ConnectorEndpointRole.End);
             }
         }
 
@@ -1876,9 +1985,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
                             ? joinIsPrimary
-                                ? "Human approval is required after every incoming task completes and before joined work begins. Click to review; right-click to remove."
+                                ? "Human approval is required after every incoming step completes and before joined work begins. Click to review; right-click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
-                            : "Require human approval after every incoming task completes and before joined work begins.",
+                            : "Require human approval after every incoming step completes and before joined work begins.",
                     joinExecutionLocked ? null
                     : onGatesChanged is null
                         ? null
@@ -1976,7 +2085,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Height          = 34 * _scaleFactor,
                 CornerRadius    = new CornerRadius(17 * _scaleFactor),
                 BorderThickness = new Thickness(1.5),
-                ToolTip         = "ALL prerequisites entering this gate must finish before any outgoing task can begin.",
+                ToolTip         = "ALL prerequisites entering this gate must finish before any outgoing step can begin.",
                 Child           = badgeContent,
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
@@ -2027,12 +2136,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (_recoveryAssessmentTaskIds.Contains(task.Id) ||
                 (_isRecoveryAssessmentActive?.Invoke(task.Id) ?? false))
                 activityState = PlanTaskActivityState.Assessing;
+            if (ResolveTaskCorrectionActivity(task.Id) == PlanTaskCorrectionActivityState.Running)
+                activityState = PlanTaskActivityState.Reworking;
             var isTaskExecuting = activityState is PlanTaskActivityState.Executing or
                 PlanTaskActivityState.Assessing or
                 PlanTaskActivityState.Verifying or
                 PlanTaskActivityState.Reworking;
             var prereqLines = task.DependsOn.Count == 0
-                ? ["None — this task can start immediately."]
+                ? ["None — this step can start immediately."]
                 : task.DependsOn.Select(id =>
                 {
                     if (!tasksById.TryGetValue(id, out var dep)) return $"• {id}";
@@ -2100,8 +2211,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanTaskActivityState.Assessing =>
                             "The Squad coordinator is assessing existing repository work before the interrupted plan continues.",
                         PlanTaskActivityState.Reworking =>
-                            "The task is receiving its one bounded automatic correction.",
-                        _ => "This task is actively receiving work from one or more agents.",
+                            "The step is receiving its one bounded automatic correction.",
+                        _ => "This step is actively receiving work from one or more agents.",
                     }),
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
@@ -2235,6 +2346,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
             border.Tag = $"task:{task.Id}";
             WireSelectionClick(border);
+            WireTaskCardDrag(border, task.Id);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
 
@@ -2248,12 +2360,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 var addBeforeItem = new MenuItem
                 {
-                    Header = "Require approval before this task",
+                    Header = "Require approval before this step",
                     IsEnabled = !taskEntryLocked,
                 };
                 if (taskEntryLocked)
                     addBeforeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        PlanApprovalControlLockPolicy.LockedTooltip("Task entry"));
+                        PlanApprovalControlLockPolicy.LockedTooltip("Step entry"));
                 addBeforeItem.Click += (_, _) =>
                 {
                     if (_saveDefinitionEdit is not null)
@@ -2294,12 +2406,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 var addAfterItem = new MenuItem
                 {
-                    Header = "Require approval after this task",
+                    Header = "Require approval after this step",
                     IsEnabled = !taskExitLocked,
                 };
                 if (taskExitLocked)
                     addAfterItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        PlanApprovalControlLockPolicy.LockedTooltip("Task exit"));
+                        PlanApprovalControlLockPolicy.LockedTooltip("Step exit"));
                 addAfterItem.Click += (_, _) =>
                 {
                     if (_saveDefinitionEdit is not null)
@@ -2367,20 +2479,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             !PlanGateManager.CanEditGate(durableGate);
                         var isRequiredVerificationProof =
                             PlanGateManager.IsRequiredVerificationProofGate(durablePlan, durableGate);
+                        var relationship = (capturedGate.AfterTaskIds ?? [])
+                            .Contains(capturedTask.Id, StringComparer.Ordinal)
+                                ? "after"
+                                : "before";
                         var removeItem = new MenuItem
                         {
                             Header = isRequiredVerificationProof
-                                ? $"Required verification proof: {capturedGate.Message}"
-                                : $"Remove approval gate: {capturedGate.Message}",
+                                ? "Required verification checkpoint"
+                                : $"Remove approval checkpoint ({relationship})",
                             IsEnabled = PlanGateManager.CanRemoveGate(durablePlan, durableGate),
                         };
                         if (isRequiredVerificationProof)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                                "This checkpoint is the verification task's only proof contract. " +
-                                "Delete the verification task or give it another proof requirement before removing this checkpoint.");
+                                "This checkpoint is the verification step's only proof contract. " +
+                                "Delete the verification step or give it another proof requirement before removing this checkpoint.\n\n" +
+                                capturedGate.Message);
                         else if (gateIsTraversed)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
                                 PlanApprovalControlLockPolicy.LockedTooltip("Traversed gate"));
+                        else
+                            removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(capturedGate.Message);
                         removeItem.Click += (_, _) =>
                         {
                             var updated = PlanGateManager.RemoveGate(durablePlan, capturedGate.GateId);
@@ -2416,13 +2535,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                     var deleteTask = new MenuItem
                     {
-                        Header = "Delete task",
+                        Header = "Delete step",
                         IsEnabled = group.Tasks.Count > 1 && definitionEditable,
                     };
                     deleteTask.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit(
-                                $"Delete “{capturedTask.Title ?? capturedTask.Id}” and reconnect its dependents?"))
+                                $"Delete step “{capturedTask.Title ?? capturedTask.Id}” and reconnect its dependents?"))
                             return;
                         ApplyStagedMutation(StagedPlanEditor.DeleteTask(_plan!.Group, capturedTask.Id));
                     };
@@ -2435,12 +2554,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var item = new MenuItem
                     {
                         Header = _saveDefinitionEdit is not null
-                            ? $"Insert task {relativePosition}"
-                            : $"Insert task {relativePosition}…",
+                            ? $"Insert step {relativePosition}"
+                            : $"Insert step {relativePosition}…",
                         IsEnabled = isEnabled,
                         ToolTip = isEnabled
                             ? ToolTipHelper.MakeThemedToolTip(
-                                $"Add a new task {relativePosition} this still-pending task and update its future dependencies.")
+                                $"Add a new step {relativePosition} this still-pending step and update its future dependencies.")
                             : ToolTipHelper.MakeThemedToolTip(
                                 "Only the unstarted downstream portion of a plan can be changed."),
                     };
@@ -2461,13 +2580,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var owner = Window.GetWindow(border) ?? Application.Current.MainWindow;
                         var newTitle = SimpleInputDialog.Show(
                             owner,
-                            $"Enter a short title for the task to insert {relativePosition} “{capturedTask.Title ?? capturedTask.Id}”:",
-                            $"Insert Task {relativePosition}");
+                            $"Enter a short title for the step to insert {relativePosition} “{capturedTask.Title ?? capturedTask.Id}”:",
+                            $"Insert Step {relativePosition}");
                         if (newTitle is null) return;
                         var newDescription = SimpleInputDialog.Show(
                             owner,
-                            "Describe the result this task must produce:",
-                            "Describe Inserted Task",
+                            "Describe the result this step must produce:",
+                            "Describe Inserted Step",
                             newTitle);
                         if (newDescription is null) return;
                         var updated = PlanStoreUpdater.ApplyTaskInserted(
@@ -2502,7 +2621,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 var addValidation = new MenuItem
                 {
-                    Header = "Add validation after this step",
+                        Header = "Add validation after this step",
                     IsEnabled = definitionEditable,
                 };
                 addValidation.Click += (_, _) => ApplyStagedMutation(
@@ -2512,12 +2631,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 contextMenu.Items.Add(addValidation);
                 var deleteTask = new MenuItem
                 {
-                    Header = "Delete task",
+                    Header = "Delete step",
                     IsEnabled = group.Tasks.Count > 1 && definitionEditable,
                 };
                 deleteTask.Click += (_, _) =>
                 {
-                    if (!ConfirmDestructivePlanEdit($"Delete task {capturedTaskId} and reconnect its dependents?"))
+                    if (!ConfirmDestructivePlanEdit($"Delete step {capturedTaskId} and reconnect its dependents?"))
                         return;
                     ApplyStagedMutation(StagedPlanEditor.DeleteTask(_plan!.Group, capturedTaskId));
                 };
@@ -2644,6 +2763,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
                 Panel.SetZIndex(avatarPanel, 35);
                 canvas.Children.Add(avatarPanel);
+                RegisterTaskDragOverlay(task.Id, avatarPanel);
             }
 
             // Show Verity Cross avatar on the right side while a task is being verified.
@@ -2661,6 +2781,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(verityChip, position.Y - chipSize);
                     Panel.SetZIndex(verityChip, 35);
                     canvas.Children.Add(verityChip);
+                    RegisterTaskDragOverlay(task.Id, verityChip);
                 }
             }
 
@@ -2682,6 +2803,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Canvas.SetTop(coordinatorChip, position.Y - chipSize);
                     Panel.SetZIndex(coordinatorChip, 35);
                     canvas.Children.Add(coordinatorChip);
+                    RegisterTaskDragOverlay(task.Id, coordinatorChip);
                 }
             }
 
@@ -2747,20 +2869,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var beforeStop = CreateApprovalStop(
                             beforeEngaged,
                             beforeApproved
-                                ? BuildApprovalResolvedToolTip(controllingBeforeGate, "before this task began")
+                                ? BuildApprovalResolvedToolTip(controllingBeforeGate, "before this step began")
                             : beforeAwaiting
-                                ? "Waiting for human approval before this task begins."
+                                ? "Waiting for human approval before this step begins."
                             : entryExecutionLocked
-                            ? PlanApprovalControlLockPolicy.LockedTooltip("Task entry")
+                            ? PlanApprovalControlLockPolicy.LockedTooltip("Step entry")
                         : collectivelyCoveredEntry
-                            ? "This task entry is covered by every incoming approval requirement."
+                            ? "This step entry is covered by every incoming approval requirement."
                         : coveringBeforeGate is not null
-                            ? "This task entry is covered by a larger approval requirement."
+                            ? "This step entry is covered by a larger approval requirement."
                             : beforeEngaged
                             ? beforeIsPrimary
-                                ? "Human approval is required before this task begins. Click to review; right-click to remove."
+                                ? "Human approval is required before this step begins. Click to review; right-click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
-                            : "Require human approval before this task begins.",
+                            : "Require human approval before this step begins.",
                         entryExecutionLocked || onGatesChanged is null ? null : () =>
                         {
                             if (collectivelyCoveredEntry)
@@ -2848,6 +2970,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             beforeRemoveMenu.Items.Add(removeBeforeItem);
                         }
                         canvas.Children.Add(beforeStop);
+                        RegisterTaskDragOverlay(task.Id, beforeStop);
                         approvalControlsByAnchor[beforeAnchor] = beforeStop;
                     }
                 }
@@ -2912,22 +3035,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var afterStop = CreateApprovalStop(
                             afterEngaged,
                             afterApproved
-                                ? BuildApprovalResolvedToolTip(controllingAfterGate, "after this task completed")
+                                ? BuildApprovalResolvedToolTip(controllingAfterGate, "after this step completed")
                             : afterAwaiting
                                 ? "Waiting for human approval before the final validation begins."
                             : exitExecutionLocked
-                            ? PlanApprovalControlLockPolicy.LockedTooltip("Task exit")
+                            ? PlanApprovalControlLockPolicy.LockedTooltip("Step exit")
                         : collectivelyCoveredByAllJoins
-                            ? "This task exit is covered by its enabled ALL approval requirements."
+                            ? "This step exit is covered by its enabled ALL approval requirements."
                         : coveringAfterGate is not null
-                            ? "This task exit is covered by a larger approval requirement."
+                            ? "This step exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
                                 ? afterRemovalBlocked
-                                    ? "This checkpoint is the verification task's only proof contract. Click to review it."
-                                    : "Human approval is required after this task completes. Click to review; right-click to remove."
+                                    ? "This checkpoint is the verification step's only proof contract. Click to review it."
+                                    : "Human approval is required after this step completes. Click to review; right-click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
-                            : "Require human approval after this task completes.",
+                            : "Require human approval after this step completes.",
                         exitExecutionLocked || onGatesChanged is null || afterRemovalBlocked ? null : () =>
                         {
                             if (collectivelyCoveredByAllJoins)
@@ -3016,6 +3139,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             afterRemoveMenu.Items.Add(removeAfterItem);
                         }
                         canvas.Children.Add(afterStop);
+                        RegisterTaskDragOverlay(task.Id, afterStop);
                         approvalControlsByAnchor[afterAnchor] = afterStop;
                     }
                 }
@@ -3037,13 +3161,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var beforeStop = CreateApprovalStop(
                         beforeEngaged,
                         beforeEngaged
-                            ? "Preview: human approval is required before this task."
-                            : "Preview: this stop controls approval before the task.",
+                            ? "Preview: human approval is required before this step."
+                            : "Preview: this stop controls approval before the step.",
                         null);
                     Canvas.SetLeft(beforeStop, position.X + 6 * _scaleFactor);
                     Canvas.SetTop(beforeStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(beforeStop, 25);
                     canvas.Children.Add(beforeStop);
+                    RegisterTaskDragOverlay(task.Id, beforeStop);
                 }
 
                 if (!isLeaf)
@@ -3052,13 +3177,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var afterStop = CreateApprovalStop(
                         afterEngaged,
                         afterEngaged
-                            ? "Preview: human approval is required after this task."
-                            : "Preview: this stop controls approval after the task.",
+                            ? "Preview: human approval is required after this step."
+                            : "Preview: this stop controls approval after the step.",
                         null);
                     Canvas.SetLeft(afterStop, position.X + NodeWidth - 22 * _scaleFactor);
                     Canvas.SetTop(afterStop, position.Y + NodeHeight - 20 * _scaleFactor);
                     Panel.SetZIndex(afterStop, 25);
                     canvas.Children.Add(afterStop);
+                    RegisterTaskDragOverlay(task.Id, afterStop);
                 }
             }
         }
@@ -3142,7 +3268,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
             };
         }
-
+
         // Kick off any pending dependency-edit animation after the new layout is applied.
         if (_pendingAnimation is { } animData)
         {
@@ -3219,6 +3345,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Height = Math.Max(MinHeight, ActualHeight - previousApprovalHeight);
             _allocatedApprovalHeight = 0;
         }
+    }
+
+    private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
+    {
+        if (_resolveTaskCorrectionActivity is not null)
+            return _resolveTaskCorrectionActivity(taskId);
+        if (_taskCorrectionStates.TryGetValue(taskId, out var liveState))
+            return liveState;
+        return PlanTaskCorrectionActivityState.None;
     }
 
     private void ShowPlanPreflightRecovery(
@@ -3366,7 +3501,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 buttons.IsEnabled = true;
                 readiness.Text = "Retry failed. Review the error details and try again.";
                 SquadDashTrace.Write(TraceCategory.General, $"Plan viewer retry failed: {ex}");
-                UIErrorHelper.ShowError("Task Plan", ex.Message, this);
+                UIErrorHelper.ShowError("Plan", ex.Message, this);
             }
         };
 
@@ -3383,7 +3518,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 pollInFlight = true;
                 try
                 {
-                    if (!await _isPreflightWorkspaceClean()) return;
+                    IReadOnlyList<string>? currentDirtyPaths = null;
+                    if (_getPreflightDirtyPaths is not null)
+                    {
+                        currentDirtyPaths = await _getPreflightDirtyPaths();
+                        if (currentDirtyPaths is not null)
+                        {
+                            content = PlanPreflightRecoveryContent.From(
+                                new PlanPreflightBlockedException(
+                                    exception.Condition,
+                                    currentDirtyPaths,
+                                    exception.TargetBranch));
+                            summary.Text = content.Summary;
+                            files.Text = content.ChangedFilesSummary;
+                            files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                                ? Visibility.Collapsed
+                                : Visibility.Visible;
+                            detailText.Text = content.TechnicalDetails;
+                        }
+                    }
+                    var clean = currentDirtyPaths is not null
+                        ? currentDirtyPaths.Count == 0
+                        : await _isPreflightWorkspaceClean();
+                    if (!clean) return;
                     _preflightPollTimer?.Stop();
                     readiness.Text = "Workspace is clean. Retry is ready.";
                     retryButton.FontWeight = FontWeights.SemiBold;
@@ -3435,9 +3592,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     internal void RefreshPlan(PendingDecomposePlan plan, Plan durablePlan)
     {
-        _editHistory?.ReplaceCurrent(plan.Group);
-        RebuildPreservingScroll(plan, durablePlan);
-        Title = $"Plan — {durablePlan.DisplayName}";
+        var displayedDurablePlan = ApplyCommittedColumnReorder(durablePlan);
+        var displayedPlan = _lastCommittedColumnOrder is null
+            ? plan
+            : PendingDecomposePlanAdapter.FromPlan(displayedDurablePlan);
+        _editHistory?.ReplaceCurrent(displayedPlan.Group);
+        RebuildPreservingScroll(displayedPlan, displayedDurablePlan);
+        Title = $"Plan — {displayedDurablePlan.DisplayName}";
     }
 
     private bool ApplyStagedMutation(
@@ -3542,7 +3703,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private MenuItem CreateStagedInsertMenuItem(string anchorTaskId, bool before)
     {
-        var item = new MenuItem { Header = before ? "Insert task before" : "Insert task after" };
+        var item = new MenuItem { Header = before ? "Insert step before" : "Insert step after" };
         item.Click += (_, _) =>
         {
             if (_plan is null) return;
@@ -3676,7 +3837,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var later   = candidates.Where(t =>
             (levels.TryGetValue(t.Id, out var l) ? l : 0) >= selectedLevel).ToArray();
 
-        var submenu = new MenuItem { Header = "Depends On" };
+        var definitionEditable = IsTaskDefinitionEditable(taskId);
+        var submenu = new MenuItem
+        {
+            Header = "Depends On",
+            IsEnabled = definitionEditable,
+            ToolTip = definitionEditable
+                ? null
+                : ToolTipHelper.MakeThemedToolTip(
+                    "Dependencies cannot be changed after this step has entered execution history."),
+        };
 
         void AddGroupHeader(string label)
         {
@@ -3717,7 +3887,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Header      = capturedCandidate.Title ?? capturedCandidate.Id,
                 IsCheckable = true,
                 IsChecked   = capturedCurrentDep,
-                IsEnabled   = !wouldCycle,
+                IsEnabled   = definitionEditable && !wouldCycle,
             };
             if (wouldCycle && cycleTip is not null)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(cycleTip);
@@ -3725,7 +3895,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // IsChecked is already toggled before Click fires on a checkable MenuItem.
             item.Click += (_, _) =>
             {
-                if (_plan is null) return;
+                if (_plan is null || !IsTaskDefinitionEditable(taskId))
+                {
+                    item.IsChecked = capturedCurrentDep;
+                    return;
+                }
                 var adding   = item.IsChecked;
                 var newGroup = WithToggledDependency(_plan.Group, taskId, capturedCandidate.Id, adding);
                 var result   = DependencyEditRecomputer.Recompute(newGroup);
@@ -3757,7 +3931,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var extra    = movedTasks.Count - 1;
                     var msg      = extra > 0
                         ? $"This will move '{title}' from Stage {oldStage} to Stage {newStage} " +
-                          $"and reposition {extra} downstream task{(extra == 1 ? "" : "s")}. Continue?"
+                          $"and reposition {extra} downstream step{(extra == 1 ? "" : "s")}. Continue?"
                         : $"This will move '{title}' from Stage {oldStage} to Stage {newStage}. Continue?";
 
                     var confirmed = MessageBox.Show(
@@ -3791,13 +3965,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (earlier.Length > 0)
         {
-            AddGroupHeader("Earlier tasks");
+            AddGroupHeader("Earlier steps");
             foreach (var c in earlier) AddCandidateItem(c);
         }
         if (later.Length > 0)
         {
             if (earlier.Length > 0) submenu.Items.Add(new Separator());
-            AddGroupHeader("Later tasks");
+            AddGroupHeader("Later steps");
             foreach (var c in later) AddCandidateItem(c);
         }
 
@@ -3918,7 +4092,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             { Margin = new Thickness(0, 1, 0, 1) });
                         break;
                     case ApprovalSummaryKind.All:
-                        listItem.Blocks.Add(new Paragraph(new Run("After all the following tasks complete:"))
+                        listItem.Blocks.Add(new Paragraph(new Run("After all the following steps complete:"))
                             { Margin = new Thickness(0, 1, 0, 1) });
                         listItem.Blocks.Add(TaskList(item.AfterTaskIds));
                         break;
@@ -4449,7 +4623,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         else
         {
-            AddText("• Repository evidence from the prerequisite tasks", "SubtleText");
+            AddText("• Repository evidence from the prerequisite steps", "SubtleText");
         }
 
         AddText("Releases when passed:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
@@ -4482,7 +4656,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PlanValidationStatus.Passed => "Passed",
         PlanValidationStatus.Failed => "Failed",
         PlanValidationStatus.Stale => "Needs revalidation",
-        _ => "Waiting for prerequisite tasks",
+        _ => "Waiting for prerequisite steps",
     };
 
     private static string BuildApprovalResolvedToolTip(PlanApprovalGate? gate, string location) =>
@@ -4665,7 +4839,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var approveItem = new MenuItem
                 {
-                    Header = "Approve this task",
+                    Header = "Approve this step",
                     Style  = TryFindResource("ThemedMenuItemStyle") as Style,
                 };
                 approveItem.Click += (_, _) => approveAction();
@@ -4831,6 +5005,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // ALL-gate badge Borders that this connector enters or exits; highlighted on hover.
         public readonly List<Border>    GateBadges    = [];
         public int SkipCount { get; set; }
+        public Point OriginalFrom { get; private set; }
+        public Point OriginalTo { get; private set; }
+        public Point CurrentFrom { get; private set; }
+        public Point CurrentTo { get; private set; }
+        private readonly Dictionary<string, ConnectorEndpointRole> _endpointRoles = new(StringComparer.Ordinal);
+        private Action<Point, Point>? _endpointUpdater;
 
         // Recompute the glow brush from the current theme and update all glow elements.
         public void RefreshGlowBrushes()
@@ -4846,6 +5026,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         shape.Stroke = brush;
                 }
             }
+        }
+
+        public void InitializeEndpoints(Point from, Point to, Action<Point, Point> endpointUpdater)
+        {
+            OriginalFrom = from;
+            OriginalTo = to;
+            CurrentFrom = from;
+            CurrentTo = to;
+            _endpointUpdater = endpointUpdater;
+        }
+
+        public void RegisterEndpointRole(string taskId, ConnectorEndpointRole role)
+        {
+            _endpointRoles.TryGetValue(taskId, out var existing);
+            _endpointRoles[taskId] = existing | role;
+        }
+
+        public ConnectorEndpointRole GetEndpointRole(string taskId) =>
+            _endpointRoles.TryGetValue(taskId, out var role) ? role : ConnectorEndpointRole.None;
+
+        public void UpdateEndpoints(Point from, Point to)
+        {
+            CurrentFrom = from;
+            CurrentTo = to;
+            _endpointUpdater?.Invoke(from, to);
         }
     }
 
@@ -4876,8 +5081,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Line/curve ends at the arrowhead base-center so it enters the triangle's middle.
         var lineEnd = arrowHead ? new Point(to.X - arrowLength, to.Y) : to;
+        var renderStraight = skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0 || Math.Abs(to.X - from.X) < 1.0;
+        var doLineSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
 
-        if (skipCount > 0 || Math.Abs(to.Y - from.Y) < 1.0 || Math.Abs(to.X - from.X) < 1.0)
+        if (renderStraight)
         {
             // Straight line.
             var glowLine = new Line
@@ -4892,14 +5099,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             group.GlowElements.Add(glowLine);
 
             // Main line — split at a locked milestone boundary if one crosses this segment.
-            bool doLineSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            Line? leftLine = null;
+            Line? rightLine = null;
+            Line? mainLine = null;
             if (doLineSplit)
             {
                 double tSplit  = (splitAtX - from.X) / (lineEnd.X - from.X);
                 double splitY  = from.Y + tSplit * (lineEnd.Y - from.Y);
                 var    splitPt = new Point(splitAtX, splitY);
 
-                var leftLine = new Line
+                leftLine = new Line
                 {
                     X1 = from.X, Y1 = from.Y, X2 = splitPt.X, Y2 = splitPt.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4908,7 +5117,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 canvas.Children.Add(leftLine);
                 group.MainElements.Add(leftLine);
 
-                var rightLine = new Line
+                rightLine = new Line
                 {
                     X1 = splitPt.X, Y1 = splitPt.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4920,7 +5129,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                var mainLine = new Line
+                mainLine = new Line
                 {
                     X1 = from.X, Y1 = from.Y, X2 = lineEnd.X, Y2 = lineEnd.Y,
                     StrokeThickness = 2, Stroke = mainBrush,
@@ -4943,6 +5152,75 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null) hitLine.ToolTip = toolTip;
             canvas.Children.Add(hitLine);
             group.MainElements.Add(hitLine);
+
+            Polygon? glowArrow = null;
+            Polygon? mainArrow = null;
+            if (arrowHead)
+            {
+                // Glow arrowhead: same tip, wider wings.
+                var perp = new Vector(0, 1);
+                glowArrow = new Polygon
+                {
+                    Fill       = glowBrush,
+                    Visibility = Visibility.Hidden,
+                    Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
+                };
+                canvas.Children.Add(glowArrow);
+                group.GlowElements.Add(glowArrow);
+
+                // Main arrowhead.
+                mainArrow = new Polygon
+                {
+                    Fill   = mainBrush,
+                    Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+                };
+                canvas.Children.Add(mainArrow);
+                group.MainElements.Add(mainArrow);
+            }
+
+            group.InitializeEndpoints(from, to, (updatedFrom, updatedTo) =>
+            {
+                var updatedLineEnd = arrowHead
+                    ? new Point(updatedTo.X - arrowLength, updatedTo.Y)
+                    : updatedTo;
+                glowLine.X1 = updatedFrom.X;
+                glowLine.Y1 = updatedFrom.Y;
+                glowLine.X2 = updatedLineEnd.X;
+                glowLine.Y2 = updatedLineEnd.Y;
+                if (doLineSplit && leftLine is not null && rightLine is not null)
+                {
+                    double tSplit = (splitAtX - updatedFrom.X) / (updatedLineEnd.X - updatedFrom.X);
+                    double splitY = updatedFrom.Y + tSplit * (updatedLineEnd.Y - updatedFrom.Y);
+                    var splitPt = new Point(splitAtX, splitY);
+                    leftLine.X1 = updatedFrom.X;
+                    leftLine.Y1 = updatedFrom.Y;
+                    leftLine.X2 = splitPt.X;
+                    leftLine.Y2 = splitPt.Y;
+                    rightLine.X1 = splitPt.X;
+                    rightLine.Y1 = splitPt.Y;
+                    rightLine.X2 = updatedLineEnd.X;
+                    rightLine.Y2 = updatedLineEnd.Y;
+                }
+                else if (mainLine is not null)
+                {
+                    mainLine.X1 = updatedFrom.X;
+                    mainLine.Y1 = updatedFrom.Y;
+                    mainLine.X2 = updatedLineEnd.X;
+                    mainLine.Y2 = updatedLineEnd.Y;
+                }
+
+                hitLine.X1 = updatedFrom.X;
+                hitLine.Y1 = updatedFrom.Y;
+                hitLine.X2 = updatedLineEnd.X;
+                hitLine.Y2 = updatedLineEnd.Y;
+
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var perp = new Vector(0, 1);
+                    glowArrow.Points = [updatedTo, updatedLineEnd + perp * glowArrowHalf, updatedLineEnd - perp * glowArrowHalf];
+                    mainArrow.Points = [updatedTo, updatedLineEnd + perp * arrowHalfWidth, updatedLineEnd - perp * arrowHalfWidth];
+                }
+            });
         }
         else
         {
@@ -4976,6 +5254,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             // Main path — split at a locked milestone boundary if one crosses this segment.
             bool doBezSplit = !double.IsNaN(splitAtX) && splitAtX > from.X + 1.0 && splitAtX < lineEnd.X - 1.0;
+            Path? leftPath = null;
+            Path? rightPath = null;
+            Path? mainPath = null;
             if (doBezSplit)
             {
                 // Binary search for t where x(t) = splitAtX (monotone for left-to-right S-curves).
@@ -4992,7 +5273,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var leftFig = new PathFigure { StartPoint = lp0 };
                 leftFig.Segments.Add(new BezierSegment(lp1, lp2, lp3, isStroked: true));
                 var leftGeo  = new PathGeometry(); leftGeo.Figures.Add(leftFig);
-                var leftPath = new Path { Data = leftGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent };
+                leftPath = new Path { Data = leftGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent };
                 if (dashArray is not null) leftPath.StrokeDashArray = dashArray;
                 canvas.Children.Add(leftPath);
                 group.MainElements.Add(leftPath);
@@ -5000,7 +5281,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var rightFig = new PathFigure { StartPoint = rp0 };
                 rightFig.Segments.Add(new BezierSegment(rp1, rp2, rp3, isStroked: true));
                 var rightGeo  = new PathGeometry(); rightGeo.Figures.Add(rightFig);
-                var rightPath = new Path
+                rightPath = new Path
                 {
                     Data = rightGeo, StrokeThickness = 2, Stroke = mainBrush, Fill = Brushes.Transparent,
                     StrokeDashArray = new DoubleCollection { 7, 2 },
@@ -5011,7 +5292,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                var mainPath = new Path
+                mainPath = new Path
                 {
                     Data = MakeBezierGeometry(), StrokeThickness = 2, Stroke = mainBrush,
                     Fill = Brushes.Transparent,
@@ -5033,29 +5314,86 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (toolTip is not null) hitPath.ToolTip = toolTip;
             canvas.Children.Add(hitPath);
             group.MainElements.Add(hitPath);
-        }
 
-        if (arrowHead)
-        {
-            // Glow arrowhead: same tip, wider wings.
-            var perp = new Vector(0, 1);
-            var glowArrow = new Polygon
+            Polygon? glowArrow = null;
+            Polygon? mainArrow = null;
+            if (arrowHead)
             {
-                Fill       = glowBrush,
-                Visibility = Visibility.Hidden,
-                Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
-            };
-            canvas.Children.Add(glowArrow);
-            group.GlowElements.Add(glowArrow);
+                // Glow arrowhead: same tip, wider wings.
+                var perp = new Vector(0, 1);
+                glowArrow = new Polygon
+                {
+                    Fill       = glowBrush,
+                    Visibility = Visibility.Hidden,
+                    Points     = [to, lineEnd + perp * glowArrowHalf, lineEnd - perp * glowArrowHalf],
+                };
+                canvas.Children.Add(glowArrow);
+                group.GlowElements.Add(glowArrow);
 
-            // Main arrowhead.
-            var mainArrow = new Polygon
+                // Main arrowhead.
+                mainArrow = new Polygon
+                {
+                    Fill   = mainBrush,
+                    Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
+                };
+                canvas.Children.Add(mainArrow);
+                group.MainElements.Add(mainArrow);
+            }
+
+            group.InitializeEndpoints(from, to, (updatedFrom, updatedTo) =>
             {
-                Fill   = mainBrush,
-                Points = [to, lineEnd + perp * arrowHalfWidth, lineEnd - perp * arrowHalfWidth],
-            };
-            canvas.Children.Add(mainArrow);
-            group.MainElements.Add(mainArrow);
+                var updatedLineEnd = arrowHead
+                    ? new Point(updatedTo.X - arrowLength, updatedTo.Y)
+                    : updatedTo;
+                var updatedDx = updatedLineEnd.X - updatedFrom.X;
+                var updatedHandleLen = Math.Max(0, updatedDx * 0.5);
+                var updatedCp1 = new Point(updatedFrom.X + updatedHandleLen, updatedFrom.Y);
+                var updatedCp2 = new Point(updatedLineEnd.X - updatedHandleLen, updatedLineEnd.Y);
+                PathGeometry MakeUpdatedBezierGeometry()
+                {
+                    var fig = new PathFigure { StartPoint = updatedFrom };
+                    fig.Segments.Add(new BezierSegment(updatedCp1, updatedCp2, updatedLineEnd, isStroked: true));
+                    var geo = new PathGeometry();
+                    geo.Figures.Add(fig);
+                    return geo;
+                }
+
+                glowPath.Data = MakeUpdatedBezierGeometry();
+                if (doBezSplit && leftPath is not null && rightPath is not null)
+                {
+                    double lo = 0.0, hi = 1.0;
+                    for (var index = 0; index < 50; index++)
+                    {
+                        var mid = (lo + hi) * 0.5;
+                        if (BezierX(updatedFrom, updatedCp1, updatedCp2, updatedLineEnd, mid) < splitAtX) lo = mid; else hi = mid;
+                    }
+                    SplitBezier(updatedFrom, updatedCp1, updatedCp2, updatedLineEnd, (lo + hi) * 0.5,
+                        out var lp0, out var lp1, out var lp2, out var lp3,
+                        out var rp0, out var rp1, out var rp2, out var rp3);
+                    var leftFig = new PathFigure { StartPoint = lp0 };
+                    leftFig.Segments.Add(new BezierSegment(lp1, lp2, lp3, isStroked: true));
+                    var leftGeo = new PathGeometry();
+                    leftGeo.Figures.Add(leftFig);
+                    leftPath.Data = leftGeo;
+                    var rightFig = new PathFigure { StartPoint = rp0 };
+                    rightFig.Segments.Add(new BezierSegment(rp1, rp2, rp3, isStroked: true));
+                    var rightGeo = new PathGeometry();
+                    rightGeo.Figures.Add(rightFig);
+                    rightPath.Data = rightGeo;
+                }
+                else if (mainPath is not null)
+                {
+                    mainPath.Data = MakeUpdatedBezierGeometry();
+                }
+
+                hitPath.Data = MakeUpdatedBezierGeometry();
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var perp = new Vector(0, 1);
+                    glowArrow.Points = [updatedTo, updatedLineEnd + perp * glowArrowHalf, updatedLineEnd - perp * glowArrowHalf];
+                    mainArrow.Points = [updatedTo, updatedLineEnd + perp * arrowHalfWidth, updatedLineEnd - perp * arrowHalfWidth];
+                }
+            });
         }
 
         return group;
@@ -5081,16 +5419,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var target = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
         if (arrowHead)
             drawableRoute[^1] = (drawableRoute[^1].X - arrowLength, drawableRoute[^1].Y);
-        var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(drawableRoute)
-            .ToDictionary(corner => corner.PointIndex);
 
-        PathGeometry MakeGeometry()
+        PathGeometry MakeGeometry(IReadOnlyList<(double X, double Y)> geometryRoute)
         {
+            var corners = ValidationShieldPresenter.ComputeRoundedRouteCorners(geometryRoute)
+                .ToDictionary(corner => corner.PointIndex);
             var figure = new PathFigure
             {
-                StartPoint = new Point(drawableRoute[0].X, drawableRoute[0].Y),
+                StartPoint = new Point(geometryRoute[0].X, geometryRoute[0].Y),
             };
-            for (var index = 1; index < drawableRoute.Length - 1; index++)
+            for (var index = 1; index < geometryRoute.Count - 1; index++)
             {
                 if (!corners.TryGetValue(index, out var corner)) continue;
                 figure.Segments.Add(new LineSegment(
@@ -5101,7 +5439,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     isStroked: true));
             }
             figure.Segments.Add(new LineSegment(
-                new Point(drawableRoute[^1].X, drawableRoute[^1].Y), isStroked: true));
+                new Point(geometryRoute[^1].X, geometryRoute[^1].Y), isStroked: true));
             var geometry = new PathGeometry();
             geometry.Figures.Add(figure);
             return geometry;
@@ -5113,7 +5451,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var glowBrush = new SolidColorBrush(glowColor);
         var glowPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = glowThickness,
             Stroke = glowBrush,
             Fill = Brushes.Transparent,
@@ -5126,7 +5464,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var mainPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = 2,
             Stroke = mainBrush,
             Fill = Brushes.Transparent,
@@ -5138,7 +5476,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hitPath = new Path
         {
-            Data = MakeGeometry(),
+            Data = MakeGeometry(drawableRoute),
             StrokeThickness = 12,
             Fill = Brushes.Transparent,
             Opacity = 0.01,
@@ -5148,11 +5486,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         canvas.Children.Add(hitPath);
         group.MainElements.Add(hitPath);
 
+        Polygon? glowArrow = null;
+        Polygon? mainArrow = null;
         if (arrowHead)
         {
             var lineEnd = new Point(drawableRoute[^1].X, drawableRoute[^1].Y);
             var perpendicular = new Vector(0, 1);
-            var glowArrow = new Polygon
+            glowArrow = new Polygon
             {
                 Fill = glowBrush,
                 Visibility = Visibility.Hidden,
@@ -5161,7 +5501,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(glowArrow);
             group.GlowElements.Add(glowArrow);
 
-            var mainArrow = new Polygon
+            mainArrow = new Polygon
             {
                 Fill = mainBrush,
                 Points = [target, lineEnd + perpendicular * arrowHalfWidth, lineEnd - perpendicular * arrowHalfWidth],
@@ -5169,6 +5509,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(mainArrow);
             group.MainElements.Add(mainArrow);
         }
+
+        var baseRoute = route.ToArray();
+        group.InitializeEndpoints(
+            new Point(baseRoute[0].X, baseRoute[0].Y),
+            new Point(baseRoute[^1].X, baseRoute[^1].Y),
+            (fromPoint, toPoint) =>
+            {
+                var adjustedRoute = baseRoute.ToArray();
+                adjustedRoute[0] = (fromPoint.X, fromPoint.Y);
+                adjustedRoute[^1] = (toPoint.X, toPoint.Y);
+                var adjustedDrawableRoute = adjustedRoute.ToArray();
+                var adjustedTarget = new Point(adjustedDrawableRoute[^1].X, adjustedDrawableRoute[^1].Y);
+                if (arrowHead)
+                    adjustedDrawableRoute[^1] = (adjustedDrawableRoute[^1].X - arrowLength, adjustedDrawableRoute[^1].Y);
+
+                var geometry = MakeGeometry(adjustedDrawableRoute);
+                glowPath.Data = geometry;
+                mainPath.Data = geometry.Clone();
+                hitPath.Data = geometry.Clone();
+                if (arrowHead && glowArrow is not null && mainArrow is not null)
+                {
+                    var adjustedLineEnd = new Point(adjustedDrawableRoute[^1].X, adjustedDrawableRoute[^1].Y);
+                    var perpendicular = new Vector(0, 1);
+                    glowArrow.Points = [adjustedTarget, adjustedLineEnd + perpendicular * glowArrowHalf, adjustedLineEnd - perpendicular * glowArrowHalf];
+                    mainArrow.Points = [adjustedTarget, adjustedLineEnd + perpendicular * arrowHalfWidth, adjustedLineEnd - perpendicular * arrowHalfWidth];
+                }
+            });
 
         return group;
     }
@@ -5807,7 +6174,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var task = _plan?.Group.Tasks.FirstOrDefault(value => value.Id == taskId);
         if (task is null || _detailDocument is null) return false;
         _detailDocument.Blocks.Clear();
-        var panel = CreateEditorPanel("Edit task", out var status);
+        var panel = CreateEditorPanel("Edit step", out var status);
         var title = AddEditorField(panel, "Title", task.Title, 34);
         var description = AddEditorField(panel, "Description", task.Description, 170);
         var priority = AddEditorField(panel, "Priority", task.Priority, 34);
@@ -5861,8 +6228,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var title = AddEditorField(panel, "Title", validation.Title, 34);
         var description = AddEditorField(panel, "Description", validation.Description, 100);
         var mode = AddEditorField(panel, "Mode", validation.Mode, 34);
-        var after = AddEditorField(panel, "After task IDs", string.Join(Environment.NewLine, validation.AfterTaskIds), 64);
-        var before = AddEditorField(panel, "Before task IDs", string.Join(Environment.NewLine, validation.BeforeTaskIds), 64);
+        var after = AddEditorField(panel, "After step IDs", string.Join(Environment.NewLine, validation.AfterTaskIds), 64);
+        var before = AddEditorField(panel, "Before step IDs", string.Join(Environment.NewLine, validation.BeforeTaskIds), 64);
         var assertions = AddEditorField(panel, "Assertions (one per line)", string.Join(Environment.NewLine, validation.Assertions), 100);
         var commands = AddEditorField(panel, "Commands (one per line)", string.Join(Environment.NewLine, validation.Commands ?? []), 80);
         var outputIds = AddEditorField(panel, "Output IDs", string.Join(Environment.NewLine, validation.OutputIds ?? []), 64);
@@ -5884,9 +6251,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ParseEditorList(after.Text), ParseEditorList(before.Text),
                 ParseEditorLines(assertions.Text), ParseEditorLines(commands.Text),
                 revalidate.IsChecked != false, ParseEditorList(outputIds.Text));
-            // Proof-bearing plans require the final audit's afterTaskIds to exactly match
-            // the current leaf set. Re-reconcile so schema validation passes regardless of
-            // what the user typed into the after-task-IDs field for an audit validation.
+            // When an audit is present, its completion frontier must continue to match the
+            // current leaf set after structural edits.
             updatedGroup = DependencyEditRecomputer.ReconcileAuditBoundary(updatedGroup);
             ApplyStagedMutation(updatedGroup);
             return null;
@@ -5909,8 +6275,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var panel = CreateEditorPanel("Edit human approval", out var status);
         var message = AddEditorField(panel, "Message", gate.Message, 75);
         var question = AddEditorField(panel, "Approval question", gate.Question, 75);
-        var after = AddEditorField(panel, "After task IDs", string.Join(Environment.NewLine, gate.AfterTaskIds ?? []), 64);
-        var before = AddEditorField(panel, "Before task IDs", string.Join(Environment.NewLine, gate.BeforeTaskIds ?? []), 64);
+        var after = AddEditorField(panel, "After step IDs", string.Join(Environment.NewLine, gate.AfterTaskIds ?? []), 64);
+        var before = AddEditorField(panel, "Before step IDs", string.Join(Environment.NewLine, gate.BeforeTaskIds ?? []), 64);
         var proofs = AddEditorField(
             panel,
             "Proof requirements (ID | type | description | question)",
@@ -6400,10 +6766,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         // After Task IDs
-        AddTaskIdList("After Tasks", validation.AfterTaskIds, plan);
+        AddTaskIdList("After Steps", validation.AfterTaskIds, plan);
 
         // Before Task IDs
-        AddTaskIdList("Before Tasks", validation.BeforeTaskIds, plan);
+        AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
     }
 
     private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)
@@ -6474,10 +6840,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(statusPara);
 
         // After Task IDs
-        AddTaskIdList("After Tasks", gate.AfterTaskIds, plan);
+        AddTaskIdList("After Steps", gate.AfterTaskIds, plan);
 
         // Before Task IDs
-        AddTaskIdList("Before Tasks", gate.BeforeTaskIds, plan);
+        AddTaskIdList("Before Steps", gate.BeforeTaskIds, plan);
 
         // Resolution note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
@@ -6598,10 +6964,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(statusPara);
 
         // After Tasks
-        AddTaskIdList("After Tasks", gate.AfterTaskIds, _durablePlan);
+        AddTaskIdList("After Steps", gate.AfterTaskIds, _durablePlan);
 
         // Before Tasks
-        AddTaskIdList("Before Tasks", gate.BeforeTaskIds, _durablePlan);
+        AddTaskIdList("Before Steps", gate.BeforeTaskIds, _durablePlan);
 
         // Resolution Note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
@@ -6678,7 +7044,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var tasksBefore = columns.Where(g => g.Key <= columnIndex).SelectMany(g => g).ToArray();
         if (tasksBefore.Length > 0)
         {
-            AddSectionHeader($"Tasks Before (Stage {columnIndex + 1} and earlier)");
+            AddSectionHeader($"Steps Before (Stage {columnIndex + 1} and earlier)");
             AddTaskStatusList(tasksBefore);
         }
 
@@ -6686,7 +7052,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var tasksAfter = columns.Where(g => g.Key > columnIndex).SelectMany(g => g).ToArray();
         if (tasksAfter.Length > 0)
         {
-            AddSectionHeader($"Tasks After (Stage {columnIndex + 2} and later)");
+            AddSectionHeader($"Steps After (Stage {columnIndex + 2} and later)");
             AddTaskStatusList(tasksAfter);
         }
     }
@@ -6715,7 +7081,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (stageTasks.Length == 0)
             return;
 
-        AddSectionHeader($"Tasks ({stageTasks.Length})");
+        AddSectionHeader($"Steps ({stageTasks.Length})");
         AddTaskStatusList(stageTasks);
     }
 
@@ -6734,7 +7100,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(titlePara);
 
         // Description
-        var descPara = new Paragraph(new Run("Waits for the following tasks to complete before continuing:"));
+        var descPara = new Paragraph(new Run("Waits for the following steps to complete before continuing:"));
         descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
         descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         descPara.Margin = new Thickness(0, 0, 0, 8);
@@ -7069,7 +7435,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(titlePara);
 
         // Tasks in this plan
-        AddSectionHeader("Tasks in this plan");
+        AddSectionHeader("Steps in this plan");
 
         var taskList = new List();
         taskList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
@@ -7130,7 +7496,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(taskList);
         else
         {
-            var noPara = new Paragraph(new Run("No tasks assigned."));
+            var noPara = new Paragraph(new Run("No steps assigned."));
             noPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             noPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             _detailDocument.Blocks.Add(noPara);
@@ -7176,18 +7542,1004 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void WireSelectionClick(FrameworkElement element)
     {
+        void SelectTaggedElement(object sender)
+        {
+            if (sender is not FrameworkElement fe || fe.Tag is not string tag) return;
+            var parts = tag.Split(':', 2);
+            if (parts.Length == 2)
+                SelectElement(parts[0], parts[1]);
+        }
+
         element.MouseLeftButtonDown += (sender, e) =>
         {
             if (e.OriginalSource is System.Windows.Controls.Primitives.ButtonBase
                 || (e.OriginalSource is FrameworkElement src && src.TemplatedParent is System.Windows.Controls.Primitives.ButtonBase))
                 return;
-            if (sender is FrameworkElement fe && fe.Tag is string tag)
-            {
-                var parts = tag.Split(':', 2);
-                if (parts.Length == 2)
-                    SelectElement(parts[0], parts[1]);
-                e.Handled = true;
-            }
+            SelectTaggedElement(sender);
+            e.Handled = true;
         };
+
+        // Select the same tagged graph element before WPF opens its context menu. Do not mark the
+        // event handled: the right-click still needs to reach the element and open that menu.
+        element.PreviewMouseRightButtonDown += (sender, _) => SelectTaggedElement(sender);
+    }
+
+    private void WireTaskCardDrag(FrameworkElement element, string taskId)
+    {
+        element.PreviewMouseLeftButtonDown += (_, e) => OnTaskCardPreviewMouseLeftButtonDown(element, taskId, e);
+        element.MouseLeftButtonUp += OnTaskCardMouseLeftButtonUp;
+        element.LostMouseCapture += OnTaskCardLostMouseCapture;
+    }
+
+    private static IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> CaptureConnectorEffects(
+        IReadOnlyList<DragConnectorState> connectorStates) =>
+        connectorStates
+            .SelectMany(state => state.Group.MainElements)
+            .Distinct()
+            .Select(element => (Connector: element, OriginalEffect: (Effect?)element.Effect))
+            .ToArray();
+
+    private static string EdgeKey(string sourceTaskId, string targetTaskId) =>
+        $"{sourceTaskId}\u001f{targetTaskId}";
+
+    private HashSet<string> ResolveDashedTaskEdgeKeys()
+    {
+        var sourceGroup = _plan?.Group;
+        if (sourceGroup is null)
+            return [];
+
+        var (tasks, _) = ResolveTasksAndLevels();
+        if (tasks is null || tasks.Count == 0)
+            return [];
+
+        var visualizationGates = _durablePlan?.ApprovalGates ?? (sourceGroup.ApprovalGates ?? [])
+            .Select(gate => new PlanApprovalGate(
+                gate.GateId,
+                gate.Message,
+                gate.AfterTaskIds ?? [],
+                gate.BeforeTaskIds ?? [],
+                PlanGateStatus.Pending,
+                Question: gate.Question))
+            .ToArray();
+        var dashedTaskEdges = PlanGateVisualizationPolicy.DashedEdges(
+            tasks,
+            visualizationGates,
+            requireEveryIncomingAtConvergence: true);
+        return dashedTaskEdges
+            .Select(edge => EdgeKey(edge.Item1, edge.Item2))
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private void RegisterTaskDragOverlay(string taskId, UIElement overlay)
+    {
+        if (!_taskDragOverlaysByTask.TryGetValue(taskId, out var overlays))
+            _taskDragOverlaysByTask[taskId] = overlays = [];
+        if (!overlays.Contains(overlay))
+            overlays.Add(overlay);
+    }
+
+    private IReadOnlyList<(UIElement Element, double OriginalTop)> CaptureTaskDragOverlays(string taskId)
+    {
+        if (!_taskDragOverlaysByTask.TryGetValue(taskId, out var overlays) || overlays.Count == 0)
+            return [];
+
+        var captured = new List<(UIElement Element, double OriginalTop)>();
+        foreach (var overlay in overlays.Distinct())
+        {
+            var top = Canvas.GetTop(overlay);
+            if (double.IsNaN(top))
+                continue;
+            captured.Add((overlay, top));
+        }
+
+        return captured;
+    }
+
+    private static bool TryGetTaskIdTag(FrameworkElement element, out string taskId)
+    {
+        taskId = string.Empty;
+        if (element.Tag is not string tag || !tag.StartsWith("task:", StringComparison.Ordinal))
+            return false;
+        taskId = tag["task:".Length..];
+        return !string.IsNullOrWhiteSpace(taskId);
+    }
+
+    private static bool IsSameColumn(double left, double columnX) =>
+        double.IsFinite(left) && Math.Abs(left - columnX) <= 0.5;
+
+    private string ResolveColumnIdentifier(double columnX)
+    {
+        if (_graphCanvas is null)
+            return "stage:unknown";
+
+        var nearestDistance = double.MaxValue;
+        var nearestStage = "stage:unknown";
+        foreach (var child in _graphCanvas.Children.OfType<FrameworkElement>())
+        {
+            if (child.Tag is not string tag || !tag.StartsWith("stage:", StringComparison.Ordinal))
+                continue;
+            var left = Canvas.GetLeft(child);
+            if (!double.IsFinite(left))
+                continue;
+            var distance = Math.Abs(left - columnX);
+            if (distance >= nearestDistance)
+                continue;
+            nearestDistance = distance;
+            nearestStage = tag;
+        }
+        return nearestStage;
+    }
+
+    private static bool TryParseStageIndex(string columnIdentifier, out int stageIndex)
+    {
+        const string stagePrefix = "stage:";
+        if (columnIdentifier.StartsWith(stagePrefix, StringComparison.Ordinal) &&
+            int.TryParse(columnIdentifier[stagePrefix.Length..], out var parsed) &&
+            parsed >= 0)
+        {
+            stageIndex = parsed;
+            return true;
+        }
+
+        stageIndex = -1;
+        return false;
+    }
+
+    private static IReadOnlyList<string> BuildReorderedStageTaskIds(
+        IReadOnlyList<string> existingStageTaskIds,
+        IReadOnlyList<string> requestedStageOrder)
+    {
+        var stageTaskIdSet = existingStageTaskIds.ToHashSet(StringComparer.Ordinal);
+        var reordered = requestedStageOrder
+            .Where(taskId => !string.IsNullOrWhiteSpace(taskId) && stageTaskIdSet.Contains(taskId))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        foreach (var taskId in existingStageTaskIds)
+        {
+            if (!reordered.Contains(taskId, StringComparer.Ordinal))
+                reordered.Add(taskId);
+        }
+        return reordered;
+    }
+
+    private Plan ApplyCommittedColumnReorder(Plan plan)
+    {
+        if (_lastCommittedColumnOrder is not { } committed)
+            return plan;
+        return TryApplyCommittedColumnReorder(plan, committed, out var reorderedPlan)
+            ? reorderedPlan
+            : plan;
+    }
+
+    private bool TryApplyCommittedColumnReorder(Plan plan, CommittedColumnReorder committed, out Plan reorderedPlan)
+    {
+        reorderedPlan = plan;
+        if (committed.NewTaskOrder.Count == 0)
+            return false;
+        if (!TryParseStageIndex(committed.ColumnTaskId, out var stageIndex))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: unresolved column identifier '{committed.ColumnTaskId}'.");
+            return false;
+        }
+        if (plan.Tasks.Count == 0)
+            return false;
+
+        var tasksById = plan.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        var decomposedTasks = plan.Tasks
+            .Select(task => new DecomposedSubTask(
+                task.TaskId,
+                task.Description ?? string.Empty,
+                task.DependsOn ?? [],
+                task.Priority ?? "normal",
+                task.Title))
+            .ToArray();
+        var levels = CalculateLevels(
+            decomposedTasks,
+            decomposedTasks.ToDictionary(task => task.Id, StringComparer.Ordinal));
+        var stageTaskIds = plan.Tasks
+            .Where(task => levels.TryGetValue(task.TaskId, out var level) && level == stageIndex)
+            .Select(task => task.TaskId)
+            .ToArray();
+        if (stageTaskIds.Length == 0)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: no stage {stageIndex} found for '{committed.ColumnTaskId}'.");
+            return false;
+        }
+
+        var reorderedStageTaskIds = BuildReorderedStageTaskIds(stageTaskIds, committed.NewTaskOrder);
+        if (stageTaskIds.SequenceEqual(reorderedStageTaskIds, StringComparer.Ordinal))
+            return false;
+
+        var reorderedStageTasks = new Queue<PlanTask>(
+            reorderedStageTaskIds
+                .Where(tasksById.ContainsKey)
+                .Select(taskId => tasksById[taskId]));
+        reorderedPlan = plan with
+        {
+            Tasks = plan.Tasks
+                .Select(task =>
+                    levels.TryGetValue(task.TaskId, out var level) && level == stageIndex
+                        ? reorderedStageTasks.Dequeue()
+                        : task)
+                .ToArray(),
+        };
+        return true;
+    }
+
+    private bool TryApplyCommittedColumnReorder(
+        DecomposedTaskGroup group,
+        CommittedColumnReorder committed,
+        out DecomposedTaskGroup reorderedGroup)
+    {
+        reorderedGroup = group;
+        if (committed.NewTaskOrder.Count == 0)
+            return false;
+        if (!TryParseStageIndex(committed.ColumnTaskId, out var stageIndex))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: unresolved column identifier '{committed.ColumnTaskId}'.");
+            return false;
+        }
+        if (group.Tasks.Count == 0)
+            return false;
+
+        var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        var levels = CalculateLevels(group.Tasks, tasksById);
+        var stageTaskIds = group.Tasks
+            .Where(task => levels.TryGetValue(task.Id, out var level) && level == stageIndex)
+            .Select(task => task.Id)
+            .ToArray();
+        if (stageTaskIds.Length == 0)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Plan viewer drag reorder skipped: no stage {stageIndex} found for '{committed.ColumnTaskId}'.");
+            return false;
+        }
+
+        var reorderedStageTaskIds = BuildReorderedStageTaskIds(stageTaskIds, committed.NewTaskOrder);
+        if (stageTaskIds.SequenceEqual(reorderedStageTaskIds, StringComparer.Ordinal))
+            return false;
+
+        var reorderedStageTasks = new Queue<DecomposedSubTask>(
+            reorderedStageTaskIds
+                .Where(tasksById.ContainsKey)
+                .Select(taskId => tasksById[taskId]));
+        reorderedGroup = group with
+        {
+            Tasks = group.Tasks
+                .Select(task =>
+                    levels.TryGetValue(task.Id, out var level) && level == stageIndex
+                        ? reorderedStageTasks.Dequeue()
+                        : task)
+                .ToArray(),
+        };
+        return true;
+    }
+
+    private void PersistCommittedTaskCardReorder()
+    {
+        if (_lastCommittedColumnOrder is not { } committed)
+            return;
+
+        if (_saveDefinitionEdit is not null &&
+            _plan is not null &&
+            TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedGroup))
+        {
+            ApplyStagedMutation(reorderedGroup, preserveReview: true);
+            return;
+        }
+
+        if (_durablePlan is not null &&
+            TryApplyCommittedColumnReorder(_durablePlan, committed, out var reorderedDurablePlan))
+        {
+            _durablePlan = reorderedDurablePlan;
+            _plan = PendingDecomposePlanAdapter.FromPlan(reorderedDurablePlan);
+            return;
+        }
+
+        if (_plan is null)
+            return;
+        if (TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedPendingGroup))
+            _plan = _plan with { Group = reorderedPendingGroup };
+    }
+
+    private static double ResolveSlotTop(TaskCardDragState dragState, int orderIndex)
+    {
+        if (orderIndex >= 0 && orderIndex < dragState.ColumnSlotTops.Count)
+            return dragState.ColumnSlotTops[orderIndex];
+        return dragState.OriginalTop;
+    }
+
+    private static double ResolveSiblingCurrentTop(
+        TaskCardDragState dragState,
+        (FrameworkElement Card, double OriginalTop, string TaskId) sibling)
+    {
+        if (dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+            return displacedTop;
+        return sibling.OriginalTop;
+    }
+
+    private void AnimateCanvasTop(
+        UIElement element,
+        double toTop,
+        TimeSpan duration,
+        Action<double>? onCompleted = null)
+    {
+        element.BeginAnimation(Canvas.TopProperty, null);
+        var animation = new DoubleAnimation(toTop, duration)
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        animation.Completed += (_, _) =>
+        {
+            element.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetTop(element, toTop);
+            onCompleted?.Invoke(toTop);
+        };
+        element.BeginAnimation(Canvas.TopProperty, animation);
+    }
+
+    private void ApplyTaskCardTopAndConnectors(string taskId, double left, double top)
+    {
+        var priorTop = _taskCardPositions.TryGetValue(taskId, out var priorPosition)
+            ? priorPosition.Y
+            : top;
+        _taskCardPositions[taskId] = new Point(left, top);
+        if (!_connectorsByTask.TryGetValue(taskId, out var groups) || groups.Count == 0)
+            return;
+        var connectedConnectorStates = BuildDragConnectorStates(taskId, priorTop);
+        var siblingDragState = new TaskCardDragState
+        {
+            TaskId = taskId,
+            ColumnX = left,
+            ConnectedConnectorStates = connectedConnectorStates,
+        };
+        UpdateTaskCardDragConnectors(siblingDragState, top);
+    }
+
+    private bool TryPerformDragSwap(TaskCardDragState dragState, double draggedMidpoint)
+    {
+        var draggedIndex = dragState.CurrentColumnOrder.IndexOf(dragState.TaskId);
+        if (draggedIndex < 0)
+            return false;
+
+        if (draggedIndex > 0)
+        {
+            var siblingTaskId = dragState.CurrentColumnOrder[draggedIndex - 1];
+            var sibling = dragState.SiblingCards.FirstOrDefault(value =>
+                string.Equals(value.TaskId, siblingTaskId, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(sibling.TaskId))
+            {
+                var siblingCurrentTop = ResolveSiblingCurrentTop(dragState, sibling);
+                var siblingMidpoint = siblingCurrentTop + sibling.Card.ActualHeight / 2.0;
+                if (draggedMidpoint < siblingMidpoint)
+                {
+                    var siblingTargetTop = ResolveSlotTop(dragState, draggedIndex);
+                    PerformVisualSwap(dragState, sibling, siblingTargetTop, draggedIndex, draggedIndex - 1);
+                    return true;
+                }
+            }
+        }
+
+        if (draggedIndex + 1 < dragState.CurrentColumnOrder.Count)
+        {
+            var siblingTaskId = dragState.CurrentColumnOrder[draggedIndex + 1];
+            var sibling = dragState.SiblingCards.FirstOrDefault(value =>
+                string.Equals(value.TaskId, siblingTaskId, StringComparison.Ordinal));
+            if (!string.IsNullOrWhiteSpace(sibling.TaskId))
+            {
+                var siblingCurrentTop = ResolveSiblingCurrentTop(dragState, sibling);
+                var siblingMidpoint = siblingCurrentTop + sibling.Card.ActualHeight / 2.0;
+                if (draggedMidpoint > siblingMidpoint)
+                {
+                    var siblingTargetTop = ResolveSlotTop(dragState, draggedIndex);
+                    PerformVisualSwap(dragState, sibling, siblingTargetTop, draggedIndex, draggedIndex + 1);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void PerformVisualSwap(
+        TaskCardDragState dragState,
+        (FrameworkElement Card, double OriginalTop, string TaskId) sibling,
+        double newSiblingTop,
+        int draggedIndex,
+        int siblingIndex)
+    {
+        var transitionDuration = TimeSpan.FromMilliseconds(180);
+        AnimateCanvasTop(
+            sibling.Card,
+            newSiblingTop,
+            transitionDuration,
+            finalTop => ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, finalTop));
+        dragState.DisplacedSiblingTops[sibling.TaskId] = newSiblingTop;
+        ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, newSiblingTop);
+
+        if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+        {
+            var siblingDelta = newSiblingTop - sibling.OriginalTop;
+            foreach (var (overlay, originalTop) in overlays)
+                AnimateCanvasTop(overlay, originalTop + siblingDelta, transitionDuration);
+        }
+
+        if (draggedIndex >= 0 &&
+            draggedIndex < dragState.CurrentColumnOrder.Count &&
+            siblingIndex >= 0 &&
+            siblingIndex < dragState.CurrentColumnOrder.Count)
+        {
+            (dragState.CurrentColumnOrder[draggedIndex], dragState.CurrentColumnOrder[siblingIndex]) =
+                (dragState.CurrentColumnOrder[siblingIndex], dragState.CurrentColumnOrder[draggedIndex]);
+        }
+    }
+
+    private IReadOnlyList<DragConnectorState> BuildDragConnectorStates(string taskId, double originalTop)
+    {
+        if (!_connectorsByTask.TryGetValue(taskId, out var groups))
+            return [];
+
+        var (_, levels) = ResolveTasksAndLevels();
+        var dashedTaskEdges = ResolveDashedTaskEdgeKeys();
+        var states = new List<DragConnectorState>();
+        foreach (var group in groups.Distinct())
+        {
+            var role = group.GetEndpointRole(taskId);
+            if (role == ConnectorEndpointRole.None)
+                continue;
+
+            var sourceTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.Start));
+            var targetTaskId = group.TaskIds.FirstOrDefault(id =>
+                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+            var hasDirectTaskPair =
+                !string.IsNullOrWhiteSpace(sourceTaskId) &&
+                !string.IsNullOrWhiteSpace(targetTaskId) &&
+                !string.Equals(sourceTaskId, targetTaskId, StringComparison.Ordinal);
+            var baseSkipCount = hasDirectTaskPair &&
+                                levels.TryGetValue(sourceTaskId!, out var sourceLevel) &&
+                                levels.TryGetValue(targetTaskId!, out var targetLevel)
+                ? Math.Max(0, targetLevel - sourceLevel - 1)
+                : group.SkipCount;
+            var state = new DragConnectorState
+            {
+                Group = group,
+                Role = role,
+                StartOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.Start)
+                    ? group.CurrentFrom.Y - originalTop
+                    : null,
+                EndOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.End)
+                    ? group.CurrentTo.Y - originalTop
+                    : null,
+                SourceTaskId = sourceTaskId,
+                TargetTaskId = targetTaskId,
+                BaseSkipCount = baseSkipCount,
+                IsDashed = hasDirectTaskPair &&
+                           dashedTaskEdges.Contains(EdgeKey(sourceTaskId!, targetTaskId!)),
+            };
+            states.Add(state);
+        }
+
+        return states;
+    }
+
+    private void ApplyTaskCardDragGlow(TaskCardDragState dragState)
+    {
+        dragState.Element.Effect = TaskNodeGlowEffect();
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var connectorGroup = connectorState.Group;
+            connectorGroup.RefreshGlowBrushes();
+            foreach (var element in connectorGroup.GlowElements)
+            {
+                element.Visibility = Visibility.Visible;
+                Panel.SetZIndex(element, 3);
+            }
+            foreach (var element in connectorGroup.MainElements)
+                Panel.SetZIndex(element, 4);
+        }
+        foreach (var (connector, _) in dragState.ConnectedConnectors)
+            connector.Effect = TaskNodeGlowEffect();
+    }
+
+    private void UpdateTaskCardDragConnectors(TaskCardDragState dragState, double top)
+    {
+        if (_graphCanvas is null)
+            return;
+        var left = dragState.ColumnX;
+        _taskCardPositions[dragState.TaskId] = new Point(left, top);
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var group = connectorState.Group;
+            var updatedFrom = group.CurrentFrom;
+            var updatedTo = group.CurrentTo;
+            if (connectorState.Role.HasFlag(ConnectorEndpointRole.Start) &&
+                connectorState.StartOffsetWithinCard.HasValue)
+            {
+                updatedFrom = new Point(left + NodeWidth, top + connectorState.StartOffsetWithinCard.Value);
+            }
+            if (connectorState.Role.HasFlag(ConnectorEndpointRole.End) &&
+                connectorState.EndOffsetWithinCard.HasValue)
+            {
+                updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
+                !string.IsNullOrWhiteSpace(connectorState.TargetTaskId) &&
+                group.TaskIds.Count >= 2)
+            {
+                RemoveConnectorGroupElements(_graphCanvas, group);
+                var replacementGroup = AddDirectTaskConnector(
+                    _graphCanvas,
+                    updatedFrom,
+                    updatedTo,
+                    connectorState.BaseSkipCount,
+                    connectorState.IsDashed);
+                ReplaceConnectorGroupForDrag(connectorState, replacementGroup);
+                replacementGroup.RefreshGlowBrushes();
+                foreach (var element in replacementGroup.GlowElements)
+                {
+                    element.Visibility = Visibility.Visible;
+                    Panel.SetZIndex(element, 3);
+                }
+                foreach (var element in replacementGroup.MainElements)
+                    Panel.SetZIndex(element, 4);
+            }
+            else
+            {
+                group.UpdateEndpoints(updatedFrom, updatedTo);
+            }
+        }
+    }
+
+    private void RestoreTaskCardDragGlow(TaskCardDragState dragState)
+    {
+        dragState.Element.Effect = dragState.OriginalCardEffect;
+        foreach (var connectorState in dragState.ConnectedConnectorStates)
+        {
+            var connectorGroup = connectorState.Group;
+            foreach (var element in connectorGroup.GlowElements)
+            {
+                element.Visibility = Visibility.Hidden;
+                Panel.SetZIndex(element, 0);
+            }
+            foreach (var element in connectorGroup.MainElements)
+            {
+                Panel.SetZIndex(element, 0);
+                element.Effect = null;
+            }
+        }
+
+        foreach (var (connector, originalEffect) in dragState.ConnectedConnectors)
+            connector.Effect = originalEffect;
+    }
+
+    private double FindLockedMilestoneSplitX(double fromX, double toX) =>
+        _lockedMilestoneBoundaryXs
+            .Where(boundaryX => boundaryX > fromX + 1.0 && boundaryX < toX - 1.0)
+            .OrderBy(boundaryX => boundaryX)
+            .Cast<double?>()
+            .FirstOrDefault() ?? double.NaN;
+
+    private ConnectorGroup AddDirectTaskConnector(
+        Canvas canvas,
+        Point fromPoint,
+        Point toPoint,
+        int skipCount,
+        bool dashed)
+    {
+        var detour = _allClusterFootprints.Count > 0
+            ? ValidationShieldPresenter.ComputeConnectorDetour(
+                (fromPoint.X, fromPoint.Y),
+                (toPoint.X, toPoint.Y),
+                _allClusterFootprints,
+                _scaleFactor)
+            : null;
+
+        if (detour is { Count: 0 })
+        {
+            return AddConnector(
+                canvas,
+                fromPoint,
+                toPoint,
+                arrowHead: true,
+                skipCount: Math.Max(1, skipCount),
+                dashed: dashed,
+                toolTip: "Alternate connector color: no clear route around an ALL group was available.",
+                splitAtX: FindLockedMilestoneSplitX(fromPoint.X, toPoint.X));
+        }
+
+        if (detour is null || detour.Count <= 2)
+        {
+            return AddConnector(
+                canvas,
+                fromPoint,
+                toPoint,
+                arrowHead: true,
+                skipCount: skipCount,
+                dashed: dashed,
+                splitAtX: FindLockedMilestoneSplitX(fromPoint.X, toPoint.X));
+        }
+
+        // Render the complete collision-safe route as one rounded path. Each corner
+        // cuts back by half its shorter adjacent segment, producing proportional
+        // curves without allowing a long segment to overwhelm a nearby short turn.
+        return AddRoundedConnectorRoute(
+            canvas,
+            detour,
+            arrowHead: true,
+            skipCount: skipCount,
+            dashed: dashed);
+    }
+
+    private static void RemoveConnectorGroupElements(Canvas canvas, ConnectorGroup group)
+    {
+        foreach (var element in group.GlowElements.Concat(group.MainElements).Distinct())
+            canvas.Children.Remove(element);
+    }
+
+    private void ReplaceConnectorGroupForDrag(DragConnectorState state, ConnectorGroup replacementGroup)
+    {
+        var priorGroup = state.Group;
+        foreach (var taskId in priorGroup.TaskIds.Distinct(StringComparer.Ordinal))
+        {
+            if (!replacementGroup.TaskIds.Contains(taskId, StringComparer.Ordinal))
+                replacementGroup.TaskIds.Add(taskId);
+            var role = priorGroup.GetEndpointRole(taskId);
+            if (role != ConnectorEndpointRole.None)
+                replacementGroup.RegisterEndpointRole(taskId, role);
+
+            if (!_connectorsByTask.TryGetValue(taskId, out var groups))
+                continue;
+            groups.RemoveAll(group => ReferenceEquals(group, priorGroup));
+            if (!groups.Contains(replacementGroup))
+                groups.Add(replacementGroup);
+        }
+
+        foreach (var badge in priorGroup.GateBadges)
+        {
+            if (!replacementGroup.GateBadges.Contains(badge))
+                replacementGroup.GateBadges.Add(badge);
+        }
+
+        state.Group = replacementGroup;
+    }
+
+    private void OnTaskCardPreviewMouseLeftButtonDown(
+        FrameworkElement element,
+        string taskId,
+        MouseButtonEventArgs e)
+    {
+        if (_graphCanvas is null)
+            return;
+
+        var originalTop = Canvas.GetTop(element);
+        if (double.IsNaN(originalTop))
+            originalTop = 0;
+
+        var columnX = Canvas.GetLeft(element);
+        if (double.IsNaN(columnX))
+            columnX = 0;
+
+        var milestoneTop = double.MinValue;
+        var milestoneBottom = double.MaxValue;
+        if (TryResolveMilestoneVerticalBoundsForColumn(columnX, element.ActualWidth, out var resolvedTop, out var resolvedBottom))
+        {
+            milestoneTop = resolvedTop;
+            milestoneBottom = resolvedBottom;
+        }
+
+        var connectedConnectorStates = BuildDragConnectorStates(taskId, originalTop);
+        var connectedConnectors = CaptureConnectorEffects(connectedConnectorStates);
+        var dragOverlayElements = CaptureTaskDragOverlays(taskId);
+        var sameColumnCards = (_graphCanvas.Children.OfType<FrameworkElement>())
+            .Select(child => new
+            {
+                Element = child,
+                Left = Canvas.GetLeft(child),
+                Top = Canvas.GetTop(child),
+            })
+            .Where(entry =>
+                IsSameColumn(entry.Left, columnX) &&
+                double.IsFinite(entry.Top) &&
+                TryGetTaskIdTag(entry.Element, out _))
+            .Select(entry => (entry.Element, entry.Top))
+            .OrderBy(entry => entry.Top)
+            .ToArray();
+        var preDragColumnOrder = sameColumnCards
+            .Select(entry =>
+            {
+                TryGetTaskIdTag(entry.Element, out var id);
+                return id;
+            })
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToArray();
+        var siblingCards = sameColumnCards
+            .Select(entry =>
+            {
+                TryGetTaskIdTag(entry.Element, out var id);
+                return (Card: entry.Element, OriginalTop: entry.Top, TaskId: id);
+            })
+            .Where(entry =>
+                !string.IsNullOrWhiteSpace(entry.TaskId) &&
+                !string.Equals(entry.TaskId, taskId, StringComparison.Ordinal))
+            .ToArray();
+        var siblingOverlayElements = siblingCards.ToDictionary(
+            sibling => sibling.TaskId,
+            sibling => CaptureTaskDragOverlays(sibling.TaskId),
+            StringComparer.Ordinal);
+        var columnSlotTops = sameColumnCards.Select(entry => entry.Top).ToArray();
+
+        _taskCardDragState = new TaskCardDragState
+        {
+            Element = element,
+            TaskId = taskId,
+            MouseOffsetWithinCard = e.GetPosition(element),
+            DragStartCanvasPoint = e.GetPosition(_graphCanvas),
+            OriginalTop = originalTop,
+            ColumnX = columnX,
+            MilestoneTop = milestoneTop,
+            MilestoneBottom = milestoneBottom,
+            OriginalCardEffect = element.Effect,
+            ConnectedConnectorStates = connectedConnectorStates,
+            ConnectedConnectors = connectedConnectors,
+            DragOverlayElements = dragOverlayElements,
+            SiblingCards = siblingCards,
+            CurrentColumnOrder = preDragColumnOrder.ToList(),
+            PreDragColumnOrder = preDragColumnOrder,
+            DisplacedSiblingTops = new Dictionary<string, double>(StringComparer.Ordinal),
+            SiblingOverlayElements = siblingOverlayElements,
+            ColumnSlotTops = columnSlotTops,
+            ColumnIdentifier = ResolveColumnIdentifier(columnX),
+            IsActive = false,
+        };
+        ApplyTaskCardDragGlow(_taskCardDragState);
+        _suppressTaskCardCancelOnLostCapture = false;
+
+        if (!element.CaptureMouse())
+        {
+            RestoreTaskCardDragGlow(_taskCardDragState);
+            _taskCardDragState = null;
+        }
+    }
+
+    private void OnGraphCanvasMouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_graphCanvas is null || _taskCardDragState is not { } dragState)
+            return;
+
+        var pointer = e.GetPosition(_graphCanvas);
+        if (!dragState.IsActive)
+        {
+            var deltaX = Math.Abs(pointer.X - dragState.DragStartCanvasPoint.X);
+            var deltaY = Math.Abs(pointer.Y - dragState.DragStartCanvasPoint.Y);
+            if (deltaX < SystemParameters.MinimumHorizontalDragDistance &&
+                deltaY < SystemParameters.MinimumVerticalDragDistance)
+                return;
+
+            dragState.IsActive = true;
+        }
+
+        var rawTop = pointer.Y - dragState.MouseOffsetWithinCard.Y;
+        var cardHeight = dragState.Element.ActualHeight;
+        if (cardHeight <= 0 || double.IsNaN(cardHeight))
+            cardHeight = dragState.Element.Height;
+        if (cardHeight < 0 || double.IsNaN(cardHeight))
+            cardHeight = 0;
+
+        var freeTop = dragState.MilestoneTop;
+        var freeBottom = dragState.MilestoneBottom - cardHeight;
+
+        var constrainedTop = rawTop;
+        if (double.IsFinite(freeTop) &&
+            double.IsFinite(freeBottom) &&
+            freeTop <= freeBottom)
+        {
+            if (rawTop >= freeTop && rawTop <= freeBottom)
+            {
+                constrainedTop = rawTop;
+            }
+            else if (rawTop < freeTop)
+            {
+                var excess = freeTop - rawTop;
+                constrainedTop = freeTop - RubberBandDistance(excess);
+            }
+            else
+            {
+                var excess = rawTop - freeBottom;
+                constrainedTop = freeBottom + RubberBandDistance(excess);
+            }
+        }
+
+        Canvas.SetTop(dragState.Element, constrainedTop);
+        var dragDeltaY = constrainedTop - dragState.OriginalTop;
+        foreach (var (element, originalTop) in dragState.DragOverlayElements)
+            Canvas.SetTop(element, originalTop + dragDeltaY);
+        UpdateTaskCardDragConnectors(dragState, constrainedTop);
+
+        var draggedMidpoint = constrainedTop + dragState.Element.ActualHeight / 2.0;
+        while (TryPerformDragSwap(dragState, draggedMidpoint))
+        {
+        }
+    }
+
+    private void OnGraphCanvasMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
+    {
+        CommitTaskCardDrag();
+    }
+
+    private void OnTaskCardMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
+    {
+        CommitTaskCardDrag();
+    }
+
+    private void OnTaskCardLostMouseCapture(object? sender, MouseEventArgs e)
+    {
+        if (_suppressTaskCardCancelOnLostCapture || _taskCardDragState is not { } dragState)
+            return;
+
+        if (!ReferenceEquals(sender, dragState.Element))
+            return;
+
+        CancelTaskCardDrag();
+    }
+
+    private void OnPlanViewerPreviewKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || _taskCardDragState is null)
+            return;
+
+        CancelTaskCardDrag();
+        e.Handled = true;
+    }
+
+    private void CommitTaskCardDrag()
+    {
+        if (_taskCardDragState is not { } dragState)
+            return;
+
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            if (!dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+                continue;
+            sibling.Card.BeginAnimation(Canvas.TopProperty, null);
+            Canvas.SetTop(sibling.Card, displacedTop);
+
+            if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+            {
+                var siblingDelta = displacedTop - sibling.OriginalTop;
+                foreach (var (overlay, originalTop) in overlays)
+                {
+                    overlay.BeginAnimation(Canvas.TopProperty, null);
+                    Canvas.SetTop(overlay, originalTop + siblingDelta);
+                }
+            }
+        }
+
+        var top = Canvas.GetTop(dragState.Element);
+        if (double.IsNaN(top))
+            top = dragState.OriginalTop;
+        UpdateTaskCardDragConnectors(dragState, top);
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            if (!dragState.DisplacedSiblingTops.TryGetValue(sibling.TaskId, out var displacedTop))
+                continue;
+            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
+        }
+        if (dragState.CurrentColumnOrder.Count > 0 &&
+            !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal))
+        {
+            _lastCommittedColumnOrder = new CommittedColumnReorder(
+                dragState.ColumnIdentifier,
+                dragState.CurrentColumnOrder.ToArray());
+            PersistCommittedTaskCardReorder();
+        }
+        RestoreTaskCardDragGlow(dragState);
+        _taskCardDragState = null;
+        _suppressTaskCardCancelOnLostCapture = true;
+        if (dragState.Element.IsMouseCaptured)
+            dragState.Element.ReleaseMouseCapture();
+        _suppressTaskCardCancelOnLostCapture = false;
+    }
+
+    private void CancelTaskCardDrag()
+    {
+        if (_taskCardDragState is not { } dragState)
+            return;
+
+        var transitionDuration = TimeSpan.FromMilliseconds(180);
+        foreach (var sibling in dragState.SiblingCards)
+        {
+            AnimateCanvasTop(
+                sibling.Card,
+                sibling.OriginalTop,
+                transitionDuration,
+                finalTop => ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, finalTop));
+            if (dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+            {
+                foreach (var (overlay, originalTop) in overlays)
+                    AnimateCanvasTop(overlay, originalTop, transitionDuration);
+            }
+        }
+
+        Canvas.SetTop(dragState.Element, dragState.OriginalTop);
+        Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+        foreach (var (element, originalTop) in dragState.DragOverlayElements)
+            Canvas.SetTop(element, originalTop);
+        UpdateTaskCardDragConnectors(dragState, dragState.OriginalTop);
+        foreach (var sibling in dragState.SiblingCards)
+            ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, sibling.OriginalTop);
+        RestoreTaskCardDragGlow(dragState);
+
+        _taskCardDragState = null;
+        _suppressTaskCardCancelOnLostCapture = true;
+        if (dragState.Element.IsMouseCaptured)
+            dragState.Element.ReleaseMouseCapture();
+        _suppressTaskCardCancelOnLostCapture = false;
+    }
+
+    private bool TryResolveMilestoneVerticalBoundsForColumn(
+        double columnX,
+        double cardWidth,
+        out double milestoneTop,
+        out double milestoneBottom)
+    {
+        milestoneTop = 0;
+        milestoneBottom = 0;
+        if (_graphCanvas is null)
+            return false;
+
+        var columnCenterX = columnX + (cardWidth > 0 ? cardWidth / 2.0 : 0);
+        Border? nearestMilestone = null;
+        var nearestDistance = double.MaxValue;
+
+        foreach (var milestoneBand in _graphCanvas.Children.OfType<Border>())
+        {
+            if (milestoneBand.Tag is not string tag ||
+                !tag.StartsWith("milestone:", StringComparison.Ordinal))
+                continue;
+
+            var bandLeft = Canvas.GetLeft(milestoneBand);
+            var bandTop = Canvas.GetTop(milestoneBand);
+            if (double.IsNaN(bandLeft) || double.IsNaN(bandTop))
+                continue;
+
+            var bandHeight = milestoneBand.ActualHeight > 0 ? milestoneBand.ActualHeight : milestoneBand.Height;
+            if (bandHeight <= 0 || double.IsNaN(bandHeight))
+                continue;
+
+            var bandCenterX = bandLeft + (milestoneBand.ActualWidth > 0 ? milestoneBand.ActualWidth / 2.0 : 0);
+            var distance = Math.Abs(columnCenterX - bandCenterX);
+            if (distance >= nearestDistance)
+                continue;
+
+            nearestDistance = distance;
+            nearestMilestone = milestoneBand;
+        }
+
+        if (nearestMilestone is null)
+            return false;
+
+        var resolvedTop = Canvas.GetTop(nearestMilestone);
+        var resolvedHeight = nearestMilestone.ActualHeight > 0 ? nearestMilestone.ActualHeight : nearestMilestone.Height;
+        if (!double.IsFinite(resolvedTop) || !double.IsFinite(resolvedHeight) || resolvedHeight <= 0)
+            return false;
+
+        milestoneTop = resolvedTop;
+        milestoneBottom = resolvedTop + resolvedHeight;
+        return true;
+    }
+
+    private static double RubberBandDistance(double excess)
+    {
+        const double MaxPull = 40.0;
+        return MaxPull * (1.0 - Math.Exp(-Math.Max(0, excess) / MaxPull));
     }
 }

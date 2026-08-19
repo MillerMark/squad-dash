@@ -50,6 +50,7 @@ internal sealed class DurableApprovalRequestManager
 {
     internal const string AttachmentType = "approval-gate";
     internal const string ApprovalRouteMode = "approval-gate";
+    internal const string ApprovalReviewRouteMode = "approval-gate-review";
     private const string MessageFrom = "SquadDash";
 
     private static readonly JsonSerializerOptions StateSerializerOptions = new()
@@ -761,12 +762,10 @@ internal sealed class DurableApprovalRequestManager
         [
             new InboxAction
             {
-                Label = ApprovalCardNotificationCoordinator.BuildApproveLabel(state.ActiveGateIds.Count),
-                RouteMode = ApprovalRouteMode,
+                Label = "Open approval review",
+                RouteMode = ApprovalReviewRouteMode,
                 Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
-                Hint = state.ActiveGateIds.Count == 1
-                    ? "Approve this checkpoint and continue available plan work."
-                    : $"Approve all {state.ActiveGateIds.Count} ready checkpoints and continue plan execution.",
+                Hint = "Open the detailed checklist in a separate modeless window. This does not approve the plan.",
             },
         ];
     }

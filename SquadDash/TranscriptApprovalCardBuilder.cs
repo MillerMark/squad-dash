@@ -103,6 +103,9 @@ internal static class TranscriptApprovalCardBuilder
 
         /// <summary>Returns whether every current human-verification item is checked.</summary>
         internal Func<bool> CanApprove { get; init; } = static () => true;
+
+        /// <summary>True once a later coordinator turn has made this transcript card historical.</summary>
+        internal bool IsRetired { get; set; }
     }
 
     /// <summary>
@@ -776,6 +779,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Shows the updating overlay and disables all actions.</summary>
     internal static void ShowUpdatingState(CardResult card)
     {
+        if (card.IsRetired) return;
         SetReviewInteractionState(card, isInteractive: false);
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
@@ -787,6 +791,11 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Hides the updating overlay and re-enables actions.</summary>
     internal static void HideUpdatingState(CardResult card)
     {
+        if (card.IsRetired)
+        {
+            ShowHistoricalState(card);
+            return;
+        }
         SetReviewInteractionState(card, isInteractive: true);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Visible;
@@ -801,6 +810,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Leaves a historical card visible while making its resolved state unambiguous.</summary>
     internal static void ShowResolvedState(CardResult card)
     {
+        card.IsRetired = true;
         SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.TitleBlock.Text = "Approval Acquired";
@@ -826,6 +836,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Keeps approval available while the normal transcript asks what should change.</summary>
     internal static void ShowChangeRequestDraftingState(CardResult card)
     {
+        if (card.IsRetired) return;
         SetReviewInteractionState(card, isInteractive: false);
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
@@ -841,6 +852,11 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Restores the approval actions when the next prompt was unrelated to this review.</summary>
     internal static void ClearChangeRequestDraftingState(CardResult card)
     {
+        if (card.IsRetired)
+        {
+            ShowHistoricalState(card);
+            return;
+        }
         SetReviewInteractionState(card, isInteractive: true);
         card.ActionsPanel.Visibility = Visibility.Visible;
         card.NoteSection.Visibility = Visibility.Visible;
@@ -852,9 +868,27 @@ internal static class TranscriptApprovalCardBuilder
         card.ReworkIndicator.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>
+    /// Keeps an earlier approval card as transcript history without leaving stale actions live.
+    /// The current durable action surfaces remain the Inbox and Plan Visualizer.
+    /// </summary>
+    internal static void ShowHistoricalState(CardResult card)
+    {
+        if (card.IsRetired) return;
+        card.IsRetired = true;
+        SetReviewInteractionState(card, isInteractive: false);
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.ResolvedIndicator.Visibility = Visibility.Collapsed;
+        card.ReworkIndicator.Text = "Review actions remain available in Inbox and the Plan Visualizer.";
+        card.ReworkIndicator.Visibility = Visibility.Visible;
+    }
+
     /// <summary>Turns the card into durable history after the host accepts a rework request.</summary>
     internal static void ShowReworkRequestedState(CardResult card)
     {
+        card.IsRetired = true;
         SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.NoteSection.Visibility = Visibility.Collapsed;
@@ -867,6 +901,7 @@ internal static class TranscriptApprovalCardBuilder
     /// <summary>Turns the card into durable history after bounded additional work is accepted.</summary>
     internal static void ShowAmendmentRequestedState(CardResult card)
     {
+        card.IsRetired = true;
         SetReviewInteractionState(card, isInteractive: false);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.NoteSection.Visibility = Visibility.Collapsed;

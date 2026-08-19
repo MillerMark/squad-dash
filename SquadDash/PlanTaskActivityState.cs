@@ -48,7 +48,7 @@ internal static class PlanTaskActivityPresentation
 
     internal static bool KeepsSpinnerContinuouslyActive(
         PlanTaskActivityState activityState) =>
-        activityState == PlanTaskActivityState.Assessing;
+        activityState is PlanTaskActivityState.Assessing or PlanTaskActivityState.Reworking;
 
     internal static string BuildStepLabel(
         string stepLabel,
@@ -57,6 +57,7 @@ internal static class PlanTaskActivityPresentation
         PlanTaskActivityState.VerificationPending => $"Step {stepLabel} - Verification pending",
         PlanTaskActivityState.Verifying => $"Step {stepLabel} - Verifying",
         PlanTaskActivityState.Assessing => $"Step {stepLabel} - Assessing",
+        PlanTaskActivityState.Reworking => $"Step {stepLabel} - Correcting",
         _ => $"Step {stepLabel}",
     };
 }

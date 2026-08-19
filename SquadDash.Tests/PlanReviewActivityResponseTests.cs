@@ -58,6 +58,63 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void TaskCorrectionActivity_StartsWhenEditableQueueItemIsDequeued()
+    {
+        var correction = new PendingPlanTaskCorrectionContext(
+            "queue-1", "PLAN-1", "TASK-1");
+
+        var state = PlanTaskCorrectionActivityPolicy.Resolve(
+            correction,
+            "PLAN-1",
+            "TASK-1",
+            isPromptRunning: true,
+            dispatchedItemId: "queue-1",
+            dispatchedSourceTag: "plan-recovery-correction-draft");
+
+        Assert.That(state, Is.EqualTo(PlanTaskCorrectionActivityState.Running));
+    }
+
+    [TestCase(false, "queue-1", "plan-recovery-correction-draft", PlanTaskCorrectionActivityState.Drafting)]
+    [TestCase(true, "different", "ordinary-prompt", PlanTaskCorrectionActivityState.Drafting)]
+    [TestCase(true, "queue-1", "plan-recovery-correction-draft", PlanTaskCorrectionActivityState.Running)]
+    public void TaskCorrectionActivity_DoesNotWaitForWorkerDelegation(
+        bool isPromptRunning,
+        string dispatchedItemId,
+        string dispatchedSourceTag,
+        PlanTaskCorrectionActivityState expected)
+    {
+        var correction = new PendingPlanTaskCorrectionContext(
+            "queue-1", "PLAN-1", "TASK-1");
+
+        Assert.That(
+            PlanTaskCorrectionActivityPolicy.Resolve(
+                correction,
+                "PLAN-1",
+                "TASK-1",
+                isPromptRunning,
+                dispatchedItemId,
+                dispatchedSourceTag),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void TaskCorrectionActivity_IsolatedFromOtherPlansAndTasks()
+    {
+        var correction = new PendingPlanTaskCorrectionContext(
+            "queue-1", "PLAN-1", "TASK-1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanTaskCorrectionActivityPolicy.Resolve(
+                correction, "PLAN-2", "TASK-1", true, "queue-1", "plan-recovery-correction-draft"),
+                Is.EqualTo(PlanTaskCorrectionActivityState.None));
+            Assert.That(PlanTaskCorrectionActivityPolicy.Resolve(
+                correction, "PLAN-1", "TASK-2", true, "queue-1", "plan-recovery-correction-draft"),
+                Is.EqualTo(PlanTaskCorrectionActivityState.None));
+        });
+    }
+
+    [Test]
     public void ProtocolContext_InterruptedHumanReview_AllowsManualCorrectionWithoutPlanResume()
     {
         var plan = MakeInterruptedPlan();

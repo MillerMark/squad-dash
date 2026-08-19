@@ -1273,6 +1273,86 @@ internal sealed class CodeHealthGroupRunnerTests
 
         Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Complete));
     }
+
+    [Test]
+    public void TrackFirstEligibleStep_CanonicalPlan_IgnoresContradictoryTasksMdStatuses()
+    {
+        var writer = new DecomposedTasksWriter();
+        var runner = new CodeHealthGroupRunner(writer, _tasksFile);
+        var group = MakeLinearGroup();
+        writer.WriteGroup(_tasksFile, group, "canonical-revision");
+        File.WriteAllText(
+            _tasksFile,
+            File.ReadAllText(_tasksFile).Replace("- [ ]", "- [x]", StringComparison.Ordinal));
+        var canonical = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("canonical-revision", group),
+            DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+        };
+
+        var state = runner.TrackFirstEligibleStep(canonical);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Eligible));
+            Assert.That(runner.CurrentStepId, Is.EqualTo("PROJ-20240101-001"));
+            Assert.That(runner.CurrentRevision, Is.EqualTo("canonical-revision"));
+        });
+    }
+
+    [Test]
+    public void TryRestoreVerificationStep_BindsExactVerificationPendingTask()
+    {
+        var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), _tasksFile);
+        var group = MakeLinearGroup();
+        var canonical = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("canonical-revision", group),
+            DateTimeOffset.UtcNow) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = PendingDecomposePlanAdapter.ToPlan(
+                    new PendingDecomposePlan("canonical-revision", group),
+                    DateTimeOffset.UtcNow)
+                .Tasks.Select(task => task.TaskId == "PROJ-20240101-001"
+                    ? task with { Status = PlanTaskStatus.VerificationPending }
+                    : task).ToArray(),
+        };
+
+        var restored = runner.TryRestoreVerificationStep(
+            canonical,
+            "PROJ-20240101-001",
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored, Is.True, error);
+            Assert.That(runner.CurrentStepId, Is.EqualTo("PROJ-20240101-001"));
+            Assert.That(runner.CurrentRevision, Is.EqualTo("canonical-revision"));
+        });
+    }
+
+    [Test]
+    public void TryRestoreVerificationStep_RejectsOrdinaryPendingTask()
+    {
+        var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), _tasksFile);
+        var group = MakeLinearGroup();
+        var canonical = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("canonical-revision", group),
+            DateTimeOffset.UtcNow);
+
+        var restored = runner.TryRestoreVerificationStep(
+            canonical,
+            "PROJ-20240101-001",
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored, Is.False);
+            Assert.That(error, Does.Contain("not a verification status"));
+            Assert.That(runner.CurrentStepId, Is.Null);
+        });
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

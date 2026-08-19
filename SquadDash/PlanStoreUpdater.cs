@@ -84,6 +84,26 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Resumes an existing canonical plan without consulting its Markdown projection.
+    /// Definition and task status both remain sourced from the durable record.
+    /// </summary>
+    internal static Plan ApplyExecutionStarted(Plan existing, string? executingTaskId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Progress = BuildProgress(existing.Tasks, executingTaskId),
+            InterruptionData = null,
+            Timestamps = existing.Timestamps with
+            {
+                StartedAt = existing.Timestamps.StartedAt ?? now,
+                LastRunAt = now,
+            },
+        };
+    }
+
+    /// <summary>
     /// Marks an individual scheduled task as executing. This transition occurs at the start of
     /// every iteration, after the scheduler has selected the task, so live UI never depends on
     /// the earlier plan-start projection having guessed the next task correctly.
@@ -219,6 +239,52 @@ internal static class PlanStoreUpdater
         var changedIds = DetectNewlyCompletedTaskIds(existing.Tasks, plan.Tasks);
         plan = InvalidateCoveredValidations(plan, changedIds);
 
+        return ApplyReadyValidations(plan);
+    }
+
+    /// <summary>
+    /// Applies an accepted worker result directly to the canonical durable plan. This is the
+    /// execution-path overload; it deliberately has no tasks.md/TaskItem input.
+    /// </summary>
+    internal static Plan ApplyStepAccepted(
+        Plan existing,
+        string? nextExecutingTaskId,
+        DecomposeStepResult acceptedResult)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tasks = existing.Tasks.Select(task =>
+        {
+            if (!string.Equals(task.TaskId, acceptedResult.TaskId, StringComparison.Ordinal))
+                return task;
+            var status = acceptedResult.Status switch
+            {
+                "complete" => PlanTaskStatus.Complete,
+                "partial" => PlanTaskStatus.Partial,
+                "failed" => PlanTaskStatus.Failed,
+                _ => task.Status,
+            };
+            return task with
+            {
+                Status = status,
+                Commit = string.IsNullOrWhiteSpace(acceptedResult.Commit) ? task.Commit : acceptedResult.Commit,
+                Commits = acceptedResult.Commits ?? task.Commits,
+                CompletedAt = acceptedResult.Status == "complete" ? task.CompletedAt ?? now : task.CompletedAt,
+                CompletionSummary = acceptedResult.Summary,
+                ProofEvidence = acceptedResult.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
+                    evidence.RequirementId,
+                    evidence.ProofType,
+                    evidence.Summary,
+                    evidence.Artifacts)).ToArray(),
+            };
+        }).ToArray();
+        var plan = existing with
+        {
+            Tasks = tasks,
+            Progress = BuildProgress(tasks, nextExecutingTaskId),
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+        var changedIds = DetectNewlyCompletedTaskIds(existing.Tasks, plan.Tasks);
+        plan = InvalidateCoveredValidations(plan, changedIds);
         return ApplyReadyValidations(plan);
     }
 
@@ -1667,6 +1733,21 @@ internal static class PlanStoreUpdater
                     : candidate)
                 .ToArray(),
             Timestamps = existing.Timestamps with { LastRunAt = selection.UpdatedAt },
+        };
+    }
+
+    /// <summary>
+    /// Pauses before dispatch while user-owned worktree changes are present. This is neither a
+    /// failed task nor an interrupted attempt, so task status and recovery history are preserved.
+    /// </summary>
+    internal static Plan ApplyWaitingForCleanWorktree(Plan existing)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.WaitingForCleanWorktree,
+            Progress = existing.Progress with { ExecutingTaskId = null },
+            Timestamps = existing.Timestamps with { LastRunAt = now },
         };
     }
 

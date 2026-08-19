@@ -27,6 +27,7 @@ internal static class ToolTranscriptFormatter {
             "grep"          when hasDisplayText => "🔎",
             "view"          when hasDisplayText => "👀",
             "edit"                              => "✏️",
+            "apply_patch"                       => "✏️",
             "web_fetch"     when hasDisplayText => "🌍",
             "create"        when hasDisplayText => "📄",
             "task"          when hasDisplayText => "🤖",
@@ -53,6 +54,7 @@ internal static class ToolTranscriptFormatter {
         "grep"          => "🔎",
         "view"          => "👀",
         "edit"          => "✏️",
+        "apply_patch"   => "✏️",
         "web_fetch"     => "🌍",
         "create"        => "📄",
         "task"          => "🤖",
@@ -240,6 +242,10 @@ internal static class ToolTranscriptFormatter {
                 text = BuildFixedDisplayText("✏️", descriptor.DisplayText!, success, outputText);
                 return true;
 
+            case "apply_patch" when !string.IsNullOrWhiteSpace(descriptor.DisplayText):
+                text = BuildFixedDisplayText("✏️", descriptor.DisplayText!, success, outputText);
+                return true;
+
             case "web_fetch" when !string.IsNullOrWhiteSpace(descriptor.DisplayText):
                 text = BuildFixedDisplayText("🌍 ", descriptor.DisplayText!, success, outputText);
                 return true;
@@ -417,11 +423,15 @@ internal static class ToolTranscriptFormatter {
             .Count(line => !string.IsNullOrWhiteSpace(line));
     }
 
+    public static bool IsEditToolName(string? toolName) =>
+        string.Equals(toolName?.Trim(), "edit", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(toolName?.Trim(), "apply_patch", StringComparison.OrdinalIgnoreCase);
+
     public static ToolEditDiffSummary? TryBuildEditDiffSummary(ToolTranscriptDescriptor descriptor, string? outputText) {
-        if (!string.Equals(descriptor.ToolName, "edit", StringComparison.OrdinalIgnoreCase))
+        if (!IsEditToolName(descriptor.ToolName))
             return null;
 
-        var displayName = ResolveEditDisplayName(descriptor);
+        var displayName = ResolveEditDisplayName(descriptor, outputText);
         if (string.IsNullOrWhiteSpace(displayName))
             return null;
 
@@ -457,8 +467,8 @@ internal static class ToolTranscriptFormatter {
             isDeletedFile);
     }
 
-    private static string? ResolveEditDisplayName(ToolTranscriptDescriptor descriptor) {
-        var candidate = descriptor.DisplayText ?? descriptor.Path;
+    private static string? ResolveEditDisplayName(ToolTranscriptDescriptor descriptor, string? outputText) {
+        var candidate = descriptor.DisplayText ?? descriptor.Path ?? TryExtractEditTargetPath(outputText);
         if (string.IsNullOrWhiteSpace(candidate))
             return null;
 
@@ -469,6 +479,52 @@ internal static class ToolTranscriptFormatter {
         catch {
             return candidate;
         }
+    }
+
+    internal static string? TryExtractEditTargetPath(string? patchOrDiffText) {
+        if (string.IsNullOrWhiteSpace(patchOrDiffText))
+            return null;
+
+        var lines = patchOrDiffText
+            .Replace("\r\n", "\n")
+            .Replace('\r', '\n')
+            .Split('\n');
+
+        foreach (var line in lines) {
+            foreach (var prefix in new[] { "*** Update File: ", "*** Add File: ", "*** Delete File: " }) {
+                if (line.StartsWith(prefix, StringComparison.Ordinal))
+                    return NormalizeDiffPath(line[prefix.Length..]);
+            }
+
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal)) {
+                var separator = line.IndexOf(" b/", "diff --git ".Length, StringComparison.Ordinal);
+                if (separator >= 0)
+                    return NormalizeDiffPath(line[(separator + 3)..]);
+            }
+
+            if (line.StartsWith("+++ ", StringComparison.Ordinal) &&
+                !line.StartsWith("+++ /dev/null", StringComparison.Ordinal))
+                return NormalizeDiffPath(line[4..]);
+
+            if (line.StartsWith("--- ", StringComparison.Ordinal) &&
+                !line.StartsWith("--- /dev/null", StringComparison.Ordinal))
+                return NormalizeDiffPath(line[4..]);
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeDiffPath(string value) {
+        var normalized = value.Trim().Trim('"');
+        var tabIndex = normalized.IndexOf('\t');
+        if (tabIndex >= 0)
+            normalized = normalized[..tabIndex];
+
+        if (normalized.StartsWith("a/", StringComparison.Ordinal) ||
+            normalized.StartsWith("b/", StringComparison.Ordinal))
+            normalized = normalized[2..];
+
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
     /// <summary>Returns true when a read_powershell display text has an appended delay suffix like "(60s)".</summary>

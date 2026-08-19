@@ -115,13 +115,15 @@ internal static class PlanApprovalControlLockPolicy
 
     /// <summary>
     /// Determines whether the plan is in a state where execution locking applies at all.
-    /// Locking only applies when the plan is executing, awaiting approval, interrupted, or blocked.
+    /// Locking only applies when the plan is executing, awaiting approval, paused for a clean
+    /// worktree, interrupted, or blocked.
     /// Plans that are staged/approved (not yet started) have no execution locks.
     /// </summary>
     internal static bool PlanHasExecutionContext(Plan? plan) =>
         plan is not null && plan.LifecycleStatus is
             PlanLifecycleStatus.Executing or
             PlanLifecycleStatus.AwaitingApproval or
+            PlanLifecycleStatus.WaitingForCleanWorktree or
             PlanLifecycleStatus.Interrupted or
             PlanLifecycleStatus.Blocked or
             PlanLifecycleStatus.Completed or

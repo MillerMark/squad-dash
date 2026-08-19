@@ -737,7 +737,7 @@ internal sealed class ApprovalWorkflowProbeTests
         var plan = MakeProbePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-1", "GATE-2"]);
         Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Is.EqualTo("Approve both checkpoints and continue"));
+        Assert.That(actions[0].Label, Is.EqualTo("Open approval review"));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-1", "GATE-2" }));
     }

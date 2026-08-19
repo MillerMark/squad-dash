@@ -29,6 +29,42 @@ internal sealed record PendingPlanReviewCorrectionContext(
     string PlanId,
     string GateId);
 
+/// <summary>
+/// Tracks the editable bounded-correction prompt for an interrupted plan task. This is separate
+/// from approval-gate corrections so concurrent plans cannot suppress one another's controls.
+/// </summary>
+internal sealed record PendingPlanTaskCorrectionContext(
+    string QueueItemId,
+    string PlanId,
+    string TaskId);
+
+internal static class PlanTaskCorrectionActivityPolicy
+{
+    internal static PlanTaskCorrectionActivityState Resolve(
+        PendingPlanTaskCorrectionContext? context,
+        string planId,
+        string taskId,
+        bool isPromptRunning,
+        string? dispatchedItemId,
+        string? dispatchedSourceTag)
+    {
+        if (context is null ||
+            !string.Equals(context.PlanId, planId, StringComparison.Ordinal) ||
+            !string.Equals(context.TaskId, taskId, StringComparison.Ordinal))
+            return PlanTaskCorrectionActivityState.None;
+
+        var isMatchingDispatch = isPromptRunning &&
+            (string.Equals(dispatchedItemId, context.QueueItemId, StringComparison.Ordinal) ||
+             string.Equals(
+                 dispatchedSourceTag,
+                 "plan-recovery-correction-draft",
+                 StringComparison.Ordinal));
+        return isMatchingDispatch
+            ? PlanTaskCorrectionActivityState.Running
+            : PlanTaskCorrectionActivityState.Drafting;
+    }
+}
+
 internal static class PlanReviewCorrectionActivityPolicy
 {
     internal static (string PlanId, string GateId)? Resolve(

@@ -21,6 +21,27 @@ internal sealed class LoopControllerTests {
     private static LoopMdConfig MakeConfig(double intervalMinutes = 0.0001)
         => new(intervalMinutes, TimeoutMinutes: 5, Description: "", Instructions: "test prompt");
 
+    [Test]
+    public async Task PromptFailure_PreservesTypedTerminalExceptionForHostClassification()
+    {
+        var blocked = new PlanPreflightBlockedException(
+            "Uncommitted changes", ["src/Feature.cs"], "feature/test");
+        var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var controller = new LoopController(
+            executePromptAsync: (_, _) => Task.FromException(blocked),
+            abortPrompt: () => { },
+            onIterationStarted: _ => { },
+            onStopped: () => finished.TrySetResult(),
+            onError: _ => finished.TrySetResult(),
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+
+        await controller.StartAsync(MakeConfig(), continuousContext: true);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.That(controller.LastTerminalException, Is.SameAs(blocked));
+    }
+
     // ── RequestStop ───────────────────────────────────────────────────────────
 
     [Test]

@@ -39,6 +39,12 @@ internal sealed class LoopController {
 
     internal bool          IsRunning  { get; private set; }
     internal LoopStopState StopState  { get; private set; }
+    /// <summary>
+    /// Preserves the typed exception that ended the most recent run. The UI uses this to
+    /// distinguish a controlled preflight pause from an execution failure without parsing
+    /// human-readable error text.
+    /// </summary>
+    internal Exception? LastTerminalException { get; set; }
 
     /// <param name="executePromptAsync">
     ///   <c>(prompt, sessionId) =&gt; …</c> — second arg is an optional session-id
@@ -97,6 +103,7 @@ internal sealed class LoopController {
             return Task.CompletedTask;
 
         _stopRequested = false;
+        LastTerminalException = null;
         _workspacePath = workspacePath;
         _filterText    = filterText;
         _featureGroups = featureGroups;
@@ -247,6 +254,7 @@ internal sealed class LoopController {
         } catch (Exception ex) {
             if (_cts?.IsCancellationRequested != true) {
                 IsRunning = false;
+                LastTerminalException = ex;
                 ReportTerminalError(
                     $"Loop crashed unexpectedly: {ex.Message}",
                     ref terminalErrorReported);

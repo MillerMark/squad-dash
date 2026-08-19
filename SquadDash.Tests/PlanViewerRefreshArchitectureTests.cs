@@ -19,7 +19,8 @@ internal sealed class PlanViewerRefreshArchitectureTests
         var refreshMethod = source[methodStart..nextMethod];
         Assert.Multiple(() =>
         {
-            Assert.That(refreshMethod, Does.Contain("RebuildPreservingScroll(plan, durablePlan)"),
+            Assert.That(refreshMethod, Does.Contain("var displayedDurablePlan = ApplyCommittedColumnReorder(durablePlan);")
+                .And.Contain("RebuildPreservingScroll(displayedPlan, displayedDurablePlan)"),
                 "Refresh should rebuild the existing viewer's visual tree through the scroll-preserving helper.");
             Assert.That(source, Does.Contain("private void RebuildPreservingScroll(PendingDecomposePlan plan, Plan? durablePlan)")
                 .And.Contain("BuildContent(plan, durablePlan)"),
@@ -43,7 +44,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("AddButton(_isInspectorEditing ? \"Cancel edit\" : \"Edit\""),
                 "Editors must be hosted by the existing inspector and stay read-only until Edit.");
             Assert.That(source, Does.Contain("Header = \"Add validation after this step\"")
-                .And.Contain("Header = \"Delete task\"")
+                .And.Contain("Header = \"Delete step\"")
                 .And.Contain("Header = \"Delete validation\""));
             Assert.That(source, Does.Contain("AddButton(\"Undo\"")
                 .And.Contain("AddButton(\"Redo\"")
@@ -54,6 +55,25 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("ApplyActiveReviewChange"));
             Assert.That(source, Does.Not.Contain("new PlanEditorWindow")
                 .And.Not.Contain("new PlanReviewWindow"));
+        });
+    }
+
+    [Test]
+    public void ContextMenus_SelectTheirElementAndRespectHistoricalDependencyLocks()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("element.PreviewMouseRightButtonDown")
+                .And.Contain("SelectTaggedElement(sender)"),
+                "Every tagged visualizer element must select itself before its context menu opens.");
+            Assert.That(source, Does.Contain("IsEnabled   = definitionEditable && !wouldCycle")
+                .And.Contain("!IsTaskDefinitionEditable(taskId)"),
+                "Completed steps must not expose actionable dependency edits.");
+            Assert.That(source, Does.Contain("\"Required verification checkpoint\"")
+                .And.Contain("Remove approval checkpoint ({relationship})"),
+                "Approval menu labels should remain compact while details live in tooltips.");
         });
     }
 
@@ -129,6 +149,36 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("PendingPlanCollectionReconciler.Reconcile("),
                 "Workspace hydration must remove legacy same-revision pending proposals before rebuilding cards.");
         });
+    }
+
+    [Test]
+    public void EditableQueueTabDispatch_PreservesSourceIdentityForLivePlanActivity()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var standardStart = source.IndexOf(
+            "private async Task DispatchQueuedTabAsync", StringComparison.Ordinal);
+        var quickReplyStart = source.IndexOf(
+            "private async Task DispatchRightmostQueuedTabAsQuickReplyAsync", StringComparison.Ordinal);
+        var nextMethod = source.IndexOf(
+            "private PromptQueueItem? GetAutoDispatchCandidate", quickReplyStart, StringComparison.Ordinal);
+
+        Assert.That(standardStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(quickReplyStart, Is.GreaterThan(standardStart));
+        Assert.That(nextMethod, Is.GreaterThan(quickReplyStart));
+
+        var standardDispatch = source[standardStart..quickReplyStart];
+        var quickReplyDispatch = source[quickReplyStart..nextMethod];
+        foreach (var dispatch in new[] { standardDispatch, quickReplyDispatch })
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(dispatch, Does.Contain("_pec.CurrentDispatchedItem = item;")
+                    .And.Contain("_pec.ExecutePromptAsync("),
+                    "Manual queue-tab sends must expose the item identity while the prompt runs.");
+                Assert.That(dispatch, Does.Contain("_pec.CurrentDispatchedItem = null;"),
+                    "Manual queue-tab sends must release their dispatch identity afterward.");
+            });
+        }
     }
 
     private static string FindRepoFile(params string[] pathParts)

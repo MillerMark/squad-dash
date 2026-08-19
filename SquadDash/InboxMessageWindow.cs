@@ -330,7 +330,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         PlanPreflightBlockedException exception,
         Func<Task<bool>> retry,
         Action viewChanges,
-        Func<Task<bool>>? isWorkspaceClean = null)
+        Func<Task<bool>>? isWorkspaceClean = null,
+        Func<Task<IReadOnlyList<string>?>>? getDirtyPaths = null)
     {
         _preflightPollTimer?.Stop();
         var content = PlanPreflightRecoveryContent.From(exception);
@@ -369,15 +370,16 @@ internal sealed class InboxMessageWindow : ChromedWindow
             : Visibility.Visible;
         stack.Children.Add(files);
 
+        var detailText = new TextBlock
+        {
+            Text = content.TechnicalDetails,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(8, 4, 0, 6),
+        };
         var details = new Expander
         {
             Header = "Technical details",
-            Content = new TextBlock
-            {
-                Text = content.TechnicalDetails,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(8, 4, 0, 6),
-            },
+            Content = detailText,
             Margin = new Thickness(0, 0, 0, 6),
         };
         details.SetResourceReference(Expander.ForegroundProperty, "PlanPreflightWarningText");
@@ -468,7 +470,29 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 pollInFlight = true;
                 try
                 {
-                    if (!await isWorkspaceClean()) return;
+                    IReadOnlyList<string>? currentDirtyPaths = null;
+                    if (getDirtyPaths is not null)
+                    {
+                        currentDirtyPaths = await getDirtyPaths();
+                        if (currentDirtyPaths is not null)
+                        {
+                            content = PlanPreflightRecoveryContent.From(
+                                new PlanPreflightBlockedException(
+                                    exception.Condition,
+                                    currentDirtyPaths,
+                                    exception.TargetBranch));
+                            summary.Text = content.Summary;
+                            files.Text = content.ChangedFilesSummary;
+                            files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                                ? Visibility.Collapsed
+                                : Visibility.Visible;
+                            detailText.Text = content.TechnicalDetails;
+                        }
+                    }
+                    var clean = currentDirtyPaths is not null
+                        ? currentDirtyPaths.Count == 0
+                        : await isWorkspaceClean();
+                    if (!clean) return;
                     _preflightPollTimer?.Stop();
                     readiness.Text = "Workspace is clean. Retry is ready.";
                     retryButton.FontWeight = FontWeights.SemiBold;

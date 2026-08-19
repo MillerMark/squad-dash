@@ -84,8 +84,8 @@ internal static class PlanRecoveryActionPresentationBuilder
         {
             return new PlanRecoveryPrimaryActionPresentation(
                 PlanRecoveryPrimaryActionKind.ResumeVerification,
-                "Resume Verification & Continue",
-                "Resume verification from the saved task handoff. Implementation work will not be repeated and no repository assessment will run.",
+                $"Resume Verification for {stepLabel}",
+                $"Send the preserved candidate for {stepLabel} directly to independent verification. Implementation work will not be repeated, replaced, or reassessed first.",
                 "resume-verification");
         }
 
@@ -356,9 +356,9 @@ internal static class PlanRecoveryPresentationBuilder
                 "Task Stopped With Preserved Work",
                 "SquadDash preserved the task's uncommitted files and will verify that they have not changed before continuing.",
                 CommitEvidence: null,
-                "Recommended: continue the preserved work rather than starting the task again.",
-                "Continue Preserved Work",
-                RetryIsWarning: false);
+                "Recommended: resume from the uncommitted files so the task agent can finish and commit them rather than starting over.",
+                "Resume With Uncommitted Files…",
+                RetryIsWarning: true);
         }
 
         return new PlanRecoveryPresentation(

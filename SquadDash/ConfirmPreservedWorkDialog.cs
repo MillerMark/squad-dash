@@ -19,7 +19,7 @@ internal sealed class ConfirmPreservedWorkDialog : ChromedWindow
         IReadOnlyList<string> preservedPaths,
         Window? owner = null) : base(captionHeight: 36, resizeMode: ResizeMode.NoResize)
     {
-        Title                  = "Continue From Preserved Work?";
+        Title                  = "Resume With Uncommitted Files?";
         Width                  = 480;
         SizeToContent          = SizeToContent.Height;
         MinWidth               = 380;
@@ -90,12 +90,14 @@ internal sealed class ConfirmPreservedWorkDialog : ChromedWindow
 
         var continueButton = new Button
         {
-            Content   = "Continue Preserved Work",
+            Content   = "Resume With Uncommitted Files…",
             Height    = 32,
             Padding   = new Thickness(14, 0, 14, 0),
             IsDefault = true,
         };
         continueButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        continueButton.ToolTip = ToolTipHelper.MakeThemedToolTip(
+            "Resume this task from the listed uncommitted files so the task agent can finish and commit them.");
         continueButton.Click += (_, _) => { Confirmed = true; Close(); };
         buttonRow.Children.Add(continueButton);
     }

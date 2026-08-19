@@ -28,6 +28,23 @@ internal sealed record PlanApprovalChangeActivityEvent(
     string GateId,
     bool IsActive);
 
+/// <summary>
+/// Live, non-durable state for a bounded conversational correction to one interrupted task.
+/// Drafting claims the recovery choice across surfaces; running additionally drives the task
+/// spinner without pretending that the paused plan runner itself has resumed.
+/// </summary>
+internal enum PlanTaskCorrectionActivityState
+{
+    None,
+    Drafting,
+    Running,
+}
+
+internal sealed record PlanTaskCorrectionActivityEvent(
+    string PlanId,
+    string TaskId,
+    PlanTaskCorrectionActivityState State);
+
 internal static class PlanTaskActivityPulsePolicy
 {
     internal static bool MatchesLiveTarget(

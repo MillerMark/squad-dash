@@ -285,6 +285,7 @@ internal static class PlanRevisionPromptInjection
     private static bool IsEligible(Plan plan, bool includeExecutingPlan) =>
         plan.Tasks.Any(task => task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
         (plan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or
+             PlanLifecycleStatus.WaitingForCleanWorktree or
              PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked ||
          includeExecutingPlan && plan.LifecycleStatus == PlanLifecycleStatus.Executing);
 }

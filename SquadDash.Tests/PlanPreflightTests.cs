@@ -103,7 +103,7 @@ internal sealed class PlanPreflightTests
             Assert.That(content.Summary, Does.Contain("PLAN-005"));
             Assert.That(content.Summary, Does.Contain("plan remains stopped").IgnoreCase);
             Assert.That(content.RecoveryGuidance, Does.Contain("resume the remaining work automatically"));
-            Assert.That(content.RecoveryGuidance, Does.Contain("Continue Preserved Work"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("Resume With Uncommitted Files"));
             Assert.That(content.ChangedFilesSummary, Does.Contain("SquadDash/MainWindow.xaml.cs"));
             Assert.That(content.ClipboardText, Does.Contain("SquadDash.Tests/RecoveryTests.cs"));
         });
@@ -219,6 +219,26 @@ internal sealed class PlanPreflightTests
         {
             Assert.That(PlanRecoveryResumePolicy.IsAcceptedWorkContinuation(plan), Is.True);
             Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(plan), Is.True);
+        });
+    }
+
+    [Test]
+    public void WaitingForCleanWorktree_IsSafelyResumableWithoutTaskFailure()
+    {
+        var task = new PlanTask(
+            "P-1", "Pending work", "Description", [], "normal", PlanTaskStatus.Pending);
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Approved,
+            "Plan", "feature/plan", "Summary", [task], [],
+            new PlanProgress(0, 1), new PlanTimestamps(System.DateTimeOffset.UtcNow));
+
+        var waiting = PlanStoreUpdater.ApplyWaitingForCleanWorktree(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(waiting), Is.True);
+            Assert.That(waiting.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(waiting.InterruptionData, Is.Null);
         });
     }
 

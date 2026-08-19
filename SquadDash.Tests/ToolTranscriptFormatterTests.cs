@@ -199,6 +199,53 @@ internal sealed class ToolTranscriptFormatterTests {
     }
 
     [Test]
+    public void TryBuildEditDiffSummary_ForApplyPatch_ExtractsFileNameFromDiffOutput() {
+        var descriptor = new ToolTranscriptDescriptor("apply_patch");
+        var output = """
+            diff --git a/D:/Drive/Source/SquadDash-public/SquadDash/PlanViewerWindow.cs b/D:/Drive/Source/SquadDash-public/SquadDash/PlanViewerWindow.cs
+            index 0000000..1111111 100644
+            --- a/D:/Drive/Source/SquadDash-public/SquadDash/PlanViewerWindow.cs
+            +++ b/D:/Drive/Source/SquadDash-public/SquadDash/PlanViewerWindow.cs
+            @@ -1,2 +1,3 @@
+            -old line
+            +new line
+            +another line
+            """;
+
+        var summary = ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, output);
+
+        Assert.Multiple(() => {
+            Assert.That(summary, Is.Not.Null);
+            Assert.That(summary!.DisplayName, Is.EqualTo("PlanViewerWindow.cs"));
+            Assert.That(summary.AddedLineCount, Is.EqualTo(2));
+            Assert.That(summary.RemovedLineCount, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void TryExtractEditTargetPath_ReadsFreeformApplyPatchHeader() {
+        var patch = """
+            *** Begin Patch
+            *** Update File: D:\Drive\Source\SquadDash-public\SquadDash\PlanViewerWindow.cs
+            @@
+            -old line
+            +new line
+            *** End Patch
+            """;
+
+        var path = ToolTranscriptFormatter.TryExtractEditTargetPath(patch);
+
+        Assert.That(path, Is.EqualTo(@"D:\Drive\Source\SquadDash-public\SquadDash\PlanViewerWindow.cs"));
+    }
+
+    [TestCase("edit")]
+    [TestCase("apply_patch")]
+    [TestCase("APPLY_PATCH")]
+    public void IsEditToolName_RecognizesFileEditTools(string toolName) {
+        Assert.That(ToolTranscriptFormatter.IsEditToolName(toolName), Is.True);
+    }
+
+    [Test]
     public void BuildCompletedText_ForFailedEdit_AppendsErrorReasonFromOutputText() {
         var descriptor = new ToolTranscriptDescriptor(
             "edit",

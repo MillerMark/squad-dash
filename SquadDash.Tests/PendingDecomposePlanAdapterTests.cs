@@ -362,6 +362,57 @@ internal sealed class PendingDecomposePlanAdapterTests
     }
 
     [Test]
+    public void FromPlan_RestoresVerificationProofContractForSchemaValidation()
+    {
+        var task = new DecomposedSubTask(
+            "PVDRAG-20260818-006",
+            "Verify the visualization without changing source files.",
+            [],
+            "high",
+            "Verify visualization",
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "Verification specialist.",
+            ProofRequirements:
+            [
+                new DecomposedTaskProofRequirement(
+                    "visual-proof", "automated-test", "The visualization contract test passes."),
+            ],
+            ExecutionMode: "verification");
+        var group = new DecomposedTaskGroup(
+            "PVDRAG-20260818",
+            "Plan visualization drag and reorder",
+            "feature/plan-visualizer-drag-reorder",
+            "Verify the visualization.",
+            [task],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    "PVDRAG-20260818-VAL-001",
+                    "Completion audit",
+                    "Audit the visualization proof.",
+                    [task.Id],
+                    [],
+                    ["The visualization contract test passed."],
+                    Mode: "audit"),
+            ]);
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var durable = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group),
+            DateTimeOffset.UtcNow);
+
+        var restored = PendingDecomposePlanAdapter.FromPlan(durable);
+        var payload = "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(restored.Group);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(TasksJsonParser.TryParse(payload, out _, out var diagnostic),
+                Is.True, diagnostic?.Message);
+            Assert.That(restored.Group.Tasks[0].ProofRequirements, Has.Count.EqualTo(1));
+            Assert.That(restored.Group.Tasks[0].ExecutionMode, Is.EqualTo("verification"));
+        });
+    }
+
+    [Test]
     public void ToPlan_ThenFromPlan_RevisionMatchesPendingDecomposePlanStore()
     {
         // Full compatibility test: PendingDecomposePlanStore.ComputeRevision should agree

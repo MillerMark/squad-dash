@@ -19,6 +19,7 @@ internal sealed class PlanModelTests
     [TestCase(PlanLifecycleStatus.Completed)]
     [TestCase(PlanLifecycleStatus.Archived)]
     [TestCase(PlanLifecycleStatus.Blocked)]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree)]
     public void AllKnownStatuses_ArePresentInAllSet(string status)
     {
         Assert.That(PlanLifecycleStatus.All, Does.Contain(status));

@@ -161,8 +161,8 @@ internal sealed record PlanPreflightRecoveryContent(
             "The plan remains stopped.",
             files,
             "Commit the preserved work. SquadDash is watching the repository and will resume the remaining work " +
-            "automatically after the workspace is clean and HEAD advances. Select Continue Preserved Work only if " +
-            "you intentionally want to resume without creating that commit.",
+            "automatically after the workspace is clean and HEAD advances. Select Resume With Uncommitted Files only " +
+            "when these files are intentionally incomplete and you want the task agent to finish and commit them.",
             details,
             clipboardDetails);
     }
@@ -238,6 +238,7 @@ internal static class PlanRecoveryResumePolicy
     }
 
     internal static bool IsSafelyResumable(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree ||
         plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
         (plan.InterruptionData?.Reason.StartsWith(
              "Paused by user",

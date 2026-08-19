@@ -351,6 +351,8 @@ public partial class MainWindow : Window
     private ApprovalCardNotificationCoordinator? _approvalNotificationCoordinator;
     private readonly Dictionary<string, List<TranscriptApprovalCardBuilder.CardResult>>
         _approvalTranscriptCards = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlanApprovalReviewWindow>
+        _openPlanApprovalReviewWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private DispatcherTimer? _approvalResumeRetryTimer;
     private string? _approvalResumeRetryPlanId;
@@ -373,7 +375,10 @@ public partial class MainWindow : Window
     private bool? _developerApprovalSimulationInboxVisibleScenario;
     private PendingGateResponseContext? _pendingGateResponseContext;
     private PendingPlanReviewCorrectionContext? _pendingPlanReviewCorrectionContext;
+    private PendingPlanTaskCorrectionContext? _pendingPlanTaskCorrectionContext;
     private (string PlanId, string GateId)? _activeGateChangeActivity;
+    private (string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?
+        _publishedPlanTaskCorrectionActivity;
     private bool _planReviewActivityRepairPending;
     private bool _humanReviewClarificationRepairPending;
 
@@ -1396,6 +1401,8 @@ public partial class MainWindow : Window
             void ApplyPlanProgress()
             {
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
+                if (_openPlanApprovalReviewWindows.ContainsKey(evt.PlanId))
+                    _ = RefreshOpenPlanApprovalReviewWindowAsync(evt.UpdatedPlan);
             }
 
             if (Dispatcher.CheckAccess())
@@ -1571,6 +1578,7 @@ public partial class MainWindow : Window
             {
                 _isPromptRunning = v;
                 SyncGateChangeActivity(v);
+                SyncPlanTaskCorrectionActivity(v);
                 _idleDetectionService?.SetPromptActive(v);
                 if (v)
                 {
@@ -2963,6 +2971,8 @@ public partial class MainWindow : Window
         {
             ResetQueuePausedState();
             HandleOpenEditorsBeforeSend(id);
+            _pec.PendingQueueItemCount = _promptQueue.Count;
+            _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             _pendingPromptSuppressTranscript = string.Equals(
                 item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
@@ -2980,6 +2990,8 @@ public partial class MainWindow : Window
         {
             _pendingPromptIsSystemInjected = false;
             _pendingPromptSuppressTranscript = false;
+            _pec.PendingQueueItemCount = 0;
+            _pec.CurrentDispatchedItem = null;
         }
     }
 
@@ -3017,6 +3029,8 @@ public partial class MainWindow : Window
         try
         {
             SquadDashTrace.Write("UI", $"Prompt sent: rightmost queued tab as quick-reply answer id={id}");
+            _pec.PendingQueueItemCount = _promptQueue.Count;
+            _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
             _pendingPromptSuppressTranscript = string.Equals(
                 item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
@@ -3034,6 +3048,8 @@ public partial class MainWindow : Window
         {
             _pendingPromptIsSystemInjected = false;
             _pendingPromptSuppressTranscript = false;
+            _pec.PendingQueueItemCount = 0;
+            _pec.CurrentDispatchedItem = null;
             _loopFollowUpTcs?.TrySetResult(true);
         }
     }
@@ -4649,6 +4665,11 @@ public partial class MainWindow : Window
                 id,
                 StringComparison.Ordinal))
             ClearPendingPlanReviewCorrection(restoreCard: true);
+        if (string.Equals(
+                _pendingPlanTaskCorrectionContext?.QueueItemId,
+                id,
+                StringComparison.Ordinal))
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
         SyncQueuePanel();
         if (_categorizationCallout is { IsVisible: true })
         {
@@ -5241,6 +5262,7 @@ public partial class MainWindow : Window
         _isPromptRunning = false;
         SyncGateChangeActivity(isPromptRunning: false);
         ClearPendingPlanReviewCorrection(restoreCard: true);
+        ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
         UpdateRestartStatusPanelVisibility();
         CoordinatorThread.CompletedAt ??= DateTimeOffset.Now;
         // Close any still-spinning coordinator tool entries.
@@ -6972,6 +6994,11 @@ public partial class MainWindow : Window
 
     private void OnNativeLoopError(string msg)
     {
+        if (_loopController.LastTerminalException is PlanPreflightBlockedException preflightBlocked)
+        {
+            PausePlanForCleanWorktree(preflightBlocked);
+            return;
+        }
         DiscardObsoletePlanQueueItems("native-loop-error");
         var branchLeasePause = _planBranchLeasePausePending;
         var failedRound = _loopRoundExecutionIdentity;
@@ -7072,6 +7099,80 @@ public partial class MainWindow : Window
         SoundNotifications.Play(SoundEvent.LoopStopped);
         if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
             TryFireDeferredCodeHealth();
+    }
+
+    private void PausePlanForCleanWorktree(
+        PlanPreflightBlockedException blocked,
+        string? planIdOverride = null)
+    {
+        var identity = LoopRoundExecutionIdentity.ResolveFailure(
+            _loopRoundExecutionIdentity,
+            _activeDecomposeGroupId,
+            _CodeHealthGroupRunner?.CurrentRevision,
+            _CodeHealthGroupRunner?.CurrentStepId,
+            _CodeHealthGroupRunner?.GetCurrentStepTitle());
+        var planId = planIdOverride ?? identity.PlanId;
+        var durable = planId is null ? null : _planStore?.Load(planId);
+        if (durable is null)
+        {
+            // Without a durable plan there is no safe continuation identity; use ordinary error
+            // handling rather than guessing from a projection.
+            _loopController.LastTerminalException = null;
+            OnNativeLoopError(blocked.Message);
+            return;
+        }
+
+        var waiting = PlanStoreUpdater.ApplyWaitingForCleanWorktree(durable);
+        if (!TryPublishPlanProgress(waiting, out var saveError))
+        {
+            _loopController.LastTerminalException = null;
+            OnNativeLoopError(saveError ?? blocked.Message);
+            return;
+        }
+
+        _pec.SetIsLoopRunning(false);
+        _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
+        _loopCurrentIteration = 0;
+        _loopIsWaiting = false;
+        _loopRoundStartedAt = null;
+        _loopPlanStartedAt = null;
+        _loopTotalActiveTime = TimeSpan.Zero;
+        _loopInterruptedByQueue = false;
+        ClearExecutingPlanState();
+        _loopResumeSuppressed = false;
+        _pausePlanAfterCurrentStepRequested = false;
+        _planAbortRequestedByUser = false;
+        _planBranchLeasePausePending = false;
+        _loopRoundExecutionIdentity = null;
+
+        AppendLoopOutputLine(
+            $"⏳ Plan {durable.PlanId} is waiting for a clean worktree. No task failed.",
+            LoopLifecycleBrush);
+        AppendLine($"⏳ Plan {durable.PlanId} is waiting for you to commit or stash the listed changes.");
+
+        var pending = PendingDecomposePlanAdapter.FromPlan(waiting);
+        ShowTranscriptPlanPreflightRecovery(
+            pending,
+            action: "continue-working",
+            branchOverride: waiting.Branch,
+            blocked,
+            sourceActionsPanel: null,
+            CoordinatorThread.Document.Blocks,
+            retryOverride: async () =>
+            {
+                var latest = _planStore?.Load(waiting.PlanId)
+                    ?? throw new InvalidOperationException("The durable plan is no longer available.");
+                await StartBackloggedDecomposeGroupAsync(
+                    PendingDecomposePlanAdapter.FromPlan(latest).Group with
+                    {
+                        HostRevision = latest.Revision,
+                    });
+                return true;
+            },
+            retryLabel: "Resume when clean",
+            autoRetryWhenReady: true);
+        SyncLoopPanel();
+        SoundNotifications.Play(SoundEvent.LoopStopped);
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -8645,7 +8746,12 @@ public partial class MainWindow : Window
             SquadDashTrace.Write("Loop", $"Startup loop resume refused: {ex}");
             SyncLoopPanel();
 
-            if (!string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
+            if (ex is PlanPreflightBlockedException preflightBlocked &&
+                !string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
+            {
+                PausePlanForCleanWorktree(preflightBlocked, execution.DecomposeGroupId);
+            }
+            else if (!string.IsNullOrWhiteSpace(execution?.DecomposeGroupId))
             {
                 InterruptPlanAfterFailedResume(execution, ex.Message);
             }
@@ -8700,84 +8806,48 @@ public partial class MainWindow : Window
             new DecomposedTasksWriter(),
             tasksPath);
 
-        // When the full group object is available, run cycle detection and write the group to
-        // tasks.md before starting the loop.  If a cycle is detected, surface an inbox message
-        // and abort — do not start the loop.
-        if (group is not null && !_CodeHealthGroupRunner.TryStartGroup(
-                group,
-                out var inboxErrorJson,
-                group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group)))
+        var durablePlan = _planStore?.Load(groupId);
+        if (durablePlan is null && group is not null)
         {
-            SquadDashTrace.Write(TraceCategory.General,
-                $"StartDecomposeLoopAsync: cycle detected in group '{groupId}' — aborting loop start.");
-            _CodeHealthGroupRunner  = null;
-            _conversationManager.UpdateActiveLoopExecutionState(null);
-            if (inboxErrorJson is not null)
-                TrySaveInboxMessageFromResponse(inboxErrorJson);
-            return false;
-        }
-
-        string? revision;
-        DecomposedTaskGroup? executionGroup = group;
-        if (group is not null)
-        {
-            revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
-            new DecomposedTasksWriter().EnsureGroupRevision(
-                tasksPath,
-                groupId,
-                revision);
-        }
-        else
-        {
-            // The durable plan is canonical. tasks.md is only its compatibility projection and
-            // may legitimately be absent (for example after accepting a plan in a workspace
-            // whose backlog file predates durable plans). Restore that one managed block before
-            // attempting to resume instead of refusing an otherwise valid approved plan.
-            var durablePlan = _planStore?.Load(groupId);
-            if (durablePlan is not null)
+            var approvedAt = DateTimeOffset.UtcNow;
+            var initialRevision = group.HostRevision
+                ?? PendingDecomposePlanStore.ComputeRevision(group);
+            var approved = PendingDecomposePlanAdapter.ToPlan(
+                new PendingDecomposePlan(initialRevision, group),
+                approvedAt) with
             {
-                var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durablePlan);
-                if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
-                {
-                    _CodeHealthGroupRunner = null;
-                    _conversationManager.UpdateActiveLoopExecutionState(null);
-                    throw new InvalidDataException(
-                        $"Plan {groupId} could not restore its tasks.md projection: {repair.Error}");
-                }
-            }
-
-            var persisted = durablePlan is not null
-                ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId)
-                : File.Exists(tasksPath)
-                    ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                    : null;
-            if (persisted?.Errors.Count > 0)
-            {
-                _CodeHealthGroupRunner = null;
-                _conversationManager.UpdateActiveLoopExecutionState(null);
+                LifecycleStatus = PlanLifecycleStatus.Approved,
+                Timestamps = new PlanTimestamps(approvedAt, AcceptedAt: approvedAt),
+            };
+            if (!PendingDecomposePlanAdapter.RevisionIsValid(approved))
                 throw new InvalidDataException(
-                    "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors));
-            }
-            if (persisted is null || !persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
-            {
-                _CodeHealthGroupRunner = null;
-                _conversationManager.UpdateActiveLoopExecutionState(null);
-                SquadDashTrace.Write(
-                    "Loop",
-                    $"Refused Executing Plan resume because group '{groupId}' is missing from tasks.md.");
-                return false;
-            }
-            revision = durablePlan?.Revision
-                ?? persistedGroup.HostRevision
-                ?? PendingDecomposePlanStore.ComputeRevision(persistedGroup);
-            executionGroup = durablePlan is not null
-                ? PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
-                {
-                    HostRevision = durablePlan.Revision,
-                }
-                : persistedGroup;
-            _CodeHealthGroupRunner.RefreshTaskDefinitions(executionGroup);
+                    $"Plan {groupId} does not match its approved durable revision.");
+            if (!TryPublishPlanProgress(approved, out var initializationError))
+                throw new InvalidDataException(
+                    $"Plan {groupId} could not initialize its durable execution contract: {initializationError}");
+            durablePlan = approved;
         }
+        if (durablePlan is null)
+        {
+            _CodeHealthGroupRunner = null;
+            _conversationManager.UpdateActiveLoopExecutionState(null);
+            throw new InvalidDataException($"Plan {groupId} has no durable execution contract.");
+        }
+        var executionGroup = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
+        {
+            HostRevision = durablePlan.Revision,
+        };
+        if (!CodeHealthGroupRunner.HasNoDependencyCycle(executionGroup, out var cycleIds))
+        {
+            _CodeHealthGroupRunner = null;
+            _conversationManager.UpdateActiveLoopExecutionState(null);
+            throw new InvalidDataException(
+                $"Plan {groupId} contains a dependency cycle: {string.Join(", ", cycleIds ?? [])}.");
+        }
+
+        var revision = durablePlan.Revision;
+        _CodeHealthGroupRunner.RefreshTaskDefinitions(executionGroup);
+        RefreshPlanProjectionBestEffort(durablePlan, "loop-start");
 
         if (!string.IsNullOrWhiteSpace(expectedRevision) &&
             !string.Equals(expectedRevision, revision, StringComparison.Ordinal))
@@ -9389,25 +9459,12 @@ public partial class MainWindow : Window
             AppendLine($"⚠ Plan revision was not applied because its revision history could not be saved: {ex.Message}");
             return;
         }
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var originalTasks = File.Exists(tasksPath) ? File.ReadAllText(tasksPath) : null;
-        var hasProjection = originalTasks?.Contains(
-            $"<!-- decompose-group: {current.PlanId} |",
-            StringComparison.Ordinal) == true;
-        if (hasProjection && !new DecomposedTasksWriter().ReplaceGroup(
-                tasksPath, effective, updated.Revision, reopened))
-        {
-            AppendLine("⚠ Plan revision was not applied because SquadDash could not update its task projection.");
-            return;
-        }
-
         if (!TryPublishPlanProgress(updated, out var publishError))
         {
-            if (hasProjection && originalTasks is not null)
-                RestoreFileAtomically(tasksPath, originalTasks);
             AppendLine($"⚠ Plan revision was not applied: {publishError}");
             return;
         }
+        RefreshPlanProjectionBestEffort(updated, "approved plan revision");
 
         TrackAcceptedPlanRevisionForActiveExecution(current, updated);
         _CodeHealthGroupRunner?.RefreshTaskDefinitions(effective);
@@ -9895,63 +9952,34 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var hasReplacementTasks = proposal.Tasks.Any(task =>
             !string.IsNullOrWhiteSpace(task.ParentTaskId));
-        var hasPersistedGroup = File.Exists(tasksPath) && File.ReadAllText(tasksPath).Contains(
-            $"<!-- decompose-group: {proposal.GroupId} |",
-            StringComparison.Ordinal);
-        isRevision = hasPersistedGroup;
-        if (!hasReplacementTasks && !hasPersistedGroup)
+        var durablePlan = _planStore?.Load(proposal.GroupId);
+        isRevision = durablePlan is not null;
+        if (!hasReplacementTasks && durablePlan is null)
             return true;
 
-        var persisted = File.Exists(tasksPath)
-            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-            : null;
-        if (persisted?.Errors.Count > 0)
-        {
-            error = "The current tasks.md projection is invalid: " + string.Join("; ", persisted.Errors);
-            return false;
-        }
-        if (persisted is null ||
-            !persisted.DecomposeGroups.TryGetValue(proposal.GroupId, out var existingGroup))
+        if (durablePlan is null)
         {
             error = $"The existing approved plan '{proposal.GroupId}' was not found, so its revision cannot be staged.";
             return false;
         }
 
-        var groupItems = persisted.OpenGroups.SelectMany(priorityGroup => priorityGroup.Items)
-            .Concat(persisted.CompletedItems)
-            .Where(item => string.Equals(item.DecomposeGroupId, proposal.GroupId, StringComparison.Ordinal))
-            .ToArray();
-        var supersedableIds = groupItems
-            .Where(item => item.TaskId is not null && (item.IsFailed || item.IsPartial))
-            .Select(item => item.TaskId!)
+        var existingGroup = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group;
+        var supersedableIds = durablePlan.Tasks
+            .Where(task => task.Status is PlanTaskStatus.Failed or
+                                           PlanTaskStatus.Partial or
+                                           PlanTaskStatus.HumanReviewRequired)
+            .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
-        var completedIds = groupItems
-            .Where(item => item.TaskId is not null && item.IsChecked)
-            .Select(item => item.TaskId!)
+        var completedIds = durablePlan.Tasks
+            .Where(task => task.Status == PlanTaskStatus.Complete)
+            .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
-
-        // tasks.md intentionally remains a projection. Durable execution state supplies
-        // statuses such as human-review-required and the exact interrupted task, both of
-        // which are legitimate replan boundaries but cannot be represented by markdown
-        // check-box syntax alone.
-        var durablePlan = _planStore?.Load(proposal.GroupId);
-        if (durablePlan is not null)
+        if (durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+            !string.IsNullOrWhiteSpace(durablePlan.InterruptionData?.InterruptedTaskId))
         {
-            foreach (var task in durablePlan.Tasks)
-            {
-                if (task.Status is PlanTaskStatus.Failed or
-                                   PlanTaskStatus.Partial or
-                                   PlanTaskStatus.HumanReviewRequired)
-                    supersedableIds.Add(task.TaskId);
-                if (task.Status == PlanTaskStatus.Complete)
-                    completedIds.Add(task.TaskId);
-            }
-            if (durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
-                !string.IsNullOrWhiteSpace(durablePlan.InterruptionData?.InterruptedTaskId))
-                supersedableIds.Add(durablePlan.InterruptionData.InterruptedTaskId!);
+            supersedableIds.Add(durablePlan.InterruptionData.InterruptedTaskId!);
         }
 
         return DecomposePlanRevision.TryValidateAgainstPersisted(
@@ -10284,41 +10312,30 @@ public partial class MainWindow : Window
             return false;
         if (_currentWorkspace is null) return false;
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) return false;
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (!parsed.DecomposeGroups.TryGetValue(decision.GroupId, out var group))
+        var durablePlan = _planStore?.Load(decision.GroupId);
+        if (durablePlan is null)
         {
-            ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} is no longer in tasks.md.");
+            ScheduleDecomposeSystemEntry($"Recovery ignored: durable plan {decision.GroupId} is no longer available.");
             return false;
         }
-
-        var revision = group.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(group);
+        var revision = durablePlan.Revision;
         if (!string.Equals(revision, decision.Revision, StringComparison.Ordinal))
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} has changed since that response.");
             return false;
         }
 
-        var blockedTask = parsed.OpenGroups
-            .SelectMany(priorityGroup => priorityGroup.Items)
-            .FirstOrDefault(item =>
-                string.Equals(item.DecomposeGroupId, decision.GroupId, StringComparison.Ordinal) &&
-                (item.IsFailed || item.IsPartial));
-        var durablePlan = _planStore?.Load(decision.GroupId);
-        var recoveryTaskId = blockedTask?.TaskId
-            ?? (durablePlan is not null &&
-                string.Equals(durablePlan.Revision, revision, StringComparison.Ordinal) &&
-                durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked
-                    ? durablePlan.InterruptionData?.InterruptedTaskId
-                    : null);
+        var recoveryTaskId = durablePlan.InterruptionData?.InterruptedTaskId
+            ?? durablePlan.Tasks.FirstOrDefault(task =>
+                task.Status is PlanTaskStatus.Failed or PlanTaskStatus.Partial or
+                    PlanTaskStatus.HumanReviewRequired)?.TaskId;
         if (recoveryTaskId is null)
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} does not have a failed or partial step.");
             return false;
         }
 
-        var plan = new PendingDecomposePlan(revision, group with { HostRevision = revision });
+        var plan = PendingDecomposePlanAdapter.FromPlan(durablePlan);
         if (decision.Action is "resume-verification" or "assess-and-continue")
         {
             await AssessAndContinuePlanRecoveryAsync(plan, recoveryTaskId);
@@ -10513,6 +10530,14 @@ public partial class MainWindow : Window
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
     {
+        if (_pendingPlanTaskCorrectionContext is not null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Correct Plan Step",
+                "A plan-step correction is already prepared or running. Submit or remove that queued correction before preparing another one.");
+            return;
+        }
+
         var durable = _planStore?.Load(plan.Group.GroupId);
         var task = durable?.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
@@ -10583,7 +10608,7 @@ public partial class MainWindow : Window
                 RequiresRemovalConfirmation: true,
                 RemovalWarning: "This context prevents completed work from being rerun and keeps the correction attached to the right step. Remove it anyway?"),
         };
-        QueueEditablePlanPrompt(
+        var queueItemId = QueueEditablePlanPrompt(
             $"Continue working on {stepLabel} without repeating its completed work.\r\n\r\n" +
             "What is incomplete or needs correction?\r\n\r\n" +
             "[Describe the bounded correction]\r\n",
@@ -10591,6 +10616,29 @@ public partial class MainWindow : Window
             $"Correct {stepLabel}",
             "plan-recovery-correction-draft",
             attachments);
+        _pendingPlanTaskCorrectionContext = new PendingPlanTaskCorrectionContext(
+            queueItemId,
+            durable.PlanId,
+            taskId);
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
+            CoordinatorThread.Document.Blocks,
+            durable.PlanId);
+        RetireRecoveryInboxActions(plan, taskId);
+        SyncPlanTaskCorrectionActivity(isPromptRunning: false);
+    }
+
+    private void RetireRecoveryInboxActions(PendingDecomposePlan plan, string taskId)
+    {
+        if (_inboxStore is null) return;
+        var messageId = DecomposePlanInbox.BuildRecoveryMessageId(plan, taskId);
+        var message = _inboxStore.GetById(messageId);
+        if (message is null) return;
+        foreach (var action in message.Actions)
+            _inboxStore.MarkActionUsed(messageId, action.Label);
+        var updated = _inboxStore.GetById(messageId);
+        if (updated is null) return;
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        RefreshOpenApprovalInboxWindows(messageId, updated);
     }
 
     private void QueueClarifyHumanReviewItem(Plan plan, PlanHumanReviewChecklistItem item)
@@ -10719,16 +10767,15 @@ public partial class MainWindow : Window
         if (_isPromptRunning || _loopController.IsRunning)
             throw new InvalidOperationException("Wait for the current prompt or loop to finish before retrying the plan.");
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (parsed.Errors.Count > 0)
-            throw new InvalidDataException(
-                "The persisted plan metadata is invalid: " + string.Join("; ", parsed.Errors));
-        if (!parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
-            throw new InvalidOperationException("The plan is no longer present in tasks.md.");
-        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
+        var durablePlan = _planStore?.Load(plan.Group.GroupId)
+            ?? throw new InvalidOperationException("The durable plan is no longer available.");
+        var currentRevision = durablePlan.Revision;
         if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("The plan changed after these recovery controls were created.");
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
+        {
+            HostRevision = currentRevision,
+        };
 
         var workspace = _currentWorkspace.FolderPath;
         var activeBranch = ReadGitBranch(workspace);
@@ -10762,7 +10809,9 @@ public partial class MainWindow : Window
                     assessedRecoveryContinuation,
                     allowUncommittedPreservedWork: true),
                 contentFactory: exception => PlanPreflightRecoveryContent.FromPreservedWork(exception, taskId),
-                retryLabel: "Continue Preserved Work",
+                retryLabel: "Resume With Uncommitted Files…",
+                retryToolTip: "Resume this task immediately from the listed uncommitted files so the task agent can finish and commit them. SquadDash will not wait for you to commit first.",
+                retryTone: QuickReplyTone.Warning,
                 readinessOverride: async () =>
                 {
                     var workspaceClean = await IsPlanPreflightWorkspaceCleanAsync(plan.Group.GroupId);
@@ -10774,9 +10823,17 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var writer = new DecomposedTasksWriter();
-        if (!writer.ResetTaskPending(tasksPath, taskId))
-            throw new InvalidOperationException($"Task {taskId} could not be reset to pending.");
+        // Canonical recovery is committed before its Markdown view is refreshed.
+        var recoveredPlan = PlanStoreUpdater.ApplyRecoveryWithProvenance(
+            durablePlan,
+            taskId,
+            durablePlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Commit,
+            "continue-working");
+        if (!TryPublishPlanProgress(recoveredPlan, out var recoverySaveError))
+            throw new InvalidOperationException(
+                recoverySaveError ?? "The durable recovery state could not be saved.");
+        RefreshPlanProjectionBestEffort(recoveredPlan, "continue-working");
         LoadTasksPanel();
         await StartBackloggedDecomposeGroupAsync(
             currentGroup with { HostRevision = currentRevision },
@@ -10919,8 +10976,10 @@ public partial class MainWindow : Window
         Func<Task<bool>>? retryOverride = null,
         Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent>? contentFactory = null,
         string retryLabel = "Retry",
+        string? retryToolTip = null,
+        QuickReplyTone retryTone = QuickReplyTone.Default,
         Func<Task<bool>>? readinessOverride = null,
-        bool autoRetryWhenReady = false)
+        bool autoRetryWhenReady = true)
     {
         foreach (var existing in blocks.OfType<BlockUIContainer>().Where(block =>
                      block.Tag is PlanPreflightRecoveryTag tag &&
@@ -10934,7 +10993,8 @@ public partial class MainWindow : Window
             CoordinatorThread.Document.Blocks,
             plan.Group.GroupId);
 
-        var content = (contentFactory ?? PlanPreflightRecoveryContent.From)(exception);
+        var buildContent = contentFactory ?? PlanPreflightRecoveryContent.From;
+        var content = buildContent(exception);
         var stack = new StackPanel();
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition());
@@ -11067,7 +11127,9 @@ public partial class MainWindow : Window
             exception.RequiresRepositoryInitialization
                 ? "Initialize repository and start plan"
                 : retryLabel,
-            _transcriptFontSize);
+            _transcriptFontSize,
+            toolTip: retryToolTip is null ? null : ToolTipHelper.MakeThemedToolTip(retryToolTip),
+            tone: retryTone);
         buttons.Children.Add(retryButton);
         stack.Children.Add(buttons);
 
@@ -11103,6 +11165,7 @@ public partial class MainWindow : Window
             copyFeedbackTimer.Start();
         };
         var retryInFlight = false;
+        DispatcherTimer? timer = null;
         retryButton.Click += async (_, _) => await RetryPlanAsync("Checking the workspace and retrying…");
 
         async Task RetryPlanAsync(string progressText)
@@ -11127,7 +11190,23 @@ public partial class MainWindow : Window
                     : await retryOverride();
                 if (succeeded)
                 {
-                    if (blocks.Contains(container)) blocks.Remove(container);
+                    timer?.Stop();
+                    container.Tag = new PlanPreflightRecoveryReceiptTag(
+                        plan.Group.GroupId,
+                        plan.Revision,
+                        DateTimeOffset.Now);
+                    title.Text = "✓ Workspace cleaned; plan resumed";
+                    title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                    summary.Visibility = Visibility.Collapsed;
+                    files.Visibility = Visibility.Collapsed;
+                    details.Visibility = Visibility.Collapsed;
+                    utilities.Visibility = Visibility.Collapsed;
+                    copyButton.Visibility = Visibility.Collapsed;
+                    buttons.Visibility = Visibility.Collapsed;
+                    readiness.Text = $"The worktree became clean and SquadDash resumed the plan at {DateTimeOffset.Now:t}. No task was failed or reworked by this pause.";
+                    readiness.FontWeight = FontWeights.Normal;
+                    card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
+                    card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
                     return;
                 }
                 buttons.IsEnabled = true;
@@ -11138,7 +11217,8 @@ public partial class MainWindow : Window
                 if (blocks.Contains(container)) blocks.Remove(container);
                 ShowTranscriptPlanPreflightRecovery(
                     plan, action, branchOverride, blocked, sourceActionsPanel, blocks,
-                    retryOverride, contentFactory, retryLabel, readinessOverride, autoRetryWhenReady);
+                    retryOverride, contentFactory, retryLabel, retryToolTip, retryTone,
+                    readinessOverride, autoRetryWhenReady);
             }
             catch (Exception ex)
             {
@@ -11153,7 +11233,7 @@ public partial class MainWindow : Window
         }
 
         var pollInFlight = false;
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
         timer.Tick += async (_, _) =>
         {
             if (pollInFlight || !blocks.Contains(container))
@@ -11164,8 +11244,24 @@ public partial class MainWindow : Window
             pollInFlight = true;
             try
             {
+                var currentDirtyPaths = await GetPlanPreflightDirtyPathsAsync(plan.Group.GroupId);
+                if (currentDirtyPaths is not null)
+                {
+                    var currentException = new PlanPreflightBlockedException(
+                        exception.Condition,
+                        currentDirtyPaths,
+                        exception.TargetBranch);
+                    content = buildContent(currentException);
+                    summary.Text = content.Summary;
+                    files.Text = content.ChangedFilesSummary;
+                    files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                        ? Visibility.Collapsed
+                        : Visibility.Visible;
+                    detailsText.Text = content.TechnicalDetails;
+                }
+
                 var ready = readinessOverride is null
-                    ? await IsPlanPreflightWorkspaceCleanAsync()
+                    ? currentDirtyPaths is { Count: 0 }
                     : await readinessOverride();
                 if (!ready) return;
                 timer.Stop();
@@ -11219,7 +11315,6 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("The saved task plan contains a dependency cycle.");
         var workspace = _currentWorkspace.FolderPath;
         var effective = group with { HostRevision = plan.Revision };
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out var isRevision, out var revisionError))
             throw new InvalidOperationException(
                 "This revised plan no longer matches the accepted plan state. " + revisionError);
@@ -11271,21 +11366,36 @@ public partial class MainWindow : Window
         else if (action == "execute-new-branch")
         {
             var target = string.IsNullOrWhiteSpace(branchOverride) ? group.Branch : branchOverride.Trim();
-            await PrepareDecomposeBranchAsync(workspace, target);
+            await PrepareDecomposeBranchAsync(workspace, target, group.GroupId);
             effective = effective with { Branch = target };
         }
 
-        if (isRevision && !new DecomposedTasksWriter().ReplaceGroup(tasksPath, effective, plan.Revision))
-            throw new InvalidOperationException("SquadDash could not replace the persisted plan with its approved revision.");
+        Plan? revisedDurablePlan = null;
+        if (isRevision)
+        {
+            if (!TryPublishLegacyReplacementRevision(effective, out revisedDurablePlan, out var applyError))
+                throw new InvalidOperationException(applyError ?? "SquadDash could not persist the approved revision.");
+            effective = PendingDecomposePlanAdapter.FromPlan(revisedDurablePlan!).Group with
+            {
+                HostRevision = revisedDurablePlan!.Revision,
+            };
+        }
 
         if (action == "add-to-backlog")
         {
-            var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), tasksPath);
-            if (!runner.TryStartGroup(effective, out var error, plan.Revision))
+            if (revisedDurablePlan is null)
             {
-                if (error is not null) TrySaveInboxMessageFromResponse(error);
-                return false;
+                var collectionService = new PlanCollectionService(
+                    _planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath));
+                var collected = collectionService.Collect(
+                    new PendingDecomposePlan(plan.Revision, effective),
+                    DateTimeOffset.UtcNow);
+                if (collected.Outcome is not (CollectionOutcome.Collected or CollectionOutcome.AlreadyCollected) ||
+                    collected.Plan is null)
+                    return false;
+                revisedDurablePlan = collected.Plan;
             }
+            RefreshPlanProjectionBestEffort(revisedDurablePlan, "approved backlog plan");
             new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Delete(group.GroupId);
             ArchiveDecomposePlanInboxReminder(plan);
             AppendLine($"✅ Added decompose group {group.GroupId} to the backlog.");
@@ -11301,6 +11411,81 @@ public partial class MainWindow : Window
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Applies the legacy replacement-task revision format to the durable plan first. The
+    /// markdown task list is refreshed afterward and has no veto over the accepted contract.
+    /// </summary>
+    private bool TryPublishLegacyReplacementRevision(
+        DecomposedTaskGroup proposal,
+        out Plan? published,
+        out string? error)
+    {
+        published = null;
+        error = null;
+        var current = _planStore?.Load(proposal.GroupId);
+        if (current is null)
+        {
+            error = $"The durable plan '{proposal.GroupId}' was not found.";
+            return false;
+        }
+
+        var result = PlanRevisionApplier.Apply(
+            current,
+            proposal,
+            current.Revision,
+            DateTimeOffset.UtcNow);
+        if (result.Outcome == PlanRevisionApplyOutcome.NoChanges)
+        {
+            published = current;
+            return true;
+        }
+        if (result.Outcome != PlanRevisionApplyOutcome.Applied || result.UpdatedPlan is not { } updated)
+        {
+            error = result.Error ?? "The approved revision failed durable validation.";
+            return false;
+        }
+
+        var supersededParentIds = proposal.Tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.ParentTaskId))
+            .Select(task => task.ParentTaskId!)
+            .ToHashSet(StringComparer.Ordinal);
+        if (supersededParentIds.Count > 0)
+        {
+            var tasks = updated.Tasks.Select(task => supersededParentIds.Contains(task.TaskId)
+                ? task with
+                {
+                    Status = PlanTaskStatus.Superseded,
+                    CompletionSummary = "Superseded by an approved replacement-task revision.",
+                }
+                : task).ToArray();
+            updated = updated with
+            {
+                Tasks = tasks,
+                Progress = updated.Progress with
+                {
+                    CompletedCount = tasks.Count(task => task.Status == PlanTaskStatus.Complete),
+                    TotalCount = tasks.Count(task => task.Status != PlanTaskStatus.Superseded),
+                },
+            };
+        }
+
+        try
+        {
+            new PlanRevisionHistoryStore(_currentWorkspace!.SquadFolderPath).SaveSnapshot(current);
+        }
+        catch (Exception ex)
+        {
+            error = "The revision history snapshot could not be saved: " + ex.Message;
+            return false;
+        }
+        if (!TryPublishPlanProgress(updated, out error))
+            return false;
+
+        RefreshPlanProjectionBestEffort(updated, "approved replacement revision");
+        published = updated;
+        return true;
     }
 
     private void PromoteBypassedDecomposePlans(string? rawResponse)
@@ -11789,7 +11974,8 @@ public partial class MainWindow : Window
             interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
             onUnapproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
-            isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(),
+            isPreflightWorkspaceClean: () => IsPlanPreflightWorkspaceCleanAsync(groupId),
+            getPreflightDirtyPaths: () => GetPlanPreflightDirtyPathsAsync(groupId),
             broker: _broker,
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
@@ -11801,6 +11987,14 @@ public partial class MainWindow : Window
             isRecoveryAssessmentActive: taskId =>
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
+            resolveTaskCorrectionActivity: taskId =>
+                PlanTaskCorrectionActivityPolicy.Resolve(
+                    _pendingPlanTaskCorrectionContext,
+                    groupId,
+                    taskId,
+                    _isPromptRunning,
+                    _pec.CurrentDispatchedItem?.Id,
+                    _pec.CurrentDispatchedItem?.SourceTag),
             isApprovalChangeActivityActive: gateId =>
                 _activeGateChangeActivity is { } activity &&
                 string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
@@ -12081,26 +12275,13 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Plan {_activeDecomposeGroupId} has no dependency-eligible step to execute.");
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var durablePlan = _planStore?.Load(_activeDecomposeGroupId);
-        if (durablePlan is not null)
+        var durablePlan = _planStore?.Load(_activeDecomposeGroupId)
+            ?? throw new InvalidDataException(
+                $"Plan {_activeDecomposeGroupId} has no durable execution contract.");
+        var group = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
         {
-            var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durablePlan);
-            if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
-                throw new InvalidDataException("The managed plan projection could not be repaired: " + repair.Error);
-        }
-        var persisted = durablePlan is not null
-            ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, durablePlan.PlanId)
-              ?? throw new InvalidDataException($"Plan {durablePlan.PlanId} has no readable managed projection.")
-            : TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (persisted.Errors.Count > 0)
-            throw new InvalidDataException(
-                "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors));
-        var group = durablePlan is not null
-            ? PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with { HostRevision = durablePlan.Revision }
-            : persisted.DecomposeGroups.TryGetValue(_activeDecomposeGroupId, out var projectedGroup)
-                ? projectedGroup
-                : throw new InvalidOperationException($"Plan {_activeDecomposeGroupId} is missing from tasks.md.");
+            HostRevision = durablePlan.Revision,
+        };
         var dispatchLease = activeExec?.BranchLease;
         if (dispatchLease is null ||
             !string.Equals(dispatchLease.PlanId, _activeDecomposeGroupId, StringComparison.Ordinal) ||
@@ -12567,34 +12748,15 @@ public partial class MainWindow : Window
         string? assignmentEvidenceError = null;
         var branchLeaseFailure = false;
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var canonicalPlan = _planStore?.Load(groupId);
-        if (canonicalPlan is not null)
-        {
-            var projectionRepair = PlanTaskProjectionRepair.Ensure(tasksPath, canonicalPlan);
-            if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
-                error = "The host-owned tasks.md projection could not be repaired: " + projectionRepair.Error;
-            else if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
-                SquadDashTrace.Write("PlanProjection", $"Recreated missing projection for plan={groupId} before finalization.");
-        }
         if (canonicalPlan is not null)
         {
             persistedTask = PendingDecomposePlanAdapter.FromPlan(canonicalPlan).Group.Tasks
                 .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal));
             expectedAssignments = persistedTask?.AgentAssignments;
         }
-        else if (File.Exists(tasksPath))
-        {
-            var persisted = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-            if (persisted.Errors.Count > 0)
-                error = "The persisted plan metadata is invalid: " + string.Join("; ", persisted.Errors);
-            if (persisted.DecomposeGroups.TryGetValue(groupId, out var persistedGroup))
-            {
-                persistedTask = persistedGroup.Tasks
-                    .FirstOrDefault(task => string.Equals(task.Id, taskId, StringComparison.Ordinal));
-                expectedAssignments = persistedTask?.AgentAssignments;
-            }
-        }
+        else
+            error = $"Plan {groupId} has no durable execution contract.";
         var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(persistedTask);
 
         var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
@@ -13019,14 +13181,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_CodeHealthGroupRunner.ApplyStepResult(result, out error))
-        {
-            _CodeHealthGroupRunner.MarkCurrentStepFailed();
-            StopAndOfferDecomposeRecovery(
-                groupId, taskId, revision, error ?? "The result could not be applied.", taskCommitEvidence);
-            return;
-        }
-
         if (activeExecution is not null && executionAttempt is not null)
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with {
@@ -13035,15 +13189,33 @@ public partial class MainWindow : Window
                     }
                 });
 
-        LoadTasksPanel();
         if (result.Status is "partial" or "failed")
         {
+            var canonical = _planStore?.Load(groupId);
+            if (canonical is not null)
+            {
+                var recorded = PlanStoreUpdater.ApplyStepAccepted(
+                    canonical,
+                    nextExecutingTaskId: null,
+                    result);
+                if (!TryPublishPlanProgress(recorded, out var resultSaveError))
+                {
+                    StopAndOfferDecomposeRecovery(
+                        groupId,
+                        taskId,
+                        revision,
+                        resultSaveError ?? "The result could not be saved.",
+                        taskCommitEvidence);
+                    return;
+                }
+                RefreshPlanProjectionBestEffort(recorded, "step-blocked");
+            }
+            LoadTasksPanel();
             StopAndOfferDecomposeRecovery(groupId, taskId, revision, result.Summary, taskCommitEvidence);
             return;
         }
 
-        var state = TrackFirstEligiblePlanStep(groupId);
-        if (!TryPublishPlanStepAccepted(groupId, state, result, out var persistenceError))
+        if (!TryPublishPlanStepAccepted(groupId, result, out var state, out var persistenceError))
         {
             StopAndOfferDecomposeRecovery(
                 groupId,
@@ -13054,6 +13226,7 @@ public partial class MainWindow : Window
                 taskCommitEvidence);
             return;
         }
+        LoadTasksPanel();
         if (_pausePlanAfterCurrentStepRequested)
         {
             SuppressLoopResumeAfterExplicitStop("pause-plan-after-step");
@@ -13270,13 +13443,6 @@ public partial class MainWindow : Window
                 .ToArray();
             if (commits.Length > 0) result = result with { Commits = commits };
         }
-        if (!_CodeHealthGroupRunner.ApplyStepResult(result, out var error))
-        {
-            StopAndOfferDecomposeRecovery(groupId, taskId, revision,
-                error ?? "The verified result could not be applied.");
-            return;
-        }
-
         _conversationManager.UpdateActiveLoopExecutionState(
             activeExecution with
             {
@@ -13284,9 +13450,7 @@ public partial class MainWindow : Window
                     ? attempt with { Status = "accepted" }
                     : null,
             });
-        LoadTasksPanel();
-        var state = TrackFirstEligiblePlanStep(groupId);
-        if (!TryPublishPlanStepAccepted(groupId, state, result, out var persistenceError))
+        if (!TryPublishPlanStepAccepted(groupId, result, out var state, out var persistenceError))
         {
             StopAndOfferDecomposeRecovery(
                 groupId, taskId, revision,
@@ -13294,6 +13458,7 @@ public partial class MainWindow : Window
                 (persistenceError ?? "unknown persistence failure"));
             return;
         }
+        LoadTasksPanel();
 
         var durable = _planStore.Load(groupId);
         var readyValidation = durable is null ? null : PlanExecutionBoundaryPolicy.SelectValidation(durable);
@@ -13337,10 +13502,25 @@ public partial class MainWindow : Window
         if (_CodeHealthGroupRunner is null)
             return DecomposeGroupExecutionState.Missing;
         var plan = _planStore?.Load(groupId);
-        var blockedTaskIds = plan is null
-            ? null
-            : UnionBlockedTaskIds(plan);
-        return _CodeHealthGroupRunner.TrackFirstEligibleStep(groupId, blockedTaskIds);
+        if (plan is null)
+            return DecomposeGroupExecutionState.Missing;
+
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExecution?.ActiveVerificationTaskId is { } verificationTaskId &&
+            string.Equals(activeExecution.DecomposeGroupId, groupId, StringComparison.Ordinal) &&
+            string.Equals(activeExecution.DecomposeRevision, plan.Revision, StringComparison.Ordinal))
+        {
+            if (_CodeHealthGroupRunner.TryRestoreVerificationStep(
+                    plan,
+                    verificationTaskId,
+                    out var restorationError))
+                return DecomposeGroupExecutionState.Eligible;
+            SquadDashTrace.Write(
+                "PlanVerification",
+                $"Could not restore verification candidate plan={groupId} task={verificationTaskId}: {restorationError}");
+            return DecomposeGroupExecutionState.Blocked;
+        }
+        return _CodeHealthGroupRunner.TrackFirstEligibleStep(plan, UnionBlockedTaskIds(plan));
     }
 
     private static IReadOnlySet<string>? UnionBlockedTaskIds(Plan plan)
@@ -13955,6 +14135,9 @@ public partial class MainWindow : Window
         // workspace switch.
         ClearDeveloperApprovalSimulation(restoreInboxVisibility: false, refreshInbox: false);
         _inboxStore?.Delete(DeveloperApprovalSimulator.MessageId);
+        foreach (var reviewWindow in _openPlanApprovalReviewWindows.Values.ToArray())
+            reviewWindow.Close();
+        _openPlanApprovalReviewWindows.Clear();
         _approvalTranscriptCards.Clear();
         _approvalPlansUpdating.Clear();
         _activePlanAwaitingGateApproval = null;
@@ -14193,25 +14376,77 @@ public partial class MainWindow : Window
 
     private void SuppressCheckpointApprovalCardsForPendingRevision(string planId)
     {
-        if (!_approvalTranscriptCards.Remove(planId, out var cards)) return;
-
-        foreach (var card in cards)
+        if (_approvalTranscriptCards.Remove(planId, out var cards))
         {
-            if (card.Container.Parent is FlowDocument document)
-                document.Blocks.Remove(card.Container);
+            foreach (var card in cards)
+            {
+                if (card.Container.Parent is FlowDocument document)
+                    document.Blocks.Remove(card.Container);
+            }
         }
+        if (_openPlanApprovalReviewWindows.Remove(planId, out var reviewWindow))
+            reviewWindow.Close();
 
         _approvalAttentionCallout?.Close();
         _approvalAttentionCallout = null;
         SquadDashTrace.Write("PlanRevision",
-            $"Suppressed checkpoint approval card while plan revision is pending plan={planId}.");
+            $"Suppressed checkpoint approval surface while plan revision is pending plan={planId}.");
     }
 
-    /// <summary>
-    /// Appends a rich transcript approval card explaining the gate and a host-owned
-    /// "Approve Checkpoint &amp; Continue" button.
-    /// Must be called on the UI thread.
-    /// </summary>
+    private async Task RefreshOpenPlanApprovalReviewWindowAsync(Plan publishedPlan)
+    {
+        if (!_openPlanApprovalReviewWindows.TryGetValue(publishedPlan.PlanId, out var window) ||
+            _planStore is null ||
+            _planApprovalRuntime is null)
+            return;
+
+        try
+        {
+            var plan = _planStore.Load(publishedPlan.PlanId) ?? publishedPlan;
+            var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                candidate.Status == PlanGateStatus.AwaitingApproval);
+            if (gate is null)
+            {
+                _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+                window.Close();
+                return;
+            }
+
+            await RefreshApprovalInboxMessageForUseAsync(
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId));
+            plan = _planStore.Load(plan.PlanId) ?? plan;
+            gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                candidate.Status == PlanGateStatus.AwaitingApproval);
+            var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+            if (gate is null || token is null)
+            {
+                _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+                window.Close();
+                return;
+            }
+            if (window.Matches(token))
+                return;
+
+            ShowGateApprovalReviewWindow(
+                plan,
+                gate,
+                BuildLightweightApprovalSnapshot(plan, gate),
+                token,
+                activate: false,
+                status: "The approval changed while this window was open. Review the refreshed checklist.");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not live-refresh approval review window plan={publishedPlan.PlanId}: {ex.Message}");
+            if (_openPlanApprovalReviewWindows.TryGetValue(publishedPlan.PlanId, out var currentWindow))
+                currentWindow.CancelApprovalUpdate(
+                    "The approval may have changed. Close and reopen this window to refresh it.");
+        }
+    }
+
+    /// <summary>Appends the normal execution-time approval card to the transcript.</summary>
     private void AppendGateApprovalActions(
         Plan plan,
         PlanApprovalGate gate,
@@ -14231,7 +14466,12 @@ public partial class MainWindow : Window
             gate,
             _transcriptFontSize,
             onApprove: note => _ = HandleApprovalClickAsync(clickToken, note),
-            onRequestChanges: () => BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken),
+            onRequestChanges: () =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken);
+            },
             requestVersion: clickToken.RequestVersion,
             onOpenPlan: () => OpenPlanFromStore(plan),
             onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
@@ -14263,10 +14503,111 @@ public partial class MainWindow : Window
             _approvalTranscriptCards[plan.PlanId] = cards;
         }
         cards.Add(cardResult);
-
-        var blocks = CoordinatorThread.Document.Blocks;
-        blocks.Add(cardResult.Container);
+        CoordinatorThread.Document.Blocks.Add(cardResult.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    /// <summary>
+    /// Opens or refreshes the modeless per-plan approval window used by the Inbox action.
+    /// This is additive and does not replace or retire a naturally rendered transcript card.
+    /// </summary>
+    private void ShowGateApprovalReviewWindow(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalReviewSnapshot snapshot,
+        ApprovalClickToken clickToken,
+        bool activate = true,
+        string? status = null)
+    {
+        var activeGates = plan.ApprovalGates
+            .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        if (activeGates.Length > 0)
+            snapshot = BuildLightweightApprovalSnapshot(plan, activeGates);
+
+        TranscriptApprovalCardBuilder.CardResult? cardResult = null;
+        cardResult = TranscriptApprovalCardBuilder.Build(
+            snapshot,
+            plan,
+            gate,
+            _transcriptFontSize,
+            onApprove: note =>
+            {
+                if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var window))
+                    window.BeginApprovalUpdate();
+                _ = HandleApprovalClickAsync(clickToken, note, openedFromReviewWindow: true);
+            },
+            onRequestChanges: () =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                BeginGateChangeRequest(plan.PlanId, gate.GateId, clickToken);
+            },
+            requestVersion: clickToken.RequestVersion,
+            onOpenPlan: () => OpenPlanFromStore(plan),
+            onOpenCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            onOpenInbox: () => OpenOrFocusInboxMessage(
+                DurableApprovalRequestManager.BuildMessageId(plan.PlanId)),
+            onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
+            onChecklistChanged: (item, isChecked) =>
+                RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
+            onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
+            onAddressUncheckedItems: uncheckedItems =>
+            {
+                if (cardResult is not null)
+                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
+                var reviewedTaskId = activeGates
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.GateId,
+                        uncheckedItems.FirstOrDefault()?.GateId,
+                        StringComparison.Ordinal))?
+                    .AfterTaskIds.FirstOrDefault()
+                    ?? gate.AfterTaskIds.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                    QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+            });
+
+        if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var existing))
+        {
+            existing.Replace(plan.Title, clickToken, cardResult, status);
+            if (activate)
+            {
+                if (existing.WindowState == WindowState.Minimized)
+                    existing.WindowState = WindowState.Normal;
+                existing.Activate();
+                NativeMethods.TryActivateWindow(
+                    new System.Windows.Interop.WindowInteropHelper(existing).Handle);
+            }
+            return;
+        }
+
+        var reviewWindow = new PlanApprovalReviewWindow(
+            plan.PlanId,
+            plan.Title,
+            clickToken,
+            cardResult)
+        {
+            Owner = CanShowOwnedWindow() ? this : null,
+        };
+        if (!string.IsNullOrWhiteSpace(status))
+            reviewWindow.ShowStatus(status);
+        _openPlanApprovalReviewWindows[plan.PlanId] = reviewWindow;
+        reviewWindow.Closed += (_, _) =>
+        {
+            _openPlanApprovalReviewWindows.Remove(plan.PlanId);
+            FloatingWindowPositionStore.Shared.Save(
+                $"PlanApproval:{plan.PlanId}", reviewWindow);
+        };
+        FloatingWindowPositionStore.Shared.TryRestore(
+            $"PlanApproval:{plan.PlanId}", reviewWindow);
+        reviewWindow.Show();
+        if (activate)
+        {
+            reviewWindow.Activate();
+            NativeMethods.TryActivateWindow(
+                new System.Windows.Interop.WindowInteropHelper(reviewWindow).Handle);
+        }
     }
 
     private void BeginGateChangeRequest(
@@ -14343,6 +14684,50 @@ public partial class MainWindow : Window
         _activeGateChangeActivity = null;
         _broker.Publish(new PlanApprovalChangeActivityEvent(
             active.PlanId, active.GateId, IsActive: false));
+    }
+
+    private void SyncPlanTaskCorrectionActivity(bool isPromptRunning)
+    {
+        var context = _pendingPlanTaskCorrectionContext;
+        var dispatchedItem = _pec.CurrentDispatchedItem;
+        var next = context is null
+            ? ((string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?)null
+            : (context.PlanId,
+               context.TaskId,
+               PlanTaskCorrectionActivityPolicy.Resolve(
+                   context,
+                   context.PlanId,
+                   context.TaskId,
+                   isPromptRunning,
+                   dispatchedItem?.Id,
+                   dispatchedItem?.SourceTag));
+        if (_publishedPlanTaskCorrectionActivity == next)
+            return;
+
+        if (_publishedPlanTaskCorrectionActivity is { } previous &&
+            (next is null ||
+             !string.Equals(previous.PlanId, next.Value.PlanId, StringComparison.Ordinal) ||
+             !string.Equals(previous.TaskId, next.Value.TaskId, StringComparison.Ordinal)))
+        {
+            _broker.Publish(new PlanTaskCorrectionActivityEvent(
+                previous.PlanId,
+                previous.TaskId,
+                PlanTaskCorrectionActivityState.None));
+        }
+
+        _publishedPlanTaskCorrectionActivity = next;
+        if (next is { } activity)
+        {
+            SquadDashTrace.Write(
+                "Plan",
+                $"Task correction activity plan={activity.PlanId} task={activity.TaskId} " +
+                $"state={activity.State} promptRunning={isPromptRunning} " +
+                $"queueItem={dispatchedItem?.Id ?? "(none)"} sourceTag={dispatchedItem?.SourceTag ?? "(none)"}.");
+            _broker.Publish(new PlanTaskCorrectionActivityEvent(
+                activity.PlanId,
+                activity.TaskId,
+                activity.State));
+        }
     }
 
     /// <summary>
@@ -14864,14 +15249,21 @@ public partial class MainWindow : Window
     private async Task HandleApprovalClickAsync(
         ApprovalClickToken clickToken,
         string? note = null,
-        IReadOnlyList<string>? gateIdsToResolve = null)
+        IReadOnlyList<string>? gateIdsToResolve = null,
+        bool openedFromReviewWindow = false)
     {
         if (await TryHandleDeveloperApprovalSimulationClickAsync(clickToken, note))
             return;
         if (_planStore is null || _planApprovalRuntime is null) return;
         if (HasPendingPlanRevision(clickToken.PlanId))
         {
-            AppendLine("Resolve the pending plan revision proposal before approving this checkpoint. No approval state changed.");
+            const string pendingRevisionMessage =
+                "Resolve the pending plan revision proposal before approving this checkpoint. No approval state changed.";
+            if (openedFromReviewWindow &&
+                _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var pendingWindow))
+                pendingWindow.CancelApprovalUpdate(pendingRevisionMessage);
+            else
+                AppendLine(pendingRevisionMessage);
             return;
         }
         if (_approvalPlansUpdating.Contains(clickToken.PlanId))
@@ -14897,7 +15289,13 @@ public partial class MainWindow : Window
         var plan = _planStore.Load(clickToken.PlanId);
         if (plan is null)
         {
-            AppendLine($"⚠ Approval could not be applied because plan {clickToken.PlanId} no longer exists.");
+            var missingPlanText =
+                $"Approval could not be applied because plan {clickToken.PlanId} no longer exists.";
+            if (openedFromReviewWindow &&
+                _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var missingPlanWindow))
+                missingPlanWindow.CancelApprovalUpdate(missingPlanText);
+            else
+                AppendLine($"⚠ {missingPlanText}");
             if (_inboxStore?.GetById(messageId) is { } missingPlanMessage)
                 RefreshOpenApprovalInboxWindows(messageId, missingPlanMessage);
             return;
@@ -14944,11 +15342,28 @@ public partial class MainWindow : Window
             {
                 var remainingGate = resolution.UpdatedPlan.ApprovalGates.First(gate =>
                     gate.Status == PlanGateStatus.AwaitingApproval);
-                AppendGateApprovalActions(
-                    resolution.UpdatedPlan,
-                    remainingGate,
-                    BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
-                    resolution.NextClickToken);
+                if (openedFromReviewWindow ||
+                    _openPlanApprovalReviewWindows.ContainsKey(clickToken.PlanId))
+                {
+                    ShowGateApprovalReviewWindow(
+                        resolution.UpdatedPlan,
+                        remainingGate,
+                        BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
+                        resolution.NextClickToken,
+                        activate: openedFromReviewWindow);
+                }
+                if (!openedFromReviewWindow)
+                {
+                    AppendGateApprovalActions(
+                        resolution.UpdatedPlan,
+                        remainingGate,
+                        BuildLightweightApprovalSnapshot(resolution.UpdatedPlan, remainingGate),
+                        resolution.NextClickToken);
+                }
+            }
+            else if (_openPlanApprovalReviewWindows.Remove(clickToken.PlanId, out var resolvedWindow))
+            {
+                resolvedWindow.Close();
             }
             var completedAtApproval = false;
             if (resolution.UpdatedPlan.Progress.CompletedCount == resolution.UpdatedPlan.Progress.TotalCount &&
@@ -15016,13 +15431,78 @@ public partial class MainWindow : Window
 
         if (cards is not null)
             foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
+
+        if (resolution.Result == ApprovalClickResult.StaleRejected)
+        {
+            if (cards is not null)
+            {
+                foreach (var card in cards)
+                    TranscriptApprovalCardBuilder.ShowHistoricalState(card);
+                _approvalTranscriptCards.Remove(clickToken.PlanId);
+            }
+
+            try
+            {
+                var refreshedMessage = await RefreshApprovalInboxMessageForUseAsync(messageId);
+                var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+                var currentGate = plan.ApprovalGates.FirstOrDefault(gate =>
+                    gate.Status == PlanGateStatus.AwaitingApproval);
+                if (refreshedMessage is not null && currentToken is not null && currentGate is not null)
+                {
+                    const string refreshedStatus =
+                        "The approval changed, so the old action was not applied. " +
+                        "SquadDash refreshed it from the current plan; review it and click again.";
+                    if (!openedFromReviewWindow)
+                        AppendLine($"⚠ {refreshedStatus}");
+                    if (openedFromReviewWindow)
+                    {
+                        ShowGateApprovalReviewWindow(
+                            plan,
+                            currentGate,
+                            BuildLightweightApprovalSnapshot(plan, currentGate),
+                            currentToken,
+                            status: refreshedStatus);
+                    }
+                    else
+                    {
+                        AppendGateApprovalActions(
+                            plan,
+                            currentGate,
+                            BuildLightweightApprovalSnapshot(plan, currentGate),
+                            currentToken);
+                        if (_openPlanApprovalReviewWindows.ContainsKey(plan.PlanId))
+                        {
+                            ShowGateApprovalReviewWindow(
+                                plan,
+                                currentGate,
+                                BuildLightweightApprovalSnapshot(plan, currentGate),
+                                currentToken,
+                                activate: false,
+                                status: refreshedStatus);
+                        }
+                    }
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Could not refresh stale approval action plan={clickToken.PlanId}: {ex.Message}");
+            }
+        }
+
         var reason = resolution.Result switch
         {
             ApprovalClickResult.AlreadyResolved => "This approval was already handled from another surface.",
             ApprovalClickResult.PersistenceFailed => "SquadDash could not save the plan transition; no approval was recorded.",
-            _ => "This approval action is stale because the plan or approval request changed.",
+            _ => "This approval action is stale because the plan or approval request changed. Reopen the approval to refresh it.",
         };
-        AppendLine($"⚠ {reason}");
+        if (openedFromReviewWindow &&
+            _openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var failedWindow))
+            failedWindow.CancelApprovalUpdate(reason);
+        else
+            AppendLine($"⚠ {reason}");
 
         if (_inboxStore?.GetById(messageId) is { } currentMessage)
             RefreshOpenApprovalInboxWindows(messageId, currentMessage);
@@ -15041,7 +15521,12 @@ public partial class MainWindow : Window
         var simulator = _developerApprovalSimulator;
         if (simulator is null || !simulator.IsActive)
         {
-            AppendLine("⚠ This developer approval simulation is no longer active. Clear it and start a fresh simulation.");
+            const string inactiveMessage =
+                "This developer approval simulation is no longer active. Clear it and start a fresh simulation.";
+            if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var inactiveWindow))
+                inactiveWindow.CancelApprovalUpdate(inactiveMessage);
+            else
+                AppendLine($"⚠ {inactiveMessage}");
             return true;
         }
 
@@ -15064,6 +15549,8 @@ public partial class MainWindow : Window
             if (cards is not null)
                 foreach (var card in cards) TranscriptApprovalCardBuilder.ShowResolvedState(card);
             _approvalTranscriptCards.Remove(clickToken.PlanId);
+            if (_openPlanApprovalReviewWindows.Remove(clickToken.PlanId, out var resolvedWindow))
+                resolvedWindow.Close();
 
             RefreshDeveloperApprovalSimulationInbox();
             SquadDashTrace.Write(
@@ -15074,9 +15561,13 @@ public partial class MainWindow : Window
 
         if (cards is not null)
             foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
-        AppendLine(resolution.Result == ApprovalClickResult.AlreadyResolved
+        var failureMessage = resolution.Result == ApprovalClickResult.AlreadyResolved
             ? "This simulated approval was already handled."
-            : "⚠ The simulated approval action became stale. Clear it and start a fresh simulation.");
+            : "The simulated approval action became stale. Clear it and start a fresh simulation.";
+        if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var failedWindow))
+            failedWindow.CancelApprovalUpdate(failureMessage);
+        else
+            AppendLine($"⚠ {failureMessage}");
         RefreshDeveloperApprovalSimulationInbox();
         return true;
     }
@@ -15419,13 +15910,20 @@ public partial class MainWindow : Window
         if (plan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
             _planApprovalRuntime is not null)
         {
+            var transcriptCardWasVisible = _approvalTranscriptCards.ContainsKey(plan.PlanId);
+            var reviewWindowWasOpen = _openPlanApprovalReviewWindows.ContainsKey(plan.PlanId);
             SuppressCheckpointApprovalCardsForPendingRevision(plan.PlanId);
             var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
                 candidate.Status == PlanGateStatus.AwaitingApproval);
             var token = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
             if (gate is not null && token is not null)
-                AppendGateApprovalActions(
-                    plan, gate, BuildLightweightApprovalSnapshot(plan, gate), token);
+            {
+                var snapshot = BuildLightweightApprovalSnapshot(plan, gate);
+                if (transcriptCardWasVisible || !reviewWindowWasOpen)
+                    AppendGateApprovalActions(plan, gate, snapshot, token);
+                if (reviewWindowWasOpen)
+                    ShowGateApprovalReviewWindow(plan, gate, snapshot, token);
+            }
             return;
         }
 
@@ -15435,7 +15933,36 @@ public partial class MainWindow : Window
             TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
                 CoordinatorThread.Document.Blocks, plan.PlanId);
             AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
+            RefreshRecoveryInboxMessage(plan, taskId);
         }
+    }
+
+    private void RefreshRecoveryInboxMessage(Plan plan, string taskId)
+    {
+        if (_inboxStore is null ||
+            (_pendingPlanTaskCorrectionContext is { } pending &&
+             string.Equals(pending.PlanId, plan.PlanId, StringComparison.Ordinal) &&
+             string.Equals(pending.TaskId, taskId, StringComparison.Ordinal)))
+            return;
+
+        var pendingPlan = PendingDecomposePlanAdapter.FromPlan(plan);
+        var messageId = DecomposePlanInbox.BuildRecoveryMessageId(pendingPlan, taskId);
+        var existing = _inboxStore.GetById(messageId);
+        if (existing is null) return;
+
+        var refreshed = DecomposePlanInbox.BuildRecoveryMessage(
+            pendingPlan,
+            taskId,
+            plan.InterruptionData?.Reason ?? "Plan recovery is waiting for a decision.",
+            existing.Timestamp,
+            plan.InterruptionData?.TaskCommitEvidence,
+            plan) with
+        {
+            Read = existing.Read,
+        };
+        _inboxStore.Save(refreshed);
+        _inboxPanel?.Refresh(_inboxStore.LoadAll());
+        RefreshOpenApprovalInboxWindows(messageId, refreshed);
     }
 
     private bool TryHandlePlanReviewActivityFromResponse(string? rawResponse)
@@ -15448,6 +15975,7 @@ public partial class MainWindow : Window
                     StringComparison.Ordinal) != true)
             {
                 ClearPendingPlanReviewCorrection(restoreCard: true);
+                ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
                 return false;
             }
 
@@ -15482,6 +16010,7 @@ public partial class MainWindow : Window
         if (_planStore is null)
         {
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15494,6 +16023,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ The conversational review context changed before the response completed. " +
                        "No plan review activity was recorded.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15509,6 +16039,7 @@ public partial class MainWindow : Window
                 "Approval",
                 $"Related review discussion retained plan boundary plan={plan.PlanId} tasks={string.Join(",", response.TaskIds)}.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15521,6 +16052,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ SquadDash could not associate the conversational correction with the active review boundary. " +
                        "The plan remains unchanged.");
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15585,6 +16117,7 @@ public partial class MainWindow : Window
             AppendLine("⚠ The conversational correction completed, but SquadDash could not record it for later plan assessment: " +
                        (saveError ?? "unknown persistence failure"));
             ClearPendingPlanReviewCorrection(restoreCard: true);
+            ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
 
@@ -15598,8 +16131,9 @@ public partial class MainWindow : Window
         ShowSystemTranscriptEntry(
             $"Conversational correction recorded for {string.Join(", ", labels)}. " +
             "The plan remains paused; use the refreshed recovery card to accept the step, continue working, or revise the remaining plan.");
-        RefreshHumanReviewSurfaces(updated);
         ClearPendingPlanReviewCorrection(restoreCard: false);
+        ClearPendingPlanTaskCorrection(restoreRecoverySurface: false);
+        RefreshHumanReviewSurfaces(updated);
     }
 
     private void QueueGateResponseRepairOrExplainFailure()
@@ -15662,6 +16196,18 @@ public partial class MainWindow : Window
             TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
     }
 
+    private void ClearPendingPlanTaskCorrection(bool restoreRecoverySurface)
+    {
+        if (_pendingPlanTaskCorrectionContext is not { } context)
+            return;
+
+        _pendingPlanTaskCorrectionContext = null;
+        SyncPlanTaskCorrectionActivity(isPromptRunning: false);
+        if (!restoreRecoverySurface || _planStore?.Load(context.PlanId) is not { } plan)
+            return;
+        RefreshHumanReviewSurfaces(plan);
+    }
+
     private async Task<bool> ApplyGateReworkResponseAsync(
         Plan plan,
         PlanApprovalGate gate,
@@ -15684,22 +16230,6 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath))
-        {
-            AppendLine("⚠ The requested rework could not start because tasks.md is missing.");
-            return true;
-        }
-        var originalTasks = File.ReadAllText(tasksPath);
-        var writer = new DecomposedTasksWriter();
-        foreach (var taskId in taskIds)
-        {
-            if (writer.ResetTaskPending(tasksPath, taskId)) continue;
-            RestoreFileAtomically(tasksPath, originalTasks);
-            AppendLine($"⚠ Task {taskId} could not be reopened. The approval remains unchanged.");
-            return true;
-        }
-
         var result = await _planApprovalRuntime!.RequestReworkAsync(
             token,
             plan,
@@ -15709,12 +16239,12 @@ public partial class MainWindow : Window
             persistPlan: updated => TryPublishPlanProgress(updated, out _));
         if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
         {
-            RestoreFileAtomically(tasksPath, originalTasks);
             AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
                 ? "⚠ SquadDash could not persist the rework transition. The approval remains unchanged."
                 : "⚠ The rework request became stale. Reopen the current approval and try again.");
             return true;
         }
+        RefreshPlanProjectionBestEffort(result.UpdatedPlan, "approval-rework");
 
         _pendingGateResponseContext = null;
         _activePlanAwaitingGateApproval = result.UpdatedPlan.ApprovalGates
@@ -15737,12 +16267,10 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         AppendLine($"↩ Changes requested for {string.Join(", ", taskIds)}. SquadDash preserved the prior attempt and queued a new verified attempt.");
 
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (!parsed.DecomposeGroups.TryGetValue(plan.PlanId, out var group))
+        var group = PendingDecomposePlanAdapter.FromPlan(result.UpdatedPlan).Group with
         {
-            AppendLine("⚠ The task was reopened, but SquadDash could not reconstruct the plan for execution. Open the plan and select Resume Plan.");
-            return true;
-        }
+            HostRevision = result.UpdatedPlan.Revision,
+        };
         try
         {
             await StartBackloggedDecomposeGroupAsync(group with { HostRevision = plan.Revision });
@@ -15752,12 +16280,7 @@ public partial class MainWindow : Window
             var reopenedTaskId = taskIds[0];
             var reopenedTaskTitle = result.UpdatedPlan.Tasks.FirstOrDefault(candidate =>
                 string.Equals(candidate.TaskId, reopenedTaskId, StringComparison.Ordinal))?.Title ?? reopenedTaskId;
-            var pausedPlan = PlanStoreUpdater.ApplyInterrupted(
-                result.UpdatedPlan,
-                PlanRecoveryResumePolicy.BuildReworkPreflightReason(blocked.Message),
-                loopIteration: 0,
-                interruptedTaskId: reopenedTaskId,
-                affectedPaths: blocked.ChangedPaths);
+            var pausedPlan = PlanStoreUpdater.ApplyWaitingForCleanWorktree(result.UpdatedPlan);
             if (!TryPublishPlanProgress(pausedPlan, out var pauseError))
             {
                 AppendLine("⚠ The rework was prepared but SquadDash could not save its paused recovery state: " +
@@ -15779,10 +16302,11 @@ public partial class MainWindow : Window
                 {
                     var latest = _planStore?.Load(pausedPlan.PlanId)
                         ?? throw new InvalidOperationException("The paused plan is no longer available.");
-                    if (!PlanRecoveryResumePolicy.IsReworkPreflightPause(latest))
-                        throw new InvalidOperationException(
-                            "The plan changed after these recovery controls were created. Open the current plan state.");
-                    await StartBackloggedDecomposeGroupAsync(group with { HostRevision = latest.Revision });
+                    await StartBackloggedDecomposeGroupAsync(
+                        PendingDecomposePlanAdapter.FromPlan(latest).Group with
+                        {
+                            HostRevision = latest.Revision,
+                        });
                     return true;
                 },
                 contentFactory: exception => PlanPreflightRecoveryContent.FromRework(
@@ -15974,15 +16498,6 @@ public partial class MainWindow : Window
             return true;
         }
 
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath))
-        {
-            AppendLine("⚠ The requested amendment could not start because tasks.md is missing.");
-            return true;
-        }
-        var originalTasks = File.ReadAllText(tasksPath);
-        var writer = new DecomposedTasksWriter();
-        var projectionWritten = false;
         var result = await _planApprovalRuntime!.RequestAmendmentAsync(
             token,
             plan,
@@ -15990,29 +16505,15 @@ public partial class MainWindow : Window
             relatedTaskIds,
             response.Title,
             response.Instructions,
-            persistPlan: updated =>
-            {
-                var amendment = updated.Tasks.SingleOrDefault(task =>
-                    !plan.Tasks.Any(existing => string.Equals(existing.TaskId, task.TaskId, StringComparison.Ordinal)));
-                if (amendment is null) return false;
-                var amendmentDefinition = PendingDecomposePlanAdapter.FromPlan(updated).Group.Tasks
-                    .Single(task => string.Equals(task.Id, amendment.TaskId, StringComparison.Ordinal));
-                projectionWritten = writer.AppendTaskToGroup(
-                    tasksPath, updated.PlanId, updated.Branch, amendmentDefinition, updated.Revision);
-                if (!projectionWritten) return false;
-                if (TryPublishPlanProgress(updated, out _)) return true;
-                RestoreFileAtomically(tasksPath, originalTasks);
-                projectionWritten = false;
-                return false;
-            });
+            persistPlan: updated => TryPublishPlanProgress(updated, out _));
         if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
         {
-            if (projectionWritten) RestoreFileAtomically(tasksPath, originalTasks);
             AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
                 ? "⚠ SquadDash could not persist the amendment. The approval remains unchanged."
                 : "⚠ The amendment request became stale. Reopen the current approval and try again.");
             return true;
         }
+        RefreshPlanProjectionBestEffort(result.UpdatedPlan, "approval-amendment");
 
         var amendmentTask = result.UpdatedPlan.Tasks.Single(task =>
             !plan.Tasks.Any(existing => string.Equals(existing.TaskId, task.TaskId, StringComparison.Ordinal)));
@@ -16038,24 +16539,17 @@ public partial class MainWindow : Window
         AppendLine($"＋ Added amendment \"{amendmentTask.Title}\". Previously completed tasks remain accepted; " +
                    "SquadDash will verify only the additional work before returning to this approval checkpoint.");
 
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        if (!parsed.DecomposeGroups.TryGetValue(plan.PlanId, out var group))
+        var group = PendingDecomposePlanAdapter.FromPlan(result.UpdatedPlan).Group with
         {
-            AppendLine("⚠ The amendment was preserved, but SquadDash could not reconstruct the plan for execution. Open the plan and select Resume Plan.");
-            return true;
-        }
+            HostRevision = result.UpdatedPlan.Revision,
+        };
         try
         {
             await StartBackloggedDecomposeGroupAsync(group with { HostRevision = result.UpdatedPlan.Revision });
         }
         catch (PlanPreflightBlockedException blocked)
         {
-            var pausedPlan = PlanStoreUpdater.ApplyInterrupted(
-                result.UpdatedPlan,
-                PlanRecoveryResumePolicy.BuildAmendmentPreflightReason(blocked.Message),
-                loopIteration: 0,
-                interruptedTaskId: amendmentTask.TaskId,
-                affectedPaths: blocked.ChangedPaths);
+            var pausedPlan = PlanStoreUpdater.ApplyWaitingForCleanWorktree(result.UpdatedPlan);
             if (!TryPublishPlanProgress(pausedPlan, out var pauseError))
             {
                 AppendLine("⚠ The amendment was prepared but SquadDash could not save its paused recovery state: " +
@@ -16077,10 +16571,11 @@ public partial class MainWindow : Window
                 {
                     var latest = _planStore?.Load(pausedPlan.PlanId)
                         ?? throw new InvalidOperationException("The paused plan is no longer available.");
-                    if (!PlanRecoveryResumePolicy.IsAmendmentPreflightPause(latest))
-                        throw new InvalidOperationException(
-                            "The plan changed after these recovery controls were created. Open the current plan state.");
-                    await StartBackloggedDecomposeGroupAsync(group with { HostRevision = latest.Revision });
+                    await StartBackloggedDecomposeGroupAsync(
+                        PendingDecomposePlanAdapter.FromPlan(latest).Group with
+                        {
+                            HostRevision = latest.Revision,
+                        });
                     return true;
                 },
                 contentFactory: exception => PlanPreflightRecoveryContent.FromAmendment(
@@ -16197,13 +16692,7 @@ public partial class MainWindow : Window
         var durable = _planStore?.Load(groupId);
         if (durable is not null && string.Equals(durable.Revision, revision, StringComparison.Ordinal))
             return PendingDecomposePlanAdapter.FromPlan(durable);
-        if (_currentWorkspace is null) return null;
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        if (!File.Exists(tasksPath)) return null;
-        var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-        return parsed.DecomposeGroups.TryGetValue(groupId, out var group)
-            ? new PendingDecomposePlan(revision, group with { HostRevision = revision })
-            : null;
+        return null;
     }
 
     private async Task RestorePlanBranchAndResumeAsync(Plan plan)
@@ -17284,12 +17773,12 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(
                     "Plan",
                     $"Could not reconstruct verification for plan={durable.PlanId} task={taskId}; " +
-                    $"falling back to repository assessment: {ex.Message}");
-                ShowSystemTranscriptEntry(
-                    "SquadDash could not safely restore the saved verification stage, so it is assessing the repository state instead. " +
-                    "Implementation work will remain stopped while the evidence is checked.");
-                durable = latest;
-                plan = PendingDecomposePlanAdapter.FromPlan(latest);
+                    $"preserving the candidate without fallback: {ex.Message}");
+                throw new InvalidOperationException(
+                    "SquadDash could not safely restore independent verification for the saved candidate. " +
+                    "The candidate remains preserved, and implementation work was not restarted or replaced. " +
+                    "Reopen the current recovery card after resolving the reported verification-restoration problem.",
+                    ex);
             }
         }
 
@@ -17307,7 +17796,7 @@ public partial class MainWindow : Window
         var handoff = task.Handoff
             ?? throw new InvalidOperationException(
                 $"Task {taskId} no longer has the candidate handoff required for verification.");
-        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
         var candidateCommit = (await RunGitAsync(
             workspace, $"rev-parse --verify \"{handoff.Commit}^{{commit}}\"")).Trim();
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
@@ -17361,10 +17850,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<string> ResolvePlanRecoveryBaselineAsync(string workspace, Plan durable)
+    private async Task<string> ResolvePlanRecoveryBaselineAsync(
+        string workspace,
+        Plan durable,
+        string? taskId = null)
     {
         var baselineCandidate = durable.InterruptionData?.TaskCommitEvidence?.BaselineCommit
             ?? durable.InterruptionData?.LastCommit;
+        if (string.IsNullOrWhiteSpace(baselineCandidate) &&
+            !string.IsNullOrWhiteSpace(taskId) &&
+            PlanVerificationRecoveryPolicy.TryGetAtomicCandidateCommit(
+                durable,
+                taskId,
+                out var atomicCandidateCommit))
+        {
+            var resolvedCandidate = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{atomicCandidateCommit}^{{commit}}\"")).Trim();
+            var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{resolvedCandidate}\" \"{head}\"");
+            baselineCandidate = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{resolvedCandidate}^\"")).Trim();
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Recovered task baseline from host-validated atomic candidate plan={durable.PlanId} task={taskId} candidate={resolvedCandidate} baseline={baselineCandidate}.");
+        }
         if (string.IsNullOrWhiteSpace(baselineCandidate))
         {
             var history = (await RunGitAsync(workspace, "rev-list HEAD"))
@@ -17392,7 +17905,7 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null) return;
 
         var workspace = _currentWorkspace.FolderPath;
-        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable);
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
         var status = NormalizeGitSnapshot(await RunGitAsync(
@@ -17929,31 +18442,15 @@ public partial class MainWindow : Window
         string terminalCommit)
     {
         if (_currentWorkspace is null || _planStore is null) return;
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-        var repair = PlanTaskProjectionRepair.Ensure(tasksPath, durable);
-        if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
-            throw new InvalidDataException("The managed plan projection could not be repaired: " + repair.Error);
-
-        var originalTasks = File.ReadAllText(tasksPath);
         var shortCommit = terminalCommit[..Math.Min(7, terminalCommit.Length)];
         var summary = "AI-assessed recovery: " + response.Summary;
-        var writer = new DecomposedTasksWriter();
-
-        DecomposedTaskGroup currentGroup;
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(durable).Group with
+        {
+            HostRevision = durable.Revision,
+        };
         Plan updated;
         try
         {
-            if (!writer.MarkTaskComplete(tasksPath, context.TaskId, shortCommit, summary))
-                throw new InvalidOperationException(
-                    $"Task {context.TaskId} could not be marked complete in the managed projection.");
-            var parsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-            if (!parsed.DecomposeGroups.TryGetValue(durable.PlanId, out currentGroup!))
-                throw new InvalidDataException("The managed plan projection is missing after recovery acceptance.");
-            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                    durable, parsed, durable.PlanId, requireAllComplete: false,
-                    out var items, out var projectionError))
-                throw new InvalidDataException(
-                    "The recovered task could not be projected into the durable plan. " + projectionError);
             if (!TryValidateDecomposeGroupForExecution(currentGroup, out var startValidationError))
                 throw new InvalidDataException(startValidationError);
 
@@ -17969,10 +18466,15 @@ public partial class MainWindow : Window
             var nextTaskId = durable.Tasks.FirstOrDefault(task =>
                 !string.Equals(task.TaskId, context.TaskId, StringComparison.Ordinal) &&
                 task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
-            updated = PlanStoreUpdater.ApplyAssessedStepAccepted(
-                durable, items, nextTaskId, syntheticResult);
+            updated = PlanStoreUpdater.ApplyStepAccepted(
+                durable, nextTaskId, syntheticResult) with
+            {
+                LifecycleStatus = PlanLifecycleStatus.Executing,
+                InterruptionData = null,
+            };
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
+            RefreshPlanProjectionBestEffort(updated, "assessed-recovery-accepted");
 
             LoadTasksPanel();
             var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(updated);
@@ -18015,7 +18517,6 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            RestoreFileAtomically(tasksPath, originalTasks);
             _planStore.Save(durable);
             _broker.Publish(new PlanProgressEvent(durable.PlanId, durable));
             LoadTasksPanel();
@@ -18391,56 +18892,10 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var projectionRepair = PlanTaskProjectionRepair.EnsureAfterHostTopologyMigration(
-            tasksPath,
-            storedPlan);
-        if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(storedPlan).Group with
         {
-            MessageBox.Show(this,
-                "SquadDash could not safely synchronize the managed plan projection. " +
-                projectionRepair.Error,
-                "Plan State Conflict", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
-        }
-        if (projectionRepair.Outcome == PlanTaskProjectionRepairOutcome.Repaired)
-        {
-            SquadDashTrace.Write(
-                "PlanProjection",
-                $"Synchronized host-migrated amendment topology before recovery review plan={storedPlan.PlanId} revision={storedPlan.Revision}.");
-        }
-
-        var parsed = File.Exists(tasksPath)
-            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-            : null;
-        if (parsed is null ||
-            !parsed.DecomposeGroups.TryGetValue(storedPlan.PlanId, out var currentGroup))
-        {
-            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
-                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
-        }
-        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
-        if (!string.Equals(currentRevision, storedPlan.Revision, StringComparison.Ordinal))
-        {
-            MessageBox.Show(this,
-                "The durable plan and tasks.md have different revisions. Reconcile them before adopting work.",
-                "Revision Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
-        }
-        if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                storedPlan,
-                parsed,
-                storedPlan.PlanId,
-                requireAllComplete: false,
-                out _,
-                out var projectionError))
-        {
-            MessageBox.Show(this,
-                "The durable plan and tasks.md are not synchronized. " +
-                (projectionError ?? "Unknown projection error."),
-                "Plan State Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
-        }
+            HostRevision = storedPlan.Revision,
+        };
 
         var history = (await RunGitAsync(workspace, "rev-list HEAD"))
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -18613,31 +19068,13 @@ public partial class MainWindow : Window
                 "human acceptance with host-controlled commit-range validation",
                 $"The human reviewer accepted the task after SquadDash validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
 
-        var originalTasks = File.ReadAllText(tasksPath);
-        var writer = new DecomposedTasksWriter();
-        if (!writer.MarkTaskComplete(tasksPath, taskId, terminalCommit, summary))
-            throw new InvalidOperationException($"Task {taskId} could not be marked complete in tasks.md.");
-
         Plan? acceptedPlan = null;
         try
         {
-            var freshParsed = TasksPanelParser.Parse(File.ReadAllLines(tasksPath));
-            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                    storedPlan,
-                    freshParsed,
-                    storedPlan.PlanId,
-                    requireAllComplete: false,
-                    out var items,
-                    out projectionError))
-                throw new InvalidOperationException(
-                    "The adopted task could not be projected into the durable plan. " +
-                    (projectionError ?? "Unknown projection error."));
-
             var updated = PlanStoreUpdater.ApplyStepAccepted(
                 storedPlan,
-                items,
                 nextExecutingTaskId: null,
-                acceptedResult: syntheticResult);
+                syntheticResult);
             if (combinedApprovalGate is not null)
             {
                 if (combinedApprovalGate.Status == PlanGateStatus.Pending)
@@ -18674,13 +19111,10 @@ public partial class MainWindow : Window
             };
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
+            RefreshPlanProjectionBestEffort(updated, "verified-commit-range-adopted");
             acceptedPlan = updated;
         }
-        catch
-        {
-            RestoreFileAtomically(tasksPath, originalTasks);
-            throw;
-        }
+        catch { throw; }
 
         LoadTasksPanel();
         var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(acceptedPlan!);
@@ -18834,16 +19268,18 @@ public partial class MainWindow : Window
         }
 
         // 2. Revision check
-        var parsed = File.Exists(tasksPath)
-            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-            : null;
-        if (parsed is null || !parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
+        var storedPlan = _planStore?.Load(plan.Group.GroupId);
+        if (storedPlan is null)
         {
-            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
+            MessageBox.Show(this, "The durable plan is no longer available.",
                 "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
+        var currentRevision = storedPlan.Revision;
+        var currentGroup = PendingDecomposePlanAdapter.FromPlan(storedPlan).Group with
+        {
+            HostRevision = currentRevision,
+        };
         if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
         {
             MessageBox.Show(this,
@@ -18919,22 +19355,6 @@ public partial class MainWindow : Window
         }
 
         // 7. Downstream dependency check (warning only, not a blocker)
-        var storedPlan  = _planStore?.Load(plan.Group.GroupId);
-        string? projectionError = null;
-        if (storedPlan is null || !PlanTaskProjectionValidator.TryGetValidatedItems(
-                storedPlan,
-                parsed,
-                plan.Group.GroupId,
-                requireAllComplete: false,
-                out _,
-                out projectionError))
-        {
-            MessageBox.Show(this,
-                "Cannot adopt this commit because the durable plan and tasks.md are not synchronized. " +
-                (projectionError ?? "The durable plan could not be loaded."),
-                "Plan State Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
         var planTasks   = storedPlan.Tasks;
         var downstream  = RecoveryCommitValidator.FindDownstreamCompletedDependents(planTasks, taskId);
         var warningNote = downstream.Count > 0
@@ -18975,57 +19395,23 @@ public partial class MainWindow : Window
             RemainingWork: null,
             Verification:  null);
 
-        string? applyError = null;
-        var applied = _CodeHealthGroupRunner?.ApplyStepResult(syntheticResult, out applyError) ?? false;
-        if (!applied)
+        // Update canonical plan progress, then refresh its Markdown view.
+        if (_planStore is not null)
         {
-            var writer = new DecomposedTasksWriter();
-            if (!writer.MarkTaskComplete(tasksPath, taskId, candidateCommit,
-                $"Adopted by host recovery: {commitSummary}"))
-            {
-                MessageBox.Show(this,
-                    $"Could not mark task {taskId} complete in tasks.md." +
-                    (applyError is not null ? $"\nDetail: {applyError}" : string.Empty),
-                    "Adoption Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-        }
-
-        // Update plan progress
-        if (_planStore is not null && storedPlan is not null)
-        {
-            var freshParsed = File.Exists(tasksPath)
-                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                : null;
-            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                    storedPlan,
-                    freshParsed,
-                    plan.Group.GroupId,
-                    requireAllComplete: false,
-                    out var items,
-                    out projectionError))
-            {
-                MessageBox.Show(this,
-                    "The commit was adopted in tasks.md, but SquadDash could not validate the durable plan update. " +
-                    (projectionError ?? "Unknown projection error") +
-                    " The plan will remain stopped for recovery.",
-                    "Plan Progress Not Saved", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
             var updated = PlanStoreUpdater.ApplyStepAccepted(
                 storedPlan,
-                items,
                 nextExecutingTaskId: null,
-                acceptedResult: syntheticResult);
+                syntheticResult);
             if (!TryPublishPlanProgress(updated, out var saveError))
             {
                 MessageBox.Show(this,
-                    "The commit was adopted in tasks.md, but durable plan progress could not be saved. " +
+                    "The commit was validated, but durable plan progress could not be saved. " +
                     (saveError ?? "Unknown persistence error") +
                     " The plan will remain stopped for recovery.",
                     "Plan Progress Not Saved", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
+            RefreshPlanProjectionBestEffort(updated, "orphan-commit-adopted");
         }
 
         LoadTasksPanel();
@@ -19061,16 +19447,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        var parsed = File.Exists(tasksPath)
-            ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-            : null;
-        if (parsed is null || !parsed.DecomposeGroups.TryGetValue(plan.Group.GroupId, out var currentGroup))
+        var currentPlan = _planStore?.Load(plan.Group.GroupId);
+        if (currentPlan is null)
         {
-            MessageBox.Show(this, "The plan is no longer present in tasks.md.",
+            MessageBox.Show(this, "The durable plan is no longer available.",
                 "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
-        var currentRevision = currentGroup.HostRevision ?? PendingDecomposePlanStore.ComputeRevision(currentGroup);
 
         // 2. Baseline and candidate commits
         var baselineCommit = _planStore?.Load(plan.Group.GroupId)?.InterruptionData?.LastCommit
@@ -19141,25 +19524,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 6. Reset task to pending
-        var writer = new DecomposedTasksWriter();
-        if (!writer.ResetTaskPending(tasksPath, taskId))
-        {
-            MessageBox.Show(this,
-                $"Task {taskId} could not be reset to pending.",
-                "Reset Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
         // Audit trail
         ShowSystemTranscriptEntry($"↩ Reverted {candidateCommit} and restarted task {taskId}.");
 
         // 7. Restart via normal loop
-        LoadTasksPanel();
-        await StartBackloggedDecomposeGroupAsync(
-            currentGroup with { HostRevision = currentRevision },
-            continuationTaskId: null,
-            continuationPaths: []);
+        await RetryDecomposeTaskAsync(plan, taskId);
     }
 
     // ── Recovery action: Replan with current repository state ─────────────────
@@ -30002,6 +30371,10 @@ public partial class MainWindow : Window
         }
 
         _approvalTranscriptCards.Remove(DeveloperApprovalSimulator.PlanId);
+        if (_openPlanApprovalReviewWindows.Remove(
+                DeveloperApprovalSimulator.PlanId,
+                out var simulationWindow))
+            simulationWindow.Close();
         var simulatedCards = CoordinatorThread.Document.Blocks
             .OfType<BlockUIContainer>()
             .Where(block => block.Tag is TranscriptApprovalCardTag tag &&
@@ -38182,6 +38555,7 @@ public partial class MainWindow : Window
             {
                 // Plan actions answer only the immediately preceding response. A newer turn makes
                 // the Inbox reminder the durable action surface, while the transcript link remains.
+                RetireHistoricalApprovalTranscriptCards();
                 RemovePendingDecomposeApprovalButtons();
                 TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(CoordinatorThread.Document.Blocks);
                 TranscriptQuickReplyFactory.RemoveProtocolJsonIndicators(CoordinatorThread.Document.Blocks);
@@ -38223,6 +38597,15 @@ public partial class MainWindow : Window
         }
 
         return thread.CurrentTurn;
+    }
+
+    private void RetireHistoricalApprovalTranscriptCards()
+    {
+        foreach (var cards in _approvalTranscriptCards.Values)
+        {
+            foreach (var card in cards)
+                TranscriptApprovalCardBuilder.ShowHistoricalState(card);
+        }
     }
 
     private TranscriptTurnView CreateTranscriptTurnView(
@@ -42108,8 +42491,8 @@ public partial class MainWindow : Window
         detailPanel.Children.Add(detailTextBox);
         expander.Content = detailPanel;
 
-        // Wire up diff hover popup for edit tool entries
-        if (string.Equals(descriptor.ToolName, "edit", StringComparison.OrdinalIgnoreCase)) {
+        // Wire up diff hover popup for file-edit tool entries.
+        if (ToolTranscriptFormatter.IsEditToolName(descriptor.ToolName)) {
             DiffHoverPopup? diffPopup = null;
             headerPanel.MouseEnter += (sender, _) => {
                 if (!entry.IsCompleted || string.IsNullOrWhiteSpace(entry.OutputText))
@@ -42312,7 +42695,9 @@ public partial class MainWindow : Window
 
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
-        var iconKey = $"ToolIcon_{entry.Descriptor.ToolName.Trim()}";
+        var iconKey = ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName)
+            ? "ToolIcon_edit"
+            : $"ToolIcon_{entry.Descriptor.ToolName.Trim()}";
         if (entry.Descriptor.ToolName.Trim() == "read_powershell" && entry.ArgsJson is { } argsJsonForIcon)
         {
             try
@@ -42568,6 +42953,8 @@ public partial class MainWindow : Window
                       ?? TryGetJsonString(evt.Args, "pattern"),
             "view" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "edit" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
+            "apply_patch" => BuildRelativeToolPathLabel(
+                ToolTranscriptFormatter.TryExtractEditTargetPath(GetApplyPatchText(evt.Args)) ?? evt.Path),
             "create" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "web_fetch" => StripUrlScheme(TryGetJsonString(evt.Args, "url")),
             "task" => TryGetJsonString(evt.Args, "description"),
@@ -42587,6 +42974,24 @@ public partial class MainWindow : Window
             "fetch_copilot_cli_documentation" => null,
             _ => null
         };
+    }
+
+    private static string? GetApplyPatchText(JsonElement args)
+    {
+        if (args.ValueKind == JsonValueKind.String)
+            return args.GetString();
+
+        if (args.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var propertyName in new[] { "patch", "input" })
+        {
+            if (args.TryGetProperty(propertyName, out var property) &&
+                property.ValueKind == JsonValueKind.String)
+                return property.GetString();
+        }
+
+        return null;
     }
 
     private string? LookupShellLabel(string? shellId)
@@ -50195,7 +50600,7 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
-    private void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
+    private async void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
     {
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
         if (!TryPrepareRecoveryInboxMessageForUse(messageId, out var preparedMessage))
@@ -50203,6 +50608,20 @@ public partial class MainWindow : Window
             _inboxPanel?.ShowTransientNotice("This recovery request is no longer active.");
             return;
         }
+
+        try
+        {
+            preparedMessage = await RefreshApprovalInboxMessageForUseAsync(messageId) ?? preparedMessage;
+        }
+        catch (Exception ex)
+        {
+            // Opening the existing durable message is still useful when evidence refresh fails.
+            // A captured action remains protected by normal stale-token validation.
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not refresh approval message before opening message={messageId}: {ex.Message}");
+        }
+
         var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == messageId);
         if (existing is not null)
         {
@@ -50245,6 +50664,54 @@ public partial class MainWindow : Window
         win.Activated += (_, _) => _inboxPanel?.SelectMessageById(messageId);
         FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
+    }
+
+    /// <summary>
+    /// Rebinds an approval Inbox message and the live action coordinator to the authoritative
+    /// durable plan when either surface still carries an older revision. Returns the current
+    /// message when <paramref name="messageId"/> belongs to a known approval plan; otherwise null.
+    /// </summary>
+    private async Task<InboxMessage?> RefreshApprovalInboxMessageForUseAsync(string messageId)
+    {
+        if (_planStore is null || _planApprovalRuntime is null || _inboxStore is null)
+            return null;
+
+        var plan = _planStore.LoadAll().FirstOrDefault(candidate => string.Equals(
+            DurableApprovalRequestManager.BuildMessageId(candidate.PlanId),
+            messageId,
+            StringComparison.Ordinal));
+        if (plan is null)
+            return null;
+
+        var message = _inboxStore.GetById(messageId);
+        var renderedToken = message?.Actions
+            .Where(action =>
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            .Select(action => ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload)
+                ? payload?.ToClickToken()
+                : null)
+            .FirstOrDefault(token => token is not null);
+        var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId);
+        if (renderedToken is not null &&
+            currentToken is not null &&
+            renderedToken.Matches(currentToken) &&
+            string.Equals(renderedToken.PlanRevision, plan.Revision, StringComparison.Ordinal))
+            return message;
+
+        await _planApprovalRuntime.RestoreAsync([plan]);
+        var messages = _inboxStore.LoadAll();
+        _inboxPanel?.Refresh(messages);
+        message = _inboxStore.GetById(messageId);
+        if (message is not null)
+            RefreshOpenApprovalInboxWindows(messageId, message);
+        return message;
     }
 
     private void OpenOrFocusInboxMessageAndSelectText(string messageId, string excerptText)
@@ -51603,7 +52070,7 @@ public partial class MainWindow : Window
         // preparation path. Create or select its canonical branch before establishing the
         // branch lease. Interrupted plans already own that branch and retain their statuses.
         if (plan.LifecycleStatus == PlanLifecycleStatus.Approved)
-            await PrepareDecomposeBranchAsync(_currentWorkspace.FolderPath, plan.Branch.Trim());
+            await PrepareDecomposeBranchAsync(_currentWorkspace.FolderPath, plan.Branch.Trim(), plan.PlanId);
 
         return await StartDecomposeLoopAsync(plan.PlanId);
     }
@@ -51674,6 +52141,31 @@ public partial class MainWindow : Window
 
     private void PublishPlanProgress(Plan plan) => TryPublishPlanProgress(plan, out _);
 
+    /// <summary>
+    /// Refreshes the human-readable tasks.md view after canonical state has been saved. A
+    /// projection failure is diagnostic only and can never reject, roll back, or steer plan
+    /// execution.
+    /// </summary>
+    private void RefreshPlanProjectionBestEffort(Plan plan, string reason)
+    {
+        if (_currentWorkspace is null) return;
+        try
+        {
+            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+            var result = PlanTaskProjectionRepair.EnsureCanonicalStatuses(tasksPath, plan);
+            if (result.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+                SquadDashTrace.Write(
+                    "PlanProjection",
+                    $"Projection refresh did not affect canonical execution plan={plan.PlanId} reason={reason}: {result.Error}");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "PlanProjection",
+                $"Projection refresh failed without affecting canonical execution plan={plan.PlanId} reason={reason}: {ex.Message}");
+        }
+    }
+
     private async Task RefreshApprovalRequestAfterGateGuidanceEditAsync(Plan plan)
     {
         if (_planApprovalRuntime is null || _inboxStore is null ||
@@ -51720,35 +52212,26 @@ public partial class MainWindow : Window
         }
         try
         {
-            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
             var existing = _planStore.Load(groupId);
-            if (existing is not null)
-            {
-                var repair = PlanTaskProjectionRepair.Ensure(tasksPath, existing);
-                if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
-                {
-                    error = $"Plan {groupId} could not restore its tasks.md projection: {repair.Error}";
-                    return false;
-                }
-            }
-            var parsed    = existing is not null
-                ? PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId)
-                : File.Exists(tasksPath)
-                ? TasksPanelParser.Parse(File.ReadAllLines(tasksPath))
-                : null;
             var resolvedGroup = existing is not null
                 ? PendingDecomposePlanAdapter.FromPlan(existing).Group with { HostRevision = existing.Revision }
-                : group ?? (parsed?.DecomposeGroups.TryGetValue(groupId, out var g) == true ? g : null);
+                : group;
             if (resolvedGroup is null)
             {
-                error = $"Plan {groupId} is missing from tasks.md.";
+                error = $"Plan {groupId} has no durable execution contract.";
                 return false;
             }
 
-            var items    = GetGroupTaskItems(parsed, groupId);
-            var updated  = PlanStoreUpdater.ApplyExecutionStarted(
-                existing, resolvedGroup, revision, items,
-                _CodeHealthGroupRunner?.CurrentStepId);
+            var updated = existing is not null
+                ? PlanStoreUpdater.ApplyExecutionStarted(
+                    existing,
+                    _CodeHealthGroupRunner?.CurrentStepId)
+                : PlanStoreUpdater.ApplyExecutionStarted(
+                    null,
+                    resolvedGroup,
+                    revision,
+                    [],
+                    _CodeHealthGroupRunner?.CurrentStepId);
             if (existing is null && !PendingDecomposePlanAdapter.RevisionIsValid(updated))
             {
                 error =
@@ -51756,15 +52239,10 @@ public partial class MainWindow : Window
                     "the user-approved revision.";
                 return false;
             }
-            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                    updated,
-                    parsed,
-                    groupId,
-                    requireAllComplete: false,
-                    out _,
-                    out error))
+            if (!TryPublishPlanProgress(updated, out error))
                 return false;
-            return TryPublishPlanProgress(updated, out error);
+            RefreshPlanProjectionBestEffort(updated, "plan-started");
+            return true;
         }
         catch (Exception ex)
         {
@@ -51806,7 +52284,8 @@ public partial class MainWindow : Window
                 plan,
                 interruptionReason,
                 execution.LastCompletedIteration,
-                interruptedTaskId);
+                interruptedTaskId,
+                lastCommit: execution.TaskBaselineCommit);
             _planStore.Save(interrupted);
             _broker.Publish(new PlanProgressEvent(interrupted.PlanId, interrupted));
 
@@ -51840,10 +52319,11 @@ public partial class MainWindow : Window
     /// </summary>
     private bool TryPublishPlanStepAccepted(
         string groupId,
-        DecomposeGroupExecutionState groupState,
         DecomposeStepResult acceptedResult,
+        out DecomposeGroupExecutionState groupState,
         out string? error)
     {
+        groupState = DecomposeGroupExecutionState.Missing;
         error = null;
         if (_currentWorkspace is null)
         {
@@ -51857,13 +52337,6 @@ public partial class MainWindow : Window
         }
         try
         {
-            if (groupState is not (DecomposeGroupExecutionState.Eligible or
-                                   DecomposeGroupExecutionState.AwaitingApproval or
-                                   DecomposeGroupExecutionState.Complete))
-            {
-                error = $"Plan {groupId} has no valid next execution state ({groupState}).";
-                return false;
-            }
             var existing = _planStore.Load(groupId);
             if (existing is null)
             {
@@ -51880,48 +52353,48 @@ public partial class MainWindow : Window
                 return false;
             }
 
-            var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
-            var repair = PlanTaskProjectionRepair.Ensure(tasksPath, existing);
-            if (repair.Outcome == PlanTaskProjectionRepairOutcome.Conflict)
+            var accepted = PlanStoreUpdater.ApplyStepAccepted(
+                existing,
+                nextExecutingTaskId: null,
+                acceptedResult);
+            if (_CodeHealthGroupRunner is null)
             {
-                error = "The managed plan projection could not be repaired: " + repair.Error;
+                error = "The canonical plan scheduler is unavailable.";
                 return false;
             }
-            var parsed = PlanTaskProjectionRepair.ReadManagedProjection(tasksPath, groupId);
-            if (!PlanTaskProjectionValidator.TryGetValidatedItems(
-                    existing,
-                    parsed,
-                    groupId,
-                    requireAllComplete: groupState == DecomposeGroupExecutionState.Complete,
-                    out var items,
-                    out error))
+            groupState = _CodeHealthGroupRunner.TrackFirstEligibleStep(
+                accepted,
+                UnionBlockedTaskIds(accepted));
+            if (groupState is not (DecomposeGroupExecutionState.Eligible or
+                                   DecomposeGroupExecutionState.AwaitingApproval or
+                                   DecomposeGroupExecutionState.Complete))
+            {
+                error = $"Plan {groupId} has no valid next execution state ({groupState}).";
                 return false;
+            }
 
             Plan updated;
             if (groupState == DecomposeGroupExecutionState.Complete)
             {
-                // Read tasks.md so task statuses and Completed lifecycle are persisted in one save,
-                // eliminating the window between ApplyStepAccepted and ApplyCompleted.
-                var withTasks = PlanStoreUpdater.ApplyStepAccepted(
-                    existing,
-                    items,
-                    nextExecutingTaskId: null,
-                    acceptedResult: acceptedResult);
-                updated = PlanValidationReadinessEvaluator.AllRequiredPassed(withTasks) &&
-                          ApprovalGateReadinessEvaluator.AllRequiredApproved(withTasks)
-                    ? PlanStoreUpdater.ApplyCompleted(withTasks)
-                    : withTasks;
+                updated = PlanValidationReadinessEvaluator.AllRequiredPassed(accepted) &&
+                          ApprovalGateReadinessEvaluator.AllRequiredApproved(accepted)
+                    ? PlanStoreUpdater.ApplyCompleted(accepted)
+                    : accepted;
             }
             else
             {
                 var nextId  = groupState == DecomposeGroupExecutionState.Eligible
                     ? _CodeHealthGroupRunner?.CurrentStepId
                     : null;
-                updated = PlanStoreUpdater.ApplyStepAccepted(existing, items, nextId, acceptedResult);
+                updated = accepted with
+                {
+                    Progress = accepted.Progress with { ExecutingTaskId = nextId },
+                };
             }
 
             if (!TryPublishPlanProgress(updated, out error))
                 return false;
+            RefreshPlanProjectionBestEffort(updated, "step-accepted");
             PromotePendingPlanRevisionAtBoundary(groupId);
             return true;
         }
@@ -52209,12 +52682,16 @@ public partial class MainWindow : Window
         {
             if (string.Equals(
                     action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
                     DurableApprovalRequestManager.ApprovalRouteMode,
                     StringComparison.OrdinalIgnoreCase))
             {
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
-                await HandleApprovalClickAsync(payload.ToClickToken());
+                await ShowCurrentApprovalCardFromInboxAsync(payload, message);
                 return;
             }
 
@@ -52330,6 +52807,45 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ShowCurrentApprovalCardFromInboxAsync(
+        ApprovalInboxActionPayload payload,
+        InboxMessage sourceMessage)
+    {
+        if (_planStore is null || _planApprovalRuntime is null)
+            return;
+        if (!string.Equals(
+                sourceMessage.Id,
+                DurableApprovalRequestManager.BuildMessageId(payload.PlanId),
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("This approval action does not belong to the selected Inbox message.");
+
+        await RefreshApprovalInboxMessageForUseAsync(sourceMessage.Id);
+        var plan = _planStore.Load(payload.PlanId);
+        var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(payload.PlanId);
+        var currentGate = plan?.ApprovalGates.FirstOrDefault(gate =>
+            gate.Status == PlanGateStatus.AwaitingApproval);
+        if (plan is null || currentToken is null || currentGate is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Approval Review",
+                "This approval is no longer waiting for review. Open the plan to see its current state.");
+            return;
+        }
+        if (HasPendingPlanRevision(plan.PlanId))
+        {
+            UIErrorHelper.ShowWarning(
+                "Approval Review",
+                "Resolve the pending plan revision proposal before reviewing this approval checkpoint.");
+            return;
+        }
+
+        ShowGateApprovalReviewWindow(
+            plan,
+            currentGate,
+            BuildLightweightApprovalSnapshot(plan, currentGate),
+            currentToken);
+    }
+
     /// <summary>
     /// Atomically turns an actively executing durable plan into a recoverable interruption.
     /// Terminal, blocked, approval-paused, or already-interrupted plans are left untouched so
@@ -52401,7 +52917,10 @@ public partial class MainWindow : Window
             viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
             isWorkspaceClean: exception.RequiresRepositoryInitialization
                 ? null
-                : () => IsPlanPreflightWorkspaceCleanAsync());
+                : () => IsPlanPreflightWorkspaceCleanAsync(),
+            getDirtyPaths: exception.RequiresRepositoryInitialization
+                ? null
+                : () => GetPlanPreflightDirtyPathsAsync());
         if (window.WindowState == WindowState.Minimized)
             window.WindowState = WindowState.Normal;
         window.Activate();
@@ -52409,7 +52928,17 @@ public partial class MainWindow : Window
 
     private async Task<bool> IsPlanPreflightWorkspaceCleanAsync(string? planId = null)
     {
-        if (_currentWorkspace is null) return false;
+        var dirtyPaths = await GetPlanPreflightDirtyPathsAsync(planId);
+        return dirtyPaths is { Count: 0 };
+    }
+
+    /// <summary>
+    /// Returns the current non-host-owned dirty paths for live preflight presentation. Null
+    /// means the repository could not be inspected; callers retain their last known snapshot.
+    /// </summary>
+    private async Task<IReadOnlyList<string>?> GetPlanPreflightDirtyPathsAsync(string? planId = null)
+    {
+        if (_currentWorkspace is null) return null;
         try
         {
             var status = await RunGitAsync(
@@ -52422,13 +52951,12 @@ public partial class MainWindow : Window
                     status,
                     allowedPlanPaths,
                     out var candidates))
-                return true;
-            var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                return [];
+            return await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
                 candidates,
                 cmd => RunGitAsync(_currentWorkspace.FolderPath, cmd));
-            return genuinelyDirty.Count == 0;
         }
-        catch { return false; }
+        catch { return null; }
     }
 
     private async Task ShowPlanPreflightChangesAsync(PlanPreflightBlockedException exception)
@@ -54090,6 +54618,14 @@ public partial class MainWindow : Window
         AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
     {
         if (_currentWorkspace is null) return;
+        // The durable plan is the execution contract. A group supplied by the tasks panel is
+        // only a lossy display projection and cannot participate in execution decisions.
+        var durablePlan = _planStore?.Load(group.GroupId);
+        if (durablePlan is not null)
+            group = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
+            {
+                HostRevision = durablePlan.Revision,
+            };
         if (!TryValidateDecomposeGroupForExecution(group, out var validationError))
             throw new InvalidOperationException(validationError);
 
@@ -54106,7 +54642,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            await PrepareDecomposeBranchAsync(workspace, targetBranch);
+            await PrepareDecomposeBranchAsync(workspace, targetBranch, group.GroupId);
         }
 
         if (!await StartDecomposeLoopAsync(
@@ -54144,7 +54680,8 @@ public partial class MainWindow : Window
 
     private async Task PrepareDecomposeBranchAsync(
         string workspace,
-        string targetBranch)
+        string targetBranch,
+        string? planId = null)
     {
         var activeBranch = ReadGitBranch(workspace);
         if (string.IsNullOrWhiteSpace(activeBranch) || activeBranch.StartsWith("(detached", StringComparison.Ordinal))
@@ -54154,11 +54691,17 @@ public partial class MainWindow : Window
                 targetBranch);
 
         var dirty = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
-        if (!string.IsNullOrWhiteSpace(dirty) &&
-            !await IsOnlyTasksFileDirtyAsync(workspace, dirty))
+        if (!string.IsNullOrWhiteSpace(dirty))
         {
-            var dirtyPaths = ParseGitPorcelainPaths(dirty);
-            throw new PlanPreflightBlockedException("Uncommitted changes", dirtyPaths, targetBranch);
+            var allowed = await GetAllowedPlanPathsAsync(workspace, planId);
+            if (!DecomposeWorktreePolicy.HasOnlyAllowedChanges(dirty, allowed, out var candidates))
+            {
+                var genuinelyDirty = await DecomposeWorktreePolicy.FilterMetadataOnlyAsync(
+                    candidates,
+                    command => RunGitAsync(workspace, command));
+                if (genuinelyDirty.Count > 0)
+                    throw new PlanPreflightBlockedException("Uncommitted changes", genuinelyDirty, targetBranch);
+            }
         }
 
         if (string.Equals(activeBranch, targetBranch, StringComparison.Ordinal))
@@ -54365,21 +54908,6 @@ public partial class MainWindow : Window
         var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         return DecomposeWorktreePolicy.GetRepositoryRelativePath(repositoryRoot, tasksPath);
-    }
-
-    private async Task<bool> IsOnlyTasksFileDirtyAsync(string workspace, string allStatus)
-    {
-        var relativeTasksPath = await GetTasksRepositoryRelativePathAsync(workspace);
-        if (relativeTasksPath is null) return false;
-
-        var escapedPath = relativeTasksPath.Replace("\"", "\\\"");
-        var tasksStatus = await RunGitAsync(
-            workspace,
-            $"status --porcelain --untracked-files=all -- \"{escapedPath}\"");
-        return string.Equals(
-            allStatus.Replace("\r\n", "\n").Trim(),
-            tasksStatus.Replace("\r\n", "\n").Trim(),
-            StringComparison.Ordinal);
     }
 
     private async void CodeHealthDoTheseButton_Click(object sender, RoutedEventArgs e)

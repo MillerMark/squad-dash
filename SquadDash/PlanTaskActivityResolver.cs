@@ -44,6 +44,7 @@ internal static class PlanTaskActivityResolver
             PlanLifecycleStatus.AwaitingApproval  => PlanTaskActivityState.AwaitingApproval,
             PlanLifecycleStatus.Blocked           => PlanTaskActivityState.Blocked,
             PlanLifecycleStatus.Interrupted       => PlanTaskActivityState.Interrupted,
+            PlanLifecycleStatus.WaitingForCleanWorktree => PlanTaskActivityState.Interrupted,
             PlanLifecycleStatus.Completed         => PlanTaskActivityState.Completed,
             PlanLifecycleStatus.Stopped           => PlanTaskActivityState.Completed,
             PlanLifecycleStatus.Archived          => PlanTaskActivityState.Completed,
@@ -69,7 +70,8 @@ internal static class PlanTaskActivityResolver
         // A persisted task row can still say Executing/Verifying/Reworking after an
         // interruption. The plan lifecycle is authoritative for whether work is live; never
         // animate a task when there is no executing plan turn to drive it.
-        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
+            PlanLifecycleStatus.WaitingForCleanWorktree or PlanLifecycleStatus.Blocked &&
             (task.Status is PlanTaskStatus.Executing or PlanTaskStatus.Reworking or PlanTaskStatus.VerificationPending ||
              PlanTaskStatus.IsVerifying(task.Status) ||
              string.Equals(plan.Progress.ExecutingTaskId, task.TaskId, StringComparison.Ordinal)))
@@ -105,7 +107,7 @@ internal static class PlanTaskActivityResolver
             return PlanTaskActivityState.AwaitingApproval;
 
         // Check if blocked by plan-level interruption
-        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted)
+        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.WaitingForCleanWorktree)
             return PlanTaskActivityState.Interrupted;
 
         // Check if blocked by plan-level awaiting-approval
