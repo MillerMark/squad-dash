@@ -7467,9 +7467,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         titlePara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(titlePara);
 
-        // Tasks in this plan
-        AddSectionHeader("Steps in this plan");
-
+        string? currentVerifyingTaskTitle = null;
+        var hasActiveVerifyingTask = false;
         var taskList = new List();
         taskList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
         taskList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
@@ -7484,6 +7483,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var assignment = task.AgentAssignments?.FirstOrDefault(a =>
                     string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
                 if (assignment is null) continue;
+
+                var isVerifying = PlanTaskStatus.IsVerifying(task.Status);
+                var isVerificationPending = string.Equals(task.Status, PlanTaskStatus.VerificationPending, StringComparison.Ordinal);
+                if ((isVerifying || isVerificationPending) &&
+                    (currentVerifyingTaskTitle is null || (!hasActiveVerifyingTask && isVerifying)))
+                {
+                    currentVerifyingTaskTitle = task.Title ?? task.TaskId;
+                    hasActiveVerifyingTask = isVerifying;
+                }
 
                 var titleRun = new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.SemiBold };
                 var statusColorKey = GetTaskStatusColorKey(task.Status);
@@ -7525,14 +7533,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
-        if (taskList.ListItems.Count > 0)
-            _detailDocument.Blocks.Add(taskList);
-        else
+        if (!string.IsNullOrWhiteSpace(currentVerifyingTaskTitle))
         {
-            var noPara = new Paragraph(new Run("No steps assigned."));
-            noPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            noPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            _detailDocument.Blocks.Add(noPara);
+            var verifyingPara = new Paragraph
+            {
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            verifyingPara.Inlines.Add(new Run("Currently verifying: "));
+            verifyingPara.Inlines.Add(new Run(currentVerifyingTaskTitle) { FontWeight = FontWeights.SemiBold });
+            verifyingPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            verifyingPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(verifyingPara);
+        }
+
+        if (taskList.ListItems.Count > 0)
+        {
+            AddSectionHeader("Steps in this plan");
+            _detailDocument.Blocks.Add(taskList);
         }
     }
 
