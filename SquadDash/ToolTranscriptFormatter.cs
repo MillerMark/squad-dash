@@ -19,7 +19,7 @@ internal static class ToolTranscriptFormatter {
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     public static string GetToolEmoji(ToolTranscriptDescriptor descriptor) {
-        var toolName = descriptor.ToolName.Trim();
+        var toolName = NormalizePresentationToolName(descriptor.ToolName.Trim());
         var hasDisplayText = !string.IsNullOrWhiteSpace(descriptor.DisplayText);
 
         return toolName switch {
@@ -49,7 +49,7 @@ internal static class ToolTranscriptFormatter {
     }
 
     /// <summary>Returns the representative emoji for a tool by name (ignores display-text guard).</summary>
-    public static string GetToolEmojiByName(string toolName) => toolName.Trim() switch {
+    public static string GetToolEmojiByName(string toolName) => NormalizePresentationToolName(toolName.Trim()) switch {
         "glob"          => "🔎",
         "grep"          => "🔎",
         "view"          => "👀",
@@ -72,6 +72,69 @@ internal static class ToolTranscriptFormatter {
         "fetch_copilot_cli_documentation" => "📖",
         _               => string.Empty
     };
+
+    internal static string ResolveToolIconKey(string? toolName) {
+        if (IsEditToolName(toolName))
+            return "ToolIcon_edit";
+
+        var normalizedToolName = NormalizePresentationToolName(toolName?.Trim() ?? string.Empty);
+        return string.IsNullOrWhiteSpace(normalizedToolName)
+            ? "ToolIcon_default"
+            : $"ToolIcon_{normalizedToolName}";
+    }
+
+    internal static SpinnerActivityKind ClassifyToolActivityKind(string? toolName) {
+        if (string.IsNullOrWhiteSpace(toolName))
+            return SpinnerActivityKind.Thinking;
+
+        var name = NormalizePresentationToolName(toolName.Trim());
+
+        if (name.Contains("edit",        StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("create",      StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("write",       StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("delete",      StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("move",        StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("rename",      StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("patch",       StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("insert",      StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("replace",     StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("remove_file", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("overwrite",   StringComparison.OrdinalIgnoreCase))
+            return SpinnerActivityKind.Writing;
+
+        if (name.Contains("read",   StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("view",   StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("glob",   StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("grep",   StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("search", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("fetch",  StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("list",   StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("get",    StringComparison.OrdinalIgnoreCase))
+            return SpinnerActivityKind.Reading;
+
+        return SpinnerActivityKind.Thinking;
+    }
+
+    internal static string? BuildRipGrepDisplayText(string? pattern, IReadOnlyList<string>? scopes) {
+        if (string.IsNullOrWhiteSpace(pattern))
+            return null;
+
+        var normalizedPattern = pattern.Trim();
+        var normalizedScopes = scopes is null
+            ? []
+            : scopes
+                .Select(NormalizeRipGrepScope)
+                .Where(scope => !string.IsNullOrWhiteSpace(scope))
+                .Select(scope => scope!)
+                .ToArray();
+
+        if (normalizedScopes.Length == 0)
+            return normalizedPattern;
+        if (normalizedScopes.Length == 1)
+            return $"{normalizedPattern} — {normalizedScopes[0]}";
+
+        return $"{normalizedPattern} — {CompactRipGrepScope(normalizedScopes[0])} +{normalizedScopes.Length - 1}";
+    }
 
     public static string BuildRunningText(ToolTranscriptDescriptor descriptor, string? progressText = null) {
         if (TryBuildSpecialToolText(descriptor, success: null, outputText: null, out var specialText))
@@ -223,7 +286,7 @@ internal static class ToolTranscriptFormatter {
         bool? success,
         string? outputText,
         out string text) {
-        var toolName = descriptor.ToolName.Trim();
+        var toolName = NormalizePresentationToolName(descriptor.ToolName.Trim());
 
         switch (toolName) {
             case "glob" when !string.IsNullOrWhiteSpace(descriptor.DisplayText):
@@ -530,4 +593,32 @@ internal static class ToolTranscriptFormatter {
     /// <summary>Returns true when a read_powershell display text has an appended delay suffix like "(60s)".</summary>
     private static bool HasDelaySuffix(string displayText) =>
         displayText.EndsWith('s') && displayText.Contains('(');
+
+    private static string NormalizePresentationToolName(string toolName) => toolName switch {
+        "rg" => "grep",
+        "delegate_roster_agent" => "task",
+        _ => toolName
+    };
+
+    private static string? NormalizeRipGrepScope(string? scope) {
+        if (string.IsNullOrWhiteSpace(scope))
+            return null;
+
+        var trimmed = scope.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return null;
+
+        return Path.IsPathRooted(trimmed)
+            ? CompactRipGrepScope(trimmed)
+            : trimmed;
+    }
+
+    private static string CompactRipGrepScope(string scope) {
+        var trimmed = scope.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return trimmed;
+
+        var fileName = Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(fileName) ? trimmed : fileName;
+    }
 }

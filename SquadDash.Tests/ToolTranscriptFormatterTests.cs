@@ -300,4 +300,105 @@ internal sealed class ToolTranscriptFormatterTests {
 
         Assert.That(text, Is.EqualTo("some-agent-id failed -- Agent not found."));
     }
+
+    [Test]
+    public void ResolveToolIconKey_ForRg_UsesGrepIcon() {
+        var iconKey = ToolTranscriptFormatter.ResolveToolIconKey("rg");
+
+        Assert.That(iconKey, Is.EqualTo("ToolIcon_grep"));
+    }
+
+    [Test]
+    public void BuildRipGrepDisplayText_WithSingleScope_UsesPatternDashScope() {
+        var text = ToolTranscriptFormatter.BuildRipGrepDisplayText(
+            "class PlanTaskStatus|record PlanTaskStatus|…",
+            [@"SquadDash"]);
+
+        Assert.That(text, Is.EqualTo("class PlanTaskStatus|record PlanTaskStatus|… — SquadDash"));
+    }
+
+    [Test]
+    public void BuildRipGrepDisplayText_WithMultipleScopes_UsesFirstScopeAndAdditionalCount() {
+        var text = ToolTranscriptFormatter.BuildRipGrepDisplayText(
+            "pattern",
+            [@"SquadDash\Screens", @"SquadDash\Tests", @"SquadDash\Assets"]);
+
+        Assert.That(text, Is.EqualTo("pattern — Screens +2"));
+    }
+
+    [Test]
+    public void BuildRipGrepDisplayText_WithoutScopes_FallsBackToPatternOnly() {
+        Assert.Multiple(() => {
+            Assert.That(
+                ToolTranscriptFormatter.BuildRipGrepDisplayText("pattern", null),
+                Is.EqualTo("pattern"));
+            Assert.That(
+                ToolTranscriptFormatter.BuildRipGrepDisplayText("pattern", []),
+                Is.EqualTo("pattern"));
+        });
+    }
+
+    [Test]
+    public void ClassifyToolActivityKind_ForRg_IsReading() {
+        var activity = ToolTranscriptFormatter.ClassifyToolActivityKind("rg");
+
+        Assert.That(activity, Is.EqualTo(SpinnerActivityKind.Reading));
+    }
+
+    [Test]
+    public void ResolveToolIconKey_ForDelegateRosterAgent_UsesTaskIcon() {
+        var iconKey = ToolTranscriptFormatter.ResolveToolIconKey("delegate_roster_agent");
+
+        Assert.That(iconKey, Is.EqualTo("ToolIcon_task"));
+    }
+
+    [Test]
+    public void BuildRunningText_ForDelegateRosterAgent_UsesAgentIdentityOnly() {
+        var descriptor = new ToolTranscriptDescriptor(
+            "delegate_roster_agent",
+            DisplayText: "@arjun-sen");
+
+        var text = ToolTranscriptFormatter.BuildRunningText(descriptor);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Is.EqualTo("🤖 @arjun-sen"));
+            Assert.That(text, Does.Not.Contain("SQUADDASH_AGENT_ASSIGNMENT_JSON"));
+            Assert.That(text, Does.Not.Contain("Delegate to"));
+            Assert.That(text, Does.Not.Contain("Running"));
+        });
+    }
+
+    [Test]
+    public void BuildDetailContent_ForRgAndDelegateRosterAgent_PreservesToolNameAndArguments() {
+        var rgDetail = new ToolTranscriptDetail(
+            new ToolTranscriptDescriptor("rg", DisplayText: "pattern — SquadDash"),
+            "{\n  \"pattern\": \"pattern\",\n  \"paths\": [\"SquadDash\", \"SquadDash.Tests\"]\n}",
+            null,
+            new DateTimeOffset(2026, 8, 19, 15, 0, 0, TimeSpan.FromHours(-4)),
+            new DateTimeOffset(2026, 8, 19, 15, 0, 1, TimeSpan.FromHours(-4)),
+            null,
+            IsCompleted: true,
+            Success: true);
+        var delegateDetail = new ToolTranscriptDetail(
+            new ToolTranscriptDescriptor("delegate_roster_agent", DisplayText: "@arjun-sen"),
+            "{\n  \"agent_handle\": \"arjun-sen\",\n  \"prompt\": \"SQUADDASH_AGENT_ASSIGNMENT_JSON:\\n{...}\\nassignment\"\n}",
+            null,
+            new DateTimeOffset(2026, 8, 19, 15, 1, 0, TimeSpan.FromHours(-4)),
+            new DateTimeOffset(2026, 8, 19, 15, 1, 1, TimeSpan.FromHours(-4)),
+            null,
+            IsCompleted: true,
+            Success: true);
+
+        var rgContent = ToolTranscriptFormatter.BuildDetailContent(rgDetail);
+        var delegateContent = ToolTranscriptFormatter.BuildDetailContent(delegateDetail);
+
+        Assert.Multiple(() => {
+            Assert.That(rgContent, Does.Contain("[TOOL] rg"));
+            Assert.That(rgContent, Does.Contain("\"pattern\": \"pattern\""));
+            Assert.That(rgContent, Does.Contain("\"paths\": [\"SquadDash\", \"SquadDash.Tests\"]"));
+            Assert.That(delegateContent, Does.Contain("[TOOL] delegate_roster_agent"));
+            Assert.That(delegateContent, Does.Contain("\"agent_handle\": \"arjun-sen\""));
+            Assert.That(delegateContent, Does.Contain("\"prompt\": \"SQUADDASH_AGENT_ASSIGNMENT_JSON"));
+        });
+    }
 }

@@ -42830,9 +42830,7 @@ public partial class MainWindow : Window
 
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
-        var iconKey = ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName)
-            ? "ToolIcon_edit"
-            : $"ToolIcon_{entry.Descriptor.ToolName.Trim()}";
+        var iconKey = ToolTranscriptFormatter.ResolveToolIconKey(entry.Descriptor.ToolName);
         if (entry.Descriptor.ToolName.Trim() == "read_powershell" && entry.ArgsJson is { } argsJsonForIcon)
         {
             try
@@ -43044,37 +43042,7 @@ public partial class MainWindow : Window
     }
 
     private static SpinnerActivityKind GetToolActivityKind(string? toolName)
-    {
-        if (string.IsNullOrWhiteSpace(toolName))
-            return SpinnerActivityKind.Thinking;
-
-        var name = toolName.Trim();
-
-        if (name.Contains("edit",        StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("create",      StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("write",       StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("delete",      StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("move",        StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("rename",      StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("patch",       StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("insert",      StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("replace",     StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("remove_file", StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("overwrite",   StringComparison.OrdinalIgnoreCase))
-            return SpinnerActivityKind.Writing;
-
-        if (name.Contains("read",   StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("view",   StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("glob",   StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("grep",   StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("search", StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("fetch",  StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("list",   StringComparison.OrdinalIgnoreCase) ||
-            name.Contains("get",    StringComparison.OrdinalIgnoreCase))
-            return SpinnerActivityKind.Reading;
-
-        return SpinnerActivityKind.Thinking;
-    }
+        => ToolTranscriptFormatter.ClassifyToolActivityKind(toolName);
 
     private string? BuildToolDisplayText(SquadSdkEvent evt)
     {
@@ -43086,6 +43054,7 @@ public partial class MainWindow : Window
             "glob" => TryGetJsonString(evt.Args, "pattern"),
             "grep" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path)
                       ?? TryGetJsonString(evt.Args, "pattern"),
+            "rg" => BuildRipGrepDisplayText(evt.Args),
             "view" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "edit" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "apply_patch" => BuildRelativeToolPathLabel(
@@ -43093,8 +43062,7 @@ public partial class MainWindow : Window
             "create" => BuildRelativeToolPathLabel(TryGetJsonString(evt.Args, "path") ?? evt.Path),
             "web_fetch" => StripUrlScheme(TryGetJsonString(evt.Args, "url")),
             "task" => TryGetJsonString(evt.Args, "description"),
-            "delegate_roster_agent" => TryGetJsonString(evt.Args, "description")
-                                       ?? TryGetJsonString(evt.Args, "agent_handle"),
+            "delegate_roster_agent" => BuildDelegateRosterAgentDisplayLabel(evt.Args),
             "skill" => TryGetJsonString(evt.Args, "skill") ?? evt.Skill,
             "store_memory" => TryGetJsonString(evt.Args, "subject") ?? TryGetJsonString(evt.Args, "fact"),
             "report_intent" => TryGetJsonString(evt.Args, "intent") ?? evt.Intent,
@@ -43109,6 +43077,57 @@ public partial class MainWindow : Window
             "fetch_copilot_cli_documentation" => null,
             _ => null
         };
+    }
+
+    private string? BuildRipGrepDisplayText(JsonElement args)
+    {
+        var pattern = TryGetJsonString(args, "pattern");
+        var scopeLabels = new List<string>();
+        if (args.ValueKind == JsonValueKind.Object &&
+            args.TryGetProperty("paths", out var pathsProperty))
+        {
+            if (pathsProperty.ValueKind == JsonValueKind.String)
+            {
+                var scope = BuildRelativeToolPathLabel(pathsProperty.GetString());
+                if (!string.IsNullOrWhiteSpace(scope))
+                    scopeLabels.Add(scope);
+            }
+            else if (pathsProperty.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var entry in pathsProperty.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var scope = BuildRelativeToolPathLabel(entry.GetString());
+                    if (!string.IsNullOrWhiteSpace(scope))
+                        scopeLabels.Add(scope);
+                }
+            }
+        }
+
+        return ToolTranscriptFormatter.BuildRipGrepDisplayText(pattern, scopeLabels);
+    }
+
+    private string? BuildDelegateRosterAgentDisplayLabel(JsonElement args)
+    {
+        var rawHandle = TryGetJsonString(args, "agent_handle");
+        if (string.IsNullOrWhiteSpace(rawHandle))
+            return null;
+
+        var normalizedHandle = rawHandle.Trim().TrimStart('@').ToLowerInvariant();
+        var friendlyName = _agents
+            .Where(card => !card.IsLeadAgent && !card.IsDynamicAgent)
+            .FirstOrDefault(card =>
+                string.Equals(
+                    card.AccentStorageKey.Trim().TrimStart('@').ToLowerInvariant(),
+                    normalizedHandle,
+                    StringComparison.Ordinal))
+            ?.Name;
+        if (!string.IsNullOrWhiteSpace(friendlyName))
+            return friendlyName;
+
+        return "@" + normalizedHandle;
     }
 
     private static string? GetApplyPatchText(JsonElement args)

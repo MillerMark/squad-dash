@@ -7,12 +7,14 @@ namespace SquadDash;
 internal sealed class ToolIconGalleryWindow : ChromedWindow {
     private static readonly (string ToolName, string ResourceKey, string Description)[] Icons = [
         ("grep",          "ToolIcon_grep",          "Search content — grep"),
+        ("rg",            "ToolIcon_grep",          "Search content — rg (grep family)"),
         ("glob",          "ToolIcon_glob",          "Search filenames — glob"),
         ("view",          "ToolIcon_view",           "Read file — view"),
         ("edit",          "ToolIcon_edit",           "Edit file — edit"),
         ("web_fetch",     "ToolIcon_web_fetch",      "HTTP — web_fetch"),
         ("create",        "ToolIcon_create",         "New file — create"),
         ("task",          "ToolIcon_task",           "Sub-agent — task"),
+        ("delegate_roster_agent", "ToolIcon_task",   "Roster delegate — task family"),
         ("skill",         "ToolIcon_skill",          "Skill call — skill"),
         ("store_memory",  "ToolIcon_store_memory",   "Persist fact — store_memory"),
         ("report_intent", "ToolIcon_report_intent",  "Intent marker — report_intent"),
