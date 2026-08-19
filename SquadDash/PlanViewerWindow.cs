@@ -2365,12 +2365,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             string.Equals(g.GateId, capturedGate.GateId, StringComparison.Ordinal));
                         var gateIsTraversed = durableGate is not null &&
                             !PlanGateManager.CanEditGate(durableGate);
+                        var isOrphanedProofGate = (capturedGate.ProofRequirements is { Count: > 0 }) &&
+                            !group.Tasks.Any(t => (t.ProofRequirements ?? []).Any(r =>
+                                capturedGate.ProofRequirements!.Any(gr =>
+                                    string.Equals(gr.RequirementId, r.RequirementId, StringComparison.Ordinal))));
                         var removeItem = new MenuItem
                         {
-                            Header = $"Remove approval gate: {capturedGate.Message}",
+                            Header = isOrphanedProofGate
+                                ? $"Remove stale gate reference: {capturedGate.Message}"
+                                : $"Remove approval gate: {capturedGate.Message}",
                             IsEnabled = !gateIsTraversed,
                         };
-                        if (gateIsTraversed)
+                        if (isOrphanedProofGate && !gateIsTraversed)
+                            removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                                "This approval gate's proof requirements no longer exist on any task. " +
+                                "Click to remove the stale reference.");
+                        else if (gateIsTraversed)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
                                 PlanApprovalControlLockPolicy.LockedTooltip("Traversed gate"));
                         removeItem.Click += (_, _) =>
@@ -2397,7 +2407,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                     var addValidation = new MenuItem
                     {
-                        Header = "Add validation after this task",
+                        Header = "Add validation after this step",
                         IsEnabled = definitionEditable,
                     };
                     addValidation.Click += (_, _) => ApplyStagedMutation(
@@ -2494,7 +2504,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 var addValidation = new MenuItem
                 {
-                    Header = "Add validation after this task",
+                    Header = "Add validation after this step",
                     IsEnabled = definitionEditable,
                 };
                 addValidation.Click += (_, _) => ApplyStagedMutation(

@@ -310,14 +310,31 @@ internal static class DependencyEditRecomputer
     /// set, where a leaf is any task whose ID does not appear in any other task's
     /// <c>DependsOn</c> list.  Only the single validation whose <c>mode == "audit"</c> and
     /// whose <c>BeforeTaskIds</c> is empty is updated; all other validations and all other
-    /// fields are preserved unchanged.  If no such validation exists the group is returned
-    /// as-is.
+    /// fields are preserved unchanged.  If no such validation exists and the plan is
+    /// proof-bearing (any task or gate has <c>ProofRequirements</c>), a synthetic final audit
+    /// validation is created so the group satisfies the proof-bearing contract.
     /// </summary>
     internal static DecomposedTaskGroup ReconcileAuditBoundary(DecomposedTaskGroup group)
     {
         var validations = group.Validations;
+
+        // Leaf tasks: task IDs that do not appear in any other task's DependsOn list.
+        var nonLeafIds = group.Tasks
+            .SelectMany(t => t.DependsOn)
+            .ToHashSet(StringComparer.Ordinal);
+        var leafIds = group.Tasks
+            .Select(t => t.Id)
+            .Where(id => !nonLeafIds.Contains(id))
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
         if (validations is null or { Count: 0 })
-            return group;
+        {
+            if (!IsProofBearing(group))
+                return group;
+            var syntheticAudit = CreateSyntheticAudit(group, leafIds);
+            return group with { Validations = [syntheticAudit] };
+        }
 
         var auditIndex = -1;
         for (var i = 0; i < validations.Count; i++)
@@ -332,23 +349,33 @@ internal static class DependencyEditRecomputer
         }
 
         if (auditIndex < 0)
-            return group;
-
-        // Leaf tasks: task IDs that do not appear in any other task's DependsOn list.
-        var nonLeafIds = group.Tasks
-            .SelectMany(t => t.DependsOn)
-            .ToHashSet(StringComparer.Ordinal);
-        var leafIds = group.Tasks
-            .Select(t => t.Id)
-            .Where(id => !nonLeafIds.Contains(id))
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
+        {
+            if (!IsProofBearing(group))
+                return group;
+            var syntheticAudit = CreateSyntheticAudit(group, leafIds);
+            return group with { Validations = validations.Append(syntheticAudit).ToArray() };
+        }
 
         var updatedValidations = validations.ToArray();
         updatedValidations[auditIndex] = validations[auditIndex] with { AfterTaskIds = leafIds };
 
         return group with { Validations = updatedValidations };
     }
+
+    private static bool IsProofBearing(DecomposedTaskGroup group) =>
+        group.Tasks.Any(t => t.ProofRequirements is { Count: > 0 }) ||
+        (group.ApprovalGates ?? []).Any(g => g.ProofRequirements is { Count: > 0 });
+
+    private static DecomposedValidationNode CreateSyntheticAudit(
+        DecomposedTaskGroup group, string[] leafIds) =>
+        new DecomposedValidationNode(
+            StagedPlanEditor.NextValidationId(group),
+            "Final Plan Proof Audit",
+            "Verify that all observable proof requirements from this plan's execution are confirmed before closing.",
+            leafIds,
+            [],
+            ["All stated proof requirements and observable outcomes have been confirmed present and correct."],
+            Mode: "audit");
 
     // ── Shared utilities ─────────────────────────────────────────────────────────
 

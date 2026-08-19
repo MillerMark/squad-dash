@@ -230,7 +230,8 @@ internal static class StagedPlanEditor
             before,
             ["The task's stated outcome is present and behaves as described."],
             Mode: "evidence");
-        return group with { Validations = (group.Validations ?? []).Append(validation).ToArray() };
+        return DependencyEditRecomputer.ReconcileAuditBoundary(
+            group with { Validations = (group.Validations ?? []).Append(validation).ToArray() });
     }
 
     internal static DecomposedTaskGroup InsertTask(
