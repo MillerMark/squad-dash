@@ -142,6 +142,58 @@ internal sealed class DependencyEditRecomputerTests
         }
     }
 
+    [Test]
+    public void Recompute_DownstreamStagePropagationAfterDependencyAdd_UsingSimulationPlanFixtureBuilder()
+    {
+        var fixturePlan = SimulationPlanFixtureBuilder.BuildDemoPlan();
+        var fixtureTasks = fixturePlan.Tasks
+            .Select(task => new DecomposedSubTask(
+                task.TaskId,
+                task.Description ?? task.Title ?? task.TaskId,
+                task.DependsOn,
+                task.Priority,
+                task.Title))
+            .ToArray();
+        var branchTaskId = "sim-task-005";
+        var group = new DecomposedTaskGroup(
+            GroupId,
+            "Simulation fixture downstream propagation",
+            "main",
+            "Validate downstream stage propagation after dependency edits.",
+            [
+                .. fixtureTasks,
+                new DecomposedSubTask(
+                    branchTaskId,
+                    "Fixture-only branch used to force a later-stage recompute.",
+                    ["sim-task-002"],
+                    "medium",
+                    "Fixture branch"),
+            ]);
+
+        var preEditStages = ValidationShieldPresenter.ComputeValidationAwareLevels(
+            group.Tasks,
+            group.Validations ?? []);
+        var editedTask = group.Tasks.Single(task => task.Id == "sim-task-003");
+        var edited = StagedPlanEditor.UpdateTask(
+            group,
+            editedTask.Id,
+            editedTask.Title ?? "Build REST API endpoints",
+            editedTask.Description,
+            editedTask.Priority,
+            [.. editedTask.DependsOn, branchTaskId]);
+
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.RecomputedGroup, Is.Not.Null);
+        Assert.That(result.StageAssignments!["sim-task-003"],
+            Is.GreaterThan(preEditStages["sim-task-003"]),
+            "Edited task should move to a later stage.");
+        Assert.That(result.StageAssignments["sim-task-004"],
+            Is.GreaterThan(preEditStages["sim-task-004"]),
+            "A downstream descendant should also move to a later stage.");
+    }
+
     // ─── Task with all dependencies removed → Stage 1 ────────────────────────
 
     [Test]

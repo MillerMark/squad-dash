@@ -144,7 +144,7 @@ internal sealed class PendingPlanEditorTests
     }
 
     [Test]
-    public void DependencyEditPath_WhenStageChangeCancelled_LeavesPlanUnchanged()
+    public void DependencyEditPath_WhenStageChangeCancelled_DoesNotInvokeApplyAndLeavesPlanUnchanged()
     {
         var pendingStore = new PendingDecomposePlanStore(_squad);
         var original = pendingStore.Save(StagedPlanEditorTests.MakeGroup());
@@ -159,28 +159,33 @@ internal sealed class PendingPlanEditorTests
         var recompute = DependencyEditRecomputer.Recompute(edited);
         Assert.That(recompute.Success, Is.True);
 
-        var confirmed = false;
-        if (confirmed)
-        {
-            PendingPlanEditor.Apply(
-                recompute.RecomputedGroup!,
-                original.CreatedAt!.Value,
-                null,
-                pendingStore,
-                null,
-                null);
-        }
+        var applyCallCount = 0;
+        var applied = ApplyDependencyEditThroughConfirmation(
+            shouldApply: () => false,
+            applyEdit: () =>
+            {
+                applyCallCount++;
+                PendingPlanEditor.Apply(
+                    recompute.RecomputedGroup!,
+                    original.CreatedAt!.Value,
+                    null,
+                    pendingStore,
+                    null,
+                    null);
+            });
 
         var reloaded = pendingStore.Load(original.Group.GroupId)!;
         Assert.Multiple(() =>
         {
+            Assert.That(applied, Is.False);
+            Assert.That(applyCallCount, Is.EqualTo(0));
             Assert.That(reloaded.Revision, Is.EqualTo(original.Revision));
             Assert.That(GetDependencyTopology(reloaded.Group), Is.EqualTo(beforeTopology));
         });
     }
 
     [Test]
-    public void DependencyEditPath_WhenStageChangeConfirmed_AppliesMutation()
+    public void DependencyEditPath_WhenStageChangeConfirmed_InvokesApplyAndMutatesPlan()
     {
         var pendingStore = new PendingDecomposePlanStore(_squad);
         var original = pendingStore.Save(StagedPlanEditorTests.MakeGroup());
@@ -195,21 +200,26 @@ internal sealed class PendingPlanEditorTests
         Assert.That(recompute.Success, Is.True);
         Assert.That(recompute.RecomputedGroup, Is.Not.Null);
 
-        var confirmed = true;
-        if (confirmed)
-        {
-            PendingPlanEditor.Apply(
-                recompute.RecomputedGroup!,
-                original.CreatedAt!.Value,
-                null,
-                pendingStore,
-                null,
-                null);
-        }
+        var applyCallCount = 0;
+        var applied = ApplyDependencyEditThroughConfirmation(
+            shouldApply: () => true,
+            applyEdit: () =>
+            {
+                applyCallCount++;
+                PendingPlanEditor.Apply(
+                    recompute.RecomputedGroup!,
+                    original.CreatedAt!.Value,
+                    null,
+                    pendingStore,
+                    null,
+                    null);
+            });
 
         var reloaded = pendingStore.Load(original.Group.GroupId)!;
         Assert.Multiple(() =>
         {
+            Assert.That(applied, Is.True);
+            Assert.That(applyCallCount, Is.EqualTo(1));
             Assert.That(reloaded.Revision, Is.Not.EqualTo(original.Revision));
             Assert.That(reloaded.Group.Tasks.Single(task => task.Id == original.Group.Tasks[2].Id).DependsOn,
                 Is.EqualTo(new[] { original.Group.Tasks[0].Id }));
@@ -361,6 +371,17 @@ internal sealed class PendingPlanEditorTests
             .GroupBy(gate => Serialize((gate.AfterTaskIds, gate.BeforeTaskIds)))
             .Count();
         return boundaryCount != gates.Count;
+    }
+
+    // PlanViewerWindow's stage-change confirmation currently calls MessageBox.Show directly
+    // without an injectable test seam. This helper mirrors the same decision boundary.
+    private static bool ApplyDependencyEditThroughConfirmation(Func<bool> shouldApply, Action applyEdit)
+    {
+        if (!shouldApply())
+            return false;
+
+        applyEdit();
+        return true;
     }
 
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value);
