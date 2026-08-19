@@ -1,6 +1,6 @@
 namespace SquadDash;
 
-internal static class CliCmdEscaping
+file static class CliCmdEscaping
 {
     /// <summary>
     /// Wraps <paramref name="token"/> in double quotes with correct cmd.exe internal escaping.
