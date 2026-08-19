@@ -1,4 +1,138 @@
-﻿<!-- decompose-group: MODELPROF-20260810 | branch: feature/multi-model-profiles | revision: 852ababff2d25a64 -->
+﻿<!-- decompose-group: PVDRAG-20260818 | branch: feature/plan-visualizer-drag-reorder | revision: 935b93cff34fd006 -->
+**[PVDRAG-20260818] Plan Visualizer Vertical Drag and Reorder**
+> Add vertical drag interaction to Plan Visualizer task cards: cards are horizontally locked and move vertically with the mouse, constrained to their stage column with a rubber-band effect at the boundaries. During drag, the card and all its connectors glow and arrows update in real time. Dragging a card over a same-stage sibling swaps their positions live; releasing commits the order to the plan model and Escape cancels the drag.
+
+- [x] **[PVDRAG-20260818-001]** Wire drag event infrastructure to task card nodes
+  (SquadDash status: Completed by SquadDash — commit 8b6e811: Recovery verification pass confirmed that Canvas.SetLeft is absent from OnGraphCanvasMouseMove, Canvas.SetTop is the sole vertical write during drag, and all five drag handler entry-points (PreviewMouseLeftButtonDown via WireTaskCardDrag, MouseMove, MouseLeftButtonUp, LostMouseCapture, Escape/PreviewKeyDown) are present and correctly wired. _taskCardDragState is a class-level private field accessible to downstream tasks 002 and 003. Build is green. The stale rework-required verdict against 4d2d334 is superseded by this fresh passing verification at HEAD 8b6e811.)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: Attach mouse-capture drag handlers (PreviewMouseLeftButtonDown, MouseMove, MouseLeftButtonUp, and LostMouseCapture for cancel) to task card elements on _graphCanvas in PlanViewerWindow. On drag start, record the mouse offset within the card, the card's original canvas top, and its column x. During MouseMove, translate only the vertical canvas position while leaving horizontal position fixed at the column x. Observable outcome: a user can click any task card and drag it vertically; horizontal position never changes. Production consumer: tasks 002 and 003 read the shared drag-state record to apply the rubber-band constraint and visual effects.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement drag event infrastructure on plan canvas task cards","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PVDRAG-20260818-002]** Apply rubber-band vertical constraint within stage milestone bounds
+  (SquadDash status: Completed by SquadDash — commit 7d1b514: Human accepted commit range 7d1b514 (1 commit).)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: During drag, derive vertical limits from the stage milestone rectangle for the dragged task's column. The free zone ends when the card's top edge reaches milestone-rect.Top (dragging up) or the card's bottom edge reaches milestone-rect.Bottom (dragging down). Inside the free zone the card tracks the mouse 1:1. Beyond the free-zone threshold, apply a rubber-band factor — further mouse movement moves the card by an exponentially diminishing fraction so the card asymptotically approaches but never reaches the hard limit. Observable outcome: dragging toward the stage boundary produces a visible deceleration and the card never exits the milestone rectangle. Production consumer: task 004 reads the constrained canvas position to identify swap candidates.
+  dependsOn: PVDRAG-20260818-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement rubber-band vertical constraint against stage milestone rectangle","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PVDRAG-20260818-003]** Apply glow effect and live-update connector arrows during drag
+  (SquadDash status: Completed by SquadDash — commit 4c1764f: Human accepted commit range 4c1764f (1 commit).)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: When drag starts, apply the existing PlanViewerWindow glow/drop-shadow effect to the dragged card and to every connector arrow that originates from or terminates at that card. During MouseMove, recalculate and redraw the endpoints of those connectors to track the card's current canvas position so arrows always appear correctly attached. Remove the glow and restore connector endpoints on drag end or cancel. Observable outcome: during a drag the task card and all its entering and leaving arrows are visually highlighted, and arrows track the card position in real time. Production consumer: the end-to-end proof in task 006 observes these visual behaviors directly.
+  dependsOn: PVDRAG-20260818-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement drag glow and live connector arrow updates","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PVDRAG-20260818-004]** Detect sibling overlap and perform live swap with commit and Escape cancel
+  (SquadDash status: Completed by SquadDash — commit 4e23b48: Human accepted commit range 4e23b48 (1 commit).)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: During drag within a stage column, compare the dragged card's vertical midpoint against the midpoints of all other task cards in the same column. When the dragged card's midpoint crosses a sibling's midpoint, immediately swap their visual positions using a brief animated transition consistent with existing PlanViewerWindow animation patterns. Only same-column cards are candidates. On mouse release, finalize all pending swaps and emit a model update reflecting the new stage sequence. On Escape or LostMouseCapture, restore all cards to their pre-drag positions and discard all pending swaps without modifying the model. Observable outcome: dragging over a same-stage sibling swaps positions with animation; release locks in the new order; Escape fully restores the original layout. Production consumer: task 005 persists the committed order to the plan model.
+  dependsOn: PVDRAG-20260818-002, PVDRAG-20260818-003
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement same-stage drag-swap with commit and Escape-cancel","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PVDRAG-20260818-005]** Persist committed reorder to the plan model
+  (SquadDash status: Completed by SquadDash — commit e6db4294ee23e44c4503faaf598b9b8c74147e00: CommitTaskCardDrag persists the reordered stage task sequence into the active in-memory plan model via PersistCommittedTaskCardReorder when _lastCommittedColumnOrder is non-null. CancelTaskCardDrag does not mutate the model. Null _lastCommittedColumnOrder and unresolved stage identifiers are guarded gracefully with warning logging. Subsequent renders and live-sync redraw paths consume the committed reorder.)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: When task 004 commits a reorder, write the new task sequence for the affected stage back to the active plan model (PendingDecomposePlan or Plan as appropriate). The update must be reflected in any subsequent renders, live-sync events from PlanViewerLiveSyncHandler, and re-draws so the reordered layout is not lost. Cancelled drags must leave the model unchanged. Observable outcome: after performing a drag-reorder and triggering a viewer refresh or live-sync update, the new task order within the stage is preserved. Production consumer: the automated test in task 006 verifies the model reflects the committed sequence and is unchanged after a cancel.
+  dependsOn: PVDRAG-20260818-004
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Persist committed drag-reorder to plan model","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PVDRAG-20260818-006]** End-to-end proof: verify all drag interaction behaviors and build health
+  (SquadDash status: Completed by SquadDash — commit e6db429: Verified end-to-end build health and test coverage for the drag-reorder feature. dotnet build confirmed no errors across all drag changes from tasks 001–005. dotnet test passed including new unit tests for the committed-swap model-update path and the Escape-cancel no-change path added by Vesper Knox. Human-observation proof requirements (live drag UI, animated swap, rubber-band, connector glow) are deferred to the approval gate per plan contract.)
+  Group: PVDRAG-20260818 | Branch: feature/plan-visualizer-drag-reorder | Priority: high
+  description: Run dotnet build and dotnet test to confirm no regressions. Add unit tests covering the stage-reorder model-update path (committed swap reflected in task sequence) and the cancel path (model unchanged after Escape). The human-observation proof requirements below cover live UI behaviors that cannot be automated. All proof requirements must be verified before the plan is considered complete.
+  dependsOn: PVDRAG-20260818-005
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Write automated reorder tests, run build and test suite, and record human proof results","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: verification
+
+<!-- decompose-group: PLANVEDIT-20260816 | branch: feature/plan-visualizer-dependency-approval-editing | revision: 8de0fd03def11028 -->
+**[PLANVEDIT-20260816] Interactive Dependency and Approval-Boundary Editing in Plan Visualizer**
+> Add dependency-edge and approval-boundary editing to the Plan Visualizer through production schema, staged-plan, execution-lock, undo/redo, and layout services. Every edit must be schema-valid, lock-aware, reversible, and structurally coherent. No duplicate approval gates, no partially formed gates, no unguarded stage transitions. All edits route through the existing _saveDefinitionEdit → PendingPlanEditor.Apply → StagedPlanEditor.TryValidate pipeline.
+
+- [x] **[PLANVEDIT-20260816-001]** Enforce gate Question field at schema validation
+  (SquadDash status: Completed by SquadDash — commit 2555fc1e50ab8f7b4f7bb68a109b1aa9d45f8069: The Question field enforcement was already present in TasksJsonParser.TryParse (CollectIndependentConformanceDiagnostics and main parse flow). TryValidate in StagedPlanEditor routes through TasksJsonParser.TryParse, so the enforcement was already active. Added two targeted regression tests to StagedPlanEditorTests: TryValidate_RejectsGateWithMissingQuestion (null Question → returns false, error references the gate) and TryValidate_AcceptsGateWithNonEmptyQuestion (Question present → returns true). Full suite: 5395/5395 passed (baseline 5393, +2 new tests).)
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: critical
+  description: Extend StagedPlanEditor.TryValidate to reject any DecomposedGate whose Question is null or whitespace, matching how Message is already validated. Observable outcome: any attempt to persist a gate without a question is blocked with a descriptive validation error before it reaches the durable store; the regression test that previously failed due to a missing question must now pass. Production consumer: all octagon-click and gate-creation paths run through TryValidate, so no question-less gate can reach Plan or PendingDecomposePlanStore.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Extend StagedPlanEditor.TryValidate to reject question-less gates and add a targeted regression test","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PLANVEDIT-20260816-002]** Gate consolidation: extend equivalent gates instead of duplicating
+  (SquadDash status: Completed by SquadDash — commit 6e498b3: Human accepted commit range 6e498b3 (1 commit).)
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: critical
+  description: Extend PlanGateManager to call FindEquivalentGate before every gate creation. When an equivalent gate exists for the same approval boundary, extend or contract its beforeTaskIds/afterTaskIds to absorb the new entry rather than creating an independent gate. Preserve the existing gate's GateId, Message, Question, ProofRequirements, and status. Dependent visual markers must reference the same gate rather than represent duplicate approval requests. Observable outcome: selecting two equivalent entry octagons representing the same approval boundary as an existing gate results in one gate with an expanded task list and no second gate in the plan. Production consumer: the octagon click handler and Approval Blocks submenu (task 004) both call this path; PendingPlanEditor.Apply → StagedPlanEditor.TryValidate confirm no duplicates reach persistence.
+  dependsOn: PLANVEDIT-20260816-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Extend PlanGateManager with consolidation logic that preserves gate identity and review contract","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PLANVEDIT-20260816-003]** DAG recomputation service for dependency edits
+  (SquadDash status: Completed by SquadDash — commit 5427487: Human accepted commit range 5427487 (1 commit).)
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: critical
+  description: Introduce a service (or extend existing authoritative layout and plan services) that accepts an edited DecomposedTaskGroup with modified DependsOn arrays and recomputes: topological order, stage assignments, task numbering and display labels, connector routing, approval boundary assignments, and validation eligibility. Cycle detection must reject any edit that would create a circular dependency before any mutation is persisted. A task with all dependencies removed must be placed in Stage 1. No custom visual-positioning logic; uses the same production layout engine invoked during plan rendering. Observable outcome: editing a dependency edge in a multi-stage fixture produces stage assignments and display labels that exactly match what the authoritative layout engine would assign from scratch for the same graph. Production consumer: the Depends On submenu (task 005) calls this service per edge toggle; execution-lock wiring (task 006) reuses it for pre-persistence revalidation.
+  dependsOn: PLANVEDIT-20260816-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement or extend production layout services for safe DAG recomputation with cycle detection","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PLANVEDIT-20260816-004]** Fix octagon click handler and add Approval Blocks context submenu
+  (SquadDash status: Completed by SquadDash — commit 0593af796f6bcbdfa635fb18f18551a1f23ea6a9: Fixed all four octagon gate-creation toggle lambdas (milestone, ALL-join, before-task, after-task) to present a SimpleInputDialog pre-populated with a boundary-aware default question before creating any gate when _saveDefinitionEdit is active. Cancel or blank → silent return, no gate created. Added optional `question` parameter to PlanGateManager.AddGateBefore and AddGateAfter propagating through to AddBoundaryGate. Added CreateApprovalBlocksSubmenu helper that computes transitive DAG successors of AfterTaskIds and renders them as checkable MenuItems; checked = currently in BeforeTaskIds. Toggling calls PlanGateManager.ApplyGateConsolidation then ApplyStagedMutation through the standard _saveDefinitionEdit → PendingPlanEditor.Apply → StagedPlanEditor.TryValidate pipeline. Submenu attached to the pending-gate context menu at all four octagon sites. Build: 0 errors. Tests: 5451/5451 passed.)
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: high
+  description: In PlanViewerWindow: (1) Fix the octagon click handler to always generate a boundary-aware reviewer Question describing exactly what is being approved or decided. The dialog must never dismiss with a partially formed gate; if the user cancels or leaves the question blank, no gate is created or modified. (2) Add an Approval Blocks submenu to the gate context menu. Checked items represent the gate's downstream beforeTaskIds. Only compatible downstream tasks appear as candidates. Editing this list calls the gate-consolidation-contract service to extend or contract the existing gate's task lists; it must not alter any task DependsOn edges. Equivalent gate boundaries are consolidated into one approval request with one primary anchor and dependent visual markers. All edits route through _saveDefinitionEdit → PendingPlanEditor.Apply. Observable outcome: clicking an octagon always presents a question prompt and never persists without a non-empty question; the Approval Blocks submenu lets the user add or remove downstream tasks from an existing gate without creating a duplicate. Production consumer: _saveDefinitionEdit invokes PendingPlanEditor.Apply → StagedPlanEditor.TryValidate.
+  dependsOn: PLANVEDIT-20260816-001, PLANVEDIT-20260816-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Fix octagon click handler question enforcement and implement the Approval Blocks context submenu","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[PLANVEDIT-20260816-005]** Add Depends On context submenu with stage-change confirmation and animation
+  (SquadDash status: Completed by SquadDash — commit 2cbe51e: Human accepted commit range 2cbe51e (1 commit).)
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: high
+  description: In PlanViewerWindow, add a Depends On submenu to the existing task border context menu. List every valid candidate task except the selected task, grouped into currently-earlier candidates and currently-later candidates relative to the current topological order. Current direct dependencies show check marks. Cycle-inducing candidates are disabled with a tooltip naming the specific cycle path. Selecting or clearing a single item calls the dag-recomputation-contract service for that edge. Before saving an edit that changes stage placement, show a confirmation dialog describing the movement (for example: This will move 'Task name' from Stage 3 to Stage 1 and reposition 2 downstream tasks. Continue?). Cancelling leaves the plan unchanged. After confirmation, animate affected tasks and connectors from their old positions to their new positions while preserving the viewer's window, scale, and scroll position; if animation is unavailable or interrupted, the final layout must still be correct. All edits route through _saveDefinitionEdit → PendingPlanEditor.Apply. Observable outcome: right-clicking a task shows the Depends On submenu; toggling a dependency edge that moves any task to a different stage shows a confirmation dialog before saving; the visualizer animates affected elements after confirmation. Production consumer: _saveDefinitionEdit invokes PendingPlanEditor.Apply → StagedPlanEditor.TryValidate.
+  dependsOn: PLANVEDIT-20260816-003, PLANVEDIT-20260816-004
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement the Depends On context submenu, stage-change confirmation dialog, and transition animation","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[PLANVEDIT-20260816-006]** Wire execution locks into dependency and approval-boundary edit paths
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: high
+  description: Reuse StagedPlanEditor.TryValidateUnlockedChanges (not re-implemented) in the Depends On and Approval Blocks edit paths to prevent modification of tasks, gates, or validation nodes locked by execution status. Locked statuses that block editing: Executing, VerificationPending, Verifying, Reworking, HumanReviewRequired, Complete, Partial, and Failed. Staged plans with no running execution may be edited freely when the resulting graph is valid. Disable prohibited menu choices for locked tasks and gates; each disabled item shows a tooltip explaining the specific lock reason. Revalidate affected approval gates and validation nodes before persistence and surface any invalidated downstream contracts to the user rather than silently discarding them. Observable outcome: during active execution, the Depends On and Approval Blocks menu choices for locked-status tasks and gates are visually disabled with a lock explanation tooltip; edits to Pending-status tasks proceed normally. Production consumer: all edits route through _saveDefinitionEdit → PendingPlanEditor.Apply → TryValidateUnlockedChanges before any durable write.
+  dependsOn: PLANVEDIT-20260816-002, PLANVEDIT-20260816-003, PLANVEDIT-20260816-005
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Wire TryValidateUnlockedChanges into new edit paths and implement locked-item tooltip feedback in the menu layer","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[PLANVEDIT-20260816-007]** Add focused tests for dependency and approval-boundary editing
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: high
+  description: Add tests to the existing SquadDash.Tests suite (PlanVisualizerReviewTests.cs, PendingPlanEditorTests.cs, PendingPlanGateEditorTests.cs, StagedPlanEditorTests.cs, or a new focused test file) covering: approval-octagon creation always produces a non-empty reviewer question; selecting equivalent entry octagons expands one existing gate and no duplicate is created; adding, removing, and clearing a single task dependency edge each round-trips through the recomputation service and persistence; a root task with all dependencies removed is placed in Stage 1; adding a dependency moves the task and affected downstream tasks to later stages; a cycle-inducing dependency edit is rejected before any mutation; confirmation dialog acceptance applies the change and cancellation leaves the plan unchanged; TryValidateUnlockedChanges blocks dependency edits for locked-status tasks; undo and redo restore the prior plan state; approval gates and validation nodes survive a dependency edit without data loss; and a durable save followed by reload produces a plan identical to the in-memory state. Use SimulationPlanFixtureBuilder for multi-stage fixtures. Observable outcome: dotnet test passes with all new scenarios green and no regressions in the existing suites. Production consumer: tests exercise the service-layer and editor paths introduced in tasks 001 through 006.
+  dependsOn: PLANVEDIT-20260816-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Implement focused tests for all specified dependency and approval-boundary editing scenarios","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[PLANVEDIT-20260816-008]** End-to-end verification: multi-stage fixture with durable reload
+  Group: PLANVEDIT-20260816 | Branch: feature/plan-visualizer-dependency-approval-editing | Priority: critical
+  description: Construct a multi-stage plan fixture using SimulationPlanFixtureBuilder. Through production services (not test stubs): (1) edit task dependencies to move a task between stages, observing that the confirmation dialog fires and the recomputed graph is correct; (2) edit an approval boundary by adding and removing tasks from a gate's beforeTaskIds via the gate-consolidation path; (3) persist and reload from PendingDecomposePlanStore. Assert after reload: graph topology and topological order match the edited intent; stage assignments and display labels are coherent; approval gates carry the correct beforeTaskIds and afterTaskIds with no duplicates; validation nodes remain in their declared positions; visual markers reference the correct primary anchor; no gate is missing a Question. Run dotnet test with the end-to-end scenario. The production Plan Visualizer must also render the reloaded fixture without visible anomalies. Observable outcome: the full editing round-trip — edit, confirm, save, reload, assert — completes without error and every structural contract holds in the reloaded plan.
+  dependsOn: PLANVEDIT-20260816-007
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Execute end-to-end fixture construction, dependency and boundary editing, durable reload, and structural verification","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: verification
+
+
+<!-- decompose-group: MODELPROF-20260810 | branch: feature/multi-model-profiles | revision: 852ababff2d25a64 -->
 **[MODELPROF-20260810] Multi-Model Profile Support**
 > Introduce named model profiles with deterministic agent-category assignment so the coordinator, spawned named agents, temporary agents, and built-in helpers (RAI, Scribe, Ralph, Fact Checker) can each use a different LLM provider/model. The current single-provider path (GitHub Copilot XOR Custom BYOK) becomes the default profile, and new profiles can be added, assigned, and overridden per agent. Settings persistence uses the existing encrypted JSON store, the Options UI adds a profile grid with exclusivity checkboxes, and the SDK bridge selects environment variables based on the resolved profile.
 
