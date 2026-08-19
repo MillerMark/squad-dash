@@ -430,6 +430,8 @@ public partial class MainWindow : Window
     private bool                        _inboxSavedForCurrentTurn;
     private PendingRecoveryAnalysisContext? _pendingRecoveryAnalysis;
     private PendingPlanRecoveryAssessment? _pendingPlanRecoveryAssessment;
+    private string? _pendingDecomposeRecoveryResponse;
+    private bool _pendingDecomposeRecoveryDispatchScheduled;
     private bool _planRecoveryAssessmentApplying;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -1665,6 +1667,8 @@ public partial class MainWindow : Window
                 if (_remoteAccessActive)
                     _ = _bridge.BroadcastRcStatusAsync(v);
                 UpdateRestartStatusPanelVisibility();
+                if (!v)
+                    TryDispatchPendingDecomposeRecoveryResponse();
             },
             getIsClosing: () => _isClosing,
             getRestartPending: () => _restartPending,
@@ -1708,7 +1712,8 @@ public partial class MainWindow : Window
             workspacePaths: _workspacePaths,
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
             getSubmittedAttachments: () => _pendingTranscriptAttachments ?? Array.Empty<FollowUpAttachment>(),
-            promptBuilder: serviceProvider?.GetRequiredService<ISquadBridgePromptBuilder>());
+            promptBuilder: serviceProvider?.GetRequiredService<ISquadBridgePromptBuilder>(),
+            consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync);
         _pec.TryHandlePlanRuntimeFailure = error =>
             TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 
@@ -3622,6 +3627,14 @@ public partial class MainWindow : Window
 
     private async Task MaybeFireQueuedLoopAsync()
     {
+        if (_pendingDecomposeRecoveryResponse is not null || _pendingDecomposeRecoveryDispatchScheduled)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                "Queued loop resume deferred because a structured plan-recovery response owns the next execution transition.");
+            return;
+        }
+
         bool shouldResume = _loopQueued || _loopInterruptedByQueue || _loopPausedForQuickReply;
         if (!shouldResume || _isPromptRunning || IsLoopRunning || _queueDrainActive) return;
         if (!_promptQueue.IsDrained)
@@ -5083,8 +5096,21 @@ public partial class MainWindow : Window
         return targets;
     }
 
-    private Task StopConfirmedRunningWorkAsync(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
+    private async Task StopConfirmedRunningWorkAsync(IReadOnlyList<AbortAgentsConfirmationTarget> targets)
     {
+        var coordinatorWasStopped = targets.Any(target => target.IsCoordinator);
+        var coordinatorStoppedAt = DateTimeOffset.UtcNow;
+        if (coordinatorWasStopped)
+        {
+            _conversationManager.PersistConversationState(
+                _conversationManager.ConversationState with
+                {
+                    ForceStoppedPromptAt = coordinatorStoppedAt.ToUniversalTime(),
+                    ForceStoppedPromptHeadCommit = null,
+                },
+                "force-stopped-prompt-timestamp");
+        }
+
         SquadDashTrace.Write(
             "UI",
             $"Stop running work confirmed targets={targets.Count} coordinator={targets.Any(target => target.IsCoordinator)} background={targets.Count(target => !target.IsCoordinator)} loop={IsLoopRunning} queueCount={_promptQueue.Count}");
@@ -5123,13 +5149,89 @@ public partial class MainWindow : Window
         SyncQueuePanel();
         SyncSendButton();
         UpdateInteractiveControlState();
+        if (coordinatorWasStopped)
+            await RecordForceStoppedPromptContextAsync(coordinatorStoppedAt);
         TryCompletePendingRestart("running-work-force-stopped", emergencySaveBeforeClose: true);
 
         SquadDashTrace.Write(
             "UI",
             $"Stop running work completed bridgeGeneration={result.ProcessGeneration} hadBridgeProcess={result.HadActiveProcess} ignoredEventsThroughGeneration={_ignoreBridgeEventsThroughGeneration}");
-        return Task.CompletedTask;
     }
+
+    private async Task RecordForceStoppedPromptContextAsync(DateTimeOffset stoppedAt)
+    {
+        var workspace = _currentWorkspace?.FolderPath;
+        var stoppedHead = string.IsNullOrWhiteSpace(workspace)
+            ? null
+            : await TryGetGitShaAsync(workspace);
+        _conversationManager.PersistConversationState(
+            _conversationManager.ConversationState with
+            {
+                ForceStoppedPromptAt = stoppedAt.ToUniversalTime(),
+                ForceStoppedPromptHeadCommit = stoppedHead,
+            },
+            "force-stopped-prompt-context");
+        SquadDashTrace.Write(
+            "PromptHealth",
+            $"Recorded force-stop freshness baseline stoppedAt={stoppedAt.ToUniversalTime():O} head={stoppedHead ?? "unknown"}.");
+    }
+
+    private async Task<string?> ConsumeInterruptedPromptFreshnessInstructionAsync()
+    {
+        var state = _conversationManager.ConversationState;
+        if (state.ForceStoppedPromptAt is not { } stoppedAt)
+            return null;
+
+        var workspace = _currentWorkspace?.FolderPath;
+        var currentHead = string.IsNullOrWhiteSpace(workspace)
+            ? null
+            : await TryGetGitShaAsync(workspace);
+        int? commitsSinceStop = null;
+        var stoppedHead = state.ForceStoppedPromptHeadCommit;
+        if (!string.IsNullOrWhiteSpace(workspace) &&
+            IsFullGitSha(stoppedHead) &&
+            IsFullGitSha(currentHead))
+        {
+            try
+            {
+                var countText = await RunGitAsync(workspace, $"rev-list --count {stoppedHead}..{currentHead}");
+                if (int.TryParse(countText, out var count))
+                    commitsSinceStop = count;
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("PromptHealth", $"Could not calculate stopped-prompt commit distance: {ex.Message}");
+            }
+        }
+
+        var observedAt = DateTimeOffset.UtcNow;
+        var instruction = InterruptedPromptFreshnessContext.BuildInstruction(
+            stoppedAt,
+            observedAt,
+            stoppedHead,
+            currentHead,
+            commitsSinceStop);
+
+        var latest = _conversationManager.ConversationState;
+        if (latest.ForceStoppedPromptAt == stoppedAt)
+        {
+            _conversationManager.PersistConversationState(
+                latest with
+                {
+                    ForceStoppedPromptAt = null,
+                    ForceStoppedPromptHeadCommit = null,
+                },
+                "consume-force-stopped-prompt-context");
+        }
+
+        SquadDashTrace.Write(
+            "PromptHealth",
+            $"Consumed force-stop freshness baseline ageSeconds={(observedAt - stoppedAt).TotalSeconds:F0} commitsSinceStop={commitsSinceStop?.ToString() ?? "unknown"} stoppedHead={stoppedHead ?? "unknown"} currentHead={currentHead ?? "unknown"}.");
+        return instruction;
+    }
+
+    private static bool IsFullGitSha(string? value) =>
+        value is { Length: 40 } && value.All(Uri.IsHexDigit);
 
     /// <summary>
     /// Gap 2 fix: immediately marks a background thread as Cancelled and finalizes it
@@ -6882,6 +6984,7 @@ public partial class MainWindow : Window
         bool shouldPreserveForRestart = resumeDecision.PreserveForRestart;
 
         _pec.SetIsLoopRunning(false);
+        TryDispatchPendingDecomposeRecoveryResponse();
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
@@ -10271,8 +10374,38 @@ public partial class MainWindow : Window
 
     private async Task ApplyDecomposeRecoveryFromResponseSafelyAsync(string? rawResponse)
     {
+        if (DecomposeRecoveryDispatchPolicy.ShouldDefer(_isPromptRunning, _loopController.IsRunning) &&
+            DecomposeRecoveryDecisionParser.TryParse(rawResponse, out var pendingDecision) &&
+            pendingDecision is not null)
+        {
+            _pendingDecomposeRecoveryResponse = rawResponse;
+            SquadDashTrace.Write(
+                "PromptHealth",
+                $"Deferred decompose recovery until coordinator and loop are idle plan={pendingDecision.GroupId} action={pendingDecision.Action} promptRunning={_isPromptRunning} loopRunning={_loopController.IsRunning}.");
+            return;
+        }
+
         try { await TryApplyDecomposeRecoveryFromResponseAsync(rawResponse); }
         catch (Exception ex) { HandleUiCallbackException("Decompose recovery", ex); }
+    }
+
+    private void TryDispatchPendingDecomposeRecoveryResponse()
+    {
+        if (_pendingDecomposeRecoveryResponse is not { } rawResponse ||
+            _isPromptRunning ||
+            _loopController.IsRunning ||
+            _pendingDecomposeRecoveryDispatchScheduled)
+            return;
+
+        _pendingDecomposeRecoveryDispatchScheduled = true;
+        Dispatcher.InvokeAsync(
+            async () =>
+            {
+                _pendingDecomposeRecoveryResponse = null;
+                _pendingDecomposeRecoveryDispatchScheduled = false;
+                await ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+            },
+            System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private bool TryRouteInterruptedStepResultToRecovery(string? rawResponse)

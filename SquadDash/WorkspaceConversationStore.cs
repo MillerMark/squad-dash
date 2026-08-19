@@ -470,6 +470,10 @@ internal sealed class WorkspaceConversationStore {
             PromptDraftCaretIndex    = state.PromptDraftCaretIndex,
             PromptDraftSelectionStart  = state.PromptDraftSelectionStart,
             PromptDraftSelectionLength = state.PromptDraftSelectionLength,
+            ForceStoppedPromptAt       = state.ForceStoppedPromptAt?.ToUniversalTime(),
+            ForceStoppedPromptHeadCommit = string.IsNullOrWhiteSpace(state.ForceStoppedPromptHeadCommit)
+                ? null
+                : state.ForceStoppedPromptHeadCommit.Trim(),
             QueuedPromptEntries      = state.QueuedPromptEntries is { Count: > 0 } qe ? qe : null,
             QueueRightmostHeld       = state.QueueRightmostHeld == true ? true : null,
             QueueLastChangedAt       = state.QueueLastChangedAt?.ToUniversalTime(),
@@ -826,6 +830,10 @@ internal sealed record WorkspaceConversationState(
     public int? PromptDraftCaretIndex { get; init; }
     public int? PromptDraftSelectionStart { get; init; }
     public int? PromptDraftSelectionLength { get; init; }
+    /// <summary>UTC time at which the most recent coordinator prompt was force-stopped by the user.</summary>
+    public DateTimeOffset? ForceStoppedPromptAt { get; init; }
+    /// <summary>Repository HEAD captured when <see cref="ForceStoppedPromptAt"/> was recorded.</summary>
+    public string? ForceStoppedPromptHeadCommit { get; init; }
     /// <summary>Legacy: plain-text list (no dictation flag). Kept for backward-compatible deserialization only.</summary>
     public IReadOnlyList<string>? QueuedPrompts { get; init; }
     /// <summary>Current format: preserves dictation flag per item. Takes precedence over <see cref="QueuedPrompts"/>.</summary>

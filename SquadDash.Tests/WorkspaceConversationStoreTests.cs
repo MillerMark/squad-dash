@@ -132,6 +132,29 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsForceStoppedPromptFreshnessBaseline()
+    {
+        var stoppedAt = new DateTimeOffset(2026, 8, 19, 17, 46, 8, TimeSpan.Zero);
+        const string stoppedHead = "866c01e000000000000000000000000000000000";
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with
+            {
+                ForceStoppedPromptAt = stoppedAt,
+                ForceStoppedPromptHeadCommit = stoppedHead,
+            });
+
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.ForceStoppedPromptAt, Is.EqualTo(stoppedAt));
+            Assert.That(loaded.ForceStoppedPromptHeadCommit, Is.EqualTo(stoppedHead));
+        });
+    }
+
+    [Test]
     public void Load_LegacyThinkingTextAppearsAsCoordinatorThoughtBeforeTools() {
         _store.Save(
             _workspacePath,

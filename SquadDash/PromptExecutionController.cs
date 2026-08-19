@@ -213,6 +213,7 @@ internal sealed class PromptExecutionController {
     // ── Injected — Health Timer ───────────────────────────────────────────
     private readonly DispatcherTimer _promptHealthTimer;
     private readonly Func<Task> _waitForPostedUiActionsAsync;
+    private readonly Func<Task<string?>>? _consumeInterruptedPromptFreshnessInstructionAsync;
 
     // ── Injected — Misc MainWindow helpers ────────────────────────────────
     private readonly Func<bool>                       _getModelObservedThisSession;
@@ -419,7 +420,8 @@ internal sealed class PromptExecutionController {
         IWorkspacePaths workspacePaths,
         IPromptInstructionProvider? instructionProvider = null,
         Func<IReadOnlyList<FollowUpAttachment>>? getSubmittedAttachments = null,
-        ISquadBridgePromptBuilder? promptBuilder = null) {
+        ISquadBridgePromptBuilder? promptBuilder = null,
+        Func<Task<string?>>? consumeInterruptedPromptFreshnessInstructionAsync = null) {
 
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
@@ -467,6 +469,7 @@ internal sealed class PromptExecutionController {
         _maybePublishRoutingIssue              = maybePublishRoutingIssue;
         _promptHealthTimer                     = promptHealthTimer;
         _waitForPostedUiActionsAsync           = waitForPostedUiActionsAsync;
+        _consumeInterruptedPromptFreshnessInstructionAsync = consumeInterruptedPromptFreshnessInstructionAsync;
         _getModelObservedThisSession           = getModelObservedThisSession;
         _workspacePaths                        = workspacePaths;
         _instructionProvider                   = instructionProvider ?? new DefaultPromptInstructionProvider();
@@ -1941,7 +1944,10 @@ internal sealed class PromptExecutionController {
             clearPromptBox,
             allowLocalCommandHandling: true,
             async (workspace, configDirectory) => {
-                var bridgePrompt = BuildBridgePrompt(prompt);
+                var freshnessInstruction = _consumeInterruptedPromptFreshnessInstructionAsync is null
+                    ? null
+                    : await _consumeInterruptedPromptFreshnessInstructionAsync();
+                var bridgePrompt = BuildBridgePrompt(prompt, freshnessInstruction);
                 var sessionId = sessionIdOverride ?? _conversationManager.CurrentSessionId;
                 SavePromptDispatchDiagnostic(
                     workspace,
@@ -2299,7 +2305,7 @@ internal sealed class PromptExecutionController {
         _transcriptSink.RenderResponseEntry(entry);
     }
 
-    private string BuildBridgePrompt(string prompt) {
+    private string BuildBridgePrompt(string prompt, string? interruptedPromptFreshnessInstruction = null) {
         var pending   = _getPendingSupplementalInstruction();
         var docsCtx   = DocumentationModeActive ? BuildDocumentationContextInstruction() : null;
         var tasksCtx  = ShouldInjectTasksContext(SuppressTasksContextForCurrentPrompt)
@@ -2318,7 +2324,12 @@ internal sealed class PromptExecutionController {
                 prompt;
         }
 
-        if (_nextPromptShouldNoticeForceStop) {
+        if (!string.IsNullOrWhiteSpace(interruptedPromptFreshnessInstruction)) {
+            _nextPromptShouldNoticeForceStop = false;
+            SquadDashTrace.Write("UI", "Injecting durable force-stop freshness context for next prompt.");
+            prompt = interruptedPromptFreshnessInstruction.Trim() + "\n\n" + prompt;
+        }
+        else if (_nextPromptShouldNoticeForceStop) {
             _nextPromptShouldNoticeForceStop = false;
             SquadDashTrace.Write("UI", "Injecting force-stop notice prefix for next prompt.");
             prompt =
