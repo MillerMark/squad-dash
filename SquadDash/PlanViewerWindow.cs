@@ -1526,7 +1526,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var blocksSubmenu = CreateApprovalBlocksSubmenu(existingGate.GateId, group);
                     if (blocksSubmenu is not null)
                     {
-                        milestoneMenu.Items.Add(new Separator());
+                        milestoneMenu.Items.Add(CreateThemedMenuSeparator());
                         milestoneMenu.Items.Add(blocksSubmenu);
                     }
                 }
@@ -1542,7 +1542,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedMilestoneRemoveId);
                         if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
                     };
-                    milestoneRemoveMenu.Items.Add(new Separator());
+                    milestoneRemoveMenu.Items.Add(CreateThemedMenuSeparator());
                     milestoneRemoveMenu.Items.Add(removeMilestoneItem);
                 }
                 canvas.Children.Add(milestoneStop);
@@ -2050,7 +2050,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var blocksSubmenu = CreateApprovalBlocksSubmenu(joinGateForBlocks.GateId, group);
                     if (blocksSubmenu is not null)
                     {
-                        joinMenu.Items.Add(new Separator());
+                        joinMenu.Items.Add(CreateThemedMenuSeparator());
                         joinMenu.Items.Add(blocksSubmenu);
                     }
                 }
@@ -2066,7 +2066,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedJoinRemoveId);
                         if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
                     };
-                    joinRemoveMenu.Items.Add(new Separator());
+                    joinRemoveMenu.Items.Add(CreateThemedMenuSeparator());
                     joinRemoveMenu.Items.Add(removeJoinItem);
                 }
                 badgeContent.Children.Add(joinStop);
@@ -2950,7 +2950,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             var blocksSubmenu = CreateApprovalBlocksSubmenu(controllingBeforeGate.GateId, group);
                             if (blocksSubmenu is not null)
                             {
-                                beforeMenu.Items.Add(new Separator());
+                                beforeMenu.Items.Add(CreateThemedMenuSeparator());
                                 beforeMenu.Items.Add(blocksSubmenu);
                             }
                         }
@@ -2966,7 +2966,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedBeforeRemoveId);
                                 if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
                             };
-                            beforeRemoveMenu.Items.Add(new Separator());
+                            beforeRemoveMenu.Items.Add(CreateThemedMenuSeparator());
                             beforeRemoveMenu.Items.Add(removeBeforeItem);
                         }
                         canvas.Children.Add(beforeStop);
@@ -3118,7 +3118,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             var blocksSubmenu = CreateApprovalBlocksSubmenu(controllingAfterGate.GateId, group);
                             if (blocksSubmenu is not null)
                             {
-                                afterMenu.Items.Add(new Separator());
+                                afterMenu.Items.Add(CreateThemedMenuSeparator());
                                 afterMenu.Items.Add(blocksSubmenu);
                             }
                         }
@@ -3135,7 +3135,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedAfterRemoveId);
                                 if (!ReferenceEquals(u, durablePlan)) onGatesChanged(u);
                             };
-                            afterRemoveMenu.Items.Add(new Separator());
+                            afterRemoveMenu.Items.Add(CreateThemedMenuSeparator());
                             afterRemoveMenu.Items.Add(removeAfterItem);
                         }
                         canvas.Children.Add(afterStop);
@@ -4819,10 +4819,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             WireSelectionClick(hitTarget);
             if (toggle is not null && stop is not null)
             {
-                var menu = new ContextMenu();
+                var menu = new ContextMenu
+                {
+                    Style = TryFindResource("ThemedContextMenuStyle") as Style,
+                };
                 var toggleItem = new MenuItem
                 {
                     Header = toggleActionLabel ?? "Change this approval control",
+                    Style = TryFindResource("ThemedMenuItemStyle") as Style,
                 };
                 toggleItem.Click += (_, _) => toggle();
                 menu.Items.Add(toggleItem);
@@ -4858,6 +4862,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             hitTarget.ContextMenu = menu;
         }
         return hitTarget;
+    }
+
+    private Separator CreateThemedMenuSeparator()
+    {
+        var separator = new Separator();
+        separator.Style = TryFindResource("ThemedMenuSeparatorStyle") as Style;
+        return separator;
     }
 
     private static ToolTip BuildTaskToolTip(

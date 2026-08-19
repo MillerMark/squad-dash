@@ -139,7 +139,7 @@ internal static class PlanGateResponseParser
             .ToArray();
         var prefix = repair
             ? "The previous response did not include a valid approval-response classification. Classify that same user response now. Do not perform more work."
-            : "The user clicked Request changes for the approval checkpoint below. Their next free-form prompt may request plan rework, may be unrelated work, or may require clarification.";
+            : "The user requested a change at the approval checkpoint below. Their next free-form prompt may request plan rework, add bounded follow-up work, be unrelated work, or require clarification.";
         var exampleTaskId = plan.Tasks
             .FirstOrDefault(task => gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal))?.TaskId
             ?? "EXACT-REVIEWED-TASK-ID";

@@ -14646,7 +14646,7 @@ public partial class MainWindow : Window
                 TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
 
         AppendLine($"What would you like changed in “**{gate.Message}**”? Describe it in the prompt box. " +
-                   "The plan will remain awaiting approval until SquadDash receives a valid rework decision.");
+                   "The plan will remain awaiting approval until SquadDash receives a valid rework or amendment decision.");
         PromptTextBox.Focus();
     }
 
@@ -29807,7 +29807,7 @@ public partial class MainWindow : Window
             onOpenInbox: null,
             onOpenEvidence: null,
             onChecklistChanged: null,
-            onAddressUncheckedItems: null);
+            onAddressUncheckedItems: _ => { });
         CoordinatorThread.Document.Blocks.Add(card.Container);
         ScrollToEndIfAtBottom(CoordinatorThread);
     }

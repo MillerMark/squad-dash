@@ -78,6 +78,23 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void HumanApprovalContextMenus_UseTheLowContrastThemedSeparator()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private Separator CreateThemedMenuSeparator()")
+                .And.Contain("TryFindResource(\"ThemedMenuSeparatorStyle\") as Style"));
+            Assert.That(source, Does.Contain("milestoneMenu.Items.Add(CreateThemedMenuSeparator())")
+                .And.Contain("joinMenu.Items.Add(CreateThemedMenuSeparator())")
+                .And.Contain("beforeMenu.Items.Add(CreateThemedMenuSeparator())")
+                .And.Contain("afterMenu.Items.Add(CreateThemedMenuSeparator())"),
+                "Every human-approval placement should use the separator whose brush resolves to LineColor.");
+        });
+    }
+
+    [Test]
     public void AiReview_UsesSilentHostTurnAndDestructiveHighContrastAction()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

@@ -53,8 +53,11 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Title describing whether approval is still required or has been acquired.</summary>
         internal TextBlock TitleBlock { get; init; } = null!;
 
-        /// <summary>Optional action that starts a free-form change-request conversation.</summary>
+        /// <summary>Optional action that starts a free-form follow-up-step conversation.</summary>
         internal Button? RequestChangesButton { get; init; }
+
+        /// <summary>Optional action scoped to currently unchecked human-verification items.</summary>
+        internal Button? AddressUncheckedItemsButton { get; init; }
 
         /// <summary>Optional note text box where the user can add a comment before approving.</summary>
         internal TextBox NoteTextBox { get; init; } = null!;
@@ -104,6 +107,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Returns whether every current human-verification item is checked.</summary>
         internal Func<bool> CanApprove { get; init; } = static () => true;
 
+        /// <summary>Returns whether at least one current human-verification item is unchecked.</summary>
+        internal Func<bool> CanAddressUncheckedItems { get; init; } = static () => false;
+
         /// <summary>True once a later coordinator turn has made this transcript card historical.</summary>
         internal bool IsRetired { get; set; }
     }
@@ -141,6 +147,7 @@ internal static class TranscriptApprovalCardBuilder
         Hyperlink? inboxMessageLink = null;
         Button? approveButton = null;
         Button? requestChangesButton = null;
+        Button? addressUncheckedItemsButton = null;
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -648,23 +655,30 @@ internal static class TranscriptApprovalCardBuilder
         };
 
         actionsPanel.Children.Add(approveButton);
-        if (onRequestChanges is not null)
+        if (onAddressUncheckedItems is not null)
         {
-            requestChangesButton = TranscriptQuickReplyFactory.CreateButton(
+            addressUncheckedItemsButton = TranscriptQuickReplyFactory.CreateButton(
                 "✎ Address Unchecked Items…",
                 fontSize,
                 toolTip: "Create an editable queued prompt, with protected plan context attached, describing what should change for the unchecked items");
-            AutomationProperties.SetName(requestChangesButton, "Address unchecked items");
-            requestChangesButton.Click += (_, _) =>
+            AutomationProperties.SetName(addressUncheckedItemsButton, "Address unchecked items");
+            addressUncheckedItemsButton.Click += (_, _) =>
             {
                 var uncheckedItems = checklistItems
                     .Where(item => !checklistState[item.GateId + "\0" + item.ItemId])
                     .ToArray();
-                if (onAddressUncheckedItems is not null)
-                    onAddressUncheckedItems(uncheckedItems);
-                else
-                    onRequestChanges();
+                onAddressUncheckedItems(uncheckedItems);
             };
+            actionsPanel.Children.Add(addressUncheckedItemsButton);
+        }
+        if (onRequestChanges is not null)
+        {
+            requestChangesButton = TranscriptQuickReplyFactory.CreateButton(
+                "＋ Add Follow-up Step…",
+                fontSize,
+                toolTip: "Describe newly discovered work that should run before this approval checkpoint; completed steps remain accepted when AI classifies it as an amendment");
+            AutomationProperties.SetName(requestChangesButton, "Add follow-up step");
+            requestChangesButton.Click += (_, _) => onRequestChanges();
             actionsPanel.Children.Add(requestChangesButton);
         }
         UpdateApprovalAvailability();
@@ -730,6 +744,7 @@ internal static class TranscriptApprovalCardBuilder
             ApproveButton = approveButton,
             TitleBlock = titleBlock,
             RequestChangesButton = requestChangesButton,
+            AddressUncheckedItemsButton = addressUncheckedItemsButton,
             NoteTextBox = noteBox,
             NoteSection = noteSection,
             ResolutionNote = resolutionNote,
@@ -746,6 +761,7 @@ internal static class TranscriptApprovalCardBuilder
             InboxMessageLink = inboxMessageLink,
             CommitLinks = commitLinks,
             CanApprove = () => checklistState.Count == 0 || checklistState.Values.All(value => value),
+            CanAddressUncheckedItems = () => checklistState.Values.Any(value => !value),
         };
 
         void UpdateApprovalAvailability()
@@ -754,7 +770,9 @@ internal static class TranscriptApprovalCardBuilder
             if (approveButton is not null)
                 approveButton.IsEnabled = allChecked;
             if (requestChangesButton is not null)
-                requestChangesButton.IsEnabled = checklistState.Values.Any(value => !value);
+                requestChangesButton.IsEnabled = true;
+            if (addressUncheckedItemsButton is not null)
+                addressUncheckedItemsButton.IsEnabled = checklistState.Values.Any(value => !value);
         }
     }
 
@@ -784,6 +802,8 @@ internal static class TranscriptApprovalCardBuilder
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = false;
+        if (card.AddressUncheckedItemsButton is not null)
+            card.AddressUncheckedItemsButton.IsEnabled = false;
         card.NoteTextBox.IsEnabled = false;
         card.SpinnerOverlay.Visibility = Visibility.Visible;
     }
@@ -804,6 +824,8 @@ internal static class TranscriptApprovalCardBuilder
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
+        if (card.AddressUncheckedItemsButton is not null)
+            card.AddressUncheckedItemsButton.IsEnabled = card.CanAddressUncheckedItems();
         card.NoteTextBox.IsEnabled = true;
     }
 
@@ -841,11 +863,13 @@ internal static class TranscriptApprovalCardBuilder
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = false;
+        if (card.AddressUncheckedItemsButton is not null)
+            card.AddressUncheckedItemsButton.IsEnabled = false;
         card.NoteTextBox.IsEnabled = false;
         card.NoteSection.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Collapsed;
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
-        card.ReworkIndicator.Text = "Correction prompt prepared. Submit it to begin work.";
+        card.ReworkIndicator.Text = "Change request prepared. Review or describe it. Submit it to begin work.";
         card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
@@ -863,6 +887,8 @@ internal static class TranscriptApprovalCardBuilder
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
+        if (card.AddressUncheckedItemsButton is not null)
+            card.AddressUncheckedItemsButton.IsEnabled = card.CanAddressUncheckedItems();
         card.NoteTextBox.IsEnabled = true;
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ReworkIndicator.Visibility = Visibility.Collapsed;

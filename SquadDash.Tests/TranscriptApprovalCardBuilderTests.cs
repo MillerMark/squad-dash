@@ -174,6 +174,44 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void FollowUpStep_RemainsAvailableAfterEveryReviewItemIsChecked()
+    {
+        var plan = BuildTestPlan();
+        var followUpRequested = false;
+        var addressUncheckedRequested = false;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onRequestChanges: () => followUpRequested = true,
+            onAddressUncheckedItems: _ => addressUncheckedRequested = true);
+
+        var markAll = card.ReviewSection!.ContextMenu!.Items
+            .OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "Mark All as Verified"));
+        markAll.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ApproveButton.IsEnabled, Is.True);
+            Assert.That(card.AddressUncheckedItemsButton, Is.Not.Null);
+            Assert.That(card.AddressUncheckedItemsButton!.IsEnabled, Is.False);
+            Assert.That(card.RequestChangesButton, Is.Not.Null);
+            Assert.That(card.RequestChangesButton!.Content, Is.EqualTo("＋ Add Follow-up Step…"));
+            Assert.That(card.RequestChangesButton.IsEnabled, Is.True);
+        });
+
+        card.RequestChangesButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(followUpRequested, Is.True);
+            Assert.That(addressUncheckedRequested, Is.False);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void HistoricalState_KeepsCardButPermanentlyRetiresItsActions()
     {
         var plan = BuildTestPlan();
