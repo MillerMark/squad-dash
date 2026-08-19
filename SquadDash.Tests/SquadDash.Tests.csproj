@@ -45,6 +45,7 @@
     <Compile Include="..\SquadDash\PlanTaskVerificationPromptBuilder.cs" Link="Source\PlanTaskVerificationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />
     <Compile Include="..\SquadDash\PlanBranchLease.cs" Link="Source\PlanBranchLease.cs" />
+    <Compile Include="..\SquadDash\PlanResumeBranchPolicy.cs" Link="Source\PlanResumeBranchPolicy.cs" />
     <Compile Include="..\SquadDash\PlanExecutionProjectionWriter.cs" Link="Source\PlanExecutionProjectionWriter.cs" />
     <Compile Include="..\SquadDash\PlanExecutionJournal.cs" Link="Source\PlanExecutionJournal.cs" />
     <Compile Include="..\SquadDash\PlanCompletionSummaryBuilder.cs" Link="Source\PlanCompletionSummaryBuilder.cs" />
@@ -121,6 +122,7 @@
     <Compile Include="..\SquadDash\ChromedWindow.cs" Link="Source\ChromedWindow.cs" />
     <Compile Include="..\SquadDash\TextDisplayWindow.cs" Link="Source\TextDisplayWindow.cs" />
     <Compile Include="..\SquadDash\ConfirmPreservedWorkDialog.cs" Link="Source\ConfirmPreservedWorkDialog.cs" />
+    <Compile Include="..\SquadDash\PlanResumeBranchDialog.cs" Link="Source\PlanResumeBranchDialog.cs" />
     <Compile Include="..\SquadDash\WindowOpenGlow.cs" Link="Source\WindowOpenGlow.cs" />
     <Compile Include="..\SquadDash\TraceWindow.cs" Link="Source\TraceWindow.cs" />
     <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />

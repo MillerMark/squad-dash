@@ -923,6 +923,8 @@
                                           Tag="automate"
                                           Click="SimulateHumanReviewChangeDialog_Click" />
                             </MenuItem>
+                            <MenuItem Header="Resume _branch choice dialog..."
+                                      Click="SimulatePlanResumeBranchChoiceDialog_Click" />
                             <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                             <MenuItem Header="Live approval request"
                                       ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">

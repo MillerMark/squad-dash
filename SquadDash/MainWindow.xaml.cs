@@ -16697,28 +16697,6 @@ public partial class MainWindow : Window
 
     private async Task RestorePlanBranchAndResumeAsync(Plan plan)
     {
-        if (_currentWorkspace is null)
-            throw new InvalidOperationException("No workspace is active.");
-
-        var workspace = _currentWorkspace.FolderPath;
-        await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
-        var escapedBranch = plan.Branch.Replace("\"", "\\\"");
-        var existing = (await RunGitAsync(
-            workspace,
-            $"branch --list --format=\"%(refname:short)\" \"{escapedBranch}\"")).Trim();
-        if (!string.Equals(existing, plan.Branch, StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                $"The host-owned plan branch '{plan.Branch}' no longer exists. SquadDash left repository history unchanged.");
-
-        var priorBranch = ReadGitBranch(workspace);
-        if (!string.Equals(priorBranch, plan.Branch, StringComparison.Ordinal))
-            await RunGitAsync(workspace, $"checkout \"{escapedBranch}\"");
-        UpdateBranchIndicator();
-        ScheduleDecomposeSystemEntry(
-            string.Equals(priorBranch, plan.Branch, StringComparison.Ordinal)
-                ? $"The host-owned plan branch '{plan.Branch}' is active. Resuming the pending task."
-                : $"SquadDash restored the host-owned plan branch '{plan.Branch}'. " +
-                  $"Work on '{priorBranch}' remains preserved there. Resuming the pending task.");
         await StartOrResumeDurablePlanAsync(_planStore?.Load(plan.PlanId) ?? plan);
     }
 
@@ -17243,11 +17221,11 @@ public partial class MainWindow : Window
                 durablePlan.Branch,
                 StringComparison.Ordinal);
             AddAsyncAction(
-                canonicalBranchIsActive ? "Resume Plan" : "Restore Plan Branch & Resume",
+                canonicalBranchIsActive ? "Resume Plan" : "Choose Branch & Resume…",
                 canonicalBranchIsActive
                     ? "Resume with the pending task on the already-restored host-owned plan branch. No AI assessment or repeated completed work is needed."
-                    : $"Switch back to the host-owned branch '{durablePlan.Branch}' and resume the pending task. " +
-                      "Any divergent commit remains preserved on its existing branch; SquadDash does not delete or rewrite it.",
+                    : $"Compare the current branch with the plan branch '{durablePlan.Branch}', then choose whether to " +
+                      "bring current work into the plan or switch while preserving it separately.",
                 async () => await RestorePlanBranchAndResumeAsync(durablePlan));
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
@@ -29635,6 +29613,30 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(SimulateHumanReviewChangeDialog_Click), ex);
+        }
+    }
+
+    private void SimulatePlanResumeBranchChoiceDialog_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var situation = new PlanResumeBranchSituation(
+                CurrentBranch: "feature/current-plan-work",
+                PlanBranch: "feature/interactive-dependency-approval-editing",
+                CurrentHead: "8a34f33cb3ef5ed781b1c1a4f74bfc7283554a03",
+                PlanHead: "3d91b18b8fbc9e94564a0f9500ccf685c227a865",
+                Relationship: PlanResumeBranchRelationship.CurrentAhead,
+                CurrentOnlyCommitCount: 7,
+                PlanOnlyCommitCount: 0,
+                WorktreeIsClean: true);
+
+            // This developer preview is intentionally presentation-only. The selected
+            // action is discarded, so it cannot check out, move, or merge a branch.
+            _ = new PlanResumeBranchDialog(situation, this).ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulatePlanResumeBranchChoiceDialog_Click), ex);
         }
     }
 
@@ -51785,6 +51787,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (plan.LifecycleStatus != PlanLifecycleStatus.Approved &&
+                !await EnsureResumeBranchChoiceAsync(plan))
+                return;
             if (!await StartDurablePlanExecutionAsync(plan))
                 AppendLine($"⚠ Plan “{plan.Title}” did not start. Open the plan to review its current state.");
         }
@@ -51825,6 +51830,153 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException("Resume plan", ex);
+        }
+    }
+
+    private async Task<bool> EnsureResumeBranchChoiceAsync(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("No workspace is active.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        var currentBranch = ReadGitBranch(workspace);
+        if (string.Equals(currentBranch, plan.Branch, StringComparison.Ordinal))
+            return true;
+        if (string.IsNullOrWhiteSpace(currentBranch) ||
+            currentBranch.StartsWith("(detached", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Resume cannot choose a branch while the repository is in detached-HEAD state.");
+
+        await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
+        var situation = await InspectResumeBranchSituationAsync(
+            workspace,
+            currentBranch,
+            plan.Branch);
+        var dialog = new PlanResumeBranchDialog(situation, this);
+        if (dialog.ShowDialog() != true || dialog.Choice == PlanResumeBranchAction.Cancel)
+            return false;
+
+        await ApplyResumeBranchChoiceAsync(workspace, situation, dialog.Choice);
+        UpdateBranchIndicator();
+        ScheduleDecomposeSystemEntry(dialog.Choice == PlanResumeBranchAction.BringCurrentWork
+            ? $"SquadDash brought work from '{situation.CurrentBranch}' into the plan branch " +
+              $"'{situation.PlanBranch}' and will resume there."
+            : $"SquadDash switched to the plan branch '{situation.PlanBranch}'. " +
+              $"Work on '{situation.CurrentBranch}' remains preserved on that branch.");
+        return true;
+    }
+
+    private async Task<PlanResumeBranchSituation> InspectResumeBranchSituationAsync(
+        string workspace,
+        string currentBranch,
+        string planBranch)
+    {
+        var escapedPlanBranch = planBranch.Replace("\"", "\\\"");
+        var existing = (await RunGitAsync(
+            workspace,
+            $"branch --list --format=\"%(refname:short)\" \"{escapedPlanBranch}\"")).Trim();
+        if (!string.Equals(existing, planBranch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"The host-owned plan branch '{planBranch}' no longer exists. " +
+                "SquadDash left repository history unchanged.");
+
+        var escapedCurrentBranch = currentBranch.Replace("\"", "\\\"");
+        var currentHead = (await RunGitAsync(workspace, $"rev-parse \"{escapedCurrentBranch}^{{commit}}\"")).Trim();
+        var planHead = (await RunGitAsync(workspace, $"rev-parse \"{escapedPlanBranch}^{{commit}}\"")).Trim();
+
+        async Task<bool> IsAncestorAsync(string possibleAncestor, string possibleDescendant)
+        {
+            try
+            {
+                await RunGitAsync(
+                    workspace,
+                    $"merge-base --is-ancestor \"{possibleAncestor}\" \"{possibleDescendant}\"");
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        async Task<int> CountAsync(string range)
+        {
+            var value = (await RunGitAsync(workspace, $"rev-list --count \"{range}\"")).Trim();
+            return int.TryParse(value, out var count) ? count : 0;
+        }
+
+        var planIsAncestorOfCurrent = await IsAncestorAsync(planHead, currentHead);
+        var currentIsAncestorOfPlan = await IsAncestorAsync(currentHead, planHead);
+        var relationship = PlanResumeBranchPolicy.Classify(
+            planIsAncestorOfCurrent,
+            currentIsAncestorOfPlan);
+        var currentOnlyCount = await CountAsync($"{planHead}..{currentHead}");
+        var planOnlyCount = await CountAsync($"{currentHead}..{planHead}");
+        var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+
+        return new PlanResumeBranchSituation(
+            currentBranch,
+            planBranch,
+            currentHead,
+            planHead,
+            relationship,
+            currentOnlyCount,
+            planOnlyCount,
+            string.IsNullOrWhiteSpace(status));
+    }
+
+    private async Task ApplyResumeBranchChoiceAsync(
+        string workspace,
+        PlanResumeBranchSituation situation,
+        PlanResumeBranchAction action)
+    {
+        var escapedCurrent = situation.CurrentBranch.Replace("\"", "\\\"");
+        var escapedPlan = situation.PlanBranch.Replace("\"", "\\\"");
+
+        if (action == PlanResumeBranchAction.SwitchOnly ||
+            situation.Relationship is PlanResumeBranchRelationship.PlanAhead or
+                PlanResumeBranchRelationship.SameCommit)
+        {
+            await RunGitAsync(workspace, $"checkout \"{escapedPlan}\"");
+            return;
+        }
+
+        if (action != PlanResumeBranchAction.BringCurrentWork || !situation.CanBringCurrentWork)
+            throw new InvalidOperationException("The selected branch action is not currently available.");
+
+        if (situation.Relationship == PlanResumeBranchRelationship.CurrentAhead)
+        {
+            // Recheck ancestry immediately before moving the plan branch, then fast-forward its
+            // pointer while the current branch remains checked out. The subsequent checkout has
+            // no file-tree delta, so allowed plan metadata can remain in the working tree.
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{situation.PlanHead}\" \"{situation.CurrentHead}\"");
+            await RunGitAsync(
+                workspace,
+                $"branch -f \"{escapedPlan}\" \"{escapedCurrent}\"");
+            await RunGitAsync(workspace, $"checkout \"{escapedPlan}\"");
+            return;
+        }
+
+        if (situation.Relationship != PlanResumeBranchRelationship.Diverged)
+            throw new InvalidOperationException("The branches no longer have the expected relationship.");
+
+        await RunGitAsync(workspace, $"checkout \"{escapedPlan}\"");
+        try
+        {
+            await RunGitAsync(workspace, $"merge --no-edit \"{escapedCurrent}\"");
+        }
+        catch (Exception mergeError)
+        {
+            try { await RunGitAsync(workspace, "merge --abort"); } catch { }
+            try { await RunGitAsync(workspace, $"checkout \"{escapedCurrent}\""); } catch { }
+            UpdateBranchIndicator();
+            throw new InvalidOperationException(
+                "The branches could not be combined automatically. SquadDash aborted the merge " +
+                "and returned to the current branch; both branch histories remain intact. " +
+                mergeError.Message,
+                mergeError);
         }
     }
 
