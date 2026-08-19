@@ -674,7 +674,7 @@ internal static class TranscriptApprovalCardBuilder
         if (onRequestChanges is not null)
         {
             requestChangesButton = TranscriptQuickReplyFactory.CreateButton(
-                "＋ Add Follow-up Step…",
+                "✎ Add Follow-up Step…",
                 fontSize,
                 toolTip: "Describe newly discovered work that should run before this approval checkpoint; completed steps remain accepted when AI classifies it as an amendment");
             AutomationProperties.SetName(requestChangesButton, "Add follow-up step");

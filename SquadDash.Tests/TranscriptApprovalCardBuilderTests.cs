@@ -199,7 +199,7 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.AddressUncheckedItemsButton, Is.Not.Null);
             Assert.That(card.AddressUncheckedItemsButton!.IsEnabled, Is.False);
             Assert.That(card.RequestChangesButton, Is.Not.Null);
-            Assert.That(card.RequestChangesButton!.Content, Is.EqualTo("＋ Add Follow-up Step…"));
+            Assert.That(card.RequestChangesButton!.Content, Is.EqualTo("✎ Add Follow-up Step…"));
             Assert.That(card.RequestChangesButton.IsEnabled, Is.True);
         });
 
