@@ -73,12 +73,12 @@ internal static class PlanHumanReviewChecklist
                 var current = gate.HumanReviewSelections?
                     .LastOrDefault(selection =>
                         string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                        string.Equals(selection.CandidateCommit, candidate, StringComparison.OrdinalIgnoreCase));
+                        CandidateCommitsMatch(selection.CandidateCommit, candidate));
                 var previous = gate.HumanReviewSelections?
                     .Where(selection =>
                         selection.IsChecked &&
                         string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                        !string.Equals(selection.CandidateCommit, candidate, StringComparison.OrdinalIgnoreCase))
+                        !CandidateCommitsMatch(selection.CandidateCommit, candidate))
                     .OrderByDescending(selection => selection.UpdatedAt)
                     .FirstOrDefault();
                 result.Add(new PlanHumanReviewChecklistItem(
@@ -90,6 +90,24 @@ internal static class PlanHumanReviewChecklist
                     current?.IsChecked == true,
                     previous is not null,
                     previous?.CandidateCommit));
+    }
+
+    /// <summary>
+    /// Compares the commit-scoped identity of a human-review selection. Multi-step gates retain
+    /// their ordered '+'-joined identity while each component may be abbreviated or full-length.
+    /// </summary>
+    internal static bool CandidateCommitsMatch(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+        if (string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var leftParts = left.Split('+', StringSplitOptions.TrimEntries);
+        var rightParts = right.Split('+', StringSplitOptions.TrimEntries);
+        return leftParts.Length == rightParts.Length &&
+               leftParts.Zip(rightParts).All(pair =>
+                   RecoveryCommitValidator.CommitIdentifiersMatch(pair.First, pair.Second));
     }
 
     internal static string ResolveCandidateCommit(Plan plan, PlanApprovalGate gate)

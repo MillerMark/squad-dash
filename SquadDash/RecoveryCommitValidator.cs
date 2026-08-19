@@ -12,6 +12,51 @@ internal sealed record RecoveryCommitRangeEntry(string Commit, string Subject);
 /// </summary>
 internal static class RecoveryCommitValidator
 {
+    internal const int MinimumCommitPrefixLength = 7;
+
+    /// <summary>
+    /// Compares commit identifiers while accepting Git's normal abbreviated/full SHA forms.
+    /// Prefix matching is deliberately limited to hexadecimal identifiers of at least seven
+    /// characters so arbitrary strings cannot be treated as the same commit.
+    /// </summary>
+    internal static bool CommitIdentifiersMatch(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        var normalizedLeft = left.Trim();
+        var normalizedRight = right.Trim();
+        if (normalizedLeft.Length < MinimumCommitPrefixLength ||
+            normalizedRight.Length < MinimumCommitPrefixLength ||
+            !normalizedLeft.All(Uri.IsHexDigit) ||
+            !normalizedRight.All(Uri.IsHexDigit))
+            return false;
+        if (string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var shorter = normalizedLeft.Length <= normalizedRight.Length
+            ? normalizedLeft
+            : normalizedRight;
+        var longer = normalizedLeft.Length <= normalizedRight.Length
+            ? normalizedRight
+            : normalizedLeft;
+        return longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Resolves recorded evidence to one candidate in the enumerated Git range. Abbreviated
+    /// evidence is accepted only when it identifies exactly one candidate.
+    /// </summary>
+    internal static RecoveryCommitRangeEntry? FindRecordedCandidate(
+        IEnumerable<RecoveryCommitRangeEntry> candidates,
+        string? recordedCommit)
+    {
+        var matches = candidates
+            .Where(candidate => CommitIdentifiersMatch(candidate.Commit, recordedCommit))
+            .ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
     /// <summary>
     /// Parses oldest-to-newest output produced by
     /// <c>git log --reverse --format=%H%x09%s baseline..HEAD</c>.
@@ -28,7 +73,7 @@ internal static class RecoveryCommitValidator
             if (separator <= 0 || separator == line.Length - 1)
                 throw new InvalidOperationException("Git returned a malformed commit-range row.");
             var commit = line[..separator].Trim();
-            if (commit.Length < 7 || !commit.All(Uri.IsHexDigit))
+            if (commit.Length < MinimumCommitPrefixLength || !commit.All(Uri.IsHexDigit))
                 throw new InvalidOperationException($"Git returned an invalid commit ID '{commit}'.");
             entries.Add(new RecoveryCommitRangeEntry(commit, line[(separator + 1)..].Trim()));
         }

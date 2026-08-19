@@ -7,6 +7,74 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class RecoveryActionValidationTests
 {
+    [TestCase("6b206c0", "6b206c0a1f25d0a5b04f6f856c262591827466aa")]
+    [TestCase("6B206C0A1F25D0A5B04F6F856C262591827466AA", "6b206c0")]
+    [TestCase("6b206c0a1f25d0a5b04f6f856c262591827466aa", "6b206c0a1f25d0a5b04f6f856c262591827466aa")]
+    public void CommitIdentifiersMatch_AbbreviatedAndFullSha_ReturnsTrue(string left, string right)
+    {
+        Assert.That(RecoveryCommitValidator.CommitIdentifiersMatch(left, right), Is.True);
+    }
+
+    [TestCase("6b206c", "6b206c0a1f25d0a5b04f6f856c262591827466aa")]
+    [TestCase("not-a-sha", "not-a-sha")]
+    [TestCase("not-a-sha", "not-a-sha-extension")]
+    [TestCase("6b206c0", "7b206c0a1f25d0a5b04f6f856c262591827466aa")]
+    public void CommitIdentifiersMatch_UnsafeOrDifferentIdentifier_ReturnsFalse(string left, string right)
+    {
+        Assert.That(RecoveryCommitValidator.CommitIdentifiersMatch(left, right), Is.False);
+    }
+
+    [Test]
+    public void FindRecordedCandidate_ShortRecordedSha_ResolvesFullRangeEntry()
+    {
+        var expected = new RecoveryCommitRangeEntry(
+            "6b206c0a1f25d0a5b04f6f856c262591827466aa",
+            "Add focused dependency edit coverage corrections");
+
+        var resolved = RecoveryCommitValidator.FindRecordedCandidate(
+            [
+                new RecoveryCommitRangeEntry(
+                    "577abf583b624db984314010d7e26ec6b45f4c6d",
+                    "Add dependency and approval-boundary editing tests"),
+                expected,
+            ],
+            "6b206c0");
+
+        Assert.That(resolved, Is.SameAs(expected));
+    }
+
+    [Test]
+    public void FindRecordedCandidate_AmbiguousPrefix_ReturnsNull()
+    {
+        var resolved = RecoveryCommitValidator.FindRecordedCandidate(
+            [
+                new RecoveryCommitRangeEntry("abcdefa000000000", "First"),
+                new RecoveryCommitRangeEntry("abcdefa111111111", "Second"),
+            ],
+            "abcdefa");
+
+        Assert.That(resolved, Is.Null);
+    }
+
+    [Test]
+    public void CandidateCommitsMatch_PreservesCheckedReviewAcrossShaExpansion()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanHumanReviewChecklist.CandidateCommitsMatch(
+                "6b206c0",
+                "6b206c0a1f25d0a5b04f6f856c262591827466aa"), Is.True);
+            Assert.That(PlanHumanReviewChecklist.CandidateCommitsMatch(
+                "577abf5+6b206c0",
+                "577abf583b624db984314010d7e26ec6b45f4c6d+6b206c0a1f25d0a5b04f6f856c262591827466aa"),
+                Is.True);
+            Assert.That(PlanHumanReviewChecklist.CandidateCommitsMatch(
+                "577abf5+6b206c0",
+                "577abf583b624db984314010d7e26ec6b45f4c6d+7b206c0a1f25d0a5b04f6f856c262591827466aa"),
+                Is.False);
+        });
+    }
+
     [Test]
     public void ParseCommitRange_ParsesOldestToNewestRows()
     {

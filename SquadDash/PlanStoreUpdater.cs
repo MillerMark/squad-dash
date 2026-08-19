@@ -1720,8 +1720,9 @@ internal static class PlanStoreUpdater
         var selections = (gate.HumanReviewSelections ?? [])
             .Where(existingSelection =>
                 !string.Equals(existingSelection.ItemId, selection.ItemId, StringComparison.Ordinal) ||
-                !string.Equals(existingSelection.CandidateCommit, selection.CandidateCommit,
-                    StringComparison.OrdinalIgnoreCase))
+                !PlanHumanReviewChecklist.CandidateCommitsMatch(
+                    existingSelection.CandidateCommit,
+                    selection.CandidateCommit))
             .Append(selection)
             .ToArray();
         var updatedGate = gate with { HumanReviewSelections = selections };
@@ -1808,8 +1809,9 @@ internal static class PlanStoreUpdater
             {
                 selections.RemoveAll(selection =>
                     string.Equals(selection.ItemId, targetId, StringComparison.Ordinal) &&
-                    string.Equals(selection.CandidateCommit, item.CandidateCommit,
-                        StringComparison.OrdinalIgnoreCase));
+                    PlanHumanReviewChecklist.CandidateCommitsMatch(
+                        selection.CandidateCommit,
+                        item.CandidateCommit));
                 selections.Add(new PlanHumanReviewSelection(
                     targetId, false, item.CandidateCommit, now));
             }

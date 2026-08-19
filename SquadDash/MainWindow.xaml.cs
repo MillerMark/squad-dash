@@ -13427,7 +13427,9 @@ public partial class MainWindow : Window
             (!string.Equals(verification.PlanId, groupId, StringComparison.Ordinal) ||
              !string.Equals(verification.TaskId, taskId, StringComparison.Ordinal) ||
              !string.Equals(verification.Revision, pending.Revision, StringComparison.Ordinal) ||
-             !string.Equals(verification.EvaluatedCommit, candidate.Commit, StringComparison.OrdinalIgnoreCase)))
+             !RecoveryCommitValidator.CommitIdentifiersMatch(
+                 verification.EvaluatedCommit,
+                 candidate.Commit)))
         {
             verificationError = "The verification response did not match the active plan, task, revision, and candidate commit.";
             verification = null;
@@ -17652,12 +17654,14 @@ public partial class MainWindow : Window
                 tone: tone);
             button.Click += async (_, _) =>
             {
-                if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
-                PrepareForHostRecoveryAction();
+                panel.IsEnabled = false;
                 try
                 {
-                    if (!await action() && removeAfterAction)
-                        panel.Visibility = Visibility.Visible;
+                    var succeeded = await action();
+                    if (!succeeded)
+                        panel.IsEnabled = true;
+                    else if (removeAfterAction)
+                        panel.Visibility = Visibility.Collapsed;
                 }
                 catch (PlanPreflightBlockedException blocked)
                 {
@@ -17673,7 +17677,8 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    if (removeAfterAction) panel.Visibility = Visibility.Visible;
+                    panel.IsEnabled = true;
+                    panel.Visibility = Visibility.Visible;
                     HandleUiCallbackException("Decompose recovery", ex);
                 }
             };
@@ -19069,16 +19074,32 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var selected = !PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance) &&
-                       recordedEvidence is not null
-            ? candidates.LastOrDefault(entry => string.Equals(
-                entry.Commit, recordedEvidence.Commit, StringComparison.OrdinalIgnoreCase))
+        var selectsRecordedEvidenceWithoutPrompt =
+            !PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance) &&
+            recordedEvidence is not null;
+        var selected = selectsRecordedEvidenceWithoutPrompt
+            ? RecoveryCommitValidator.FindRecordedCandidate(candidates, recordedEvidence!.Commit)
             : VerifiedCommitRangeDialog.Show(
                 this, taskId, baselineCommit, candidates, hostRecordedRange: recordedEvidence is not null);
-        if (selected is null) return false;
+        if (selected is null)
+        {
+            if (selectsRecordedEvidenceWithoutPrompt)
+            {
+                MessageBox.Show(this,
+                    $"The recorded commit '{recordedEvidence!.Commit}' no longer identifies exactly one commit in the reviewed range. Reopen the plan or review the commit range manually.",
+                    "Recorded Commit Unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return false;
+        }
         var selectedIndex = candidates.ToList().FindIndex(entry =>
-            string.Equals(entry.Commit, selected.Commit, StringComparison.OrdinalIgnoreCase));
-        if (selectedIndex < 0) return false;
+            RecoveryCommitValidator.CommitIdentifiersMatch(entry.Commit, selected.Commit));
+        if (selectedIndex < 0)
+        {
+            MessageBox.Show(this,
+                "The selected commit is no longer present in the reviewed range. Reopen the action and try again.",
+                "Commit Range Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
         var selectedRange = candidates.Take(selectedIndex + 1).ToArray();
         if (selectedRange.Length > 50)
         {
@@ -19178,6 +19199,11 @@ public partial class MainWindow : Window
                 "passed",
                 "human acceptance with host-controlled commit-range validation",
                 $"The human reviewer accepted the task after SquadDash validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
+
+        // Consume the recovery surface only after all validation and any user confirmation have
+        // succeeded. A rejected or stale action remains in place instead of disappearing and
+        // being regenerated as an apparently endless prompt loop.
+        PrepareForHostRecoveryAction();
 
         Plan? acceptedPlan = null;
         try
