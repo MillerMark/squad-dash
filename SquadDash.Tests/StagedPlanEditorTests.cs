@@ -145,6 +145,23 @@ internal sealed class StagedPlanEditorTests
         Assert.That(StagedPlanEditor.TryValidate(group, out _, out var error), Is.True, error);
     }
 
+    [TestCase("")]
+    [TestCase("   ")]
+    public void TryValidate_RejectsGateWithEmptyOrWhitespaceQuestion(string question)
+    {
+        var group = MakeGroup() with
+        {
+            ApprovalGates = [new DecomposedGate(
+                GroupId + "-GATE-001",
+                "Verify the second task's observable result before dependent work continues.",
+                [Id(1)], [Id(2)],
+                Question: question)],
+        };
+
+        Assert.That(StagedPlanEditor.TryValidate(group, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("verify or decide").IgnoreCase);
+    }
+
     [Test]
     public void AddValidation_UsesCompactIdAndTheImmediateTaskFrontier()
     {
@@ -341,6 +358,24 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UnlockedChangeValidation_RejectsDependencyEditOnFailedTask()
+    {
+        var current = MakeDurablePlan() with
+        {
+            Tasks = MakeDurablePlan().Tasks.Select(task => task.TaskId == Id(2)
+                ? task with { Status = PlanTaskStatus.Failed }
+                : task).ToArray(),
+            Progress = new PlanProgress(1, 3),
+        };
+        var candidate = StagedPlanEditor.UpdateTask(
+            MakeGroup(), Id(2), "Second result", "Second", "mid", []);
+
+        Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+            current, candidate, out var error), Is.False);
+        Assert.That(error, Does.Contain(Id(2)));
+    }
+
+    [Test]
     public void UnlockedChangeValidation_RejectsResolvedGateAndCompletedValidationChanges()
     {
         var group = MakeGroup() with
@@ -474,6 +509,27 @@ internal sealed class StagedPlanEditorTests
         history.Undo();
         Assert.That(history.PeekRedo, Is.EqualTo(second));
         Assert.That(history.Current, Is.EqualTo(first));
+    }
+
+    [Test]
+    public void EditHistory_UndoRedoRestoresDependencyEditTopology()
+    {
+        var original = MakeGroup();
+        var dependencyEdited = StagedPlanEditor.UpdateTask(
+            original, Id(3), "Third result", "Third", "mid", [Id(1)]);
+        var history = new StagedPlanEditHistory(original);
+        history.Record(dependencyEdited);
+
+        var undone = history.Undo();
+        var redone = history.Redo();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(undone!.Tasks.Single(task => task.Id == Id(3)).DependsOn,
+                Is.EqualTo(new[] { Id(2) }));
+            Assert.That(redone!.Tasks.Single(task => task.Id == Id(3)).DependsOn,
+                Is.EqualTo(new[] { Id(1) }));
+        });
     }
 
     private static string Id(int number) => $"{GroupId}-{number:000}";
