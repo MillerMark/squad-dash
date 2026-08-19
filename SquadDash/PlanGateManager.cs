@@ -61,6 +61,28 @@ internal static class PlanGateManager
         gate?.Status == PlanGateStatus.Pending;
 
     /// <summary>
+    /// A human-proof gate can be the only remaining proof contract for a verification task after
+    /// capability routing removes that human-only requirement from the task itself. Removing that
+    /// gate would leave an invalid, proofless verification task.
+    /// </summary>
+    internal static bool IsRequiredVerificationProofGate(Plan plan, PlanApprovalGate? gate)
+    {
+        if (gate?.ProofRequirements is not { Count: > 0 }) return false;
+
+        return plan.Tasks.Any(task =>
+            string.Equals(task.ExecutionMode, PlanTaskExecutionMode.Verification, StringComparison.Ordinal) &&
+            gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal) &&
+            task.ProofRequirements is not { Count: > 0 } &&
+            !plan.ApprovalGates.Any(other =>
+                !string.Equals(other.GateId, gate.GateId, StringComparison.Ordinal) &&
+                other.ProofRequirements is { Count: > 0 } &&
+                other.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal)));
+    }
+
+    internal static bool CanRemoveGate(Plan plan, PlanApprovalGate? gate) =>
+        CanEditGate(gate) && !IsRequiredVerificationProofGate(plan, gate);
+
+    /// <summary>
     /// Review guidance may be clarified until the human resolves the checkpoint. Editing these
     /// fields never changes the boundary, execution status, request timestamps, or gate identity.
     /// </summary>
@@ -510,8 +532,8 @@ internal static class PlanGateManager
     internal static Plan RemoveGate(Plan plan, string gateId)
     {
         var removed = plan.ApprovalGates.FirstOrDefault(g =>
-            string.Equals(g.GateId, gateId, StringComparison.Ordinal) && CanEditGate(g));
-        if (removed is null) return plan;
+            string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        if (removed is null || !CanRemoveGate(plan, removed)) return plan;
 
         var remaining = plan.ApprovalGates
             .Where(g => !string.Equals(g.GateId, gateId, StringComparison.Ordinal))

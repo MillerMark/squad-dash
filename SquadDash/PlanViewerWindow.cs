@@ -2365,21 +2365,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             string.Equals(g.GateId, capturedGate.GateId, StringComparison.Ordinal));
                         var gateIsTraversed = durableGate is not null &&
                             !PlanGateManager.CanEditGate(durableGate);
-                        var isOrphanedProofGate = (capturedGate.ProofRequirements is { Count: > 0 }) &&
-                            !group.Tasks.Any(t => (t.ProofRequirements ?? []).Any(r =>
-                                capturedGate.ProofRequirements!.Any(gr =>
-                                    string.Equals(gr.RequirementId, r.RequirementId, StringComparison.Ordinal))));
+                        var isRequiredVerificationProof =
+                            PlanGateManager.IsRequiredVerificationProofGate(durablePlan, durableGate);
                         var removeItem = new MenuItem
                         {
-                            Header = isOrphanedProofGate
-                                ? $"Remove stale gate reference: {capturedGate.Message}"
+                            Header = isRequiredVerificationProof
+                                ? $"Required verification proof: {capturedGate.Message}"
                                 : $"Remove approval gate: {capturedGate.Message}",
-                            IsEnabled = !gateIsTraversed,
+                            IsEnabled = PlanGateManager.CanRemoveGate(durablePlan, durableGate),
                         };
-                        if (isOrphanedProofGate && !gateIsTraversed)
+                        if (isRequiredVerificationProof)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                                "This approval gate's proof requirements no longer exist on any task. " +
-                                "Click to remove the stale reference.");
+                                "This checkpoint is the verification task's only proof contract. " +
+                                "Delete the verification task or give it another proof requirement before removing this checkpoint.");
                         else if (gateIsTraversed)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
                                 PlanApprovalControlLockPolicy.LockedTooltip("Traversed gate"));
@@ -2893,6 +2891,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         (existingAfterGate is null && IsPrimary(coveringAfterGate, afterAnchor));
                     var afterController = coveringAfterGate is null ? null : ResolvePresentationAnchor(coveringAfterGate);
                     var controllingAfterGate = existingAfterGate ?? coveringAfterGate;
+                    var afterRemovalBlocked = afterIsPrimary &&
+                        PlanGateManager.IsRequiredVerificationProofGate(durablePlan, controllingAfterGate);
                     var collectivelyUnresolvedExit = collectivelyCoveredByAllJoins &&
                         lockedAllJoinGates.Any(IsUnresolvedApproval);
                     var afterChangeActive = IsApprovalChangeActive(controllingAfterGate);
@@ -2923,10 +2923,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? "This task exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
-                                ? "Human approval is required after this task completes. Click to review; right-click to remove."
+                                ? afterRemovalBlocked
+                                    ? "This checkpoint is the verification task's only proof contract. Click to review it."
+                                    : "Human approval is required after this task completes. Click to review; right-click to remove."
                                 : "This is an equivalent view of the approval boundary. Click to review; right-click to make this the primary control."
                             : "Require human approval after this task completes.",
-                        exitExecutionLocked || onGatesChanged is null ? null : () =>
+                        exitExecutionLocked || onGatesChanged is null || afterRemovalBlocked ? null : () =>
                         {
                             if (collectivelyCoveredByAllJoins)
                             {
@@ -2997,7 +2999,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 afterMenu.Items.Add(blocksSubmenu);
                             }
                         }
-                        if (!afterIsPrimary && controllingAfterGate is not null && PlanGateManager.CanEditGate(controllingAfterGate)
+                        if (!afterIsPrimary && controllingAfterGate is not null &&
+                            PlanGateManager.CanRemoveGate(durablePlan, controllingAfterGate)
                             && !exitExecutionLocked && onGatesChanged is not null
                             && afterStop.ContextMenu is ContextMenu afterRemoveMenu)
                         {

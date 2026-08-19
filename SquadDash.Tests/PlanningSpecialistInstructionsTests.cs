@@ -48,7 +48,8 @@ internal sealed class PlanningSpecialistInstructionsTests
     [Test]
     public void BuildDelegationGuidance_PrefersRosterPlannerAndProvidesGenericFallback()
     {
-        var guidance = PlanningSpecialistInstructions.BuildDelegationGuidance();
+        var guidance = PlanningSpecialistInstructions.BuildDelegationGuidance()
+            .ReplaceLineEndings("\n");
 
         Assert.Multiple(() =>
         {

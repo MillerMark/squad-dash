@@ -414,6 +414,69 @@ internal sealed class PlanGateManagerTests
     }
 
     [Test]
+    public void RemoveGate_SoleVerificationProofCheckpoint_ReturnsPlanUnchanged()
+    {
+        var taskId = "TEST-20260101-001";
+        var proof = new PlanTaskProofRequirement(
+            "visual-check", "human-observation", "Inspect the rendered plan.",
+            "Does the rendered plan look correct?");
+        var plan = MakePlan((taskId, []));
+        plan = plan with
+        {
+            Tasks = [plan.Tasks[0] with { ExecutionMode = PlanTaskExecutionMode.Verification }],
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    taskId + "-HUMAN-PROOF", "Confirm the rendered plan.", [taskId], [],
+                    PlanGateStatus.Pending, ProofRequirements: [proof],
+                    Question: proof.Question),
+            ],
+        };
+
+        var result = PlanGateManager.RemoveGate(plan, plan.ApprovalGates[0].GateId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanGateManager.CanRemoveGate(plan, plan.ApprovalGates[0]), Is.False);
+            Assert.That(ReferenceEquals(result, plan), Is.True);
+            Assert.That(result.ApprovalGates, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void RemoveGate_OrdinaryCheckpointFromProofBearingPlan_RemovesGate()
+    {
+        var verificationId = "TEST-20260101-002";
+        var plan = MakePlan(("TEST-20260101-001", []), (verificationId, ["TEST-20260101-001"]));
+        var proof = new PlanTaskProofRequirement(
+            "visual-check", "human-observation", "Inspect the rendered plan.");
+        var ordinaryGate = new PlanApprovalGate(
+            "TEST-20260101-GATE-001", "Review setup.", ["TEST-20260101-001"], [verificationId],
+            PlanGateStatus.Pending);
+        var proofGate = new PlanApprovalGate(
+            verificationId + "-HUMAN-PROOF", "Confirm the rendered plan.", [verificationId], [],
+            PlanGateStatus.Pending, ProofRequirements: [proof]);
+        plan = plan with
+        {
+            Tasks =
+            [
+                plan.Tasks[0],
+                plan.Tasks[1] with { ExecutionMode = PlanTaskExecutionMode.Verification },
+            ],
+            ApprovalGates = [ordinaryGate, proofGate],
+        };
+
+        var result = PlanGateManager.RemoveGate(plan, ordinaryGate.GateId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanGateManager.CanRemoveGate(plan, ordinaryGate), Is.True);
+            Assert.That(result.ApprovalGates.Select(gate => gate.GateId),
+                Is.EqualTo(new[] { proofGate.GateId }));
+        });
+    }
+
+    [Test]
     public void AddGateAfter_OnLeafBeforeFinalValidation_AddsTerminalGate()
     {
         var plan = MakePlan(("TEST-20260101-001", []), ("TEST-20260101-002", ["TEST-20260101-001"])) with

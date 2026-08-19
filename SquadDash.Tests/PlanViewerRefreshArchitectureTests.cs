@@ -42,7 +42,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
             Assert.That(source, Does.Contain("new BlockUIContainer(panel)")
                 .And.Contain("AddButton(_isInspectorEditing ? \"Cancel edit\" : \"Edit\""),
                 "Editors must be hosted by the existing inspector and stay read-only until Edit.");
-            Assert.That(source, Does.Contain("Header = \"Add validation after this task\"")
+            Assert.That(source, Does.Contain("Header = \"Add validation after this step\"")
                 .And.Contain("Header = \"Delete task\"")
                 .And.Contain("Header = \"Delete validation\""));
             Assert.That(source, Does.Contain("AddButton(\"Undo\"")
