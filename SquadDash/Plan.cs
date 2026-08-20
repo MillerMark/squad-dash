@@ -582,7 +582,10 @@ internal sealed record Plan(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                                     string? DisplayTitle = null,
 
-    /// <summary>A durable user hold. It is independent of the execution/review lifecycle.</summary>
+    /// <summary>
+    /// A durable hold explicitly requested by the human. Error, review, and approval stops are
+    /// represented by lifecycle state and must not set this flag.
+    /// </summary>
     [property: JsonPropertyName("isPaused")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
                                                     bool IsPaused = false)

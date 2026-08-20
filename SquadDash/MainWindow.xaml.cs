@@ -9697,7 +9697,7 @@ public partial class MainWindow : Window
 
         var actions = new WrapPanel { Orientation = Orientation.Horizontal };
         var approve = TranscriptQuickReplyFactory.CreateButton(
-            current.IsPaused ? "Approve Revision & Stay Paused" : "Approve Revision & Continue",
+            current.IsPaused ? "Approve Revision" : "Approve Revision & Continue",
             _transcriptFontSize);
         var revise = TranscriptQuickReplyFactory.CreateButton(
             "✏️ Revise proposal",
@@ -17552,9 +17552,11 @@ public partial class MainWindow : Window
         {
             var completionButton = AddAsyncResultAction(
                 durablePlan!.IsPaused
-                    ? $"{stepLabel} Is Complete & Stay Paused"
+                    ? $"{stepLabel} Is Complete"
                     : $"{stepLabel} Is Complete & Continue",
-                $"Enabled once every verification item is checked. Mark {stepLabel} complete, record the human checkpoint, and continue without another AI review.",
+                durablePlan.IsPaused
+                    ? $"Enabled once every verification item is checked. Mark {stepLabel} complete and record the human checkpoint. The plan remains paused."
+                    : $"Enabled once every verification item is checked. Mark {stepLabel} complete, record the human checkpoint, and continue without another AI review.",
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!;
@@ -19207,10 +19209,12 @@ public partial class MainWindow : Window
             return false;
         }
 
-        // Evidence review is read-only and remains useful in a dirty workspace. Block the state
-        // transition only after the user has inspected the recorded range, so a preflight pause
-        // can offer a targeted retry without turning the review click into an exception.
-        await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
+        // A durable user pause means this action accepts already-reviewed committed evidence but
+        // deliberately starts no downstream work. Uncommitted files therefore belong to the later
+        // Resume preflight, not to step acceptance. An unpaused "Complete & Continue" action still
+        // requires a clean worktree before the atomic accept-and-resume transition.
+        if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(storedPlan))
+            await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
 
         var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(storedPlan.Tasks, taskId);
         var commitLines = string.Join("\n", selectedRange.Select(entry =>
@@ -19328,7 +19332,10 @@ public partial class MainWindow : Window
         var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(acceptedPlan!);
         var hasReadyApprovalBoundary = nextValidation is null &&
                                        HasReadyPendingApprovalGate(acceptedPlan!);
-        var mustAwaitApproval = hasReadyApprovalBoundary &&
+        var shouldAdvanceToApprovalBoundary =
+            PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(acceptedPlan!) &&
+            hasReadyApprovalBoundary;
+        var mustAwaitApproval = shouldAdvanceToApprovalBoundary &&
                                 PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
         ResolveRecoveryTranscript(combinedHumanReviewGate is not null
             ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is also approved."
@@ -19336,9 +19343,11 @@ public partial class MainWindow : Window
                 ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel} and approved its checkpoint."
                 : mustAwaitApproval
                     ? $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the next human checkpoint is opening."
-                    : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is continuing.");
+                    : acceptedPlan.IsPaused
+                        ? $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan remains paused."
+                        : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is continuing.");
 
-        if (hasReadyApprovalBoundary)
+        if (shouldAdvanceToApprovalBoundary)
         {
             // Recovery acceptance deliberately remains interrupted until the next boundary is
             // known. Once that boundary is a ready gate, the approval runtime owns the durable
@@ -19361,7 +19370,7 @@ public partial class MainWindow : Window
         // projection and does not contain outputs, inputs, approval gates, or validation nodes;
         // sending that projection back through TASKS_JSON validation can reject valid plans after
         // their completed work has already been accepted.
-        if (!acceptedPlan!.IsPaused)
+        if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(acceptedPlan!))
             await StartOrResumeDurablePlanAsync(acceptedPlan);
         return true;
     }

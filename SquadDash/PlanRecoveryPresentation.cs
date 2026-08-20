@@ -68,7 +68,7 @@ internal static class PlanRecoveryActionPresentationBuilder
             {
                 return new PlanRecoveryPrimaryActionPresentation(
                     PlanRecoveryPrimaryActionKind.ApproveAmendment,
-                    plan.IsPaused ? "Approve Amendment & Stay Paused" : "Approve Amendment & Continue",
+                    plan.IsPaused ? "Approve Amendment" : "Approve Amendment & Continue",
                     plan.IsPaused
                         ? "Accept the host-recorded amendment commit and approve its checkpoint while keeping the plan paused."
                         : "Accept the host-recorded amendment commit shown on this card, approve its checkpoint, and continue. No additional AI assessment runs.",
@@ -77,7 +77,7 @@ internal static class PlanRecoveryActionPresentationBuilder
 
             return new PlanRecoveryPrimaryActionPresentation(
                 PlanRecoveryPrimaryActionKind.AcceptStep,
-                plan.IsPaused ? $"{stepLabel} Is Complete & Stay Paused" : $"{stepLabel} Is Complete & Continue",
+                plan.IsPaused ? $"{stepLabel} Is Complete" : $"{stepLabel} Is Complete & Continue",
                 plan.IsPaused
                     ? $"Accept the host-recorded commit, mark only {stepLabel} complete, and keep the plan paused."
                     : $"Accept the host-recorded commit shown on this card, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
@@ -108,6 +108,17 @@ internal static class PlanRecoveryActionPresentationBuilder
             $"Inspect the host-validated commit range since the task baseline, then accept {stepLabel} or leave it incomplete.",
             "accept-step-complete");
     }
+}
+
+/// <summary>
+/// Separates accepting committed recovery evidence from preparing future execution. A human hold
+/// may accept the reviewed step in any worktree state because Resume owns the later safety check.
+/// </summary>
+internal static class PlanRecoveryAcceptancePolicy
+{
+    internal static bool RequiresCleanWorktreeBeforeAcceptance(Plan plan) => !plan.IsPaused;
+
+    internal static bool ShouldAdvanceAfterAcceptance(Plan plan) => !plan.IsPaused;
 }
 
 /// <summary>

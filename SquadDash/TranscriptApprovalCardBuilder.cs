@@ -626,7 +626,8 @@ internal static class TranscriptApprovalCardBuilder
         var approveLabel = reviewedTaskIds.Length == 1
             ? $"{ResolveCompletionStepLabel(plan, reviewedTaskIds[0])} Is Complete"
             : "Reviewed Steps Are Complete";
-        approveLabel += plan.IsPaused ? " & Stay Paused" : " & Continue";
+        if (!plan.IsPaused)
+            approveLabel += " & Continue";
 
         approveButton = TranscriptQuickReplyFactory.CreateButton(
             approveLabel,

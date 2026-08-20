@@ -987,7 +987,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 gateMsg.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 gateMsg.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 var approveButton = TranscriptQuickReplyFactory.CreateButton(
-                    durablePlan.IsPaused ? "Approve & Stay Paused" : "Approve & Continue",
+                    durablePlan.IsPaused ? "Approve" : "Approve & Continue",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(durablePlan.IsPaused
                         ? "Approve this gate while keeping the plan paused."

@@ -305,6 +305,60 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void RecoveryAction_WhenHumanExplicitlyPaused_OmitsRedundantStayPausedSuffix()
+    {
+        const string commit = "abcdef1234567890";
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-007", "attempt-1", "baseline", commit, "Implemented the task.",
+            new DecomposeStepVerification("passed", "dotnet test", "12 tests passed"));
+        var task = new PlanTask(
+            "PLAN-007", "Review me", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                commit, "Implemented the task.", ["Feature.cs"], evidence.Verification,
+                DateTimeOffset.UtcNow),
+            DisplayStepLabel: "7");
+        var plan = TestPlan(evidence) with { Tasks = [task], IsPaused = true };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete"));
+            Assert.That(action.Label, Does.Not.Contain("Stay Paused"));
+            Assert.That(action.Hint, Does.Contain("keep the plan paused"));
+        });
+    }
+
+    [Test]
+    public void AcceptancePreflight_OnlyUnpausedContinueRequiresCleanWorktree()
+    {
+        var interrupted = TestPlan(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(interrupted),
+                Is.True,
+                "An operational interruption should continue through the normal safety preflight.");
+            Assert.That(
+                PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(
+                    interrupted with { IsPaused = true }),
+                Is.False,
+                "An explicit human hold accepts the reviewed commit now and defers safety checks to Resume.");
+            Assert.That(
+                PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(interrupted),
+                Is.True,
+                "An operational interruption continues after the human resolves it.");
+            Assert.That(
+                PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(
+                    interrupted with { IsPaused = true }),
+                Is.False,
+                "An explicit human hold must not start a step or open the next boundary.");
+        });
+    }
+
+    [Test]
     public void RecoveryAction_WithoutHostRecordedCandidateOffersCommitRangeReview()
     {
         var task = new PlanTask(

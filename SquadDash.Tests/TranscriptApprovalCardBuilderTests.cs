@@ -497,6 +497,24 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_WhenHumanExplicitlyPaused_UsesCompletionLabelWithoutPauseSuffix()
+    {
+        var plan = BuildTestPlan() with { IsPaused = true };
+
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ApproveButton.Content?.ToString(), Is.EqualTo("Reviewed Steps Are Complete"));
+            Assert.That(card.ApproveButton.Content?.ToString(), Does.Not.Contain("Stay Paused"));
+            Assert.That(
+                card.ApproveButton.ToolTip?.ToString(),
+                Does.Contain("keeps the plan paused"));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void FocusNoteEditorAtPoint_PlacesCaretWhenHostedInReadOnlyTranscript()
     {
         var plan = BuildTestPlan();
