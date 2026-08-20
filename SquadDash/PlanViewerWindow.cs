@@ -2805,6 +2805,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
+            if (_saveDefinitionEdit is not null && !verificationOnly)
+            {
+                var capturedTaskId = task.Id;
+                var capturedVerificationLevel = verificationLevel;
+                var verMenu = CreateThemedMenu();
+
+                var levelHeader = CreateThemedMenuItem("Verification level:");
+                levelHeader.IsEnabled = false;
+                levelHeader.FontStyle = FontStyles.Italic;
+                verMenu.Items.Add(levelHeader);
+                verMenu.Items.Add(CreateThemedMenuSeparator());
+
+                foreach (var (value, label) in new[]
+                {
+                    (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
+                    (PlanTaskVerificationLevel.Standard, "Standard"),
+                    (PlanTaskVerificationLevel.Enhanced, "Enhanced"),
+                })
+                {
+                    var captured = value;
+                    var item = CreateThemedMenuItem(label);
+                    item.IsCheckable = true;
+                    item.IsChecked = capturedVerificationLevel == value;
+                    item.Click += (_, _) =>
+                    {
+                        if (_plan is null || !IsTaskDefinitionEditable(capturedTaskId)) return;
+                        ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
+                            _plan.Group, capturedTaskId, captured), selectKind: "task", selectId: capturedTaskId);
+                    };
+                    verMenu.Items.Add(item);
+                }
+                verificationIndicator.ContextMenu = verMenu;
+            }
             Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + Math.Round(2.4 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 22);
@@ -3689,18 +3722,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Dispatcher.BeginInvoke(() =>
         {
             BuildContent(plan, durablePlan);
-            Dispatcher.BeginInvoke(() =>
+            var capturedScroll = _graphScroll;
+            var capturedH = horizontalOffset;
+            var capturedV = verticalOffset;
+            if (capturedScroll is not null && (capturedH > 0.5 || capturedV > 0.5))
             {
-                _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
-                _graphScroll?.ScrollToVerticalOffset(verticalOffset);
-                if (autoScrollForPlanProgress &&
-                    PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+                EventHandler? handler = null;
+                handler = (_, _) =>
                 {
-                    Dispatcher.BeginInvoke(
-                        EnsureAutomaticScrollTargetVisible,
-                        System.Windows.Threading.DispatcherPriority.Render);
-                }
-            }, System.Windows.Threading.DispatcherPriority.Loaded);
+                    capturedScroll.LayoutUpdated -= handler;
+                    capturedScroll.ScrollToHorizontalOffset(capturedH);
+                    capturedScroll.ScrollToVerticalOffset(capturedV);
+                };
+                capturedScroll.LayoutUpdated += handler;
+            }
+            if (autoScrollForPlanProgress &&
+                PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+            {
+                Dispatcher.BeginInvoke(
+                    EnsureAutomaticScrollTargetVisible,
+                    System.Windows.Threading.DispatcherPriority.Render);
+            }
         }, System.Windows.Threading.DispatcherPriority.Normal);
     }
 
