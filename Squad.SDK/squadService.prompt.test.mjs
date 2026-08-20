@@ -344,6 +344,12 @@ test("provider throttling distinguishes transient rate limits from terminal quot
         classification: "transient-rate-limit"
     });
     assert.equal(computeProviderThrottleDelayMs(transient, 0, 0), 2_000);
+    const transientWithoutRetryAfter = analyzeProviderThrottle(
+        new Error("HTTP 429: provider rate limit exceeded"));
+    assert.deepEqual(
+        [0, 1, 2, 3].map(completedRetries =>
+            computeProviderThrottleDelayMs(transientWithoutRetryAfter, completedRetries, 0)),
+        [30_000, 60_000, 90_000, 120_000]);
     assert.deepEqual(terminal, {
         retryable: false,
         classification: "terminal-quota"
@@ -424,6 +430,130 @@ test("named roster tool waits and resumes the same session after transient throt
     assert.equal(failed.length, 0);
     assert.equal(completed.length, 1);
     assert.equal(completed[0].agent.retryCount, 1);
+});
+
+test("named roster tool resets its throttle streak after meaningful resumed work", async () => {
+    const configs = [];
+    const throttled = [];
+    const completed = [];
+    const listeners = new Map();
+    let sessionNumber = 0;
+    let namedAttempts = 0;
+    const service = new SquadBridgeService({
+        onSubagentThrottled(sessionId, agent) {
+            throttled.push({ sessionId, agent });
+        },
+        onSubagentCompleted(sessionId, agent) {
+            completed.push({ sessionId, agent });
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            const sessionId = `session-${sessionNumber}`;
+            return {
+                sessionId,
+                on(eventName, handler) {
+                    listeners.set(eventName, handler);
+                },
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    if (sessionId === "session-1")
+                        return { content: "Coordinator done" };
+
+                    namedAttempts++;
+                    if (namedAttempts === 1)
+                        throw new Error("HTTP 429 rate limit exceeded; retry after 1 ms");
+                    if (namedAttempts === 2) {
+                        listeners.get("reasoning_delta")?.({
+                            deltaContent: "Repository inspection resumed successfully."
+                        });
+                        throw new Error("HTTP 429 rate limit exceeded; retry after 1 ms");
+                    }
+
+                    return { content: "Rory completed after two separate throttle incidents" };
+                }
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate planning", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{ handle: "rory", displayName: "Rory", role: "Planning Architect" }]
+    });
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    const report = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: "Inspect the repository and produce the implementation plan."
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-throttle-reset",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Rory completed after two separate throttle incidents");
+    assert.equal(configs.length, 2, "both retries must reuse the original named-agent session");
+    assert.deepEqual(
+        throttled.map(event => event.agent.retryCount),
+        [1, 1],
+        "meaningful work must reset the consecutive throttle streak");
+    assert.equal(completed.length, 1);
+    assert.equal(completed[0].agent.retryCount, 2, "lifetime retry telemetry remains cumulative");
+});
+
+test("named roster tool allows four consecutive throttle cooldowns", async () => {
+    const configs = [];
+    const throttled = [];
+    let sessionNumber = 0;
+    let namedAttempts = 0;
+    const service = new SquadBridgeService({
+        onSubagentThrottled(_sessionId, agent) {
+            throttled.push(agent);
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            const sessionId = `session-${sessionNumber}`;
+            return {
+                sessionId,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    if (sessionId === "session-1")
+                        return { content: "Coordinator done" };
+
+                    namedAttempts++;
+                    if (namedAttempts <= 4)
+                        throw new Error("HTTP 429 rate limit exceeded; retry after 1 ms");
+                    return { content: "Rory completed after four cooldowns" };
+                }
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate planning", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{ handle: "rory", displayName: "Rory", role: "Planning Architect" }]
+    });
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    const report = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: "Inspect the repository and produce the implementation plan."
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-four-cooldowns",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Rory completed after four cooldowns");
+    assert.deepEqual(throttled.map(event => event.retryCount), [1, 2, 3, 4]);
 });
 
 test("staged plan revision request correlation accepts marked and unmarked routing envelopes", () => {

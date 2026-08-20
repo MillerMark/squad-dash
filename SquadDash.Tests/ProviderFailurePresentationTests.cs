@@ -136,16 +136,33 @@ internal sealed class ProviderFailurePresentationTests
     [TestCase(ProviderFailureCategory.Authentication, true)]
     [TestCase(ProviderFailureCategory.DeploymentOrModel, true)]
     [TestCase(ProviderFailureCategory.EndpointOrProtocol, true)]
-    [TestCase(ProviderFailureCategory.RateLimitOrQuota, true)]
+    [TestCase(ProviderFailureCategory.RateLimitOrQuota, false)]
     [TestCase(ProviderFailureCategory.Timeout, false)]
     [TestCase(ProviderFailureCategory.Network, false)]
     [TestCase(ProviderFailureCategory.ProviderService, false)]
     [TestCase(ProviderFailureCategory.Unknown, false)]
-    public void RequiredPlanAgentFailure_TerminalConfigurationOrRateLimitFailuresInterrupt(
+    public void RequiredPlanAgentFailure_OnlyTerminalConfigurationFailuresInterrupt(
         ProviderFailureCategory category,
         bool expected)
     {
         var result = ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
+            category,
+            coordinatorPromptRunning: true,
+            planExecutionActive: true,
+            assignedPlanTaskId: "MODELPROF-005",
+            rosterIdentityVerified: true);
+
+        Assert.That(result, Is.EqualTo(expected));
+    }
+
+    [TestCase(ProviderFailureCategory.RateLimitOrQuota, true)]
+    [TestCase(ProviderFailureCategory.Authentication, false)]
+    [TestCase(ProviderFailureCategory.Timeout, false)]
+    public void RequiredPlanAgentFailure_OnlyRateOrQuotaExhaustionPausesGracefully(
+        ProviderFailureCategory category,
+        bool expected)
+    {
+        var result = ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
             category,
             coordinatorPromptRunning: true,
             planExecutionActive: true,
@@ -168,6 +185,14 @@ internal sealed class ProviderFailurePresentationTests
                 ProviderFailureCategory.DeploymentOrModel, false, true, "MODELPROF-005", true), Is.False);
             Assert.That(ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
                 ProviderFailureCategory.DeploymentOrModel, true, false, "MODELPROF-005", true), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
+                ProviderFailureCategory.RateLimitOrQuota, true, true, null, true), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
+                ProviderFailureCategory.RateLimitOrQuota, true, true, "MODELPROF-005", false), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
+                ProviderFailureCategory.RateLimitOrQuota, false, true, "MODELPROF-005", true), Is.False);
+            Assert.That(ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
+                ProviderFailureCategory.RateLimitOrQuota, true, false, "MODELPROF-005", true), Is.False);
         });
     }
 

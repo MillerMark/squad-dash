@@ -422,6 +422,7 @@ public partial class MainWindow : Window
     private bool                    _loopResumeSuppressed;
     private bool                    _pausePlanAfterCurrentStepRequested;
     private bool                    _planAbortRequestedByUser;
+    private string?                 _planProviderWaitInterruptionReason;
     private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
     private string?                 _activePlanAwaitingGateApproval;
@@ -6551,6 +6552,42 @@ public partial class MainWindow : Window
     {
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         var planExecutionActive = _activeDecomposeGroupId is not null || activeExecution?.IsExecutingPlan == true;
+        if (ProviderFailureContinuationPolicy.ShouldPauseRequiredPlanWork(
+                failure.Category,
+                _isPromptRunning,
+                planExecutionActive,
+                thread.AssignedPlanTaskId,
+                thread.RosterIdentityVerified))
+        {
+            var reason =
+                $"Required plan agent {agentLabel} could not complete because {failure.Title}. " +
+                "SquadDash could not recover the provider request and paused the plan without discarding repository work.";
+            _planProviderWaitInterruptionReason = reason;
+            SquadDashTrace.Write(
+                "UI",
+                $"Required plan agent provider throttling is pausing execution task={thread.AssignedPlanTaskId} " +
+                $"agent={thread.AgentName ?? agentLabel} category={failure.Category}");
+
+            SuppressLoopResume("required-plan-agent-provider-wait");
+            DiscardObsoletePlanQueueItems("required-plan-agent-provider-wait");
+            if (IsLoopRunning)
+            {
+                if (_activeLoopMode == LoopMode.NativeAgents)
+                {
+                    _loopController.RequestStop();
+                    _loopFollowUpTcs?.TrySetResult(false);
+                }
+                else
+                {
+                    _ = _bridge.StopLoopAsync();
+                }
+            }
+
+            ScheduleDecomposeSystemEntry(
+                reason + " Resume the preserved plan after provider access is available.");
+            return;
+        }
+
         if (!ProviderFailureContinuationPolicy.ShouldInterruptRequiredPlanWork(
                 failure.Category,
                 _isPromptRunning,
@@ -7018,17 +7055,18 @@ public partial class MainWindow : Window
         var interruptedTaskId = _CodeHealthGroupRunner?.CurrentStepId ?? stoppedExecution?.TaskId;
         var pausedAfterStep = _pausePlanAfterCurrentStepRequested;
         var abortedByUser = _planAbortRequestedByUser;
+        var providerWaitReason = _planProviderWaitInterruptionReason;
         var interruptionResult = PlanInterruptionPersistenceResult.NotNeeded;
         if (!resumeDecision.PreserveExecution && stoppedPlanId is not null)
         {
             interruptionResult = TryInterruptExecutingPlan(
                 stoppedPlanId,
                 interruptedTaskId,
-                pausedAfterStep
+                providerWaitReason ?? (pausedAfterStep
                     ? "Paused by user after the previous task was accepted."
                     : abortedByUser
                         ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
-                    : "Plan execution stopped before the current task was accepted.",
+                    : "Plan execution stopped before the current task was accepted."),
                 stoppedIteration,
                 preferDurableTaskId: true);
             interruptedTaskId = interruptionResult.Plan?.InterruptionData?.InterruptedTaskId
@@ -7065,6 +7103,8 @@ public partial class MainWindow : Window
             ScheduleDecomposeSystemEntry(
                 pausedAfterStep
                     ? $"Plan {newlyInterruptedPlan.Title} paused safely after the completed step. It can be resumed from the Plans panel."
+                    : providerWaitReason is not null
+                        ? $"Plan {newlyInterruptedPlan.PlanId} is preserved at {interruptedTaskId ?? "the current task"} after provider recovery was exhausted. Resume it after provider access is available."
                     : abortedByUser
                         ? $"Plan work was aborted at {interruptedTaskId ?? "the current task"}. Assess the preserved work before continuing."
                     : $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
@@ -7076,9 +7116,9 @@ public partial class MainWindow : Window
                     newlyInterruptedPlan.PlanId,
                     newlyInterruptedPlan.Revision,
                     interruptedTaskId,
-                    abortedByUser
+                    providerWaitReason ?? (abortedByUser
                         ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
-                        : "Plan execution stopped before the current task was accepted.");
+                        : "Plan execution stopped before the current task was accepted."));
         }
         else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
@@ -7113,6 +7153,7 @@ public partial class MainWindow : Window
         _loopResumeSuppressed = false;
         _pausePlanAfterCurrentStepRequested = false;
         _planAbortRequestedByUser = false;
+        _planProviderWaitInterruptionReason = null;
         SoundNotifications.Play(SoundEvent.LoopStopped);
         SyncLoopPanel();
         if (interruptionResult.Outcome != PlanInterruptionPersistenceOutcome.Failed)
@@ -7140,14 +7181,15 @@ public partial class MainWindow : Window
         var blockedTaskId = failureIdentity.TaskId;
         var blockedRevision = failureIdentity.Revision;
         var failedIteration = _loopCurrentIteration;
-        if (!_planAbortRequestedByUser && !branchLeasePause && blockedTaskId is not null && string.Equals(
+        var providerWaitReason = _planProviderWaitInterruptionReason;
+        if (!_planAbortRequestedByUser && providerWaitReason is null && !branchLeasePause && blockedTaskId is not null && string.Equals(
                 _CodeHealthGroupRunner?.CurrentStepId,
                 blockedTaskId,
                 StringComparison.Ordinal))
             _CodeHealthGroupRunner?.MarkCurrentStepFailed();
-        var interruptionReason = _planAbortRequestedByUser
+        var interruptionReason = providerWaitReason ?? (_planAbortRequestedByUser
             ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
-            : msg;
+            : msg);
         var interruptionResult = blockedGroupId is null
             ? PlanInterruptionPersistenceResult.NotNeeded
             : TryInterruptExecutingPlan(
@@ -7172,14 +7214,20 @@ public partial class MainWindow : Window
         _loopResumeSuppressed = false;
         _pausePlanAfterCurrentStepRequested = false;
         AppendLoopOutputLine(
-            _planAbortRequestedByUser
+            providerWaitReason is not null
+                ? "⏸ Plan paused after provider recovery was exhausted; recovery state was preserved."
+                : _planAbortRequestedByUser
                 ? "⏹ Plan work aborted; recovery evidence was preserved."
                 : branchLeasePause
                     ? "⏸ Plan paused before dispatch; the canonical branch needs attention."
                 : $"❌ Loop error: {msg}",
-            _planAbortRequestedByUser || branchLeasePause ? LoopLifecycleBrush : ThemeBrush("SystemErrorText"));
+            providerWaitReason is not null || _planAbortRequestedByUser || branchLeasePause
+                ? LoopLifecycleBrush
+                : ThemeBrush("SystemErrorText"));
         AppendLine(
-            _planAbortRequestedByUser
+            providerWaitReason is not null
+                ? "⏸ Plan paused after provider recovery was exhausted. Resume it after provider access is available."
+                : _planAbortRequestedByUser
                 ? "⏹ Plan work aborted; recovery is available."
                 : branchLeasePause
                     ? "⏸ Plan paused before dispatch. No task was started or failed."
@@ -7200,7 +7248,9 @@ public partial class MainWindow : Window
             blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
         {
             ScheduleDecomposeSystemEntry(
-                _planAbortRequestedByUser
+                providerWaitReason is not null
+                    ? $"Plan {blockedGroupId} is preserved at {blockedTaskId}. Resume it after provider access is available."
+                    : _planAbortRequestedByUser
                     ? $"Plan work was aborted at {blockedTaskId}. Assess the preserved work before continuing."
                     : branchLeasePause
                         ? $"Plan {blockedGroupId} paused before {blockedTaskId} started. {msg}"
@@ -7216,6 +7266,7 @@ public partial class MainWindow : Window
         }
         _planAbortRequestedByUser = false;
         _planBranchLeasePausePending = false;
+        _planProviderWaitInterruptionReason = null;
         if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
             ScheduleDecomposeSystemEntry(

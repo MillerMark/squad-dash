@@ -9,10 +9,10 @@ const SessionIdleTimeoutMs = 60 * 60 * 1000;
 const CopilotAuthenticationLogLookbackMs = 2 * 60 * 1000;
 const CopilotAuthenticationLogReadLimit = 256 * 1024;
 const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
-const NamedAgentThrottleMaxRetries = 3;
-const NamedAgentThrottleMaxTotalDelayMs = 5 * 60 * 1000;
+const NamedAgentThrottleMaxConsecutiveRetries = 4;
+const NamedAgentThrottleMaxConsecutiveDelayMs = 8 * 60 * 1000;
 const NamedAgentThrottleBaseDelayMs = 30 * 1000;
-const NamedAgentThrottleMaxSingleDelayMs = 90 * 1000;
+const NamedAgentThrottleMaxSingleDelayMs = 120 * 1000;
 const NamedAgentThrottleContinuationPrompt = [
     "Continue the delegated task from this existing session after provider throttling.",
     "Keep and use the analysis, repository reads, and tool results already gathered.",
@@ -2005,10 +2005,12 @@ export function computeProviderThrottleDelayMs(
         return minimumDelay + Math.floor(jitterCeiling * boundedRandom);
     }
 
-    const exponentialDelay = Math.min(
+    const steppedDelay = Math.min(
         NamedAgentThrottleMaxSingleDelayMs,
-        NamedAgentThrottleBaseDelayMs * (2 ** Math.max(0, completedRetries)));
-    return exponentialDelay + Math.floor(Math.min(5_000, exponentialDelay * 0.1) * boundedRandom);
+        NamedAgentThrottleBaseDelayMs * (Math.max(0, completedRetries) + 1));
+    return Math.min(
+        NamedAgentThrottleMaxSingleDelayMs,
+        steppedDelay + Math.floor(Math.min(5_000, steppedDelay * 0.1) * boundedRandom));
 }
 
 async function waitForNamedAgentThrottleDelay(
@@ -2967,6 +2969,9 @@ export class SquadBridgeService {
         let totalTokens = 0;
         let retryCount = 0;
         let totalRetryDelayMs = 0;
+        let consecutiveRetryCount = 0;
+        let consecutiveRetryDelayMs = 0;
+        let attemptMadeMeaningfulProgress = false;
         let namedAgentSessionId: string | undefined;
         const lifecycle: SubagentLifecycleInfo = {
             toolCallId: invocation.toolCallId,
@@ -2995,6 +3000,10 @@ export class SquadBridgeService {
             let response: string | undefined;
 
             while (true) {
+                attemptMadeMeaningfulProgress = false;
+                const markMeaningfulProgress = () => {
+                    attemptMadeMeaningfulProgress = true;
+                };
                 try {
                     response = await this.runSessionRequest(
                         attemptPrompt,
@@ -3002,26 +3011,34 @@ export class SquadBridgeService {
                             onSessionReady: session => {
                                 namedAgentSessionId = session.sessionId;
                             },
-                            onThinking: text => this.bridgeHandlers.onSubagentThinkingDelta?.(
-                                invocation.sessionId,
-                                {
-                                    parentToolCallId: invocation.toolCallId,
-                                    agentId: lifecycle.agentId,
-                                    agentName: handle,
-                                    agentDisplayName: route.displayName,
-                                    agentDescription: lifecycle.agentDescription,
-                                    reasoningText: text
-                                }),
-                            onDelta: text => this.bridgeHandlers.onSubagentMessageDelta?.(
-                                invocation.sessionId,
-                                {
-                                    parentToolCallId: invocation.toolCallId,
-                                    agentId: lifecycle.agentId,
-                                    agentName: handle,
-                                    agentDisplayName: route.displayName,
-                                    agentDescription: lifecycle.agentDescription,
-                                    text
-                                }),
+                            onThinking: text => {
+                                if (text.trim().length > 0)
+                                    markMeaningfulProgress();
+                                this.bridgeHandlers.onSubagentThinkingDelta?.(
+                                    invocation.sessionId,
+                                    {
+                                        parentToolCallId: invocation.toolCallId,
+                                        agentId: lifecycle.agentId,
+                                        agentName: handle,
+                                        agentDisplayName: route.displayName,
+                                        agentDescription: lifecycle.agentDescription,
+                                        reasoningText: text
+                                    });
+                            },
+                            onDelta: text => {
+                                if (text.trim().length > 0)
+                                    markMeaningfulProgress();
+                                this.bridgeHandlers.onSubagentMessageDelta?.(
+                                    invocation.sessionId,
+                                    {
+                                        parentToolCallId: invocation.toolCallId,
+                                        agentId: lifecycle.agentId,
+                                        agentName: handle,
+                                        agentDisplayName: route.displayName,
+                                        agentDescription: lifecycle.agentDescription,
+                                        text
+                                    });
+                            },
                             onUsage: usage => {
                                 totalTokens = usage.totalTokens ??
                                     ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
@@ -3029,20 +3046,27 @@ export class SquadBridgeService {
                                     lifecycle.model = usage.model;
                             },
                             onToolStart: tool => {
+                                markMeaningfulProgress();
                                 totalToolCalls++;
                                 this.bridgeHandlers.onSubagentToolStart?.(
                                     invocation.sessionId,
                                     lifecycle,
                                     { ...tool, parentToolCallId: invocation.toolCallId });
                             },
-                            onToolProgress: tool => this.bridgeHandlers.onSubagentToolProgress?.(
-                                invocation.sessionId,
-                                lifecycle,
-                                { ...tool, parentToolCallId: invocation.toolCallId }),
-                            onToolComplete: tool => this.bridgeHandlers.onSubagentToolComplete?.(
-                                invocation.sessionId,
-                                lifecycle,
-                                { ...tool, parentToolCallId: invocation.toolCallId })
+                            onToolProgress: tool => {
+                                markMeaningfulProgress();
+                                this.bridgeHandlers.onSubagentToolProgress?.(
+                                    invocation.sessionId,
+                                    lifecycle,
+                                    { ...tool, parentToolCallId: invocation.toolCallId });
+                            },
+                            onToolComplete: tool => {
+                                markMeaningfulProgress();
+                                this.bridgeHandlers.onSubagentToolComplete?.(
+                                    invocation.sessionId,
+                                    lifecycle,
+                                    { ...tool, parentToolCallId: invocation.toolCallId });
+                            }
                         },
                         {
                             cwd: outerOptions.cwd,
@@ -3058,11 +3082,28 @@ export class SquadBridgeService {
                 }
                 catch (error) {
                     const throttle = analyzeProviderThrottle(error);
-                    if (!throttle.retryable || !namedAgentSessionId || retryCount >= NamedAgentThrottleMaxRetries)
+                    if (!throttle.retryable || !namedAgentSessionId)
                         throw error;
 
-                    const retryDelayMs = computeProviderThrottleDelayMs(throttle, retryCount);
-                    const remainingDelayBudgetMs = NamedAgentThrottleMaxTotalDelayMs - totalRetryDelayMs;
+                    if (attemptMadeMeaningfulProgress && consecutiveRetryCount > 0) {
+                        bridgeDiagnostic("namedAgent:throttle-streak-reset", {
+                            toolCallId: invocation.toolCallId,
+                            agent: handle,
+                            namedAgentSessionId,
+                            completedConsecutiveRetries: consecutiveRetryCount,
+                            completedConsecutiveDelayMs: consecutiveRetryDelayMs,
+                            totalRetryCount: retryCount,
+                            totalRetryDelayMs
+                        });
+                        consecutiveRetryCount = 0;
+                        consecutiveRetryDelayMs = 0;
+                    }
+
+                    if (consecutiveRetryCount >= NamedAgentThrottleMaxConsecutiveRetries)
+                        throw error;
+
+                    const retryDelayMs = computeProviderThrottleDelayMs(throttle, consecutiveRetryCount);
+                    const remainingDelayBudgetMs = NamedAgentThrottleMaxConsecutiveDelayMs - consecutiveRetryDelayMs;
                     if (remainingDelayBudgetMs <= 0 ||
                         (throttle.retryAfterMs !== undefined && retryDelayMs > remainingDelayBudgetMs)) {
                         throw error;
@@ -3070,14 +3111,17 @@ export class SquadBridgeService {
 
                     const boundedRetryDelayMs = Math.min(retryDelayMs, remainingDelayBudgetMs);
                     retryCount++;
+                    consecutiveRetryCount++;
                     totalRetryDelayMs += boundedRetryDelayMs;
+                    consecutiveRetryDelayMs += boundedRetryDelayMs;
                     const retryAt = new Date(Date.now() + boundedRetryDelayMs).toISOString();
                     const message = extractErrorMessage(error);
                     bridgeDiagnostic("namedAgent:throttled", {
                         toolCallId: invocation.toolCallId,
                         agent: handle,
                         namedAgentSessionId,
-                        retryCount,
+                        retryCount: consecutiveRetryCount,
+                        totalRetryCount: retryCount,
                         retryDelayMs: boundedRetryDelayMs,
                         totalRetryDelayMs,
                         retryAt,
@@ -3089,7 +3133,7 @@ export class SquadBridgeService {
                         totalToolCalls,
                         totalTokens,
                         durationMs: Date.now() - startedAt,
-                        retryCount,
+                        retryCount: consecutiveRetryCount,
                         retryDelayMs: boundedRetryDelayMs,
                         totalRetryDelayMs,
                         retryAt
