@@ -445,6 +445,48 @@ internal sealed class SquadCliResolutionServiceTests
         });
     }
 
+    [Test]
+    public async Task ProbeVersionAsync_NpmShim_UsesCanonicalCmdQuoteTokenForExecutablePath()
+    {
+        var shimPath = @"C:\tools\shim folder\squad&shim.cmd";
+        var expectedInvocation = $"{CliCmdEscaping.CmdQuoteToken(shimPath)} --version";
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["/d", "/s", "/c", expectedInvocation]))
+            {
+                return new CliInvocationResult(0, "0.9.9", string.Empty, false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            {
+                return new CliInvocationResult(0, "1.0.0", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+
+        var service = new SquadCliResolutionService(
+            runner,
+            new FakeEnvironmentProvider(processPath: null, userPath: null, machinePath: null));
+        var candidate = new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.GlobalNpm,
+            RuntimeType: CliRuntimeType.NpmShim,
+            ExecutablePath: shimPath,
+            EntryScriptPath: null,
+            Version: null,
+            IsAvailable: true,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
+        var probed = await service.ProbeVersionAsync(candidate);
+
+        Assert.That(probed.Version, Is.EqualTo("0.9.9"));
+    }
+
     private sealed class FakeEnvironmentProvider : IEnvironmentProvider
     {
         private readonly string? _processPath;

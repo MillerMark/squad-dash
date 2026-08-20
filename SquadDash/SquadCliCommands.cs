@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+
 namespace SquadDash;
 
 internal static class SquadCliCommands {
@@ -38,6 +43,73 @@ internal static class SquadCliCommands {
 
     public static SquadCliCommandDefinition DiscoverSquads { get; } =
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
+
+    internal static ProcessStartInfo BuildCommandStartInfo(
+        ResolvedCliCandidate candidate,
+        string workingDirectory,
+        IReadOnlyList<string> commandArguments)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(workingDirectory);
+        ArgumentNullException.ThrowIfNull(commandArguments);
+
+        var startInfo = new ProcessStartInfo
+        {
+            WorkingDirectory = workingDirectory
+        };
+
+        switch (candidate.RuntimeType)
+        {
+            case CliRuntimeType.NpmShim:
+                startInfo.FileName = "cmd.exe";
+                startInfo.ArgumentList.Add("/d");
+                startInfo.ArgumentList.Add("/s");
+                startInfo.ArgumentList.Add("/c");
+                startInfo.ArgumentList.Add(BuildCmdInvocation(candidate.ExecutablePath, commandArguments));
+                break;
+            case CliRuntimeType.NodeScript:
+                if (string.IsNullOrWhiteSpace(candidate.EntryScriptPath))
+                {
+                    throw new InvalidOperationException("NodeScript runtime requires EntryScriptPath.");
+                }
+
+                startInfo.FileName = candidate.ExecutablePath;
+                startInfo.ArgumentList.Add(candidate.EntryScriptPath);
+                AddArgumentTokens(startInfo, commandArguments);
+                break;
+            case CliRuntimeType.NativeExecutable:
+                startInfo.FileName = candidate.ExecutablePath;
+                AddArgumentTokens(startInfo, commandArguments);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported CLI runtime type: {candidate.RuntimeType}.");
+        }
+
+        return startInfo;
+    }
+
+    internal static ProcessStartInfo BuildCommandStartInfo(
+        ResolvedCliCandidate candidate,
+        string workingDirectory,
+        params string[] commandArguments)
+    {
+        return BuildCommandStartInfo(candidate, workingDirectory, (IReadOnlyList<string>)commandArguments);
+    }
+
+    private static string BuildCmdInvocation(string executablePath, IReadOnlyList<string> commandArguments)
+    {
+        var allTokens = new List<string>(commandArguments.Count + 1) { executablePath };
+        allTokens.AddRange(commandArguments);
+        return string.Join(" ", allTokens.Select(CliCmdEscaping.CmdQuoteToken));
+    }
+
+    private static void AddArgumentTokens(ProcessStartInfo startInfo, IReadOnlyList<string> commandArguments)
+    {
+        foreach (var argument in commandArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+    }
 }
 
 internal sealed record SquadCliCommandDefinition(
