@@ -28,6 +28,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private PendingDecomposePlan? _plan;
     private Plan? _durablePlan;
     private IReadOnlyList<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>? _visualizationGates;
+    private IReadOnlyList<IReadOnlyList<ConnectorGroup>>? _visualizationGateConnectorGroups;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -1372,6 +1373,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var entry in positions)
             _taskCardPositions[entry.Key] = entry.Value;
 
+        _visualizationGateConnectorGroups = null;
+
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
         // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
         var gatedGroups = group.Tasks
@@ -2219,6 +2222,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var capturedBadge    = badge;
             _deferredBadgeHovers.Add((capturedBadge, capturedGateCgs));
         }
+
+        _visualizationGateConnectorGroups = gateConnectorGroups
+            .Select(list => (IReadOnlyList<ConnectorGroup>)list.AsReadOnly())
+            .ToList();
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
         var avatarChipsByAgent = new Dictionary<string, List<Border>>(StringComparer.OrdinalIgnoreCase);
@@ -8259,9 +8266,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
-        // Keep impacted ALL gate badges centered on the live mean midpoint of all
-        // connected tasks while drag displacement is in effect.
-        if (_visualizationGates is { Count: > 0 } gates)
+        // Reposition ALL gate badges whose connected tasks moved.
+        if (_visualizationGates is { Count: > 0 } gates && _graphCanvas is not null)
         {
             for (var gi = 0; gi < gates.Count; gi++)
             {
@@ -8301,6 +8307,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     continue;
 
                 var liveCenterY = connectedMidpointYSum / connectedTaskCount;
+
+                // Move the badge element.
                 var gateTag = $"alljoin:{gi}";
                 foreach (var child in _graphCanvas.Children.OfType<FrameworkElement>())
                 {
@@ -8309,6 +8317,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         Canvas.SetTop(child, liveCenterY - 17 * _scaleFactor);
                         break;
+                    }
+                }
+
+                // Update connector endpoints so arrows follow the badge.
+                if (_visualizationGateConnectorGroups is not null && gi < _visualizationGateConnectorGroups.Count)
+                {
+                    foreach (var cg in _visualizationGateConnectorGroups[gi])
+                    {
+                        var currentFrom = cg.CurrentFrom;
+                        var currentTo   = cg.CurrentTo;
+
+                        // Incoming connectors have their To endpoint at the badge's left face (X = gateCenter.X - 29).
+                        // Outgoing connectors have their From endpoint at the badge's right face (X = gateCenter.X + 29).
+                        // Distinguish by comparing endpoint X to gate center offsets.
+                        if (Math.Abs(currentTo.X - (gate.Center.X - 29)) < 1.0)
+                        {
+                            // Incoming: update To to new Y
+                            cg.UpdateEndpoints(currentFrom, new Point(currentTo.X, liveCenterY));
+                        }
+                        else if (Math.Abs(currentFrom.X - (gate.Center.X + 29)) < 1.0)
+                        {
+                            // Outgoing: update From to new Y
+                            cg.UpdateEndpoints(new Point(currentFrom.X, liveCenterY), currentTo);
+                        }
                     }
                 }
             }
