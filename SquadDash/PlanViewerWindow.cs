@@ -84,7 +84,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
     private TextBlock? _inspectorEditorStatus;
-    private FrameworkElement? _approvalSummary;
     private FrameworkElement? _header;
     private FrameworkElement? _readingHint;
     private double _canvasContentWidth;
@@ -92,7 +91,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _activeVisibilityStart = double.NaN;
     private double _activeVisibilityEnd = double.NaN;
     private AutomaticScrollTarget _automaticScrollTarget;
-    private double _allocatedApprovalHeight;
     private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
     private bool _initialLayoutApplied;
     private StagedPlanEditHistory? _editHistory;
@@ -431,10 +429,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
         var currentBuildSeq = ++_buildSeq;
-        var previousApprovalHeight = _approvalSummary is { ActualHeight: > 0 } currentSummary
-            ? currentSummary.ActualHeight
-            : _allocatedApprovalHeight;
-        _approvalSummary = null;
         _preflightPollTimer?.Stop();
         _preflightPollTimer = null;
         _plan = plan;
@@ -466,7 +460,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 2) };
@@ -3466,30 +3459,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _canvasContentHeight = canvas.Height;
         ResolveAutomaticScrollTarget(durablePlan, levels, positions, canvas.Margin.Left);
 
-        if (durablePlan is not null)
-        {
-            var approvalSummary = BuildApprovalSummaryPanel(
-                durablePlan,
-                levels,
-                quickReplyFontSize);
-            Grid.SetRow(approvalSummary, 3);
-            approvalSummary.Visibility = Visibility.Visible;
-            approvalSummary.MaxHeight = 0;
-            root.Children.Add(approvalSummary);
-            _approvalSummary = approvalSummary;
-
-            if (_initialLayoutApplied)
-            {
-                Dispatcher.BeginInvoke(
-                    () => ResizeForApprovalSummary(approvalSummary, previousApprovalHeight),
-                    System.Windows.Threading.DispatcherPriority.Render);
-            }
-        }
-        else if (_initialLayoutApplied && previousApprovalHeight > 0)
-        {
-            Height = Math.Max(MinHeight, ActualHeight - previousApprovalHeight);
-            _allocatedApprovalHeight = 0;
-        }
     }
 
     private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
@@ -4196,143 +4165,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             spinner.AccentColor = taskSpinnerColor;
     }
 
-    private static FrameworkElement BuildApprovalSummaryPanel(
-        Plan plan,
-        IReadOnlyDictionary<string, int> levels,
-        double contentFontSize)
-    {
-        var title = new TextBlock
-        {
-            Text = "Human approval requirements",
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(10, 7, 10, 3),
-        };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        title.FontSize = contentFontSize;
-
-        var document = new FlowDocument
-        {
-            PagePadding = new Thickness(10, 2, 10, 8),
-            ColumnWidth = double.PositiveInfinity,
-            FontFamily  = new FontFamily("Segoe UI, Segoe UI Emoji"),
-        };
-        document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
-        document.SetResourceReference(FlowDocument.BackgroundProperty, "CardSurface");
-        document.FontSize = contentFontSize;
-
-        string TaskName(string id) => plan.Tasks.FirstOrDefault(task =>
-            string.Equals(task.TaskId, id, StringComparison.Ordinal)) is { } task
-                ? task.Title ?? task.Description
-                : id;
-
-        static Paragraph Sentence(string prefix, string boldText, string suffix)
-        {
-            var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
-            paragraph.Inlines.Add(new Run(prefix));
-            paragraph.Inlines.Add(new Bold(new Run(boldText)));
-            paragraph.Inlines.Add(new Run(suffix));
-            return paragraph;
-        }
-
-        System.Windows.Documents.List TaskList(IEnumerable<string> taskIds)
-        {
-            var list = new System.Windows.Documents.List
-            {
-                MarkerStyle = TextMarkerStyle.Disc,
-                Margin = new Thickness(20, 1, 0, 2),
-            };
-            foreach (var taskId in taskIds)
-            {
-                var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
-                paragraph.Inlines.Add(new Bold(new Run(TaskName(taskId))));
-                list.ListItems.Add(new ListItem(paragraph));
-            }
-            return list;
-        }
-
-        var summary = PlanApprovalSummaryBuilder.Build(plan, levels);
-        if (plan.ApprovalGates.Count == 0)
-        {
-            document.Blocks.Add(new Paragraph(new Run("No human approval requirements."))
-                { Margin = new Thickness(0) });
-        }
-        else if (summary.BetweenEveryStage)
-        {
-            document.Blocks.Add(new Paragraph(new Run(
-                "Human approval will be required between every stage.")) { Margin = new Thickness(0) });
-        }
-        else
-        {
-            var list = new System.Windows.Documents.List
-            {
-                MarkerStyle = TextMarkerStyle.Disc,
-                Margin = new Thickness(18, 0, 0, 0),
-            };
-            foreach (var item in summary.Items)
-            {
-                var listItem = new ListItem();
-                switch (item.Kind)
-                {
-                    case ApprovalSummaryKind.TaskBefore:
-                        listItem.Blocks.Add(Sentence("Before ", TaskName(item.TaskId!), " starts."));
-                        break;
-                    case ApprovalSummaryKind.TaskAfter:
-                        listItem.Blocks.Add(Sentence("After ", TaskName(item.TaskId!), " completes."));
-                        break;
-                    case ApprovalSummaryKind.Stage:
-                        listItem.Blocks.Add(new Paragraph(new Run(
-                            $"After Stage {item.LeftStage} completes and before Stage {item.LeftStage + 1} begins."))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        break;
-                    case ApprovalSummaryKind.All:
-                        listItem.Blocks.Add(new Paragraph(new Run("After all the following steps complete:"))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
-                        break;
-                    default:
-                        listItem.Blocks.Add(new Paragraph(new Run("Approval after:"))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
-                        listItem.Blocks.Add(new Paragraph(new Run("Before:"))
-                            { Margin = new Thickness(0, 2, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.BeforeTaskIds));
-                        break;
-                }
-                list.ListItems.Add(listItem);
-            }
-            document.Blocks.Add(list);
-        }
-
-        var viewer = new FlowDocumentScrollViewer
-        {
-            Document = document,
-            IsToolBarVisible = false,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Margin = new Thickness(0),
-            Padding = new Thickness(0),
-        };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
-        viewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "LabelText");
-        viewer.FontSize = contentFontSize;
-
-        var stack = new DockPanel();
-        DockPanel.SetDock(title, Dock.Top);
-        stack.Children.Add(title);
-        stack.Children.Add(viewer);
-
-        var border = new Border
-        {
-            Child = stack,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Margin = new Thickness(8, 0, 8, 8),
-        };
-        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-        border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-        return border;
-    }
-
     private void OnInitialContentRendered(object? sender, EventArgs e)
     {
         ContentRendered -= OnInitialContentRendered;
@@ -4356,66 +4188,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Width = Math.Min(workArea.Width, Math.Max(MinWidth, idealWidth));
         UpdateLayout();
 
-        var approvalHeight = _approvalSummary is null
-            ? 0
-            : MeasureApprovalSummaryHeight(_approvalSummary);
         var fixedHeight = CloseButtonHeight + windowBorderInsets +
                           (_header?.DesiredSize.Height ?? 0) +
                           _canvasContentHeight + canvasVerticalInsets +
                           (_readingHint?.DesiredSize.Height ?? 0);
-        var idealHeight = fixedHeight + approvalHeight;
-        Height = Math.Min(workArea.Height, Math.Max(MinHeight, idealHeight));
-
-        var approvalSpace = Math.Max(0, Height - fixedHeight);
-        var allocatedApprovalHeight = Math.Min(approvalHeight, approvalSpace);
-        if (_approvalSummary is not null)
-        {
-            var showsFullSummary = allocatedApprovalHeight >= approvalHeight - 0.5;
-            if (!showsFullSummary)
-                allocatedApprovalHeight = Math.Min(170, allocatedApprovalHeight);
-            _approvalSummary.MaxHeight = showsFullSummary
-                ? double.PositiveInfinity
-                : allocatedApprovalHeight;
-        }
-        _allocatedApprovalHeight = allocatedApprovalHeight;
+        Height = Math.Min(workArea.Height, Math.Max(MinHeight, fixedHeight));
 
         KeepWindowInside(workArea);
         UpdateLayout();
-    }
-
-    private void ResizeForApprovalSummary(FrameworkElement approvalSummary, double previousHeight)
-    {
-        if (!ReferenceEquals(_approvalSummary, approvalSummary))
-            return;
-
-        var desiredHeight = MeasureApprovalSummaryHeight(approvalSummary);
-        var workArea = GetLogicalWorkArea();
-        var availableBelow = Math.Max(0, workArea.Bottom - (Top + ActualHeight));
-        var canAllocate = Math.Max(0, previousHeight + availableBelow);
-        var showsFullSummary = desiredHeight <= canAllocate + 0.5;
-        var targetHeight = showsFullSummary
-            ? desiredHeight
-            : Math.Min(170, canAllocate);
-
-        var heightDelta = targetHeight - previousHeight;
-        if (Math.Abs(heightDelta) > 0.5)
-            Height = Math.Min(workArea.Height, Math.Max(MinHeight, ActualHeight + heightDelta));
-
-        approvalSummary.MaxHeight = showsFullSummary
-            ? double.PositiveInfinity
-            : targetHeight;
-        _allocatedApprovalHeight = targetHeight;
-        UpdateLayout();
-    }
-
-    private double MeasureApprovalSummaryHeight(FrameworkElement approvalSummary)
-    {
-        approvalSummary.Visibility = Visibility.Visible;
-        approvalSummary.MaxHeight = double.PositiveInfinity;
-        approvalSummary.Measure(new Size(Math.Max(1, ActualWidth - 16), double.PositiveInfinity));
-        var desiredHeight = approvalSummary.DesiredSize.Height;
-        approvalSummary.MaxHeight = 0;
-        return Math.Max(0, desiredHeight);
     }
 
     private Rect GetLogicalWorkArea()
