@@ -5704,7 +5704,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(durableTask)
                 || PlanTaskExecutionPolicy.IsVerificationOnly(decomposedTask);
             var taskTitle = durableTask?.Title ?? decomposedTask?.Title ?? taskId;
-            PopulateVerificationDetail(taskTitle, taskId, verificationLevel, verificationOnly);
+            PopulateVerificationDetail(taskTitle, taskId, verificationLevel, verificationOnly, durableTask);
         }
         else if (_selectedElement.Kind == "gate")
         {
@@ -6807,7 +6807,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
     }
 
-    private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly)
+    private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly, PlanTask? durableTask = null)
     {
         if (_detailDocument is null)
             return;
@@ -6852,58 +6852,180 @@ internal sealed class PlanViewerWindow : ChromedWindow
         levelPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(levelPara);
 
-        AddSectionHeader("Assigned To");
-        var whoPara = new Paragraph(new Run("Fact Checker (Verity Cross) — a non-mutating independent review agent."));
-        whoPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-        whoPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-        whoPara.Margin = new Thickness(0, 0, 0, 12);
-        _detailDocument.Blocks.Add(whoPara);
-
-        AddSectionHeader("Instructions Sent to Verifier");
-
-        string instructions = verificationLevel switch
+        if (durableTask?.VerificationHistory is { Count: > 0 } history)
         {
-            PlanTaskVerificationLevel.Enhanced =>
-                "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, " +
-                "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
-                "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
-                "broken while the reported tests still pass.",
-            PlanTaskVerificationLevel.Lightweight =>
-                "Perform a lightweight review: validate the task-owned claims against the actual diff, production " +
-                "wiring, and tests. (Note: lightweight verification may be upgraded to standard if critical files " +
-                "or security-sensitive paths were changed.)",
-            _ =>
-                "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
-                "production wiring, and tests.",
-        };
-        var instrPara = new Paragraph(new Run(instructions));
-        instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-        instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-        instrPara.Margin = new Thickness(0, 0, 0, 12);
-        _detailDocument.Blocks.Add(instrPara);
+            foreach (var report in history)
+            {
+                var verdictColorKey = report.Verdict.Equals("accepted", StringComparison.OrdinalIgnoreCase)
+                    ? "PriorityLow" : "PriorityHigh";
+                var verdictPara = new Paragraph();
+                var verdictRun = new Run($"● {report.Verdict}") { FontWeight = FontWeights.SemiBold };
+                verdictRun.SetResourceReference(TextElement.ForegroundProperty, verdictColorKey);
+                verdictPara.Inlines.Add(verdictRun);
+                verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt:yyyy-MM-dd HH:mm} UTC)"));
+                verdictPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                verdictPara.Margin = new Thickness(0, 0, 0, 4);
+                _detailDocument.Blocks.Add(verdictPara);
 
-        AddSectionHeader("Possible Outcomes");
-        var verdictList = new System.Windows.Documents.List();
-        verdictList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-        verdictList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-        verdictList.MarkerStyle = TextMarkerStyle.None;
-        verdictList.Margin = new Thickness(0, 0, 0, 8);
-        foreach (var (verdict, desc) in new (string, string)[]
-        {
-            ("accepted", "Every material claim is supported. Task moves to complete."),
-            ("rework-required", "A clear, bounded defect was found. Task is sent back."),
-            ("human-review-required", "Evidence is incomplete or intent is ambiguous. Flagged for human judgment."),
-        })
-        {
-            var p = new Paragraph();
-            var bulletRun = new Run("• ");
-            bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            p.Inlines.Add(bulletRun);
-            p.Inlines.Add(new Run($"{verdict}: ") { FontWeight = FontWeights.SemiBold });
-            p.Inlines.Add(new Run(desc));
-            verdictList.ListItems.Add(new ListItem(p));
+                if (!string.IsNullOrWhiteSpace(report.EvaluatedCommit))
+                {
+                    var commitPara = new Paragraph(new Run($"Evaluated at commit: {report.EvaluatedCommit}")
+                    {
+                        FontFamily = new FontFamily("Consolas"),
+                    });
+                    commitPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                    commitPara.Margin = new Thickness(0, 0, 0, 4);
+                    _detailDocument.Blocks.Add(commitPara);
+                }
+
+                if (!string.IsNullOrWhiteSpace(report.Summary))
+                {
+                    AddSectionHeader("Summary");
+                    var summaryPara = new Paragraph(new Run(report.Summary));
+                    summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    summaryPara.Margin = new Thickness(0, 0, 0, 8);
+                    _detailDocument.Blocks.Add(summaryPara);
+                }
+
+                if (report.ClaimFindings is { Count: > 0 })
+                {
+                    AddSectionHeader("Claim Findings");
+                    var findingList = new System.Windows.Documents.List();
+                    findingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    findingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    findingList.MarkerStyle = TextMarkerStyle.None;
+                    findingList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var finding in report.ClaimFindings)
+                    {
+                        var isConfirmed = finding.Disposition.Equals("confirmed", StringComparison.OrdinalIgnoreCase);
+                        var dispositionColor = isConfirmed ? "PriorityLow" : "PriorityMid";
+                        var fPara = new Paragraph();
+                        var indicator = isConfirmed ? "✓ " : "✗ ";
+                        var indicatorRun = new Run(indicator);
+                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, dispositionColor);
+                        fPara.Inlines.Add(indicatorRun);
+                        fPara.Inlines.Add(new Run(finding.Claim));
+                        if (!string.IsNullOrWhiteSpace(finding.Evidence))
+                        {
+                            fPara.Inlines.Add(new LineBreak());
+                            var evidenceRun = new Run("    " + finding.Evidence) { FontStyle = FontStyles.Italic };
+                            evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                            evidenceRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                            fPara.Inlines.Add(evidenceRun);
+                        }
+                        findingList.ListItems.Add(new ListItem(fPara));
+                    }
+                    _detailDocument.Blocks.Add(findingList);
+                }
+
+                if (report.MissingOrOverstatedWork is { Count: > 0 })
+                {
+                    AddSectionHeader("Missing or Overstated Work");
+                    var missingList = new System.Windows.Documents.List();
+                    missingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    missingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    missingList.MarkerStyle = TextMarkerStyle.None;
+                    missingList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var item in report.MissingOrOverstatedWork)
+                    {
+                        var mPara = new Paragraph();
+                        var bulletRun = new Run("• ");
+                        bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        mPara.Inlines.Add(bulletRun);
+                        mPara.Inlines.Add(new Run(item));
+                        missingList.ListItems.Add(new ListItem(mPara));
+                    }
+                    _detailDocument.Blocks.Add(missingList);
+                }
+
+                if (!string.IsNullOrWhiteSpace(report.TestAssessment))
+                {
+                    AddSectionHeader("Test Assessment");
+                    var testPara = new Paragraph(new Run(report.TestAssessment));
+                    testPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    testPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    testPara.Margin = new Thickness(0, 0, 0, 8);
+                    _detailDocument.Blocks.Add(testPara);
+                }
+
+                if (report.ReworkInstructions is { Count: > 0 })
+                {
+                    AddSectionHeader("Rework Instructions");
+                    var reworkList = new System.Windows.Documents.List();
+                    reworkList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    reworkList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    reworkList.MarkerStyle = TextMarkerStyle.None;
+                    reworkList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var rw in report.ReworkInstructions)
+                    {
+                        var rPara = new Paragraph();
+                        var bulletRun = new Run("• ");
+                        bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        rPara.Inlines.Add(bulletRun);
+                        rPara.Inlines.Add(new Run(rw));
+                        reworkList.ListItems.Add(new ListItem(rPara));
+                    }
+                    _detailDocument.Blocks.Add(reworkList);
+                }
+            }
         }
-        _detailDocument.Blocks.Add(verdictList);
+        else
+        {
+            AddSectionHeader("Assigned To");
+            var whoPara = new Paragraph(new Run("Fact Checker (Verity Cross) — a non-mutating independent review agent."));
+            whoPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            whoPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            whoPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(whoPara);
+
+            AddSectionHeader("Instructions Sent to Verifier");
+
+            string instructions = verificationLevel switch
+            {
+                PlanTaskVerificationLevel.Enhanced =>
+                    "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, " +
+                    "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
+                    "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
+                    "broken while the reported tests still pass.",
+                PlanTaskVerificationLevel.Lightweight =>
+                    "Perform a lightweight review: validate the task-owned claims against the actual diff, production " +
+                    "wiring, and tests. (Note: lightweight verification may be upgraded to standard if critical files " +
+                    "or security-sensitive paths were changed.)",
+                _ =>
+                    "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
+                    "production wiring, and tests.",
+            };
+            var instrPara = new Paragraph(new Run(instructions));
+            instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            instrPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(instrPara);
+
+            AddSectionHeader("Possible Outcomes");
+            var verdictList = new System.Windows.Documents.List();
+            verdictList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            verdictList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            verdictList.MarkerStyle = TextMarkerStyle.None;
+            verdictList.Margin = new Thickness(0, 0, 0, 8);
+            foreach (var (verdict, desc) in new (string, string)[]
+            {
+                ("accepted", "Every material claim is supported. Task moves to complete."),
+                ("rework-required", "A clear, bounded defect was found. Task is sent back."),
+                ("human-review-required", "Evidence is incomplete or intent is ambiguous. Flagged for human judgment."),
+            })
+            {
+                var p = new Paragraph();
+                var bulletRun = new Run("• ");
+                bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                p.Inlines.Add(bulletRun);
+                p.Inlines.Add(new Run($"{verdict}: ") { FontWeight = FontWeights.SemiBold });
+                p.Inlines.Add(new Run(desc));
+                verdictList.ListItems.Add(new ListItem(p));
+            }
+            _detailDocument.Blocks.Add(verdictList);
+        }
 
         PrependInspectorToolbar();
     }
