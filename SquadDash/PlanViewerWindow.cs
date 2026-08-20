@@ -159,7 +159,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
-    private (Border border, Thickness originalThickness, Thickness originalMargin)? _selectionBorderState;
+    private (Border border, Thickness original)? _selectionBorderState;
     private FrameworkElement? _selectionGlowElement;
     private TaskCardDragState? _taskCardDragState;
     private CommittedColumnReorder? _lastCommittedColumnOrder;
@@ -5632,16 +5632,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (_selectedElement.Kind is "task" or "gate" && target is Border border)
         {
-            // Grow the border outward via a negative margin so the inner content area
-            // (padding + children) is completely unaffected and text does not re-wrap.
-            _selectionBorderState = (border, border.BorderThickness, border.Margin);
-            var increase = border.BorderThickness.Left; // uniform 1.25px thickness
-            border.BorderThickness = new Thickness(border.BorderThickness.Left + increase);
-            border.Margin = new Thickness(
-                border.Margin.Left   - increase,
-                border.Margin.Top    - increase,
-                border.Margin.Right  - increase,
-                border.Margin.Bottom - increase);
+            // Draw a selection ring as a canvas sibling so the card itself is never
+            // modified — no thickness change, no margin change, no content reflow.
+            var thickness = border.BorderThickness.Left; // cards use uniform thickness
+            var overlay = new Border
+            {
+                Width            = (border.ActualWidth  > 0 ? border.ActualWidth  : border.Width)  + 2 * thickness,
+                Height           = (border.ActualHeight > 0 ? border.ActualHeight : border.Height) + 2 * thickness,
+                CornerRadius     = border.CornerRadius,
+                BorderThickness  = new Thickness(thickness * 2),
+                BorderBrush      = border.BorderBrush,
+                Background       = Brushes.Transparent,
+                IsHitTestVisible = false,
+            };
+            var left = Canvas.GetLeft(target);
+            var top  = Canvas.GetTop(target);
+            Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - thickness);
+            Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - thickness);
+            Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
+            _graphCanvas.Children.Add(overlay);
+            _selectionGlowElement = overlay;
         }
         else
         {
@@ -5667,10 +5677,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     // Restores previous element to its default visual state.
     private void ClearSelectionVisual()
     {
-        if (_selectionBorderState is var (border, originalThickness, originalMargin))
+        if (_selectionBorderState is var (border, original))
         {
-            border.BorderThickness = originalThickness;
-            border.Margin = originalMargin;
+            border.BorderThickness = original;
             _selectionBorderState = null;
         }
         if (_selectionGlowElement is not null && _graphCanvas is not null)
