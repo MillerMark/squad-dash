@@ -2817,7 +2817,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"task:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + 6 * _scaleFactor);
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + 3 * _scaleFactor);
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 22);
             canvas.Children.Add(verificationIndicator);
