@@ -58,6 +58,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
+    private readonly Action<Dictionary<string, double>>? _saveLayoutNudges;
     private readonly Action<Plan, string>? _onRetryValidation;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -159,6 +160,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
+    private Dictionary<string, double> _taskNudges = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _naturalTaskSlotTops = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
     private readonly List<ValidationShieldPresenter.LayoutRect> _allClusterFootprints = [];
     private readonly List<double> _lockedMilestoneBoundaryXs = [];
@@ -199,6 +202,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
+        Action<Dictionary<string, double>>? saveLayoutNudges = null,
         Action<Plan, string>? onRetryValidation = null)
         : base(
             captionHeight: CloseButtonHeight,
@@ -243,6 +247,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
+        _saveLayoutNudges = saveLayoutNudges;
         _onRetryValidation = onRetryValidation;
         if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
@@ -1300,6 +1305,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return task is null ? null : FindDurableGate(task.DependsOn, [taskId]);
         }
 
+        _naturalTaskSlotTops.Clear();
         foreach (var column in columns)
         {
             var tasks = column.ToArray();
@@ -1340,7 +1346,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     ? Math.Round(BaseNodeHeight * 0.375 * _scaleFactor)
                     : 0.0;
                 nextY += avatarOffset;
-                positions[tasks[row].Id] = new Point(x, nextY);
+                _naturalTaskSlotTops[tasks[row].Id] = nextY;
+
+                var nudgedY = nextY;
+                if (_taskNudges.TryGetValue(tasks[row].Id, out var nudgeLineHeights) &&
+                    nudgeLineHeights != 0.0)
+                {
+                    var fontSizeBody = _scaleFactor * 12.0;
+                    nudgedY = nextY + nudgeLineHeights * fontSizeBody;
+                    var minY = row == 0
+                        ? graphTop
+                        : positions[tasks[row - 1].Id].Y + NodeHeight + NodeHeight * 0.1 * _scaleFactor;
+                    nudgedY = Math.Max(nudgedY, minY);
+                }
+
+                positions[tasks[row].Id] = new Point(x, nudgedY);
                 var attachedCount = validationAnchors.Values.Count(anchor =>
                     anchor.TaskId is not null &&
                     string.Equals(anchor.TaskId, tasks[row].Id, StringComparison.Ordinal));
@@ -6192,6 +6212,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             RefreshDetailPanel();
     }
 
+    internal void SetLayoutNudges(Dictionary<string, double> nudges)
+    {
+        _taskNudges = new Dictionary<string, double>(nudges, StringComparer.Ordinal);
+        if (_plan is not null)
+            RebuildPreservingScroll(_plan, _durablePlan);
+    }
+
     internal void SetReviewRequestError(string error)
     {
         _isAiReviewPending = false;
@@ -8704,6 +8731,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 dragState.ColumnIdentifier,
                 dragState.CurrentColumnOrder.ToArray());
             PersistCommittedTaskCardReorder();
+        }
+
+        var committedTop = Canvas.GetTop(dragState.Element);
+        if (!double.IsNaN(committedTop) &&
+            _naturalTaskSlotTops.TryGetValue(dragState.TaskId, out var naturalTop))
+        {
+            var fontSizeBody = _scaleFactor * 12.0;
+            var nudgeLineHeights = (committedTop - naturalTop) / fontSizeBody;
+            if (Math.Abs(nudgeLineHeights) < 0.05)
+                nudgeLineHeights = 0.0;
+
+            if (nudgeLineHeights == 0.0)
+                _taskNudges.Remove(dragState.TaskId);
+            else
+                _taskNudges[dragState.TaskId] = nudgeLineHeights;
+
+            _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
         }
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;

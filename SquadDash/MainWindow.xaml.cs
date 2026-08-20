@@ -12162,9 +12162,12 @@ public partial class MainWindow : Window
                   {
                       var store = new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath);
                       if (review is null) store.Delete(groupId);
-                      else store.Save(review);
-                  }
+                       else store.Save(review);
+                   }
                 : null;
+        Action<Dictionary<string, double>>? saveLayoutNudges = _currentWorkspace is not null
+            ? nudges => new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath).Save(groupId, nudges)
+            : null;
         win = new PlanViewerWindow(
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
@@ -12205,6 +12208,7 @@ public partial class MainWindow : Window
             saveDefinitionEdit: saveDefinitionEdit,
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState,
+            saveLayoutNudges: saveLayoutNudges,
             onRetryValidation: (current, validationId) =>
                 _ = RetryFailedPlanValidationAsync(current.PlanId, validationId))
         {
@@ -12222,6 +12226,11 @@ public partial class MainWindow : Window
                 .Load(displayedPlan.Group.GroupId, displayedPlan.Revision);
             if (existingReview is not null)
                 win.SetReviewAnnotations(existingReview);
+
+            var existingNudges = new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath)
+                .Load(displayedPlan.Group.GroupId);
+            if (existingNudges is { Count: > 0 })
+                win.SetLayoutNudges(existingNudges);
         }
 
         async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
