@@ -24,6 +24,13 @@ internal static class PlanValidationPromptBuilder
                       "Do not use the generic `task` tool or create a temporary agent named Fact Checker. " +
                       "Do not perform the validation yourself or substitute another agent.");
         sb.AppendLine("After the fact-checker returns, relay its PLAN_VALIDATION_RESULT_JSON result as the only top-level result.");
+        sb.AppendLine(PlanDelegationRequestContext.Build(
+            plan.PlanId,
+            plan.Revision,
+            validation.ValidationId,
+            "validation",
+            attemptId: null,
+            branch: plan.Branch));
         sb.AppendLine("The result must contain exactly one `assertionEvidence` item for each approved assertion below, in the same order. " +
                       "Copy each assertion text verbatim. Do not split, merge, summarize, or rewrite assertions.");
         sb.AppendLine();

@@ -12,6 +12,7 @@ import {
     buildProviderNeutralCliEnvironment,
     computeProviderThrottleDelayMs,
     enrichCopilotAuthenticationFailure,
+    evaluatePlanDelegationLaunch,
     findCounterfeitRosterTaskHandle,
     maybeRewritePendingRestartSelfBuildToolArgs,
     maybeRewritePowerShellToolArgs,
@@ -23,6 +24,92 @@ import {
     StagedPlanRevisionHostProtocol,
     tryParseStagedPlanRevisionRequest
 } from "./squadService.js";
+
+test("plan delegation authorization validates the active phase, branch, worktree, and roster agent", () => {
+    const guard = {
+        knownPlans: [{ planId: "CLIDETECT-20260814", workItemIds: ["CLIDETECT-20260814-005"] }],
+        active: {
+            planId: "CLIDETECT-20260814",
+            revision: "revision-5",
+            workItemId: "CLIDETECT-20260814-005",
+            phase: "implementation",
+            attemptId: "attempt-5",
+            branch: "feature/cli-detection-and-selection",
+            currentBranch: "feature/cli-detection-and-selection",
+            workspacePath: "D:\\Drive\\Source\\SquadDash-public",
+            agentHandles: ["arjun-sen"]
+        }
+    };
+    const validArgs = {
+        agent_handle: "arjun-sen",
+        prompt: "Complete CLIDETECT-20260814-005.",
+        plan_execution_request: {
+            planId: "CLIDETECT-20260814",
+            revision: "revision-5",
+            workItemId: "CLIDETECT-20260814-005",
+            phase: "implementation",
+            attemptId: "attempt-5",
+            branch: "feature/cli-detection-and-selection"
+        }
+    };
+
+    assert.deepEqual(evaluatePlanDelegationLaunch(
+        validArgs, guard, "D:\\Drive\\Source\\SquadDash-public"), {
+        planLaunch: true,
+        allowed: true
+    });
+    assert.match(evaluatePlanDelegationLaunch(
+        { ...validArgs, plan_execution_request: undefined },
+        guard,
+        "D:\\Drive\\Source\\SquadDash-public").reason, /missing/);
+    assert.match(evaluatePlanDelegationLaunch(
+        { ...validArgs, agent_handle: "lyra-morn" },
+        guard,
+        "D:\\Drive\\Source\\SquadDash-public").reason, /roster agent/);
+});
+
+test("problematic plan launch receives one correction before requiring human approval", async () => {
+    const decisions = [];
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => ({
+            sessionId: "session-plan-guard",
+            on() {},
+            getBackgroundTasks: async () => [],
+            sendAndWait: async () => {
+                const input = {
+                    toolName: "delegate_roster_agent",
+                    toolArgs: {
+                        agent_handle: "arjun-sen",
+                        prompt: "Resume CLIDETECT-20260814-005 now."
+                    },
+                    cwd: "D:\\Drive\\Source\\SquadDash-public"
+                };
+                decisions.push(config.hooks.onPreToolUse(input));
+                decisions.push(config.hooks.onPreToolUse(input));
+                return { content: "Coordinator stopped for approval" };
+            }
+        })
+    };
+
+    await service.runPrompt("Resume the attached plan", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{ handle: "arjun-sen", displayName: "Arjun Sen" }],
+        planDelegationGuard: {
+            knownPlans: [{
+                planId: "CLIDETECT-20260814",
+                workItemIds: ["CLIDETECT-20260814-005"]
+            }]
+        }
+    });
+
+    assert.equal(decisions[0].permissionDecision, "deny");
+    assert.match(decisions[0].additionalContext, /DECOMPOSE_RECOVERY_JSON/);
+    assert.equal(decisions[1].permissionDecision, "deny");
+    assert.match(decisions[1].additionalContext, /explicit human approval/);
+    assert.doesNotMatch(decisions[1].additionalContext, /Retry with/);
+});
 
 test("auth diagnostics preserve a recent Copilot service failure instead of demanding sign-in", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "squaddash-copilot-auth-"));

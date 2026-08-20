@@ -1551,7 +1551,12 @@ public partial class MainWindow : Window
         _pec = new PromptExecutionController(
             runPromptAsync: (prompt, cwd, sessionId, configDir) => {
                 RefreshBridgeNamedAgentRoutes();
-                return _bridge.RunPromptAsync(prompt, cwd, sessionId, configDir);
+                return _bridge.RunPromptAsync(
+                    prompt,
+                    cwd,
+                    sessionId,
+                    configDir,
+                    BuildPlanDelegationGuard());
             },
             runNamedAgentDelegationAsync: (selectedOption, targetAgentHandle, cwd, sessionId, configDir) => {
                 RefreshBridgeNamedAgentRoutes();
@@ -10515,6 +10520,23 @@ public partial class MainWindow : Window
         {
             ScheduleDecomposeSystemEntry($"Recovery ignored: plan {decision.GroupId} has changed since that response.");
             return false;
+        }
+
+        if (decision.Action == "continue-working" &&
+            (durablePlan.LifecycleStatus is PlanLifecycleStatus.Approved or
+                 PlanLifecycleStatus.WaitingForCleanWorktree ||
+             PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan)))
+        {
+            var resumable = durablePlan.IsPaused
+                ? PlanStoreUpdater.ApplyResume(durablePlan)
+                : durablePlan;
+            if (!ReferenceEquals(resumable, durablePlan))
+                PublishPlanProgress(resumable);
+            PrepareForHostRecoveryAction();
+            ScheduleDecomposeSystemEntry(
+                $"Resume accepted for {resumable.Title}. SquadDash is checking its branch and worktree before continuing.");
+            await StartOrResumeDurablePlanAsync(resumable);
+            return true;
         }
 
         var recoveryTaskId = durablePlan.InterruptionData?.InterruptedTaskId
@@ -54732,6 +54754,77 @@ public partial class MainWindow : Window
     {
         var groups = _featureGroupStore?.Load() ?? FeatureGroupStore.Defaults.ToList();
         return ApprovalGroupPromptContextBuilder.Build(groups);
+    }
+
+    private SquadSdkPlanDelegationGuard? BuildPlanDelegationGuard()
+    {
+        if (_currentWorkspace is null || _planStore is null)
+            return null;
+
+        var plans = _planStore.LoadAll()
+            .Where(plan => plan.LifecycleStatus != PlanLifecycleStatus.Archived)
+            .ToArray();
+        var knownPlans = plans.Select(plan => new SquadSdkKnownPlanWork(
+            plan.PlanId,
+            plan.Tasks.Select(task => task.TaskId)
+                .Concat((plan.Validations ?? []).Select(validation => validation.ValidationId))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray())).ToArray();
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution?.DecomposeGroupId is not { Length: > 0 } planId ||
+            execution.DecomposeRevision is not { Length: > 0 } revision)
+            return new SquadSdkPlanDelegationGuard(knownPlans);
+
+        var plan = plans.FirstOrDefault(candidate =>
+            string.Equals(candidate.PlanId, planId, StringComparison.Ordinal));
+        if (plan is null)
+            return new SquadSdkPlanDelegationGuard(knownPlans);
+
+        string? workItemId;
+        string phase;
+        string? attemptId;
+        IReadOnlyList<string> handles;
+        if (!string.IsNullOrWhiteSpace(execution.ActiveValidationId))
+        {
+            workItemId = execution.ActiveValidationId;
+            phase = "validation";
+            attemptId = null;
+            handles = ["fact-checker"];
+        }
+        else if (!string.IsNullOrWhiteSpace(execution.ActiveVerificationTaskId))
+        {
+            workItemId = execution.ActiveVerificationTaskId;
+            phase = "verification";
+            attemptId = execution.PlanExecutionAttempt?.AttemptId;
+            handles = ["fact-checker"];
+        }
+        else if (execution.PlanExecutionAttempt is { Status: "active" } attempt)
+        {
+            workItemId = attempt.TaskId;
+            phase = "implementation";
+            attemptId = attempt.AttemptId;
+            handles = attempt.Assignments.Select(assignment => assignment.AgentHandle).ToArray();
+        }
+        else
+        {
+            return new SquadSdkPlanDelegationGuard(knownPlans);
+        }
+
+        if (string.IsNullOrWhiteSpace(workItemId) || handles.Count == 0)
+            return new SquadSdkPlanDelegationGuard(knownPlans);
+
+        var active = new SquadSdkActivePlanDelegation(
+            planId,
+            revision,
+            workItemId,
+            phase,
+            attemptId,
+            plan.Branch,
+            ReadGitBranch(_currentWorkspace.FolderPath),
+            _currentWorkspace.FolderPath,
+            handles);
+        return new SquadSdkPlanDelegationGuard(knownPlans, active);
     }
 
     private void ApprovalPanelCloseButton_Click(object sender, RoutedEventArgs e)

@@ -44,6 +44,8 @@
     <Compile Include="..\SquadDash\PlanTaskVerificationResult.cs" Link="Source\PlanTaskVerificationResult.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationPromptBuilder.cs" Link="Source\PlanTaskVerificationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanContinuationPromptContext.cs" Link="Source\PlanContinuationPromptContext.cs" />
+    <Compile Include="..\SquadDash\PlanDelegationRequestContext.cs" Link="Source\PlanDelegationRequestContext.cs" />
     <Compile Include="..\SquadDash\PlanBranchLease.cs" Link="Source\PlanBranchLease.cs" />
     <Compile Include="..\SquadDash\PlanResumeBranchPolicy.cs" Link="Source\PlanResumeBranchPolicy.cs" />
     <Compile Include="..\SquadDash\PlanExecutionProjectionWriter.cs" Link="Source\PlanExecutionProjectionWriter.cs" />

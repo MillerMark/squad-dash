@@ -99,6 +99,25 @@ export type SquadPromptRequest = {
     configDir?: string;
     model?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    planDelegationGuard?: PlanDelegationGuard;
+};
+
+export type PlanDelegationGuard = {
+    knownPlans: Array<{
+        planId: string;
+        workItemIds: string[];
+    }>;
+    active?: {
+        planId: string;
+        revision: string;
+        workItemId: string;
+        phase: "implementation" | "verification" | "validation";
+        attemptId?: string;
+        branch: string;
+        currentBranch: string;
+        workspacePath: string;
+        agentHandles: string[];
+    };
 };
 
 type SquadSessionRequest = SquadPromptRequest & {
@@ -348,6 +367,8 @@ type RequestContext = {
     lastAssistantMessageContent: string;
     localThinkState: LocalThinkStreamState;
     hiddenAdditionalContext?: string;
+    planDelegationGuard?: PlanDelegationGuard;
+    planLaunchCorrectionCount: number;
 };
 
 type LocalThinkStreamState = {
@@ -851,6 +872,14 @@ type NamedAgentToolArgs = {
     description?: string;
     mode?: string;
     staged_plan_revision_request?: StagedPlanRevisionRequestEnvelope;
+    plan_execution_request?: {
+        planId?: string;
+        revision?: string;
+        workItemId?: string;
+        phase?: string;
+        attemptId?: string;
+        branch?: string;
+    };
 };
 
 function findNamedAgentRoute(routes: readonly SquadNamedAgentRoute[], requestedHandle: string | undefined): SquadNamedAgentRoute | undefined {
@@ -1771,6 +1800,96 @@ function readErrorHeader(error: unknown, headerName: string, depth = 0): string 
     return undefined;
 }
 
+export type PlanDelegationEvaluation = {
+    planLaunch: boolean;
+    allowed: boolean;
+    reason?: string;
+};
+
+export function evaluatePlanDelegationLaunch(
+    args: unknown,
+    guard: PlanDelegationGuard | undefined,
+    cwd: string
+): PlanDelegationEvaluation {
+    const parsedArgs = parseToolArgs(args);
+    const prompt = getStringValue(parsedArgs, "prompt") ?? "";
+    const request = parsedArgs?.plan_execution_request &&
+        typeof parsedArgs.plan_execution_request === "object" &&
+        !Array.isArray(parsedArgs.plan_execution_request)
+        ? parsedArgs.plan_execution_request as Record<string, unknown>
+        : undefined;
+    const hasAssignmentEnvelope = prompt.includes("SQUADDASH_AGENT_ASSIGNMENT_JSON:");
+    const referencedKnownWork = guard?.knownPlans.some(plan =>
+        plan.workItemIds.some(workItemId => prompt.includes(workItemId))) === true;
+    const planLaunch = request !== undefined || hasAssignmentEnvelope || referencedKnownWork;
+    if (!planLaunch)
+        return { planLaunch: false, allowed: true };
+
+    const active = guard?.active;
+    if (!active)
+        return { planLaunch: true, allowed: false, reason: "no matching durable plan execution is active" };
+    if (!request)
+        return { planLaunch: true, allowed: false, reason: "plan_execution_request is missing" };
+
+    const requestedAttempt = getStringValue(request, "attemptId");
+    const checks: Array<[boolean, string]> = [
+        [getStringValue(request, "planId") === active.planId, "plan ID"],
+        [getStringValue(request, "revision") === active.revision, "plan revision"],
+        [getStringValue(request, "workItemId") === active.workItemId, "plan work item"],
+        [getStringValue(request, "phase") === active.phase, "plan phase"],
+        [requestedAttempt === active.attemptId, "execution attempt"],
+        [getStringValue(request, "branch") === active.branch, "plan branch"],
+        [active.currentBranch === active.branch, "active Git branch"],
+        [pathsEqual(cwd, active.workspacePath), "plan worktree"],
+    ];
+    const failed = checks.find(([matches]) => !matches);
+    if (failed)
+        return { planLaunch: true, allowed: false, reason: `${failed[1]} does not match host authorization` };
+
+    const requestedHandle = normalizeAgentHandle(getStringValue(parsedArgs, "agent_handle") ?? "");
+    if (!active.agentHandles.some(handle => normalizeAgentHandle(handle) === requestedHandle))
+        return { planLaunch: true, allowed: false, reason: "roster agent does not match host authorization" };
+
+    return { planLaunch: true, allowed: true };
+}
+
+function pathsEqual(left: string, right: string): boolean {
+    const normalize = (value: string) => path.resolve(value).replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+    return normalize(left) === normalize(right);
+}
+
+function buildPlanLaunchCorrectionContext(
+    evaluation: PlanDelegationEvaluation,
+    guard: PlanDelegationGuard | undefined,
+    correctionAlreadyUsed: boolean
+): string {
+    if (correctionAlreadyUsed) {
+        return "SquadDash rejected the plan-task launch because the one allowed corrective attempt still did not match " +
+            `host authorization (${evaluation.reason ?? "unknown mismatch"}). Do not retry or work around this guard. ` +
+            "Stop and ask the user for explicit human approval before attempting any out-of-protocol launch.";
+    }
+
+    if (!guard?.active) {
+        return "SquadDash rejected this launch because no matching durable plan execution is active. " +
+            "Do not perform Git, branch, or implementation work. If the user explicitly asked to resume or continue the plan, " +
+            "return the exact DECOMPOSE_RECOVERY_JSON payload supplied in the host prompt so SquadDash can activate it. " +
+            "If no such recovery payload is supplied, ask the user for explicit approval instead of launching.";
+    }
+
+    const active = guard.active;
+    const expected = JSON.stringify({
+        planId: active.planId,
+        revision: active.revision,
+        workItemId: active.workItemId,
+        phase: active.phase,
+        attemptId: active.attemptId,
+        branch: active.branch,
+    });
+    return "SquadDash rejected this plan-task launch because its metadata did not match the active host authorization " +
+        `(${evaluation.reason ?? "unknown mismatch"}). Correct the existing delegate_roster_agent call once using ` +
+        `plan_execution_request=${expected} and the host-authorized roster agent. Do not start a different worker or alter plan state.`;
+}
+
 function collectProviderErrorText(error: unknown, depth = 0, seen = new Set<object>()): string {
     if (error === null || error === undefined || depth > 3)
         return "";
@@ -2335,7 +2454,9 @@ export class SquadBridgeService {
                 buffer: "",
                 emittedResponse: false
             },
-            hiddenAdditionalContext
+            hiddenAdditionalContext,
+            planDelegationGuard: options.planDelegationGuard,
+            planLaunchCorrectionCount: 0
         };
 
         state.currentRequest = requestContext;
@@ -2789,6 +2910,23 @@ export class SquadBridgeService {
                             }
                         },
                         required: ["groupId", "baseRevision", "definition", "protocol"]
+                    },
+                    plan_execution_request: {
+                        type: "object",
+                        additionalProperties: false,
+                        description: "Host-scoped authorization for one active durable plan implementation, verification, or validation launch.",
+                        properties: {
+                            planId: { type: "string" },
+                            revision: { type: "string" },
+                            workItemId: { type: "string" },
+                            phase: {
+                                type: "string",
+                                enum: ["implementation", "verification", "validation"]
+                            },
+                            attemptId: { type: "string" },
+                            branch: { type: "string" }
+                        },
+                        required: ["planId", "revision", "workItemId", "phase", "branch"]
                     }
                 },
                 required: ["agent_handle", "prompt"]
@@ -3082,6 +3220,26 @@ export class SquadBridgeService {
                                     "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
                                     `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
                                     "Use task only for genuinely temporary workers."
+                            };
+                        }
+                    }
+
+                    if (input.toolName === "delegate_roster_agent") {
+                        const currentRequest = stateRef?.currentRequest;
+                        const evaluation = evaluatePlanDelegationLaunch(
+                            input.toolArgs,
+                            currentRequest?.planDelegationGuard,
+                            input.cwd ?? stateRef?.workingDirectory ?? options.cwd);
+                        if (evaluation.planLaunch && !evaluation.allowed) {
+                            const correctionAlreadyUsed = (currentRequest?.planLaunchCorrectionCount ?? 0) > 0;
+                            if (currentRequest)
+                                currentRequest.planLaunchCorrectionCount++;
+                            return {
+                                permissionDecision: "deny" as const,
+                                additionalContext: buildPlanLaunchCorrectionContext(
+                                    evaluation,
+                                    currentRequest?.planDelegationGuard,
+                                    correctionAlreadyUsed)
                             };
                         }
                     }

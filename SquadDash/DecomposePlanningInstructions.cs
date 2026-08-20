@@ -400,6 +400,13 @@ internal static class DecomposePlanningInstructions
         builder.AppendLine("Copy the host-owned Git branch lease from this turn into the assigned worker prompt verbatim. Explicitly tell the worker that SquadDash already prepared the branch and that the worker must not create or switch branches.");
         builder.AppendLine("Use the host-provided `delegate_roster_agent` tool with the exact assigned `agent_handle`; it preserves native monitoring and waits for the roster agent result.");
         builder.AppendLine("Do not use the generic `task` tool for an assigned roster agent. SquadDash reserves it for temporary workers and will reject a roster-like or assignment-bearing generic launch.");
+        builder.AppendLine(PlanDelegationRequestContext.Build(
+            executionAttempt.PlanId,
+            planRevision ?? executionAttempt.Revision,
+            stepId,
+            "implementation",
+            executionAttempt.AttemptId,
+            canonicalBranch ?? string.Empty));
         builder.AppendLine();
 
         foreach (var assignment in assignments)
@@ -469,7 +476,8 @@ internal static class DecomposePlanningInstructions
         string squadFolderPath,
         string agentRoutingPolicy = PlanAgentRoutingPolicy.PlanExecutionOnly,
         bool allowExecutingPlanRevision = false,
-        bool includePlanReviewActivityProtocol = true)
+        bool includePlanReviewActivityProtocol = true,
+        string? userPrompt = null)
     {
         try
         {
@@ -477,6 +485,11 @@ internal static class DecomposePlanningInstructions
             var context = BuildOrdinaryPromptPointer(path, includePlanReviewActivityProtocol) +
                           BuildPendingPlanContext(squadFolderPath, includePlanReviewActivityProtocol) +
                           "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance();
+            var continuationContext = PlanContinuationPromptContext.Build(
+                userPrompt,
+                new PlanStore(squadFolderPath).LoadAll());
+            if (!string.IsNullOrWhiteSpace(continuationContext))
+                context += "\n\n" + continuationContext;
             var revisionContext = PlanRevisionPromptInjection.Build(
                 squadFolderPath,
                 includeExecutingPlan: allowExecutingPlanRevision);

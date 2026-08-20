@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
-import { SquadBridgeService, buildNamedAgentPrompt, type SquadRunHandlers, type SquadNamedAgentRequest, type SquadNamedAgentRoute, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
+import { SquadBridgeService, buildNamedAgentPrompt, type PlanDelegationGuard, type SquadRunHandlers, type SquadNamedAgentRequest, type SquadNamedAgentRoute, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -23,6 +23,7 @@ type PromptRequest = {
     configDir?: string;
     model?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    planDelegationGuard?: PlanDelegationGuard;
 };
 
 type DelegateRequest = {
@@ -225,6 +226,56 @@ function parseNamedAgentRoutes(value: unknown): SquadNamedAgentRoute[] | undefin
         .map(tryParseNamedAgentRoute)
         .filter((route): route is SquadNamedAgentRoute => route !== null);
     return routes.length > 0 ? routes : undefined;
+}
+
+function parsePlanDelegationGuard(value: unknown): PlanDelegationGuard | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return undefined;
+
+    const record = value as Record<string, unknown>;
+    if (!Array.isArray(record.knownPlans))
+        return undefined;
+    const knownPlans = record.knownPlans.map(item => {
+        if (!item || typeof item !== "object" || Array.isArray(item))
+            return null;
+        const plan = item as Record<string, unknown>;
+        const planId = extractOptionalString(plan.planId);
+        const workItemIds = Array.isArray(plan.workItemIds)
+            ? plan.workItemIds.map(extractOptionalString).filter((id): id is string => id !== undefined)
+            : [];
+        return planId ? { planId, workItemIds } : null;
+    }).filter((plan): plan is { planId: string; workItemIds: string[] } => plan !== null);
+
+    let active: PlanDelegationGuard["active"];
+    if (record.active && typeof record.active === "object" && !Array.isArray(record.active)) {
+        const raw = record.active as Record<string, unknown>;
+        const planId = extractOptionalString(raw.planId);
+        const revision = extractOptionalString(raw.revision);
+        const workItemId = extractOptionalString(raw.workItemId);
+        const phase = extractOptionalString(raw.phase);
+        const branch = extractOptionalString(raw.branch);
+        const currentBranch = extractOptionalString(raw.currentBranch);
+        const workspacePath = extractOptionalString(raw.workspacePath);
+        const agentHandles = Array.isArray(raw.agentHandles)
+            ? raw.agentHandles.map(extractOptionalString).filter((handle): handle is string => handle !== undefined)
+            : [];
+        if (planId && revision && workItemId &&
+            (phase === "implementation" || phase === "verification" || phase === "validation") &&
+            branch && currentBranch && workspacePath && agentHandles.length > 0) {
+            active = {
+                planId,
+                revision,
+                workItemId,
+                phase,
+                attemptId: extractOptionalString(raw.attemptId),
+                branch,
+                currentBranch,
+                workspacePath,
+                agentHandles
+            };
+        }
+    }
+    return { knownPlans, active };
 }
 
 // DUP-009: consolidates the three onSubagent{Started,Completed,Failed} event shapes
@@ -481,6 +532,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
     const configDir = extractOptionalString(parsed.configDir);
     const model = extractOptionalString(parsed.model);
     const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
+    const planDelegationGuard = parsePlanDelegationGuard(parsed.planDelegationGuard);
 
     return {
         type: "prompt",
@@ -490,7 +542,8 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
         sessionId,
         configDir,
         model,
-        namedAgentRoutes
+        namedAgentRoutes,
+        planDelegationGuard
     };
 }
 

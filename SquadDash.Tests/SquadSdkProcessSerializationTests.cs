@@ -45,6 +45,27 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void PromptRequest_WithPlanDelegationGuard_SerializesFirstClassAuthorization()
+    {
+        var guard = new SquadSdkPlanDelegationGuard(
+            [new SquadSdkKnownPlanWork("PLAN-1", ["PLAN-1-001"])],
+            new SquadSdkActivePlanDelegation(
+                "PLAN-1", "revision-1", "PLAN-1-001", "implementation", "attempt-1",
+                "feature/plan", "feature/plan", @"D:\repo", ["arjun-sen"]));
+
+        var json = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "run the plan task", @"D:\repo", PlanDelegationGuard: guard));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"planDelegationGuard\""));
+            Assert.That(json, Does.Contain("\"workItemId\":\"PLAN-1-001\""));
+            Assert.That(json, Does.Contain("\"attemptId\":\"attempt-1\""));
+            Assert.That(json, Does.Contain("\"agentHandles\":[\"arjun-sen\"]"));
+        });
+    }
+
+    [Test]
     public void DelegateRequest_UsesLowercaseJsonPropertyNames() {
         var json = JsonSerializer.Serialize(new SquadSdkDelegateRequest(
             "Hand off to Lyra",
