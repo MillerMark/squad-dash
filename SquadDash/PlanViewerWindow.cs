@@ -1648,8 +1648,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     && milestoneStop.ContextMenu is ContextMenu milestoneRemoveMenu)
                 {
                     var capturedMilestoneRemoveId = existingGate.GateId;
-                    var removeMilestoneItem = new MenuItem { Header = "Remove this approval requirement" };
-                    removeMilestoneItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    var removeMilestoneItem = CreateThemedMenuItem("Remove this approval requirement");
                     removeMilestoneItem.Click += (_, _) =>
                     {
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedMilestoneRemoveId);
@@ -1757,12 +1756,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     var capturedValidationId = validation.ValidationId;
                     var definitionEditable = IsValidationDefinitionEditable(capturedValidationId);
-                    var menu = new ContextMenu();
-                    var edit = new MenuItem
-                    {
-                        Header = "Edit validation",
-                        IsEnabled = definitionEditable,
-                    };
+                    var menu = CreateThemedMenu();
+                    var edit = CreateThemedMenuItem("Edit validation", definitionEditable);
                     edit.Click += (_, _) =>
                     {
                         _selectedElement = new SelectedElementIdentity("validation", capturedValidationId);
@@ -1770,11 +1765,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ApplySelectionVisual();
                         RefreshDetailPanel();
                     };
-                    var remove = new MenuItem
-                    {
-                        Header = "Delete validation",
-                        IsEnabled = definitionEditable,
-                    };
+                    var remove = CreateThemedMenuItem("Delete validation", definitionEditable);
                     remove.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit($"Delete validation {capturedValidationId}?")) return;
@@ -2172,8 +2163,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     && joinStop.ContextMenu is ContextMenu joinRemoveMenu)
                 {
                     var capturedJoinRemoveId = joinGateForBlocks.GateId;
-                    var removeJoinItem = new MenuItem { Header = "Remove this approval requirement" };
-                    removeJoinItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    var removeJoinItem = CreateThemedMenuItem("Remove this approval requirement");
                     removeJoinItem.Click += (_, _) =>
                     {
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedJoinRemoveId);
@@ -2552,12 +2542,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 };
 
-                var contextMenu = new ContextMenu();
+                var contextMenu = CreateThemedMenu();
                 var canInsertBefore = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: false);
                 var canInsertAfter = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: true);
                 contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: false, canInsertBefore));
                 contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: true, canInsertAfter));
-                contextMenu.Items.Add(new Separator());
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
                 if (!PlanGateManager.IsRootTask(durablePlan, capturedTask.Id))
                     contextMenu.Items.Add(addBeforeItem);
                 if (!PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id))
@@ -2571,7 +2561,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     .ToArray();
                 if (gatesForTask.Length > 0)
                 {
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                     foreach (var approvalGate in gatesForTask)
                     {
                         var capturedGate = approvalGate;
@@ -2585,13 +2575,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             .Contains(capturedTask.Id, StringComparer.Ordinal)
                                 ? "after"
                                 : "before";
-                        var removeItem = new MenuItem
-                        {
-                            Header = isRequiredVerificationProof
+                        var removeItem = CreateThemedMenuItem(
+                            isRequiredVerificationProof
                                 ? "Required verification checkpoint"
                                 : $"Remove approval checkpoint ({relationship})",
-                            IsEnabled = PlanGateManager.CanRemoveGate(durablePlan, durableGate),
-                        };
+                            PlanGateManager.CanRemoveGate(durablePlan, durableGate));
                         if (isRequiredVerificationProof)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
                                 "This checkpoint is the verification step's only proof contract. " +
@@ -2617,31 +2605,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (_saveDefinitionEdit is not null)
                 {
                     var definitionEditable = IsTaskDefinitionEditable(capturedTask.Id);
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                     var dependsOnSubmenu1 = CreateDependsOnSubmenu(capturedTask.Id, group, levels, positions);
                     if (dependsOnSubmenu1 is not null)
                     {
                         contextMenu.Items.Add(dependsOnSubmenu1);
-                        contextMenu.Items.Add(new Separator());
+                        contextMenu.Items.Add(CreateThemedMenuSeparator());
                     }
                     contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTask.Id));
-                    contextMenu.Items.Add(new Separator());
-                    var addValidation = new MenuItem
-                    {
-                        Header = "Add validation after this step",
-                        IsEnabled = definitionEditable,
-                    };
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
+                    var addValidation = CreateThemedMenuItem("Add validation after this step", definitionEditable);
                     addValidation.Click += (_, _) => ApplyStagedMutation(
                         StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTask.Id),
                         selectKind: "validation",
                         beginEditingSelection: true);
                     contextMenu.Items.Add(addValidation);
 
-                    var deleteTask = new MenuItem
-                    {
-                        Header = "Delete step",
-                        IsEnabled = group.Tasks.Count > 1 && definitionEditable,
-                    };
+                    var deleteTask = CreateThemedMenuItem("Delete step", group.Tasks.Count > 1 && definitionEditable);
                     deleteTask.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit(
@@ -2655,18 +2635,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 MenuItem CreateInsertTaskMenuItem(bool insertAfter, bool isEnabled)
                 {
                     var relativePosition = insertAfter ? "after" : "before";
-                    var item = new MenuItem
-                    {
-                        Header = _saveDefinitionEdit is not null
+                    var item = CreateThemedMenuItem(
+                        _saveDefinitionEdit is not null
                             ? $"Insert step {relativePosition}"
                             : $"Insert step {relativePosition}…",
-                        IsEnabled = isEnabled,
-                        ToolTip = isEnabled
-                            ? ToolTipHelper.MakeThemedToolTip(
-                                $"Add a new step {relativePosition} this still-pending step and update its future dependencies.")
-                            : ToolTipHelper.MakeThemedToolTip(
-                                "Only the unstarted downstream portion of a plan can be changed."),
-                    };
+                        isEnabled);
+                    item.ToolTip = isEnabled
+                        ? ToolTipHelper.MakeThemedToolTip(
+                            $"Add a new step {relativePosition} this still-pending step and update its future dependencies.")
+                        : ToolTipHelper.MakeThemedToolTip(
+                            "Only the unstarted downstream portion of a plan can be changed.");
                     item.Click += (_, _) =>
                     {
                         if (_saveDefinitionEdit is not null && _plan is not null)
@@ -2709,37 +2687,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedTaskId = task.Id;
                 var definitionEditable = IsTaskDefinitionEditable(capturedTaskId);
-                var contextMenu = new ContextMenu();
+                var contextMenu = CreateThemedMenu();
                 var insertBefore = CreateStagedInsertMenuItem(capturedTaskId, before: true);
                 insertBefore.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertBefore);
                 var insertAfter = CreateStagedInsertMenuItem(capturedTaskId, before: false);
                 insertAfter.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertAfter);
-                contextMenu.Items.Add(new Separator());
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
                 var dependsOnSubmenu2 = CreateDependsOnSubmenu(capturedTaskId, group, levels, positions);
                 if (dependsOnSubmenu2 is not null)
                 {
                     contextMenu.Items.Add(dependsOnSubmenu2);
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                 }
                 contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTaskId));
-                contextMenu.Items.Add(new Separator());
-                var addValidation = new MenuItem
-                {
-                        Header = "Add validation after this step",
-                    IsEnabled = definitionEditable,
-                };
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
+                var addValidation = CreateThemedMenuItem("Add validation after this step", definitionEditable);
                 addValidation.Click += (_, _) => ApplyStagedMutation(
                     StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTaskId),
                     selectKind: "validation",
                     beginEditingSelection: true);
                 contextMenu.Items.Add(addValidation);
-                var deleteTask = new MenuItem
-                {
-                    Header = "Delete step",
-                    IsEnabled = group.Tasks.Count > 1 && definitionEditable,
-                };
+                var deleteTask = CreateThemedMenuItem("Delete step", group.Tasks.Count > 1 && definitionEditable);
                 deleteTask.Click += (_, _) =>
                 {
                     if (!ConfirmDestructivePlanEdit($"Delete step {capturedTaskId} and reconnect its dependents?"))
@@ -3101,8 +3071,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             && beforeStop.ContextMenu is ContextMenu beforeRemoveMenu)
                         {
                             var capturedBeforeRemoveId = controllingBeforeGate.GateId;
-                            var removeBeforeItem = new MenuItem { Header = "Remove this approval requirement" };
-                            removeBeforeItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            var removeBeforeItem = CreateThemedMenuItem("Remove this approval requirement");
                             removeBeforeItem.Click += (_, _) =>
                             {
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedBeforeRemoveId);
@@ -3270,8 +3239,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             && afterStop.ContextMenu is ContextMenu afterRemoveMenu)
                         {
                             var capturedAfterRemoveId = controllingAfterGate.GateId;
-                            var removeAfterItem = new MenuItem { Header = "Remove this approval requirement" };
-                            removeAfterItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            var removeAfterItem = CreateThemedMenuItem("Remove this approval requirement");
                             removeAfterItem.Click += (_, _) =>
                             {
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedAfterRemoveId);
@@ -3847,7 +3815,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private MenuItem CreateStagedInsertMenuItem(string anchorTaskId, bool before)
     {
-        var item = new MenuItem { Header = before ? "Insert step before" : "Insert step after" };
+        var item = CreateThemedMenuItem(before ? "Insert step before" : "Insert step after");
         item.Click += (_, _) =>
         {
             if (_plan is null) return;
@@ -3897,7 +3865,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var capturedMessage = gate.Message;
         var capturedQuestion = gate.Question ?? string.Empty;
 
-        var submenu = new MenuItem { Header = "This approval blocks" };
+        var submenu = CreateThemedMenuItem("This approval blocks");
         foreach (var candidate in candidates)
         {
             var capturedCandidate = candidate;
@@ -3911,13 +3879,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 capturedMessage,
                 capturedQuestion);
             var canEdit = TryValidateUnlockedCandidate(prospectiveGroup, out var lockError);
-            var item = new MenuItem
-            {
-                Header = capturedCandidate.Title ?? capturedCandidate.Id,
-                IsCheckable = true,
-                IsChecked = beforeSet.Contains(capturedCandidate.Id),
-                IsEnabled = canEdit,
-            };
+            var item = CreateThemedMenuItem(capturedCandidate.Title ?? capturedCandidate.Id, canEdit);
+            item.IsCheckable = true;
+            item.IsChecked = beforeSet.Contains(capturedCandidate.Id);
             if (!canEdit)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(
                     lockError ?? "This approval boundary is locked by execution history.");
@@ -3983,18 +3947,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
         var definitionEditable = IsTaskDefinitionEditable(taskId) && !verificationOnly;
         var current = PlanTaskVerificationLevel.Normalize(task?.VerificationLevel);
-        var submenu = new MenuItem
-        {
-            Header = "Verification Level",
-            IsEnabled = definitionEditable,
-            ToolTip = verificationOnly
+        var submenu = CreateThemedMenuItem("Verification Level", definitionEditable);
+        submenu.ToolTip = verificationOnly
+            ? ToolTipHelper.MakeThemedToolTip(
+                "Verification-only steps do not receive a second independent verification pass.")
+            : !definitionEditable
                 ? ToolTipHelper.MakeThemedToolTip(
-                    "Verification-only steps do not receive a second independent verification pass.")
-                : !definitionEditable
-                    ? ToolTipHelper.MakeThemedToolTip(
-                        "Verification level cannot be changed after this step enters execution history.")
-                    : null,
-        };
+                    "Verification level cannot be changed after this step enters execution history.")
+                : null;
 
         foreach (var (value, label) in new[]
         {
@@ -4004,12 +3964,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         })
         {
             var captured = value;
-            var item = new MenuItem
-            {
-                Header = label,
-                IsCheckable = true,
-                IsChecked = current == value,
-            };
+            var item = CreateThemedMenuItem(label);
+            item.IsCheckable = true;
+            item.IsChecked = current == value;
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
@@ -4051,16 +4008,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             (levels.TryGetValue(t.Id, out var l) ? l : 0) >= selectedLevel).ToArray();
 
         var definitionEditable = IsTaskDefinitionEditable(taskId);
-        var submenu = new MenuItem { Header = "Depends On" };
+        var submenu = CreateThemedMenuItem("Depends On");
 
         void AddGroupHeader(string label)
         {
-            var headerItem = new MenuItem
-            {
-                Header    = label,
-                IsEnabled = false,
-                FontStyle = FontStyles.Italic,
-            };
+            var headerItem = CreateThemedMenuItem(label, isEnabled: false);
+            headerItem.FontStyle = FontStyles.Italic;
             headerItem.SetResourceReference(MenuItem.ForegroundProperty, "SubtleText");
             submenu.Items.Add(headerItem);
         }
@@ -4090,13 +4043,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var capturedCandidate  = candidate;
             var capturedCurrentDep = isCurrentDep;
             var itemEnabled = definitionEditable && !wouldCycle && lockTip is null;
-            var item = new MenuItem
-            {
-                Header      = capturedCandidate.Title ?? capturedCandidate.Id,
-                IsCheckable = true,
-                IsChecked   = capturedCurrentDep,
-                IsEnabled   = itemEnabled,
-            };
+            var item = CreateThemedMenuItem(capturedCandidate.Title ?? capturedCandidate.Id, itemEnabled);
+            item.IsCheckable = true;
+            item.IsChecked = capturedCurrentDep;
             if (wouldCycle && cycleTip is not null)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(cycleTip);
             else if (!itemEnabled)
@@ -4181,7 +4130,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         if (later.Length > 0)
         {
-            if (earlier.Length > 0) submenu.Items.Add(new Separator());
+            if (earlier.Length > 0) submenu.Items.Add(CreateThemedMenuSeparator());
             AddGroupHeader("Later steps");
             foreach (var c in later) AddCandidateItem(c);
         }
@@ -5030,15 +4979,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             WireSelectionClick(hitTarget);
             if (toggle is not null && stop is not null)
             {
-                var menu = new ContextMenu
-                {
-                    Style = TryFindResource("ThemedContextMenuStyle") as Style,
-                };
-                var toggleItem = new MenuItem
-                {
-                    Header = toggleActionLabel ?? "Change this approval control",
-                    Style = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var menu = CreateThemedMenu();
+                var toggleItem = CreateThemedMenuItem(toggleActionLabel ?? "Change this approval control");
                 toggleItem.Click += (_, _) => toggle();
                 menu.Items.Add(toggleItem);
                 hitTarget.ContextMenu = menu;
@@ -5048,25 +4990,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Approval/unapproval context menu for the human-gate icon.
         if (approveAction is not null || unapproveAction is not null)
         {
-            var menu = new ContextMenu();
-            menu.Style = TryFindResource("ThemedContextMenuStyle") as Style;
+            var menu = CreateThemedMenu();
             if (approveAction is not null)
             {
-                var approveItem = new MenuItem
-                {
-                    Header = "Approve this step",
-                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var approveItem = CreateThemedMenuItem("Approve this step");
                 approveItem.Click += (_, _) => approveAction();
                 menu.Items.Add(approveItem);
             }
             if (unapproveAction is not null)
             {
-                var unapproveItem = new MenuItem
-                {
-                    Header = "Cancel approval",
-                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var unapproveItem = CreateThemedMenuItem("Cancel approval");
                 unapproveItem.Click += (_, _) => unapproveAction();
                 menu.Items.Add(unapproveItem);
             }
@@ -5075,10 +5008,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return hitTarget;
     }
 
-    private Separator CreateThemedMenuSeparator()
+    private static ContextMenu CreateThemedMenu()
+    {
+        var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        return menu;
+    }
+
+    private static MenuItem CreateThemedMenuItem(string header, bool isEnabled = true)
+    {
+        var item = new MenuItem { Header = header, IsEnabled = isEnabled };
+        item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        return item;
+    }
+
+    private static Separator CreateThemedMenuSeparator()
     {
         var separator = new Separator();
-        separator.Style = TryFindResource("ThemedMenuSeparatorStyle") as Style;
+        separator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
         return separator;
     }
 
