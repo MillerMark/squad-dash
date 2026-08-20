@@ -2802,13 +2802,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Height = 22 * _scaleFactor,
                 CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
                 BorderThickness = new Thickness(0, 1, 1, 1),
-                Background = Brushes.Transparent,
+                Background = Brushes.Transparent, // initial; overwritten immediately below
                 ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
                     ? "This is a verification-only step, so it does not receive another independent verification pass."
                     : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
                 Child = verificationIndicatorText,
             };
-            verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+            verificationIndicator.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+            if (Application.Current.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
+                verificationIndicator.BorderBrush = new SolidColorBrush(taskBorderBrush.Color) { Opacity = 0.5 };
+            else
+                verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
             System.Windows.Automation.AutomationProperties.SetName(
                 verificationIndicator,
                 verificationOnly
@@ -2849,9 +2853,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + Math.Round(2.4 * _scaleFactor));
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
-            Panel.SetZIndex(verificationIndicator, 22);
+            Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
             RegisterTaskDragOverlay(task.Id, verificationIndicator);
 
