@@ -184,6 +184,55 @@ internal sealed class SquadCliResolutionServiceTests
     }
 
     [Test]
+    public async Task ResolveWithModeAsync_NativeSystem_WithSuccessfulPrefixProbeAndPathMismatchClassifiesAsNativeOther()
+    {
+        using var workspace = new TestWorkspace();
+        var npmPrefix = workspace.GetPath("npm-prefix");
+        var pathDir = workspace.GetPath("path-shim");
+        Directory.CreateDirectory(npmPrefix);
+        Directory.CreateDirectory(pathDir);
+        var shimPath = Path.Combine(pathDir, "squad.cmd");
+        File.WriteAllText(shimPath, "@echo off");
+
+        var environment = new FakeEnvironmentProvider(processPath: pathDir, userPath: null, machinePath: null);
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["config", "get", "prefix"]))
+            {
+                return new CliInvocationResult(0, npmPrefix, string.Empty, false);
+            }
+
+            if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) &&
+                args.Length == 4 &&
+                args[0] == "/d" &&
+                args[1] == "/s" &&
+                args[2] == "/c" &&
+                args[3].Contains(CliCmdEscaping.CmdQuoteToken(shimPath), StringComparison.Ordinal))
+            {
+                return new CliInvocationResult(0, "0.9.5", string.Empty, false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            {
+                return new CliInvocationResult(0, "0.9.9", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+
+        var service = new SquadCliResolutionService(runner, environment);
+        var resolved = await service.ResolveWithModeAsync(CliSelectionMode.NativeSystem, workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved.DetectedSource, Is.EqualTo(CliInstallSource.NativeOther));
+            Assert.That(resolved.UpdateInstruction.CanAutoUpdate, Is.False);
+        });
+    }
+
+    [Test]
     public async Task ResolveWithModeAsync_GlobalNpm_WithPrefixTimeoutClassifiesAsNativeOther()
     {
         using var workspace = new TestWorkspace();
