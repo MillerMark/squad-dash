@@ -31,6 +31,61 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UpdateTask_DependencyChangeSynchronizesTaskValidationBoundary()
+    {
+        var original = MakeGroup() with
+        {
+            Validations =
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001",
+                    "Review first",
+                    "Validate the first task before dependent work continues.",
+                    [Id(1)],
+                    [Id(2)],
+                    ["First task output is correct."],
+                    Mode: "evidence"),
+            ],
+        };
+
+        var removed = StagedPlanEditor.UpdateTask(
+            original, Id(2), "Second", "Second result", "mid", []);
+        var added = StagedPlanEditor.UpdateTask(
+            removed, Id(3), "Third", "Third result", "mid", [Id(1)]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(removed.Validations!.Single().BeforeTaskIds, Is.Empty);
+            Assert.That(added.Validations!.Single().BeforeTaskIds,
+                Is.EqualTo(new[] { Id(3) }));
+        });
+    }
+
+    [Test]
+    public void UpdateTask_DependencyChangeReplacesStaleApprovalAnchor()
+    {
+        var gateId = GroupId + "-GATE-001";
+        var original = MakeGroup() with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    gateId,
+                    "Review first output",
+                    [Id(1)],
+                    [Id(2)],
+                    PresentationAnchor: "stage:1"),
+            ],
+        };
+
+        var updated = StagedPlanEditor.UpdateTask(
+            original, Id(3), "Third", "Third result", "mid", [Id(1)]);
+
+        Assert.That(updated.ApprovalGates!.Single().PresentationAnchor,
+            Is.EqualTo($"task-before:{Id(2)}"));
+    }
+
+    [Test]
     public void UpdatePlanAndAdvancedTaskFields_ChangeOnlyEditableDefinitionData()
     {
         var group = StagedPlanEditor.UpdatePlan(

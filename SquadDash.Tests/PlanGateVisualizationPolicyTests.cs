@@ -6,6 +6,17 @@ internal sealed class PlanGateVisualizationPolicyTests
     private static PlanTask Task(string id, params string[] dependsOn) =>
         new(id, id, id, dependsOn, "mid", PlanTaskStatus.Pending);
 
+    [TestCase(true, true, false, ExpectedResult = 1.0)]
+    [TestCase(true, false, false, ExpectedResult = 0.3)]
+    [TestCase(true, true, true, ExpectedResult = 0.3)]
+    [TestCase(false, false, false, ExpectedResult = 1.0)]
+    public double ApprovalControlOpacity_LeavesOnePrimaryControlFullyOpaque(
+        bool engaged,
+        bool isPrimary,
+        bool collectivelyCovered) =>
+        PlanGateVisualizationPolicy.ApprovalControlOpacity(
+            engaged, isPrimary, collectivelyCovered);
+
     [TestCase(false, false, false, ExpectedResult = true)]
     [TestCase(true, true, false, ExpectedResult = true)]
     [TestCase(true, false, true, ExpectedResult = true)]

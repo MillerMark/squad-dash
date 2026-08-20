@@ -106,11 +106,12 @@ internal static class DependencyEditRecomputer
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out var cycleIds))
             return DependencyEditRecomputeResult.Cycle(cycleIds ?? []);
 
-        var validations = group.Validations ?? [];
+        var synchronizedGroup = SynchronizeTaskValidationBoundaries(group);
+        var validations = synchronizedGroup.Validations ?? [];
 
         // Use the same production layout engine the Plan Visualizer uses.
         var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(
-            group.Tasks,
+            synchronizedGroup.Tasks,
             validations);
 
         var stageAssignments = (IReadOnlyDictionary<string, int>)levels;
@@ -119,7 +120,7 @@ internal static class DependencyEditRecomputer
         // position within the same level. This matches the column-then-row traversal
         // order the Plan Visualizer uses and produces the same sequential display labels
         // that PendingDecomposePlanAdapter.ToPlan would assign from scratch.
-        var indexedTasks = group.Tasks
+        var indexedTasks = synchronizedGroup.Tasks
             .Select((task, originalIndex) => (task, originalIndex))
             .ToArray();
 
@@ -134,13 +135,21 @@ internal static class DependencyEditRecomputer
             .Select((task, index) => (task.Id, Label: (index + 1).ToString()))
             .ToDictionary(item => item.Id, item => item.Label, StringComparer.Ordinal);
 
-        var recomputedGroup = ReconcileAuditBoundary(group with { Tasks = StripOrphanedInputs(sortedTasks) });
-
         // Approval boundary anchors: resolve each gate using the new stage assignments.
         var approvalBoundaryAnchors = ResolveApprovalBoundaryAnchors(
-            group.ApprovalGates ?? [],
+            synchronizedGroup.ApprovalGates ?? [],
             sortedTasks,
             levels);
+        var anchoredGates = synchronizedGroup.ApprovalGates?.Select(gate =>
+            gate with
+            {
+                PresentationAnchor = approvalBoundaryAnchors.GetValueOrDefault(gate.GateId),
+            }).ToArray();
+        var recomputedGroup = ReconcileAuditBoundary(synchronizedGroup with
+        {
+            Tasks = StripOrphanedInputs(sortedTasks),
+            ApprovalGates = anchoredGates,
+        });
 
         // Validation eligibility: a validation node is structurally eligible when its
         // AfterTaskIds / BeforeTaskIds boundaries align with a valid stage boundary or
@@ -158,6 +167,64 @@ internal static class DependencyEditRecomputer
             eligibleValidationIds);
     }
 
+    /// <summary>
+    /// Keeps validations attached after a single task synchronized with that task's direct
+    /// dependents. Adding a dependency makes the validation block the new consumer; removing
+    /// the dependency releases that consumer. Multi-task/stage validations and final audits
+    /// are authored boundaries and are intentionally preserved.
+    /// </summary>
+    internal static DecomposedTaskGroup SynchronizeTaskValidationBoundaries(
+        DecomposedTaskGroup group)
+    {
+        if (group.Validations is null or { Count: 0 })
+            return group;
+
+        var taskIds = group.Tasks.Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
+        var changed = false;
+        var validations = group.Validations.Select(validation =>
+        {
+            if (string.Equals(validation.Mode, "audit", StringComparison.Ordinal) ||
+                validation.AfterTaskIds.Count != 1 ||
+                !taskIds.Contains(validation.AfterTaskIds[0]))
+                return validation;
+
+            var validatedTaskId = validation.AfterTaskIds[0];
+            var directDependentIds = group.Tasks
+                .Where(task => task.DependsOn.Contains(validatedTaskId, StringComparer.Ordinal))
+                .Select(task => task.Id)
+                .ToArray();
+            if (validation.BeforeTaskIds.SequenceEqual(directDependentIds, StringComparer.Ordinal))
+                return validation;
+
+            changed = true;
+            return validation with { BeforeTaskIds = directDependentIds };
+        }).ToArray();
+
+        return changed ? group with { Validations = validations } : group;
+    }
+
+    internal static DecomposedTaskGroup SynchronizeApprovalPresentationAnchors(
+        DecomposedTaskGroup group)
+    {
+        if (group.ApprovalGates is null or { Count: 0 })
+            return group;
+
+        var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(
+            group.Tasks, group.Validations ?? []);
+        var anchors = ResolveApprovalBoundaryAnchors(group.ApprovalGates, group.Tasks, levels);
+        var changed = false;
+        var gates = group.ApprovalGates.Select(gate =>
+        {
+            var anchor = anchors.GetValueOrDefault(gate.GateId);
+            if (string.Equals(gate.PresentationAnchor, anchor, StringComparison.Ordinal))
+                return gate;
+            changed = true;
+            return gate with { PresentationAnchor = anchor };
+        }).ToArray();
+
+        return changed ? group with { ApprovalGates = gates } : group;
+    }
+
     // ── Approval boundary anchor resolution ─────────────────────────────────────
 
     private static IReadOnlyDictionary<string, string> ResolveApprovalBoundaryAnchors(
@@ -169,64 +236,27 @@ internal static class DependencyEditRecomputer
         if (gates.Count == 0)
             return result;
 
-        var stageCount = levels.Count == 0 ? 0 : levels.Values.Max() + 1;
+        var planTasks = tasks.Select(task => new PlanTask(
+            task.Id,
+            task.Title,
+            task.Description,
+            task.DependsOn,
+            task.Priority,
+            PlanTaskStatus.Pending)).ToArray();
         foreach (var gate in gates)
         {
-            var anchor = ResolveGateAnchor(gate, tasks, levels, stageCount);
+            var planGate = new PlanApprovalGate(
+                gate.GateId,
+                gate.Message,
+                gate.AfterTaskIds ?? [],
+                gate.BeforeTaskIds ?? [],
+                PlanGateStatus.Pending,
+                PresentationAnchor: gate.PresentationAnchor);
+            var anchor = PlanApprovalPresentationAnchorResolver.Resolve(planGate, planTasks, levels);
             if (anchor is not null)
                 result[gate.GateId] = anchor;
         }
         return result;
-    }
-
-    private static string? ResolveGateAnchor(
-        DecomposedGate gate,
-        IReadOnlyList<DecomposedSubTask> tasks,
-        IReadOnlyDictionary<string, int> levels,
-        int stageCount)
-    {
-        var afterIds  = gate.AfterTaskIds  ?? [];
-        var beforeIds = gate.BeforeTaskIds ?? [];
-
-        // Stage milestone check: matches when AfterTaskIds / BeforeTaskIds exactly cover
-        // an immediate or cumulative stage boundary (same logic as PlanViewerWindow).
-        for (var leftLevel = 0; leftLevel < stageCount - 1; leftLevel++)
-        {
-            var immediateAfter = tasks
-                .Where(task => GetLevel(levels, task.Id) == leftLevel)
-                .Select(task => task.Id).ToArray();
-            var immediateBefore = tasks
-                .Where(task => GetLevel(levels, task.Id) == leftLevel + 1)
-                .Select(task => task.Id).ToArray();
-            var cumulativeAfter = tasks
-                .Where(task => GetLevel(levels, task.Id) <= leftLevel)
-                .Select(task => task.Id).ToArray();
-            var cumulativeBefore = tasks
-                .Where(task => GetLevel(levels, task.Id) > leftLevel)
-                .Select(task => task.Id).ToArray();
-
-            if (SameBoundary(afterIds, beforeIds, immediateAfter, immediateBefore) ||
-                SameBoundary(afterIds, beforeIds, cumulativeAfter, cumulativeBefore))
-                return $"stage:{leftLevel + 1}";
-        }
-
-        // ALL join check: gate guards an explicit multi-dependency fanin.
-        var allGroups = tasks
-            .Where(task => task.DependsOn.Count > 1)
-            .GroupBy(task => string.Join(
-                "\u001f",
-                task.DependsOn.OrderBy(id => id, StringComparer.Ordinal)));
-        foreach (var group in allGroups)
-        {
-            var targets      = group.Select(task => task.Id).ToArray();
-            var dependencies = group.First().DependsOn.ToArray();
-            if (SameBoundary(afterIds, beforeIds, dependencies, targets))
-                return "all:" + string.Join("|", targets.OrderBy(id => id, StringComparer.Ordinal));
-        }
-
-        if (afterIds.Count == 1)  return $"task-after:{afterIds[0]}";
-        if (beforeIds.Count == 1) return $"task-before:{beforeIds[0]}";
-        return null;
     }
 
     // ── Validation eligibility ───────────────────────────────────────────────────

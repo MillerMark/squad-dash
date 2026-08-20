@@ -227,7 +227,7 @@ internal sealed class PendingPlanEditorTests
     }
 
     [Test]
-    public void Apply_DependencyEdit_PreservesApprovalGatesAndValidations()
+    public void Apply_DependencyEdit_PreservesNodesAndSynchronizesValidationBoundary()
     {
         var pendingStore = new PendingDecomposePlanStore(_squad);
         var baseGroup = StagedPlanEditorTests.MakeGroup();
@@ -280,12 +280,12 @@ internal sealed class PendingPlanEditorTests
             Assert.That(reloadedGate.AfterTaskIds, Is.EqualTo(gate.AfterTaskIds));
             Assert.That(reloadedGate.BeforeTaskIds, Is.EqualTo(gate.BeforeTaskIds));
             Assert.That(reloadedGate.Question, Is.EqualTo(gate.Question));
-            Assert.That(reloadedGate.PresentationAnchor, Is.EqualTo(gate.PresentationAnchor));
+            Assert.That(reloadedGate.PresentationAnchor, Is.EqualTo($"task-before:{secondId}"));
             Assert.That(reloadedValidation.ValidationId, Is.EqualTo(validation.ValidationId));
             Assert.That(reloadedValidation.Title, Is.EqualTo(validation.Title));
             Assert.That(reloadedValidation.Description, Is.EqualTo(validation.Description));
             Assert.That(reloadedValidation.AfterTaskIds, Is.EqualTo(validation.AfterTaskIds));
-            Assert.That(reloadedValidation.BeforeTaskIds, Is.EqualTo(validation.BeforeTaskIds));
+            Assert.That(reloadedValidation.BeforeTaskIds, Is.EqualTo(new[] { secondId, thirdId }));
             Assert.That(reloadedValidation.Assertions, Is.EqualTo(validation.Assertions));
             Assert.That(reloadedValidation.Mode, Is.EqualTo(validation.Mode));
         });
@@ -353,7 +353,8 @@ internal sealed class PendingPlanEditorTests
         {
             Assert.That(reloadedRecompute.StageAssignments, Is.EqualTo(recompute.StageAssignments));
             Assert.That(reloadedRecompute.DisplayLabels, Is.EqualTo(recompute.DisplayLabels));
-            Assert.That(reloaded.Group.ApprovalGates![0].PresentationAnchor, Is.EqualTo("stage:2"));
+            Assert.That(reloaded.Group.ApprovalGates![0].PresentationAnchor,
+                Is.EqualTo($"task-before:{thirdId}"));
             Assert.That(HasDuplicateGateBoundary(reloaded.Group), Is.False);
         });
     }

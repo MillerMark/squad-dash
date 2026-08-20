@@ -28,6 +28,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private PendingDecomposePlan? _plan;
     private Plan? _durablePlan;
     private IReadOnlyList<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>? _visualizationGates;
+    private IReadOnlyList<IReadOnlyList<ConnectorGroup>>? _visualizationGateConnectorGroups;
+    private FrameworkElement?[]? _allGateBadgeElements;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -58,7 +60,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<DecomposedTaskGroup, PlanDefinitionEditResult>? _saveDefinitionEdit;
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
+    private readonly Action<Dictionary<string, double>>? _saveLayoutNudges;
     private readonly Action<Plan, string>? _onRetryValidation;
+    private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
+    private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -78,7 +83,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
     private FlowDocument? _detailDocument;
-    private FrameworkElement? _approvalSummary;
+    private WrapPanel? _inspectorToolbarPanel;
+    private Func<string?>? _inspectorEditorSaveAction;
+    private TextBlock? _inspectorEditorStatus;
     private FrameworkElement? _header;
     private FrameworkElement? _readingHint;
     private double _canvasContentWidth;
@@ -86,7 +93,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _activeVisibilityStart = double.NaN;
     private double _activeVisibilityEnd = double.NaN;
     private AutomaticScrollTarget _automaticScrollTarget;
-    private double _allocatedApprovalHeight;
     private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
     private bool _initialLayoutApplied;
     private StagedPlanEditHistory? _editHistory;
@@ -159,6 +165,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
+    private Dictionary<string, double> _taskNudges = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _naturalTaskSlotTops = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<UIElement>> _taskDragOverlaysByTask = new(StringComparer.Ordinal);
     private readonly List<ValidationShieldPresenter.LayoutRect> _allClusterFootprints = [];
     private readonly List<double> _lockedMilestoneBoundaryXs = [];
@@ -199,7 +207,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
-        Action<Plan, string>? onRetryValidation = null)
+        Action<Dictionary<string, double>>? saveLayoutNudges = null,
+        Action<Plan, string>? onRetryValidation = null,
+        Func<ApplicationSettingsSnapshot>? getSettings = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -243,7 +253,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _saveDefinitionEdit = saveDefinitionEdit;
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
+        _saveLayoutNudges = saveLayoutNudges;
         _onRetryValidation = onRetryValidation;
+        _getSettings = getSettings;
+        if (_getSettings is not null)
+            _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
         if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
 
@@ -256,6 +270,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += OnPlanViewerPreviewKeyDown;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (_pttAttachment?.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox) == true)
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) => _pttAttachment?.HandlePreviewKeyUp(e);
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
@@ -263,6 +283,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             _preflightPollTimer?.Stop();
             _reviewCallout?.Close();
+            if (_pttAttachment?.IsActive == true) _ = _pttAttachment.StopAsync();
+            _pttAttachment?.Dispose();
         };
 
         if (broker is not null && durablePlan is not null)
@@ -421,10 +443,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
         var currentBuildSeq = ++_buildSeq;
-        var previousApprovalHeight = _approvalSummary is { ActualHeight: > 0 } currentSummary
-            ? currentSummary.ActualHeight
-            : _allocatedApprovalHeight;
-        _approvalSummary = null;
         _preflightPollTimer?.Stop();
         _preflightPollTimer = null;
         _plan = plan;
@@ -456,7 +474,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 2) };
@@ -853,19 +870,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(correctionStatus);
         }
 
-        var summaryFontSize = TryFindResource("FontSizeBody") is double configuredSummaryFontSize
-            ? configuredSummaryFontSize
-            : 14d;
         var summaryBlock = new TextBlock
         {
             Text         = group.Summary,
             TextWrapping = TextWrapping.Wrap,
             FontWeight   = FontWeights.Normal,
-            FontSize     = summaryFontSize,
-            LineHeight   = summaryFontSize * 1.35,
+            LineHeight   = 14d * _scaleFactor * 1.35d,
             Margin       = new Thickness(0),
         };
         summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         var summaryPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
         summaryPanel.Children.Add(summaryBlock);
@@ -1104,10 +1118,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "BodyText");
-        Grid.SetColumn(detailViewer, 2);
-        splitGrid.Children.Add(detailViewer);
+
+        var inspectorGrid = new Grid();
+        inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var toolbarPanel = new WrapPanel
+        {
+            Margin = new Thickness(6, 4, 6, 4),
+        };
+        toolbarPanel.SetResourceReference(WrapPanel.BackgroundProperty, "CardSurface");
+        Grid.SetRow(toolbarPanel, 0);
+        inspectorGrid.Children.Add(toolbarPanel);
+
+        Grid.SetRow(detailViewer, 1);
+        inspectorGrid.Children.Add(detailViewer);
+
+        Grid.SetColumn(inspectorGrid, 2);
+        splitGrid.Children.Add(inspectorGrid);
 
         _detailDocument = detailDocument;
+        _inspectorToolbarPanel = toolbarPanel;
 
         Grid.SetRow(splitGrid, 1);
         root.Children.Add(splitGrid);
@@ -1300,6 +1331,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return task is null ? null : FindDurableGate(task.DependsOn, [taskId]);
         }
 
+        _naturalTaskSlotTops.Clear();
         foreach (var column in columns)
         {
             var tasks = column.ToArray();
@@ -1340,7 +1372,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     ? Math.Round(BaseNodeHeight * 0.375 * _scaleFactor)
                     : 0.0;
                 nextY += avatarOffset;
-                positions[tasks[row].Id] = new Point(x, nextY);
+                _naturalTaskSlotTops[tasks[row].Id] = nextY;
+
+                var nudgedY = nextY;
+                if (_taskNudges.TryGetValue(tasks[row].Id, out var nudgeLineHeights) &&
+                    nudgeLineHeights != 0.0)
+                {
+                    var fontSizeBody = _scaleFactor * 12.0;
+                    nudgedY = nextY + nudgeLineHeights * fontSizeBody;
+                    var minY = row == 0
+                        ? graphTop
+                        : positions[tasks[row - 1].Id].Y + NodeHeight + NodeHeight * 0.1 * _scaleFactor;
+                    nudgedY = Math.Max(nudgedY, minY);
+                }
+
+                positions[tasks[row].Id] = new Point(x, nudgedY);
                 var attachedCount = validationAnchors.Values.Count(anchor =>
                     anchor.TaskId is not null &&
                     string.Equals(anchor.TaskId, tasks[row].Id, StringComparison.Ordinal));
@@ -1351,6 +1397,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _taskCardPositions.Clear();
         foreach (var entry in positions)
             _taskCardPositions[entry.Key] = entry.Value;
+
+        _visualizationGateConnectorGroups = null;
+        _allGateBadgeElements = null;
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
         // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
@@ -1625,8 +1674,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     && milestoneStop.ContextMenu is ContextMenu milestoneRemoveMenu)
                 {
                     var capturedMilestoneRemoveId = existingGate.GateId;
-                    var removeMilestoneItem = new MenuItem { Header = "Remove this approval requirement" };
-                    removeMilestoneItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    var removeMilestoneItem = CreateThemedMenuItem("Remove this approval requirement");
                     removeMilestoneItem.Click += (_, _) =>
                     {
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedMilestoneRemoveId);
@@ -1734,12 +1782,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     var capturedValidationId = validation.ValidationId;
                     var definitionEditable = IsValidationDefinitionEditable(capturedValidationId);
-                    var menu = new ContextMenu();
-                    var edit = new MenuItem
-                    {
-                        Header = "Edit validation",
-                        IsEnabled = definitionEditable,
-                    };
+                    var menu = CreateThemedMenu();
+                    var edit = CreateThemedMenuItem("Edit validation", definitionEditable);
                     edit.Click += (_, _) =>
                     {
                         _selectedElement = new SelectedElementIdentity("validation", capturedValidationId);
@@ -1747,11 +1791,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ApplySelectionVisual();
                         RefreshDetailPanel();
                     };
-                    var remove = new MenuItem
-                    {
-                        Header = "Delete validation",
-                        IsEnabled = definitionEditable,
-                    };
+                    var remove = new MenuItem { Header = "Delete validation", IsEnabled = definitionEditable };
+                    remove.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     remove.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit($"Delete validation {capturedValidationId}?")) return;
@@ -2025,7 +2066,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
                                coveringJoinGate is not null || collectivelyCoveredJoin;
             var joinAnchor = AllAnchor(joinBeforeIds);
-            var joinIsPrimary = existingJoinGate is null || IsPrimary(existingJoinGate, joinAnchor);
+            var joinGate = existingJoinGate ?? coveringJoinGate;
+            var joinIsPrimary = IsPrimary(joinGate, joinAnchor);
             var joinController = coveringJoinGate is null ? null : ResolvePresentationAnchor(coveringJoinGate);
             var joinExecutionLocked = durablePlan is not null &&
                 PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
@@ -2043,7 +2085,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var badgeContent = new Grid();
             badgeContent.Children.Add(badgeText);
 
-            var joinGate = existingJoinGate ?? coveringJoinGate;
             var joinChangeActive = IsApprovalChangeActive(joinGate);
             var joinVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                 joinExecutionLocked,
@@ -2072,7 +2113,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredJoin
                             ? "Every incoming path is approved separately. Click to consolidate them into this ALL approval requirement."
                         : coveringJoinGate is not null
-                            ? "This ALL join is covered by a larger approval requirement."
+                            ? joinIsPrimary
+                                ? "This ALL join is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
                             ? joinIsPrimary
                                 ? "Human approval is required after every incoming step completes and before joined work begins. Click to review; right-click to remove."
@@ -2085,8 +2128,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         if (coveringJoinGate is not null)
                         {
-                            var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                durablePlan!, coveringJoinGate.GateId, joinAnchor);
+                            var coveringUpdated = joinIsPrimary &&
+                                                  PlanGateManager.CanRemoveGate(durablePlan!, coveringJoinGate)
+                                ? PlanGateManager.RemoveGate(durablePlan!, coveringJoinGate.GateId)
+                                : PlanGateManager.SetPresentationAnchor(
+                                    durablePlan!, coveringJoinGate.GateId, joinAnchor);
                             if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                             return;
                         }
@@ -2116,8 +2162,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         }
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
-                    joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
-                                     collectivelyCoveredJoin) ? 0.5 : 1.0,
+                    PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                        joinIsLocked, joinIsPrimary, collectivelyCoveredJoin),
                     approved: joinApproved,
                     awaitingApproval: joinAwaiting,
                     approvalChangeActive: joinChanging,
@@ -2149,8 +2195,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     && joinStop.ContextMenu is ContextMenu joinRemoveMenu)
                 {
                     var capturedJoinRemoveId = joinGateForBlocks.GateId;
-                    var removeJoinItem = new MenuItem { Header = "Remove this approval requirement" };
-                    removeJoinItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                    var removeJoinItem = CreateThemedMenuItem("Remove this approval requirement");
                     removeJoinItem.Click += (_, _) =>
                     {
                         var u = PlanGateManager.RemoveGate(durablePlan!, capturedJoinRemoveId);
@@ -2200,6 +2245,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _deferredBadgeHovers.Add((capturedBadge, capturedGateCgs));
         }
 
+        _visualizationGateConnectorGroups = gateConnectorGroups
+            .Select(list => (IReadOnlyList<ConnectorGroup>)list.AsReadOnly())
+            .ToList();
+        if (_visualizationGates is { Count: > 0 })
+        {
+            var badgeElements = new FrameworkElement?[_visualizationGates.Count];
+            for (var bgi = 0; bgi < _visualizationGates.Count; bgi++)
+            {
+                var gateTag = $"alljoin:{bgi}";
+                badgeElements[bgi] = canvas.Children.OfType<FrameworkElement>()
+                    .FirstOrDefault(c => c.Tag is string t && string.Equals(t, gateTag, StringComparison.Ordinal));
+            }
+            _allGateBadgeElements = badgeElements;
+        }
+
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
         var avatarChipsByAgent = new Dictionary<string, List<Border>>(StringComparer.OrdinalIgnoreCase);
         var taskActivityById = durablePlan is null
@@ -2232,16 +2292,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskActivityState.Assessing or
                 PlanTaskActivityState.Verifying or
                 PlanTaskActivityState.Reworking;
-            var prereqLines = task.DependsOn.Count == 0
-                ? ["None — this step can start immediately."]
-                : task.DependsOn.Select(id =>
-                {
-                    if (!tasksById.TryGetValue(id, out var dep)) return $"• {id}";
-                    var label = dep.Title ?? dep.Description;
-                    return "• " + (label.Length > 60 ? label[..60] + "…" : label);
-                }).ToArray();
-
-            string? taskIconKey = isTaskExecuting ? null : durableTask?.Status switch
+            string? taskIconKey= isTaskExecuting ? null : durableTask?.Status switch
             {
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "TaskSucceeded",
@@ -2423,19 +2474,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = BuildTaskToolTip(
-                    task.Title ?? task.Description,
-                    task.Description,
-                    prereqLines,
-                    durableTask?.CompletionSummary,
-                    durableTask?.Commit,
-                    durableTask?.ProvenanceChain),
+                ToolTip         = "Click to inspect",
                 Child           = nodeLayout,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
             border.Tag = $"task:{task.Id}";
-            WireSelectionClick(border);
             WireTaskCardDrag(border, task.Id);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
@@ -2540,12 +2584,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                 };
 
-                var contextMenu = new ContextMenu();
+                var contextMenu = CreateThemedMenu();
                 var canInsertBefore = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: false);
                 var canInsertAfter = PlanStoreUpdater.CanInsertTask(durablePlan, capturedTask.Id, insertAfter: true);
                 contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: false, canInsertBefore));
                 contextMenu.Items.Add(CreateInsertTaskMenuItem(insertAfter: true, canInsertAfter));
-                contextMenu.Items.Add(new Separator());
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
                 if (!PlanGateManager.IsRootTask(durablePlan, capturedTask.Id))
                     contextMenu.Items.Add(addBeforeItem);
                 if (!PlanGateManager.IsLeafTask(durablePlan, capturedTask.Id))
@@ -2559,7 +2603,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     .ToArray();
                 if (gatesForTask.Length > 0)
                 {
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                     foreach (var approvalGate in gatesForTask)
                     {
                         var capturedGate = approvalGate;
@@ -2573,13 +2617,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             .Contains(capturedTask.Id, StringComparer.Ordinal)
                                 ? "after"
                                 : "before";
-                        var removeItem = new MenuItem
-                        {
-                            Header = isRequiredVerificationProof
+                        var removeItem = CreateThemedMenuItem(
+                            isRequiredVerificationProof
                                 ? "Required verification checkpoint"
                                 : $"Remove approval checkpoint ({relationship})",
-                            IsEnabled = PlanGateManager.CanRemoveGate(durablePlan, durableGate),
-                        };
+                            PlanGateManager.CanRemoveGate(durablePlan, durableGate));
                         if (isRequiredVerificationProof)
                             removeItem.ToolTip = ToolTipHelper.MakeThemedToolTip(
                                 "This checkpoint is the verification step's only proof contract. " +
@@ -2605,31 +2647,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (_saveDefinitionEdit is not null)
                 {
                     var definitionEditable = IsTaskDefinitionEditable(capturedTask.Id);
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                     var dependsOnSubmenu1 = CreateDependsOnSubmenu(capturedTask.Id, group, levels, positions);
                     if (dependsOnSubmenu1 is not null)
                     {
                         contextMenu.Items.Add(dependsOnSubmenu1);
-                        contextMenu.Items.Add(new Separator());
+                        contextMenu.Items.Add(CreateThemedMenuSeparator());
                     }
                     contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTask.Id));
-                    contextMenu.Items.Add(new Separator());
-                    var addValidation = new MenuItem
-                    {
-                        Header = "Add validation after this step",
-                        IsEnabled = definitionEditable,
-                    };
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
+                    var addValidation = new MenuItem { Header = "Add validation after this step", IsEnabled = definitionEditable };
+                    addValidation.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     addValidation.Click += (_, _) => ApplyStagedMutation(
                         StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTask.Id),
                         selectKind: "validation",
                         beginEditingSelection: true);
                     contextMenu.Items.Add(addValidation);
 
-                    var deleteTask = new MenuItem
-                    {
-                        Header = "Delete step",
-                        IsEnabled = group.Tasks.Count > 1 && definitionEditable,
-                    };
+                    var deleteTask = new MenuItem { Header = "Delete step", IsEnabled = group.Tasks.Count > 1 && definitionEditable };
+                    deleteTask.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     deleteTask.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit(
@@ -2643,18 +2679,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 MenuItem CreateInsertTaskMenuItem(bool insertAfter, bool isEnabled)
                 {
                     var relativePosition = insertAfter ? "after" : "before";
-                    var item = new MenuItem
-                    {
-                        Header = _saveDefinitionEdit is not null
+                    var item = CreateThemedMenuItem(
+                        _saveDefinitionEdit is not null
                             ? $"Insert step {relativePosition}"
                             : $"Insert step {relativePosition}…",
-                        IsEnabled = isEnabled,
-                        ToolTip = isEnabled
-                            ? ToolTipHelper.MakeThemedToolTip(
-                                $"Add a new step {relativePosition} this still-pending step and update its future dependencies.")
-                            : ToolTipHelper.MakeThemedToolTip(
-                                "Only the unstarted downstream portion of a plan can be changed."),
-                    };
+                        isEnabled);
+                    item.ToolTip = isEnabled
+                        ? ToolTipHelper.MakeThemedToolTip(
+                            $"Add a new step {relativePosition} this still-pending step and update its future dependencies.")
+                        : ToolTipHelper.MakeThemedToolTip(
+                            "Only the unstarted downstream portion of a plan can be changed.");
                     item.Click += (_, _) =>
                     {
                         if (_saveDefinitionEdit is not null && _plan is not null)
@@ -2697,37 +2731,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var capturedTaskId = task.Id;
                 var definitionEditable = IsTaskDefinitionEditable(capturedTaskId);
-                var contextMenu = new ContextMenu();
+                var contextMenu = CreateThemedMenu();
                 var insertBefore = CreateStagedInsertMenuItem(capturedTaskId, before: true);
                 insertBefore.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertBefore);
                 var insertAfter = CreateStagedInsertMenuItem(capturedTaskId, before: false);
                 insertAfter.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertAfter);
-                contextMenu.Items.Add(new Separator());
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
                 var dependsOnSubmenu2 = CreateDependsOnSubmenu(capturedTaskId, group, levels, positions);
                 if (dependsOnSubmenu2 is not null)
                 {
                     contextMenu.Items.Add(dependsOnSubmenu2);
-                    contextMenu.Items.Add(new Separator());
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
                 }
                 contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTaskId));
-                contextMenu.Items.Add(new Separator());
-                var addValidation = new MenuItem
-                {
-                        Header = "Add validation after this step",
-                    IsEnabled = definitionEditable,
-                };
+                contextMenu.Items.Add(CreateThemedMenuSeparator());
+                var addValidation = new MenuItem { Header = "Add validation after this step", IsEnabled = definitionEditable };
+                addValidation.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 addValidation.Click += (_, _) => ApplyStagedMutation(
                     StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTaskId),
                     selectKind: "validation",
                     beginEditingSelection: true);
                 contextMenu.Items.Add(addValidation);
-                var deleteTask = new MenuItem
-                {
-                    Header = "Delete step",
-                    IsEnabled = group.Tasks.Count > 1 && definitionEditable,
-                };
+                var deleteTask = new MenuItem { Header = "Delete step", IsEnabled = group.Tasks.Count > 1 && definitionEditable };
+                deleteTask.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 deleteTask.Click += (_, _) =>
                 {
                     if (!ConfirmDestructivePlanEdit($"Delete step {capturedTaskId} and reconnect its dependents?"))
@@ -2779,27 +2807,64 @@ internal sealed class PlanViewerWindow : ChromedWindow
             verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             var verificationIndicator = new Border
             {
-                Width = 22 * _scaleFactor,
+                Width = 26 * _scaleFactor,
                 Height = 22 * _scaleFactor,
-                CornerRadius = new CornerRadius(11 * _scaleFactor),
-                BorderThickness = new Thickness(1),
-                Background = Brushes.Transparent,
+                CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
+                BorderThickness = new Thickness(0, 1, 1, 1),
+                Background = Brushes.Transparent, // initial; overwritten immediately below
                 ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
                     ? "This is a verification-only step, so it does not receive another independent verification pass."
                     : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
                 Child = verificationIndicatorText,
             };
-            verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+            verificationIndicator.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+            if (Application.Current.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
+                verificationIndicator.BorderBrush = new SolidColorBrush(taskBorderBrush.Color) { Opacity = 0.5 };
+            else
+                verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
             System.Windows.Automation.AutomationProperties.SetName(
                 verificationIndicator,
                 verificationOnly
                     ? $"{task.Title ?? task.Id}: verification-only step"
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
-            verificationIndicator.Tag = $"task:{task.Id}";
+            verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + 6 * _scaleFactor);
+            if (_saveDefinitionEdit is not null && !verificationOnly)
+            {
+                var capturedTaskId = task.Id;
+                var capturedVerificationLevel = verificationLevel;
+                var verMenu = CreateThemedMenu();
+
+                var levelHeader = CreateThemedMenuItem("Verification level:");
+                levelHeader.IsEnabled = false;
+                levelHeader.FontStyle = FontStyles.Italic;
+                verMenu.Items.Add(levelHeader);
+                verMenu.Items.Add(CreateThemedMenuSeparator());
+
+                foreach (var (value, label) in new[]
+                {
+                    (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
+                    (PlanTaskVerificationLevel.Standard, "Standard"),
+                    (PlanTaskVerificationLevel.Enhanced, "Enhanced"),
+                })
+                {
+                    var captured = value;
+                    var item = CreateThemedMenuItem(label);
+                    item.IsCheckable = true;
+                    item.IsChecked = capturedVerificationLevel == value;
+                    item.Click += (_, _) =>
+                    {
+                        if (_plan is null || !IsTaskDefinitionEditable(capturedTaskId)) return;
+                        ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
+                            _plan.Group, capturedTaskId, captured), selectKind: "task", selectId: capturedTaskId);
+                    };
+                    verMenu.Items.Add(item);
+                }
+                verificationIndicator.ContextMenu = verMenu;
+            }
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
-            Panel.SetZIndex(verificationIndicator, 22);
+            Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
             RegisterTaskDragOverlay(task.Id, verificationIndicator);
 
@@ -2974,9 +3039,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : null;
                     var beforeEngaged = existingBeforeGate is not null || coveringBeforeGate is not null ||
                                         collectivelyCoveredEntry;
-                    var beforeIsPrimary = IsPrimary(existingBeforeGate, beforeAnchor);
-                    var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var controllingBeforeGate = existingBeforeGate ?? coveringBeforeGate;
+                    var beforeIsPrimary = IsPrimary(controllingBeforeGate, beforeAnchor);
+                    var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var collectivelyUnresolvedEntry = collectivelyCoveredEntry && durablePlan.ApprovalGates.Any(candidate =>
                         IsUnresolvedApproval(candidate) &&
                         capturedTaskForStop.DependsOn.Any(id =>
@@ -3007,7 +3072,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredEntry
                             ? "This step entry is covered by every incoming approval requirement."
                         : coveringBeforeGate is not null
-                            ? "This step entry is covered by a larger approval requirement."
+                            ? beforeIsPrimary
+                                ? "This step entry is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This step entry is covered by a larger approval requirement."
                             : beforeEngaged
                             ? beforeIsPrimary
                                 ? "Human approval is required before this step begins. Click to review; right-click to remove."
@@ -3023,8 +3090,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringBeforeGate is not null)
                             {
-                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                    durablePlan, coveringBeforeGate.GateId, beforeAnchor);
+                                var coveringUpdated = beforeIsPrimary &&
+                                                      PlanGateManager.CanRemoveGate(durablePlan, coveringBeforeGate)
+                                    ? PlanGateManager.RemoveGate(durablePlan, coveringBeforeGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(
+                                        durablePlan, coveringBeforeGate.GateId, beforeAnchor);
                                 if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
@@ -3057,8 +3127,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                            beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
-                                              collectivelyCoveredEntry) ? 0.5 : 1.0,
+                            PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                                beforeEngaged, beforeIsPrimary, collectivelyCoveredEntry),
                             approved: beforeApproved,
                             awaitingApproval: beforeAwaiting,
                             approvalChangeActive: beforeChanging,
@@ -3089,8 +3159,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             && beforeStop.ContextMenu is ContextMenu beforeRemoveMenu)
                         {
                             var capturedBeforeRemoveId = controllingBeforeGate.GateId;
-                            var removeBeforeItem = new MenuItem { Header = "Remove this approval requirement" };
-                            removeBeforeItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            var removeBeforeItem = CreateThemedMenuItem("Remove this approval requirement");
                             removeBeforeItem.Click += (_, _) =>
                             {
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedBeforeRemoveId);
@@ -3173,7 +3242,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredByAllJoins
                             ? "This step exit is covered by its enabled ALL approval requirements."
                         : coveringAfterGate is not null
-                            ? "This step exit is covered by a larger approval requirement."
+                            ? afterIsPrimary
+                                ? "This step exit is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This step exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
                                 ? afterRemovalBlocked
@@ -3191,8 +3262,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringAfterGate is not null)
                             {
-                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                    durablePlan, coveringAfterGate.GateId, afterAnchor);
+                                var coveringUpdated = afterIsPrimary &&
+                                                      PlanGateManager.CanRemoveGate(durablePlan, coveringAfterGate)
+                                    ? PlanGateManager.RemoveGate(durablePlan, coveringAfterGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(
+                                        durablePlan, coveringAfterGate.GateId, afterAnchor);
                                 if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
@@ -3225,8 +3299,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                            afterEngaged && (!afterIsPrimary ||
-                                             collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
+                            PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                                afterEngaged, afterIsPrimary, collectivelyCoveredByAllJoins),
                             approved: afterApproved,
                             awaitingApproval: afterAwaiting,
                             approvalChangeActive: afterChanging,
@@ -3258,8 +3332,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             && afterStop.ContextMenu is ContextMenu afterRemoveMenu)
                         {
                             var capturedAfterRemoveId = controllingAfterGate.GateId;
-                            var removeAfterItem = new MenuItem { Header = "Remove this approval requirement" };
-                            removeAfterItem.Style = TryFindResource("ThemedMenuItemStyle") as Style;
+                            var removeAfterItem = CreateThemedMenuItem("Remove this approval requirement");
                             removeAfterItem.Click += (_, _) =>
                             {
                                 var u = PlanGateManager.RemoveGate(durablePlan, capturedAfterRemoveId);
@@ -3453,30 +3526,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _canvasContentHeight = canvas.Height;
         ResolveAutomaticScrollTarget(durablePlan, levels, positions, canvas.Margin.Left);
 
-        if (durablePlan is not null)
-        {
-            var approvalSummary = BuildApprovalSummaryPanel(
-                durablePlan,
-                levels,
-                quickReplyFontSize);
-            Grid.SetRow(approvalSummary, 3);
-            approvalSummary.Visibility = Visibility.Visible;
-            approvalSummary.MaxHeight = 0;
-            root.Children.Add(approvalSummary);
-            _approvalSummary = approvalSummary;
-
-            if (_initialLayoutApplied)
-            {
-                Dispatcher.BeginInvoke(
-                    () => ResizeForApprovalSummary(approvalSummary, previousApprovalHeight),
-                    System.Windows.Threading.DispatcherPriority.Render);
-            }
-        }
-        else if (_initialLayoutApplied && previousApprovalHeight > 0)
-        {
-            Height = Math.Max(MinHeight, ActualHeight - previousApprovalHeight);
-            _allocatedApprovalHeight = 0;
-        }
     }
 
     private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
@@ -3707,18 +3756,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Dispatcher.BeginInvoke(() =>
         {
             BuildContent(plan, durablePlan);
-            Dispatcher.BeginInvoke(() =>
+            var capturedScroll = _graphScroll;
+            var capturedH = horizontalOffset;
+            var capturedV = verticalOffset;
+            if (capturedScroll is not null && (capturedH > 0.5 || capturedV > 0.5))
             {
-                _graphScroll?.ScrollToHorizontalOffset(horizontalOffset);
-                _graphScroll?.ScrollToVerticalOffset(verticalOffset);
-                if (autoScrollForPlanProgress &&
-                    PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+                EventHandler? handler = null;
+                handler = (_, _) =>
                 {
-                    Dispatcher.BeginInvoke(
-                        EnsureAutomaticScrollTargetVisible,
-                        System.Windows.Threading.DispatcherPriority.Render);
-                }
-            }, System.Windows.Threading.DispatcherPriority.Loaded);
+                    capturedScroll.LayoutUpdated -= handler;
+                    capturedScroll.ScrollToHorizontalOffset(capturedH);
+                    capturedScroll.ScrollToVerticalOffset(capturedV);
+                };
+                capturedScroll.LayoutUpdated += handler;
+            }
+            if (autoScrollForPlanProgress &&
+                PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+            {
+                Dispatcher.BeginInvoke(
+                    EnsureAutomaticScrollTargetVisible,
+                    System.Windows.Threading.DispatcherPriority.Render);
+            }
         }, System.Windows.Threading.DispatcherPriority.Normal);
     }
 
@@ -3835,7 +3893,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private MenuItem CreateStagedInsertMenuItem(string anchorTaskId, bool before)
     {
-        var item = new MenuItem { Header = before ? "Insert step before" : "Insert step after" };
+        var item = CreateThemedMenuItem(before ? "Insert step before" : "Insert step after");
         item.Click += (_, _) =>
         {
             if (_plan is null) return;
@@ -3885,7 +3943,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var capturedMessage = gate.Message;
         var capturedQuestion = gate.Question ?? string.Empty;
 
-        var submenu = new MenuItem { Header = "This approval blocks" };
+        var submenu = CreateThemedMenuItem("This approval blocks");
         foreach (var candidate in candidates)
         {
             var capturedCandidate = candidate;
@@ -3899,13 +3957,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 capturedMessage,
                 capturedQuestion);
             var canEdit = TryValidateUnlockedCandidate(prospectiveGroup, out var lockError);
-            var item = new MenuItem
-            {
-                Header = capturedCandidate.Title ?? capturedCandidate.Id,
-                IsCheckable = true,
-                IsChecked = beforeSet.Contains(capturedCandidate.Id),
-                IsEnabled = canEdit,
-            };
+            var item = CreateThemedMenuItem(capturedCandidate.Title ?? capturedCandidate.Id, canEdit);
+            item.IsCheckable = true;
+            item.IsChecked = beforeSet.Contains(capturedCandidate.Id);
             if (!canEdit)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(
                     lockError ?? "This approval boundary is locked by execution history.");
@@ -3971,18 +4025,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
         var definitionEditable = IsTaskDefinitionEditable(taskId) && !verificationOnly;
         var current = PlanTaskVerificationLevel.Normalize(task?.VerificationLevel);
-        var submenu = new MenuItem
-        {
-            Header = "Verification Level",
-            IsEnabled = definitionEditable,
-            ToolTip = verificationOnly
+        var submenu = CreateThemedMenuItem("Verification Level", definitionEditable);
+        submenu.ToolTip = verificationOnly
+            ? ToolTipHelper.MakeThemedToolTip(
+                "Verification-only steps do not receive a second independent verification pass.")
+            : !definitionEditable
                 ? ToolTipHelper.MakeThemedToolTip(
-                    "Verification-only steps do not receive a second independent verification pass.")
-                : !definitionEditable
-                    ? ToolTipHelper.MakeThemedToolTip(
-                        "Verification level cannot be changed after this step enters execution history.")
-                    : null,
-        };
+                    "Verification level cannot be changed after this step enters execution history.")
+                : null;
 
         foreach (var (value, label) in new[]
         {
@@ -3992,12 +4042,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         })
         {
             var captured = value;
-            var item = new MenuItem
-            {
-                Header = label,
-                IsCheckable = true,
-                IsChecked = current == value,
-            };
+            var item = CreateThemedMenuItem(label);
+            item.IsCheckable = true;
+            item.IsChecked = current == value;
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
@@ -4039,16 +4086,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             (levels.TryGetValue(t.Id, out var l) ? l : 0) >= selectedLevel).ToArray();
 
         var definitionEditable = IsTaskDefinitionEditable(taskId);
-        var submenu = new MenuItem { Header = "Depends On" };
+        var submenu = CreateThemedMenuItem("Depends On");
 
         void AddGroupHeader(string label)
         {
-            var headerItem = new MenuItem
-            {
-                Header    = label,
-                IsEnabled = false,
-                FontStyle = FontStyles.Italic,
-            };
+            var headerItem = CreateThemedMenuItem(label, isEnabled: false);
+            headerItem.FontStyle = FontStyles.Italic;
             headerItem.SetResourceReference(MenuItem.ForegroundProperty, "SubtleText");
             submenu.Items.Add(headerItem);
         }
@@ -4078,13 +4121,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var capturedCandidate  = candidate;
             var capturedCurrentDep = isCurrentDep;
             var itemEnabled = definitionEditable && !wouldCycle && lockTip is null;
-            var item = new MenuItem
-            {
-                Header      = capturedCandidate.Title ?? capturedCandidate.Id,
-                IsCheckable = true,
-                IsChecked   = capturedCurrentDep,
-                IsEnabled   = itemEnabled,
-            };
+            var item = CreateThemedMenuItem(capturedCandidate.Title ?? capturedCandidate.Id, itemEnabled);
+            item.IsCheckable = true;
+            item.IsChecked = capturedCurrentDep;
             if (wouldCycle && cycleTip is not null)
                 item.ToolTip = ToolTipHelper.MakeThemedToolTip(cycleTip);
             else if (!itemEnabled)
@@ -4169,7 +4208,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         if (later.Length > 0)
         {
-            if (earlier.Length > 0) submenu.Items.Add(new Separator());
+            if (earlier.Length > 0) submenu.Items.Add(CreateThemedMenuSeparator());
             AddGroupHeader("Later steps");
             foreach (var c in later) AddCandidateItem(c);
         }
@@ -4202,143 +4241,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             spinner.AccentColor = taskSpinnerColor;
     }
 
-    private static FrameworkElement BuildApprovalSummaryPanel(
-        Plan plan,
-        IReadOnlyDictionary<string, int> levels,
-        double contentFontSize)
-    {
-        var title = new TextBlock
-        {
-            Text = "Human approval requirements",
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(10, 7, 10, 3),
-        };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        title.FontSize = contentFontSize;
-
-        var document = new FlowDocument
-        {
-            PagePadding = new Thickness(10, 2, 10, 8),
-            ColumnWidth = double.PositiveInfinity,
-            FontFamily  = new FontFamily("Segoe UI, Segoe UI Emoji"),
-        };
-        document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
-        document.SetResourceReference(FlowDocument.BackgroundProperty, "CardSurface");
-        document.FontSize = contentFontSize;
-
-        string TaskName(string id) => plan.Tasks.FirstOrDefault(task =>
-            string.Equals(task.TaskId, id, StringComparison.Ordinal)) is { } task
-                ? task.Title ?? task.Description
-                : id;
-
-        static Paragraph Sentence(string prefix, string boldText, string suffix)
-        {
-            var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
-            paragraph.Inlines.Add(new Run(prefix));
-            paragraph.Inlines.Add(new Bold(new Run(boldText)));
-            paragraph.Inlines.Add(new Run(suffix));
-            return paragraph;
-        }
-
-        System.Windows.Documents.List TaskList(IEnumerable<string> taskIds)
-        {
-            var list = new System.Windows.Documents.List
-            {
-                MarkerStyle = TextMarkerStyle.Disc,
-                Margin = new Thickness(20, 1, 0, 2),
-            };
-            foreach (var taskId in taskIds)
-            {
-                var paragraph = new Paragraph { Margin = new Thickness(0, 1, 0, 1) };
-                paragraph.Inlines.Add(new Bold(new Run(TaskName(taskId))));
-                list.ListItems.Add(new ListItem(paragraph));
-            }
-            return list;
-        }
-
-        var summary = PlanApprovalSummaryBuilder.Build(plan, levels);
-        if (plan.ApprovalGates.Count == 0)
-        {
-            document.Blocks.Add(new Paragraph(new Run("No human approval requirements."))
-                { Margin = new Thickness(0) });
-        }
-        else if (summary.BetweenEveryStage)
-        {
-            document.Blocks.Add(new Paragraph(new Run(
-                "Human approval will be required between every stage.")) { Margin = new Thickness(0) });
-        }
-        else
-        {
-            var list = new System.Windows.Documents.List
-            {
-                MarkerStyle = TextMarkerStyle.Disc,
-                Margin = new Thickness(18, 0, 0, 0),
-            };
-            foreach (var item in summary.Items)
-            {
-                var listItem = new ListItem();
-                switch (item.Kind)
-                {
-                    case ApprovalSummaryKind.TaskBefore:
-                        listItem.Blocks.Add(Sentence("Before ", TaskName(item.TaskId!), " starts."));
-                        break;
-                    case ApprovalSummaryKind.TaskAfter:
-                        listItem.Blocks.Add(Sentence("After ", TaskName(item.TaskId!), " completes."));
-                        break;
-                    case ApprovalSummaryKind.Stage:
-                        listItem.Blocks.Add(new Paragraph(new Run(
-                            $"After Stage {item.LeftStage} completes and before Stage {item.LeftStage + 1} begins."))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        break;
-                    case ApprovalSummaryKind.All:
-                        listItem.Blocks.Add(new Paragraph(new Run("After all the following steps complete:"))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
-                        break;
-                    default:
-                        listItem.Blocks.Add(new Paragraph(new Run("Approval after:"))
-                            { Margin = new Thickness(0, 1, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.AfterTaskIds));
-                        listItem.Blocks.Add(new Paragraph(new Run("Before:"))
-                            { Margin = new Thickness(0, 2, 0, 1) });
-                        listItem.Blocks.Add(TaskList(item.BeforeTaskIds));
-                        break;
-                }
-                list.ListItems.Add(listItem);
-            }
-            document.Blocks.Add(list);
-        }
-
-        var viewer = new FlowDocumentScrollViewer
-        {
-            Document = document,
-            IsToolBarVisible = false,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Margin = new Thickness(0),
-            Padding = new Thickness(0),
-        };
-        viewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
-        viewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "LabelText");
-        viewer.FontSize = contentFontSize;
-
-        var stack = new DockPanel();
-        DockPanel.SetDock(title, Dock.Top);
-        stack.Children.Add(title);
-        stack.Children.Add(viewer);
-
-        var border = new Border
-        {
-            Child = stack,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Margin = new Thickness(8, 0, 8, 8),
-        };
-        border.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-        border.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-        return border;
-    }
-
     private void OnInitialContentRendered(object? sender, EventArgs e)
     {
         ContentRendered -= OnInitialContentRendered;
@@ -4362,66 +4264,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Width = Math.Min(workArea.Width, Math.Max(MinWidth, idealWidth));
         UpdateLayout();
 
-        var approvalHeight = _approvalSummary is null
-            ? 0
-            : MeasureApprovalSummaryHeight(_approvalSummary);
         var fixedHeight = CloseButtonHeight + windowBorderInsets +
                           (_header?.DesiredSize.Height ?? 0) +
                           _canvasContentHeight + canvasVerticalInsets +
                           (_readingHint?.DesiredSize.Height ?? 0);
-        var idealHeight = fixedHeight + approvalHeight;
-        Height = Math.Min(workArea.Height, Math.Max(MinHeight, idealHeight));
-
-        var approvalSpace = Math.Max(0, Height - fixedHeight);
-        var allocatedApprovalHeight = Math.Min(approvalHeight, approvalSpace);
-        if (_approvalSummary is not null)
-        {
-            var showsFullSummary = allocatedApprovalHeight >= approvalHeight - 0.5;
-            if (!showsFullSummary)
-                allocatedApprovalHeight = Math.Min(170, allocatedApprovalHeight);
-            _approvalSummary.MaxHeight = showsFullSummary
-                ? double.PositiveInfinity
-                : allocatedApprovalHeight;
-        }
-        _allocatedApprovalHeight = allocatedApprovalHeight;
+        Height = Math.Min(workArea.Height, Math.Max(MinHeight, fixedHeight));
 
         KeepWindowInside(workArea);
         UpdateLayout();
-    }
-
-    private void ResizeForApprovalSummary(FrameworkElement approvalSummary, double previousHeight)
-    {
-        if (!ReferenceEquals(_approvalSummary, approvalSummary))
-            return;
-
-        var desiredHeight = MeasureApprovalSummaryHeight(approvalSummary);
-        var workArea = GetLogicalWorkArea();
-        var availableBelow = Math.Max(0, workArea.Bottom - (Top + ActualHeight));
-        var canAllocate = Math.Max(0, previousHeight + availableBelow);
-        var showsFullSummary = desiredHeight <= canAllocate + 0.5;
-        var targetHeight = showsFullSummary
-            ? desiredHeight
-            : Math.Min(170, canAllocate);
-
-        var heightDelta = targetHeight - previousHeight;
-        if (Math.Abs(heightDelta) > 0.5)
-            Height = Math.Min(workArea.Height, Math.Max(MinHeight, ActualHeight + heightDelta));
-
-        approvalSummary.MaxHeight = showsFullSummary
-            ? double.PositiveInfinity
-            : targetHeight;
-        _allocatedApprovalHeight = targetHeight;
-        UpdateLayout();
-    }
-
-    private double MeasureApprovalSummaryHeight(FrameworkElement approvalSummary)
-    {
-        approvalSummary.Visibility = Visibility.Visible;
-        approvalSummary.MaxHeight = double.PositiveInfinity;
-        approvalSummary.Measure(new Size(Math.Max(1, ActualWidth - 16), double.PositiveInfinity));
-        var desiredHeight = approvalSummary.DesiredSize.Height;
-        approvalSummary.MaxHeight = 0;
-        return Math.Max(0, desiredHeight);
     }
 
     private Rect GetLogicalWorkArea()
@@ -4764,6 +4614,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return fallback;
     }
 
+    private static ToolTip BuildTaskToolTip(DecomposedSubTask task, PlanTask? durableTask)
+    {
+        var panel = new StackPanel { MaxWidth = 560 };
+
+        TextBlock AddText(
+            string text,
+            string foreground = "LabelText",
+            FontWeight? weight = null,
+            Thickness? margin = null)
+        {
+            var block = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = weight ?? FontWeights.Normal,
+                Margin = margin ?? new Thickness(0),
+            };
+            block.SetResourceReference(TextBlock.ForegroundProperty, foreground);
+            block.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            panel.Children.Add(block);
+            return block;
+        }
+
+        AddText(task.Title ?? task.Id, weight: FontWeights.Bold, margin: new Thickness(0, 0, 0, 5));
+        if (!string.IsNullOrWhiteSpace(task.Description))
+            AddText(task.Description);
+
+        if (durableTask is not null)
+            AddText($"Status: {durableTask.Status}", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 0));
+
+        if (task.DependsOn.Count > 0)
+        {
+            AddText("Depends on:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+            foreach (var dep in task.DependsOn)
+                AddText("• " + dep, "SubtleText");
+        }
+
+        return new ToolTip { Content = panel };
+    }
+
     private static ToolTip BuildValidationToolTip(
         DecomposedValidationNode validation,
         PlanValidationNode? durableValidation,
@@ -5018,15 +4908,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             WireSelectionClick(hitTarget);
             if (toggle is not null && stop is not null)
             {
-                var menu = new ContextMenu
-                {
-                    Style = TryFindResource("ThemedContextMenuStyle") as Style,
-                };
-                var toggleItem = new MenuItem
-                {
-                    Header = toggleActionLabel ?? "Change this approval control",
-                    Style = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var menu = CreateThemedMenu();
+                var toggleItem = CreateThemedMenuItem(toggleActionLabel ?? "Change this approval control");
                 toggleItem.Click += (_, _) => toggle();
                 menu.Items.Add(toggleItem);
                 hitTarget.ContextMenu = menu;
@@ -5036,25 +4919,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Approval/unapproval context menu for the human-gate icon.
         if (approveAction is not null || unapproveAction is not null)
         {
-            var menu = new ContextMenu();
-            menu.Style = TryFindResource("ThemedContextMenuStyle") as Style;
+            var menu = CreateThemedMenu();
             if (approveAction is not null)
             {
-                var approveItem = new MenuItem
-                {
-                    Header = "Approve this step",
-                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var approveItem = CreateThemedMenuItem("Approve this step");
                 approveItem.Click += (_, _) => approveAction();
                 menu.Items.Add(approveItem);
             }
             if (unapproveAction is not null)
             {
-                var unapproveItem = new MenuItem
-                {
-                    Header = "Cancel approval",
-                    Style  = TryFindResource("ThemedMenuItemStyle") as Style,
-                };
+                var unapproveItem = CreateThemedMenuItem("Cancel approval");
                 unapproveItem.Click += (_, _) => unapproveAction();
                 menu.Items.Add(unapproveItem);
             }
@@ -5063,126 +4937,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return hitTarget;
     }
 
+    private static ContextMenu CreateThemedMenu()
+    {
+        var menu = new ContextMenu();
+        menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        return menu;
+    }
+
+    private static MenuItem CreateThemedMenuItem(string header, bool isEnabled = true)
+    {
+        var item = new MenuItem { Header = header, IsEnabled = isEnabled };
+        item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        return item;
+    }
+
     private Separator CreateThemedMenuSeparator()
     {
         var separator = new Separator();
         separator.Style = TryFindResource("ThemedMenuSeparatorStyle") as Style;
         return separator;
-    }
-
-    private static ToolTip BuildTaskToolTip(
-        string title,
-        string description,
-        string[] prereqLines,
-        string? completionSummary = null,
-        string? commit = null,
-        ProofProvenanceChain? provenanceChain = null)
-    {
-        var titleBlock = new TextBlock
-        {
-            Text = title,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 500,
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 5),
-        };
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-
-        var descBlock = new TextBlock
-        {
-            Text         = description,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth     = 500,
-        };
-        descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        descBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-
-        var prereqHeader = new TextBlock
-        {
-            Text       = "Prerequisites:",
-            FontWeight = FontWeights.SemiBold,
-            Margin     = new Thickness(0, 8, 0, 2),
-        };
-        prereqHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        prereqHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-
-        var panel = new StackPanel { MaxWidth = 500 };
-        panel.Children.Add(titleBlock);
-        panel.Children.Add(descBlock);
-        panel.Children.Add(prereqHeader);
-        foreach (var line in prereqLines)
-        {
-            var lineBlock = new TextBlock
-            {
-                Text         = line,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            lineBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            lineBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(lineBlock);
-        }
-
-        if (completionSummary is not null)
-        {
-            var completionHeader = new TextBlock
-            {
-                Text       = "Completion:",
-                FontWeight = FontWeights.SemiBold,
-                Margin     = new Thickness(0, 8, 0, 2),
-            };
-            completionHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            completionHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(completionHeader);
-
-            var summaryBlock = new TextBlock
-            {
-                Text         = completionSummary,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(summaryBlock);
-        }
-
-        if (commit is not null)
-        {
-            var shortCommit = commit.Length >= 7 ? commit[..7] : commit;
-            var commitBlock = new TextBlock
-            {
-                Text         = $"Commit: [{shortCommit}]",
-                TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 4, 0, 0),
-                FontFamily   = new FontFamily("Consolas, Courier New, monospace"),
-            };
-            commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(commitBlock);
-        }
-
-        if (provenanceChain is { Entries.Count: > 0 })
-        {
-            var provenanceHeader = new TextBlock
-            {
-                Text       = "Prior attempts:",
-                FontWeight = FontWeights.SemiBold,
-                Margin     = new Thickness(0, 8, 0, 2),
-            };
-            provenanceHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            provenanceHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(provenanceHeader);
-
-            var provenanceSummary = new TextBlock
-            {
-                Text         = provenanceChain.BuildSummary(),
-                TextWrapping = TextWrapping.Wrap,
-            };
-            provenanceSummary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            provenanceSummary.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(provenanceSummary);
-        }
-
-        return new ToolTip { Content = panel };
     }
 
     private static Dictionary<string, int> CalculateLevels(
@@ -5859,12 +5632,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (_selectedElement.Kind is "task" or "gate" && target is Border border)
         {
-            _selectionBorderState = (border, border.BorderThickness);
-            border.BorderThickness = new Thickness(
-                border.BorderThickness.Left * 2,
-                border.BorderThickness.Top * 2,
-                border.BorderThickness.Right * 2,
-                border.BorderThickness.Bottom * 2);
+            // Draw a selection ring as a canvas sibling so the card itself is never
+            // modified — no thickness change, no margin change, no content reflow.
+            var thickness = border.BorderThickness.Left; // cards use uniform thickness
+            var overlay = new Border
+            {
+                Width            = (border.ActualWidth  > 0 ? border.ActualWidth  : border.Width)  + 2 * thickness,
+                Height           = (border.ActualHeight > 0 ? border.ActualHeight : border.Height) + 2 * thickness,
+                CornerRadius     = border.CornerRadius,
+                BorderThickness  = new Thickness(thickness * 2),
+                BorderBrush      = border.BorderBrush,
+                Background       = Brushes.Transparent,
+                IsHitTestVisible = false,
+            };
+            var left = Canvas.GetLeft(target);
+            var top  = Canvas.GetTop(target);
+            Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - thickness);
+            Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - thickness);
+            Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
+            _graphCanvas.Children.Add(overlay);
+            _selectionGlowElement = overlay;
         }
         else
         {
@@ -5908,6 +5695,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         if (_detailDocument is null)
             return;
+
+        _inspectorEditorSaveAction = null;
+        _inspectorEditorStatus = null;
 
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
@@ -5959,6 +5749,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 string.Equals(v.ValidationId, _selectedElement.Id, StringComparison.Ordinal));
             if (validation is not null)
                 PopulateValidationDetail(validation, _durablePlan);
+        }
+        else if (_selectedElement.Kind == "verification")
+        {
+            var taskId = _selectedElement.Id;
+            var durableTask = _durablePlan?.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.TaskId, taskId, StringComparison.Ordinal));
+            var decomposedTask = _plan?.Group?.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.Id, taskId, StringComparison.Ordinal));
+            var verificationLevel = PlanTaskVerificationLevel.Normalize(
+                durableTask?.VerificationLevel ?? decomposedTask?.VerificationLevel);
+            var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(durableTask)
+                || PlanTaskExecutionPolicy.IsVerificationOnly(decomposedTask);
+            var taskTitle = durableTask?.Title ?? decomposedTask?.Title ?? taskId;
+            PopulateVerificationDetail(taskTitle, taskId, verificationLevel, verificationOnly, durableTask);
         }
         else if (_selectedElement.Kind == "gate")
         {
@@ -6012,8 +5816,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void PrependInspectorToolbar()
     {
-        if (_detailDocument is null) return;
-        var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        if (_inspectorToolbarPanel is null) return;
+        _inspectorToolbarPanel.Children.Clear();
 
         Button AddButton(string label, Action click, string? toolTip = null)
         {
@@ -6022,7 +5826,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 toolTip: toolTip is null ? null : ToolTipHelper.MakeThemedToolTip(toolTip));
             button.Margin = new Thickness(0, 0, 6, 4);
             button.Click += (_, _) => click();
-            toolbar.Children.Add(button);
+            _inspectorToolbarPanel.Children.Add(button);
             return button;
         }
 
@@ -6033,6 +5837,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _isInspectorEditing = !_isInspectorEditing;
                 RefreshDetailPanel();
             }, "Edit this staged-plan element in the inspector.");
+
+            if (_isInspectorEditing && _inspectorEditorSaveAction is not null)
+            {
+                AddButton("Save changes", () =>
+                {
+                    var error = _inspectorEditorSaveAction();
+                    if (_inspectorEditorStatus is not null)
+                        _inspectorEditorStatus.Text = error ?? string.Empty;
+                });
+            }
         }
         else if (_saveDefinitionEdit is not null && _selectedElement is not null &&
                  _selectedElement.Kind is "task" or "validation" or "gate" or "humanapproval")
@@ -6047,7 +5861,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             locked.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             locked.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            toolbar.Children.Add(locked);
+            _inspectorToolbarPanel.Children.Add(locked);
         }
         if (_requestAiReview is not null && _plan is not null)
         {
@@ -6071,7 +5885,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
                 spinner.SetContinuousActive(true);
-                toolbar.Children.Add(spinner);
+                _inspectorToolbarPanel.Children.Add(spinner);
             }
             if (!string.IsNullOrWhiteSpace(_reviewStatusMessage))
             {
@@ -6084,7 +5898,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
                 status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                toolbar.Children.Add(status);
+                _inspectorToolbarPanel.Children.Add(status);
             }
         }
 
@@ -6104,14 +5918,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             count.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             count.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            toolbar.Children.Add(count);
+            _inspectorToolbarPanel.Children.Add(count);
         }
-
-        var container = new BlockUIContainer(toolbar) { Margin = new Thickness(0) };
-        if (_detailDocument.Blocks.FirstBlock is { } first)
-            _detailDocument.Blocks.InsertBefore(first, container);
-        else
-            _detailDocument.Blocks.Add(container);
     }
 
     private bool CanEditSelectedElement() =>
@@ -6190,6 +5998,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
             NavigateReview(_reviewIndex);
         else
             RefreshDetailPanel();
+    }
+
+    internal void SetLayoutNudges(Dictionary<string, double> nudges)
+    {
+        _taskNudges = new Dictionary<string, double>(nudges, StringComparer.Ordinal);
+        if (_plan is not null)
+            RebuildPreservingScroll(_plan, _durablePlan);
     }
 
     internal void SetReviewRequestError(string error)
@@ -6524,6 +6339,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         editor.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
         editor.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
         editor.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+        editor.SetResourceReference(TextBox.CaretBrushProperty, "BodyText");
         panel.Children.Add(label);
         panel.Children.Add(editor);
         return editor;
@@ -6531,23 +6347,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void AddEditorActions(StackPanel panel, TextBlock status, Func<string?> save)
     {
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-        var saveButton = TranscriptQuickReplyFactory.CreateButton("Save changes", _quickReplyFontSize);
-        var cancelButton = TranscriptQuickReplyFactory.CreateButton("Cancel", _quickReplyFontSize);
-        cancelButton.Margin = new Thickness(6, 0, 0, 0);
-        saveButton.Click += (_, _) =>
-        {
-            var error = save();
-            if (error is not null) status.Text = error;
-        };
-        cancelButton.Click += (_, _) =>
-        {
-            _isInspectorEditing = false;
-            RefreshDetailPanel();
-        };
-        buttons.Children.Add(saveButton);
-        buttons.Children.Add(cancelButton);
-        panel.Children.Add(buttons);
+        _inspectorEditorSaveAction = save;
+        _inspectorEditorStatus = status;
         panel.Children.Add(status);
     }
 
@@ -6905,53 +6706,156 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(statusPara);
 
-        // Mode
-        if (!string.IsNullOrWhiteSpace(validation.Mode))
-        {
-            var modePara = new Paragraph();
-            modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
-            modePara.Inlines.Add(new Run(validation.Mode));
-            modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            modePara.Margin = new Thickness(0, 0, 0, 8);
-            _detailDocument.Blocks.Add(modePara);
-        }
+        var hasResultView = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(validation.Status, "failed", StringComparison.OrdinalIgnoreCase);
 
-        // Description
-        if (!string.IsNullOrWhiteSpace(validation.Description))
+        if (hasResultView)
         {
-            var descPara = new Paragraph(new Run(validation.Description));
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            descPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(descPara);
-        }
-
-        // Assertions list
-        if (validation.Assertions is { Count: > 0 })
-        {
-            AddSectionHeader("Assertions");
-            var assertList = new List();
-            assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            assertList.MarkerStyle = TextMarkerStyle.None;
-            assertList.Margin = new Thickness(0, 0, 0, 12);
-            for (int i = 0; i < validation.Assertions.Count; i++)
+            if (!string.IsNullOrWhiteSpace(validation.Summary))
             {
-                var assertion = validation.Assertions[i];
-                var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
-                var indicator = hasEvidence
-                    ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
-                    : "• ";
-                var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
-                var para = new Paragraph();
-                var indicatorRun = new Run(indicator);
-                indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
-                para.Inlines.Add(indicatorRun);
-                para.Inlines.Add(new Run(assertion));
-                assertList.ListItems.Add(new ListItem(para));
+                AddSectionHeader("Summary");
+                var summaryPara = new Paragraph(new Run(validation.Summary));
+                summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                summaryPara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(summaryPara);
             }
-            _detailDocument.Blocks.Add(assertList);
+
+            if (!string.IsNullOrWhiteSpace(validation.ValidatedCommit))
+            {
+                var commitPara = new Paragraph(new Run($"Evaluated at commit: {validation.ValidatedCommit}")
+                {
+                    FontFamily = new FontFamily("Consolas"),
+                });
+                commitPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                commitPara.Margin = new Thickness(0, 0, 0, 4);
+                _detailDocument.Blocks.Add(commitPara);
+            }
+
+            if (validation.CompletedAt is { } completedAt)
+            {
+                var completedPara = new Paragraph(new Run($"Completed: {completedAt.UtcDateTime:yyyy-MM-dd HH:mm} UTC"));
+                completedPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                completedPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                completedPara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(completedPara);
+            }
+
+            if (validation.Assertions is { Count: > 0 })
+            {
+                AddSectionHeader("Assertions");
+                var assertList = new List();
+                assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                assertList.MarkerStyle = TextMarkerStyle.None;
+                assertList.Margin = new Thickness(0, 0, 0, 12);
+                for (int i = 0; i < validation.Assertions.Count; i++)
+                {
+                    var assertion = validation.Assertions[i];
+                    var hasEvidence = validation.Evidence is not null
+                        && i < validation.Evidence.Count
+                        && !string.IsNullOrWhiteSpace(validation.Evidence[i]);
+                    var para = new Paragraph();
+                    if (hasEvidence)
+                    {
+                        var evidenceText = validation.Evidence![i];
+                        var isPassedAssertion = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
+                            || evidenceText.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
+                        var indicator = isPassedAssertion ? "✓" : "✗";
+                        var indicatorColor = isPassedAssertion ? "PriorityLow" : "PriorityHigh";
+
+                        var indicatorRun = new Run(indicator + " ");
+                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
+                        para.Inlines.Add(indicatorRun);
+                        para.Inlines.Add(new Run(assertion));
+                        para.Inlines.Add(new LineBreak());
+
+                        var evidenceRun = new Run("    " + evidenceText)
+                        {
+                            FontStyle = FontStyles.Italic,
+                        };
+                        evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        evidenceRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                        para.Inlines.Add(evidenceRun);
+                    }
+                    else
+                    {
+                        para.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        para.Inlines.Add(new Run("• " + assertion));
+                    }
+
+                    assertList.ListItems.Add(new ListItem(para));
+                }
+
+                _detailDocument.Blocks.Add(assertList);
+            }
+
+            if (!string.IsNullOrWhiteSpace(validation.Description))
+            {
+                var contextLabel = new Paragraph(new Run("What this validation checked:") { FontWeight = FontWeights.SemiBold });
+                contextLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                contextLabel.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                contextLabel.Margin = new Thickness(0, 0, 0, 2);
+                _detailDocument.Blocks.Add(contextLabel);
+
+                var descPara = new Paragraph(new Run(validation.Description));
+                descPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                descPara.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(descPara);
+            }
+        }
+        else
+        {
+            // Mode
+            if (!string.IsNullOrWhiteSpace(validation.Mode))
+            {
+                var modePara = new Paragraph();
+                modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
+                modePara.Inlines.Add(new Run(validation.Mode));
+                modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                modePara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(modePara);
+            }
+
+            // Description
+            if (!string.IsNullOrWhiteSpace(validation.Description))
+            {
+                var descPara = new Paragraph(new Run(validation.Description));
+                descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                descPara.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(descPara);
+            }
+
+            // Assertions list
+            if (validation.Assertions is { Count: > 0 })
+            {
+                AddSectionHeader("Assertions");
+                var assertList = new List();
+                assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                assertList.MarkerStyle = TextMarkerStyle.None;
+                assertList.Margin = new Thickness(0, 0, 0, 12);
+                for (int i = 0; i < validation.Assertions.Count; i++)
+                {
+                    var assertion = validation.Assertions[i];
+                    var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
+                    var indicator = hasEvidence
+                        ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
+                        : "• ";
+                    var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
+                    var para = new Paragraph();
+                    var indicatorRun = new Run(indicator);
+                    indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
+                    para.Inlines.Add(indicatorRun);
+                    para.Inlines.Add(new Run(assertion));
+                    assertList.ListItems.Add(new ListItem(para));
+                }
+                _detailDocument.Blocks.Add(assertList);
+            }
         }
 
         // After Task IDs
@@ -6959,6 +6863,229 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Before Task IDs
         AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
+    }
+
+    private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly, PlanTask? durableTask = null)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        var titlePara = new Paragraph(new Run("Verification") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        var taskPara = new Paragraph(new Run($"Step: {taskTitle}"));
+        taskPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        taskPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        taskPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(taskPara);
+
+        if (verificationOnly)
+        {
+            var voPara = new Paragraph(new Run(
+                "This step is a verification-only task. It evaluates prior work and does not produce repository commits. " +
+                "It does not receive an additional independent verification pass."));
+            voPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            voPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            voPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(voPara);
+            return;
+        }
+
+        var levelLabel = verificationLevel switch
+        {
+            PlanTaskVerificationLevel.Lightweight => "Lightweight",
+            PlanTaskVerificationLevel.Enhanced => "Enhanced",
+            _ => "Standard",
+        };
+        var levelPara = new Paragraph();
+        levelPara.Inlines.Add(new Run("Verification level: ") { FontWeight = FontWeights.SemiBold });
+        levelPara.Inlines.Add(new Run(levelLabel));
+        levelPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        levelPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        levelPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(levelPara);
+
+        if (durableTask?.VerificationHistory is { Count: > 0 } history)
+        {
+            foreach (var report in history)
+            {
+                var verdictColorKey = report.Verdict.Equals("accepted", StringComparison.OrdinalIgnoreCase)
+                    ? "PriorityLow" : "PriorityHigh";
+                var verdictPara = new Paragraph();
+                var verdictRun = new Run($"● {report.Verdict}") { FontWeight = FontWeights.SemiBold };
+                verdictRun.SetResourceReference(TextElement.ForegroundProperty, verdictColorKey);
+                verdictPara.Inlines.Add(verdictRun);
+                verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt:yyyy-MM-dd HH:mm} UTC)"));
+                verdictPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                verdictPara.Margin = new Thickness(0, 0, 0, 4);
+                _detailDocument.Blocks.Add(verdictPara);
+
+                if (!string.IsNullOrWhiteSpace(report.EvaluatedCommit))
+                {
+                    var commitPara = new Paragraph(new Run($"Evaluated at commit: {report.EvaluatedCommit}")
+                    {
+                        FontFamily = new FontFamily("Consolas"),
+                    });
+                    commitPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                    commitPara.Margin = new Thickness(0, 0, 0, 4);
+                    _detailDocument.Blocks.Add(commitPara);
+                }
+
+                if (!string.IsNullOrWhiteSpace(report.Summary))
+                {
+                    AddSectionHeader("Summary");
+                    var summaryPara = new Paragraph(new Run(report.Summary));
+                    summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    summaryPara.Margin = new Thickness(0, 0, 0, 8);
+                    _detailDocument.Blocks.Add(summaryPara);
+                }
+
+                if (report.ClaimFindings is { Count: > 0 })
+                {
+                    AddSectionHeader("Claim Findings");
+                    var findingList = new System.Windows.Documents.List();
+                    findingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    findingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    findingList.MarkerStyle = TextMarkerStyle.None;
+                    findingList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var finding in report.ClaimFindings)
+                    {
+                        var isConfirmed = finding.Disposition.Equals("confirmed", StringComparison.OrdinalIgnoreCase);
+                        var dispositionColor = isConfirmed ? "PriorityLow" : "PriorityMid";
+                        var fPara = new Paragraph();
+                        var indicator = isConfirmed ? "✓ " : "✗ ";
+                        var indicatorRun = new Run(indicator);
+                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, dispositionColor);
+                        fPara.Inlines.Add(indicatorRun);
+                        fPara.Inlines.Add(new Run(finding.Claim));
+                        if (!string.IsNullOrWhiteSpace(finding.Evidence))
+                        {
+                            fPara.Inlines.Add(new LineBreak());
+                            var evidenceRun = new Run("    " + finding.Evidence) { FontStyle = FontStyles.Italic };
+                            evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                            evidenceRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                            fPara.Inlines.Add(evidenceRun);
+                        }
+                        findingList.ListItems.Add(new ListItem(fPara));
+                    }
+                    _detailDocument.Blocks.Add(findingList);
+                }
+
+                if (report.MissingOrOverstatedWork is { Count: > 0 })
+                {
+                    AddSectionHeader("Missing or Overstated Work");
+                    var missingList = new System.Windows.Documents.List();
+                    missingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    missingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    missingList.MarkerStyle = TextMarkerStyle.None;
+                    missingList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var item in report.MissingOrOverstatedWork)
+                    {
+                        var mPara = new Paragraph();
+                        var bulletRun = new Run("• ");
+                        bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        mPara.Inlines.Add(bulletRun);
+                        mPara.Inlines.Add(new Run(item));
+                        missingList.ListItems.Add(new ListItem(mPara));
+                    }
+                    _detailDocument.Blocks.Add(missingList);
+                }
+
+                if (!string.IsNullOrWhiteSpace(report.TestAssessment))
+                {
+                    AddSectionHeader("Test Assessment");
+                    var testPara = new Paragraph(new Run(report.TestAssessment));
+                    testPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    testPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    testPara.Margin = new Thickness(0, 0, 0, 8);
+                    _detailDocument.Blocks.Add(testPara);
+                }
+
+                if (report.ReworkInstructions is { Count: > 0 })
+                {
+                    AddSectionHeader("Rework Instructions");
+                    var reworkList = new System.Windows.Documents.List();
+                    reworkList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    reworkList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    reworkList.MarkerStyle = TextMarkerStyle.None;
+                    reworkList.Margin = new Thickness(0, 0, 0, 8);
+                    foreach (var rw in report.ReworkInstructions)
+                    {
+                        var rPara = new Paragraph();
+                        var bulletRun = new Run("• ");
+                        bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        rPara.Inlines.Add(bulletRun);
+                        rPara.Inlines.Add(new Run(rw));
+                        reworkList.ListItems.Add(new ListItem(rPara));
+                    }
+                    _detailDocument.Blocks.Add(reworkList);
+                }
+            }
+        }
+        else
+        {
+            AddSectionHeader("Assigned To");
+            var whoPara = new Paragraph(new Run("Fact Checker (Verity Cross) — a non-mutating independent review agent."));
+            whoPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            whoPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            whoPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(whoPara);
+
+            AddSectionHeader("Instructions Sent to Verifier");
+
+            string instructions = verificationLevel switch
+            {
+                PlanTaskVerificationLevel.Enhanced =>
+                    "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, " +
+                    "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
+                    "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
+                    "broken while the reported tests still pass.",
+                PlanTaskVerificationLevel.Lightweight =>
+                    "Perform a lightweight review: validate the task-owned claims against the actual diff, production " +
+                    "wiring, and tests. (Note: lightweight verification may be upgraded to standard if critical files " +
+                    "or security-sensitive paths were changed.)",
+                _ =>
+                    "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
+                    "production wiring, and tests.",
+            };
+            var instrPara = new Paragraph(new Run(instructions));
+            instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            instrPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(instrPara);
+
+            AddSectionHeader("Possible Outcomes");
+            var verdictList = new System.Windows.Documents.List();
+            verdictList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            verdictList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            verdictList.MarkerStyle = TextMarkerStyle.None;
+            verdictList.Margin = new Thickness(0, 0, 0, 8);
+            foreach (var (verdict, desc) in new (string, string)[]
+            {
+                ("accepted", "Every material claim is supported. Task moves to complete."),
+                ("rework-required", "A clear, bounded defect was found. Task is sent back."),
+                ("human-review-required", "Evidence is incomplete or intent is ambiguous. Flagged for human judgment."),
+            })
+            {
+                var p = new Paragraph();
+                var bulletRun = new Run("• ");
+                bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                p.Inlines.Add(bulletRun);
+                p.Inlines.Add(new Run($"{verdict}: ") { FontWeight = FontWeights.SemiBold });
+                p.Inlines.Add(new Run(desc));
+                verdictList.ListItems.Add(new ListItem(p));
+            }
+            _detailDocument.Blocks.Add(verdictList);
+        }
+
+        PrependInspectorToolbar();
     }
 
     private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)
@@ -7438,6 +7565,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             textBox.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
             textBox.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
             textBox.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+            textBox.SetResourceReference(TextBox.CaretBrushProperty, "BodyText");
             editor.Children.Add(textBox);
             return textBox;
         }
@@ -7775,6 +7903,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         element.PreviewMouseLeftButtonDown += (_, e) => OnTaskCardPreviewMouseLeftButtonDown(element, taskId, e);
         element.MouseLeftButtonUp += OnTaskCardMouseLeftButtonUp;
         element.LostMouseCapture += OnTaskCardLostMouseCapture;
+        // Right-click selects the card before the context menu opens (same as WireSelectionClick does for other elements).
+        element.PreviewMouseRightButtonDown += (_, _) => SelectElement("task", taskId);
     }
 
     private static IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> CaptureConnectorEffects(
@@ -8255,6 +8385,52 @@ internal sealed class PlanViewerWindow : ChromedWindow
             connector.Effect = TaskNodeGlowEffect();
     }
 
+    /// <summary>
+    /// Computes the Y position for a connector's exit point on the source card's right edge,
+    /// distributing exits vertically in sorted target-Y order to minimize crossings.
+    /// </summary>
+    private double ComputeSourceExitY(
+        string sourceTaskId,
+        ConnectorGroup thisConnectorGroup,
+        double thisDraggedTargetMidY,
+        double sourceCardTop)
+    {
+        if (!_connectorsByTask.TryGetValue(sourceTaskId, out var groups))
+            return sourceCardTop + NodeHeight / 2.0;
+
+        var targetYs = new List<double>();
+        foreach (var g in groups.Distinct())
+        {
+            if (!g.GetEndpointRole(sourceTaskId).HasFlag(ConnectorEndpointRole.Start))
+                continue;
+
+            if (ReferenceEquals(g, thisConnectorGroup))
+            {
+                targetYs.Add(thisDraggedTargetMidY);
+            }
+            else
+            {
+                var targetId = g.TaskIds.FirstOrDefault(id =>
+                    g.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+                if (targetId is not null && _taskCardPositions.TryGetValue(targetId, out var targetPos))
+                    targetYs.Add(targetPos.Y + NodeHeight / 2.0);
+                else
+                    targetYs.Add(g.CurrentTo.Y);
+            }
+        }
+
+        if (targetYs.Count <= 1)
+            return sourceCardTop + NodeHeight / 2.0;
+
+        targetYs.Sort();
+
+        var rank = targetYs.BinarySearch(thisDraggedTargetMidY);
+        if (rank < 0)
+            rank = ~rank;
+        rank = Math.Min(rank, targetYs.Count - 1);
+        return sourceCardTop + NodeHeight * (rank + 1.0) / (targetYs.Count + 1.0);
+    }
+
     private void UpdateTaskCardDragConnectors(TaskCardDragState dragState, double top)
     {
         if (_graphCanvas is null)
@@ -8275,6 +8451,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 connectorState.EndOffsetWithinCard.HasValue)
             {
                 updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
+            }
+
+            // When the dragged task is the target (End) but NOT the source of this connector,
+            // recalculate the upstream exit Y so arrows adjust during drag to minimize crossings.
+            if (connectorState.Role == ConnectorEndpointRole.End &&
+                !string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
+                _taskCardPositions.TryGetValue(connectorState.SourceTaskId, out var sourcePos))
+            {
+                var cardHeight = dragState.Element is not null && dragState.Element.ActualHeight > 0
+                    ? dragState.Element.ActualHeight
+                    : NodeHeight;
+                var draggedMidY = top + cardHeight / 2.0;
+                var newExitY = ComputeSourceExitY(connectorState.SourceTaskId, group, draggedMidY, sourcePos.Y);
+                updatedFrom = new Point(updatedFrom.X, newExitY);
             }
 
             if (!string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
@@ -8301,6 +8491,82 @@ internal sealed class PlanViewerWindow : ChromedWindow
             else
             {
                 group.UpdateEndpoints(updatedFrom, updatedTo);
+            }
+        }
+
+        // Reposition ALL gate badges whose connected tasks moved.
+        if (_visualizationGates is { Count: > 0 } gates && _graphCanvas is not null)
+        {
+            for (var gi = 0; gi < gates.Count; gi++)
+            {
+                var gate = gates[gi];
+                var gateAffected =
+                    gate.Dependencies.Any(depId =>
+                        string.Equals(depId, dragState.TaskId, StringComparison.Ordinal) ||
+                        dragState.DisplacedSiblingTops.ContainsKey(depId)) ||
+                    gate.Targets.Any(target =>
+                        string.Equals(target.Id, dragState.TaskId, StringComparison.Ordinal) ||
+                        dragState.DisplacedSiblingTops.ContainsKey(target.Id));
+
+                if (!gateAffected)
+                    continue;
+
+                var connectedMidpointYSum = 0.0;
+                var connectedTaskCount = 0;
+                foreach (var depId in gate.Dependencies)
+                {
+                    if (_taskCardPositions.TryGetValue(depId, out var depPosition))
+                    {
+                        connectedMidpointYSum += depPosition.Y + NodeHeight / 2.0;
+                        connectedTaskCount++;
+                    }
+                }
+
+                foreach (var target in gate.Targets)
+                {
+                    if (_taskCardPositions.TryGetValue(target.Id, out var targetPosition))
+                    {
+                        connectedMidpointYSum += targetPosition.Y + NodeHeight / 2.0;
+                        connectedTaskCount++;
+                    }
+                }
+
+                if (connectedTaskCount == 0)
+                    continue;
+
+                var liveCenterY = connectedMidpointYSum / connectedTaskCount;
+
+                // Move the badge element.
+                if (_allGateBadgeElements is not null &&
+                    gi < _allGateBadgeElements.Length &&
+                    _allGateBadgeElements[gi] is FrameworkElement badge)
+                {
+                    Canvas.SetTop(badge, liveCenterY - 17 * _scaleFactor);
+                }
+
+                // Update connector endpoints so arrows follow the badge.
+                if (_visualizationGateConnectorGroups is not null && gi < _visualizationGateConnectorGroups.Count)
+                {
+                    foreach (var cg in _visualizationGateConnectorGroups[gi])
+                    {
+                        var currentFrom = cg.CurrentFrom;
+                        var currentTo   = cg.CurrentTo;
+
+                        // Incoming connectors have their To endpoint at the badge's left face (X = gateCenter.X - 29).
+                        // Outgoing connectors have their From endpoint at the badge's right face (X = gateCenter.X + 29).
+                        // Distinguish by comparing endpoint X to gate center offsets.
+                        if (Math.Abs(currentTo.X - (gate.Center.X - 29)) < 1.0)
+                        {
+                            // Incoming: update To to new Y
+                            cg.UpdateEndpoints(currentFrom, new Point(currentTo.X, liveCenterY));
+                        }
+                        else if (Math.Abs(currentFrom.X - (gate.Center.X + 29)) < 1.0)
+                        {
+                            // Outgoing: update From to new Y
+                            cg.UpdateEndpoints(new Point(currentFrom.X, liveCenterY), currentTo);
+                        }
+                    }
+                }
             }
         }
     }
@@ -8583,7 +8849,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnTaskCardMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
     {
+        var wasDragActive = _taskCardDragState?.IsActive ?? false;
+        var taskId = _taskCardDragState?.TaskId;
         CommitTaskCardDrag();
+        // Treat as a click (selection toggle) only when no real drag occurred.
+        if (!wasDragActive && taskId is not null)
+            SelectElement("task", taskId);
     }
 
     private void OnTaskCardLostMouseCapture(object? sender, MouseEventArgs e)
@@ -8646,6 +8917,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 dragState.ColumnIdentifier,
                 dragState.CurrentColumnOrder.ToArray());
             PersistCommittedTaskCardReorder();
+        }
+
+        var committedTop = Canvas.GetTop(dragState.Element);
+        if (!double.IsNaN(committedTop) &&
+            _naturalTaskSlotTops.TryGetValue(dragState.TaskId, out var naturalTop))
+        {
+            var fontSizeBody = _scaleFactor * 12.0;
+            var nudgeLineHeights = (committedTop - naturalTop) / fontSizeBody;
+            if (Math.Abs(nudgeLineHeights) < 0.05)
+                nudgeLineHeights = 0.0;
+
+            if (nudgeLineHeights == 0.0)
+                _taskNudges.Remove(dragState.TaskId);
+            else
+                _taskNudges[dragState.TaskId] = nudgeLineHeights;
+
+            _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
         }
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;

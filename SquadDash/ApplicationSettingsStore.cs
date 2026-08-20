@@ -1088,6 +1088,7 @@ internal sealed class ApplicationSettingsStore {
                 PlansPanelVisible = state.PlansPanelVisible ?? existing.PlansPanelVisible,
                 WatchHealthSectionExpanded = state.WatchHealthSectionExpanded ?? existing.WatchHealthSectionExpanded,
                 OpenInboxMessageIds = state.OpenInboxMessageIds ?? existing.OpenInboxMessageIds,
+                OpenPlanViewerGroupIds = state.OpenPlanViewerGroupIds ?? existing.OpenPlanViewerGroupIds,
                 DraftFollowUpsJson = state.DraftFollowUpsJson ?? existing.DraftFollowUpsJson,
                 SelectedLoopFile = state.SelectedLoopFile ?? existing.SelectedLoopFile,
                 NotesSortOrder = state.NotesSortOrder ?? existing.NotesSortOrder,
@@ -1186,6 +1187,12 @@ internal sealed record WorkspaceDocsPanelState
     /// Restored on next startup. <c>null</c> = none open.
     /// </summary>
     public IReadOnlyList<string>? OpenInboxMessageIds { get; init; }
+
+    /// <summary>
+    /// Group IDs of plan visualizer windows that were open at shutdown.
+    /// Restored on next startup. <c>null</c> = none open.
+    /// </summary>
+    public IReadOnlyList<string>? OpenPlanViewerGroupIds { get; init; }
 
     /// <summary>
     /// Follow-up attachments on the active draft tab. Persisted so they survive restart.

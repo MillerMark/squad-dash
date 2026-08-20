@@ -459,6 +459,7 @@ public partial class MainWindow : Window
     private readonly PromptQueueCoordinator _promptQueueCoordinator;
     private PromptQueue _promptQueue => _promptQueueCoordinator.Queue;
     private bool _queueManuallyPaused;
+    private readonly QueueStopPauseState _queueStopPauseState = new();
     private bool _queuePausePending;
     // True until the durable queue, selected tab, editor selection, pause, and
     // loop handoff have all been restored for the active workspace.
@@ -555,9 +556,7 @@ public partial class MainWindow : Window
     private readonly List<Image> _toolIconImages = [];
     private readonly HashSet<TranscriptResponseEntry> _pendingResponseEntryRenders = [];
     private readonly HashSet<TranscriptThoughtEntry> _pendingThoughtEntryRenders = [];
-    private readonly object _bridgeEventQueueGate = new();
-    private readonly Queue<SquadSdkEvent> _pendingBridgeEvents = new();
-    private bool _bridgeEventDispatchPending;
+    private readonly BridgeEventDispatchQueue _bridgeEventQueue = new();
     private DateTimeOffset _lastKeyboardInputAt = DateTimeOffset.MinValue;
     private readonly PostedUiActionTracker _postedUiActionTracker;
     private readonly UiActionReplayRegistry _uiActionReplayRegistry;
@@ -1714,7 +1713,7 @@ public partial class MainWindow : Window
             waitForRoutingRepairSettleAsync: () => WaitForRoutingRepairStateToSettleAsync(),
             maybePublishRoutingIssue: (reason, force) => MaybePublishRoutingIssueSystemEntry(reason, force),
             promptHealthTimer: _promptHealthTimer,
-            waitForPostedUiActionsAsync: () => _postedUiActionTracker.WaitForDrainAsync(),
+            waitForBridgeUiEventsAppliedAsync: WaitForBridgeUiEventsAppliedAsync,
             getModelObservedThisSession: () => _modelObservedThisSession,
             workspacePaths: _workspacePaths,
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
@@ -3911,6 +3910,8 @@ public partial class MainWindow : Window
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
+        if (!paused)
+            _queueStopPauseState.RecordQueueResumed();
         EditPauseQueueDrainMenuItem.Visibility  = paused ? Visibility.Collapsed : Visibility.Visible;
         EditResumeQueueDrainMenuItem.Visibility = paused ? Visibility.Visible   : Visibility.Collapsed;
         // When pausing with no queued items the border is normally Collapsed;
@@ -3980,6 +3981,15 @@ public partial class MainWindow : Window
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? (bool?)true : false };
             _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
         }
+    }
+
+    private void ResumeQueueAfterStoppedWorkResponseIfNeeded()
+    {
+        if (!_queueStopPauseState.ConsumeResponseResume(_queueManuallyPaused || _queuePausePending))
+            return;
+
+        SquadDashTrace.Write("Queue", "Corrective response received after Stop — resuming automatic prompt queue processing.");
+        SetQueuePaused(false);
     }
 
     private void SyncPromptTextBoxSimBorder()
@@ -5132,7 +5142,10 @@ public partial class MainWindow : Window
             _planAbortRequestedByUser = true;
 
         if (_promptQueue.Count > 0)
+        {
+            _queueStopPauseState.RecordStopPause(_queueManuallyPaused || _queuePausePending);
             SetQueuePaused(true);
+        }
 
         if (IsLoopRunning)
             ForceStopLoopForRunningWorkStop();
@@ -9658,7 +9671,8 @@ public partial class MainWindow : Window
                     PendingDecomposePlanAdapter.FromPlan(previewPlan),
                     _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath),
                     _inboxFontSize,
-                    durablePlan: previewPlan)
+                    durablePlan: previewPlan,
+                    getSettings: () => _settingsSnapshot)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {proposedPlan.DisplayName} — Revision {proposedPlan.RevisionNumber}",
@@ -12162,9 +12176,12 @@ public partial class MainWindow : Window
                   {
                       var store = new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath);
                       if (review is null) store.Delete(groupId);
-                      else store.Save(review);
-                  }
+                       else store.Save(review);
+                   }
                 : null;
+        Action<Dictionary<string, double>>? saveLayoutNudges = _currentWorkspace is not null
+            ? nudges => new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath).Save(groupId, nudges)
+            : null;
         win = new PlanViewerWindow(
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
@@ -12205,14 +12222,18 @@ public partial class MainWindow : Window
             saveDefinitionEdit: saveDefinitionEdit,
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState,
+            saveLayoutNudges: saveLayoutNudges,
             onRetryValidation: (current, validationId) =>
-                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId))
+                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
+            getSettings: () => _settingsSnapshot)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
         _openPlanViewerWindows.Add((groupId, win));
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
             ReferenceEquals(e.Window, win));
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"PlanViewer:{groupId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"PlanViewer:{groupId}", win);
         win.Show();
         if (_currentWorkspace is not null)
         {
@@ -12220,6 +12241,11 @@ public partial class MainWindow : Window
                 .Load(displayedPlan.Group.GroupId, displayedPlan.Revision);
             if (existingReview is not null)
                 win.SetReviewAnnotations(existingReview);
+
+            var existingNudges = new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath)
+                .Load(displayedPlan.Group.GroupId);
+            if (existingNudges is { Count: > 0 })
+                win.SetLayoutNudges(existingNudges);
         }
 
         async Task<bool> ApplyFromViewerAsync(DecomposePlanActionDefinition action)
@@ -24130,6 +24156,7 @@ public partial class MainWindow : Window
                     PromptTextBox.Clear();
                     _pec.DisableQuickReplies(quickReplyEntry);
                     ClearActiveQuickReplyState(quickReplyEntry);
+                    ResumeQueueAfterStoppedWorkResponseIfNeeded();
                     ResetQueuePausedState();
                     // ApplyFollowUpHeader consumes any pending attachment for the active draft
                     // ("" tabId) and injects it as a header. Skipping it here would orphan the
@@ -41100,6 +41127,7 @@ public partial class MainWindow : Window
         }
 
         SquadDashTrace.Write("UI", $"Interrupt recovery: resending last prompt ({lastPrompt.Length} chars).");
+        ResumeQueueAfterStoppedWorkResponseIfNeeded();
         ResetQueuePausedState();
         await _pec.ExecutePromptAsync(lastPrompt, addToHistory: false, clearPromptBox: false);
     }
@@ -41139,6 +41167,7 @@ public partial class MainWindow : Window
         }
 
         SquadDashTrace.Write("UI", $"Interrupt recovery: git diff captured ({diffOutput.Length} chars), injecting as prompt.");
+        ResumeQueueAfterStoppedWorkResponseIfNeeded();
         ResetQueuePausedState();
         var prompt = $"The prompt was interrupted. Here is the current git diff — please review for partial changes and advise:\n\n```\n{diffOutput}\n```";
         await _pec.ExecutePromptAsync(prompt, addToHistory: false, clearPromptBox: false);
@@ -41273,6 +41302,7 @@ public partial class MainWindow : Window
 
             _pec.DisableQuickReplies(payload.Entry);
             ClearActiveQuickReplyState(payload.Entry);
+            ResumeQueueAfterStoppedWorkResponseIfNeeded();
             ResetQueuePausedState();
             var pendingLaunch = CreatePendingQuickReplyLaunch(payload);
             _pendingQuickReplyLaunch = pendingLaunch;
@@ -44644,7 +44674,7 @@ public partial class MainWindow : Window
             {
                 e.Cancel = true;
                 _restartPending = true;
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 SquadDashTrace.Write("Shutdown", "Close requested while PTT active or draining. Deferring restart until final phrase is received.");
                 EmergencySaveAfterDrainingBridgeEvents("close-while-ptt-active");
                 return;
@@ -44662,11 +44692,15 @@ public partial class MainWindow : Window
             foreach (var inboxWin in _openInboxWindows)
                 FloatingWindowPositionStore.Shared.Save($"InboxMessage:{inboxWin.MessageId}", inboxWin);
 
+            // Safety-net: save positions for any plan viewer windows still open.
+            foreach (var (gid, planWin) in _openPlanViewerWindows)
+                FloatingWindowPositionStore.Shared.Save($"PlanViewer:{gid}", planWin);
+
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
                 e.Cancel = true;
                 EmergencySaveAfterDrainingBridgeEvents("restart-close-deferred");
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 return;
             }
 
@@ -44706,7 +44740,7 @@ public partial class MainWindow : Window
                 if (dialog.ShowDialog() != true)
                 {
                     SquadDashTrace.Write("Shutdown", "Close cancelled by user.");
-                    _mainWindowClosingInProgress = false;
+                    ResumeUiDispatchAfterCancelledClose();
                     return;
                 }
 
@@ -44720,24 +44754,24 @@ public partial class MainWindow : Window
                     case ShutdownChoice.AfterCurrentTurn:
                         _deferredShutdown = DeferredShutdownMode.AfterCurrentTurn;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after current turn.");
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
 
                     case ShutdownChoice.AfterAllQueued:
                         _deferredShutdown = DeferredShutdownMode.AfterAllQueued;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after all queued items.");
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
 
                     default:
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
                 }
             }
 
             if (e.Cancel)
             {
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 return;
             }
 
@@ -44747,7 +44781,7 @@ public partial class MainWindow : Window
             if (_guidedTourController?.FlushEditorChanges() == false)
             {
                 e.Cancel = true;
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 MessageBox.Show(
                     "The guided tour editor could not save its pending changes. Shutdown was cancelled.",
                     "Guided Tour Save Failed",
@@ -44845,6 +44879,18 @@ public partial class MainWindow : Window
                 };
                 _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
             }
+
+            // Persist open plan viewer IDs.
+            var openPlanGroupIds = _openPlanViewerWindows
+                .Select(entry => entry.GroupId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToList();
+            var planViewerState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+            _docsPanelState = planViewerState with
+            {
+                OpenPlanViewerGroupIds = openPlanGroupIds.Count > 0 ? openPlanGroupIds : [],
+            };
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
 
             // Capture docs panel state (only when panel is open; closed state is already
             // written by SetDocumentationMode when the user toggles it off).
@@ -46546,7 +46592,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        DrainPendingBridgeEventsForShutdown(reason);
+        DrainPendingBridgeEventsSynchronously(reason, TraceCategory.Shutdown, "emergency save", 10_000);
 
         // Safety net: if the turn ended without a "done" bridge event (e.g. the app is closing
         // while a response is still streaming), attempt to flush any complete INBOX_MESSAGE_JSON
@@ -46557,28 +46603,19 @@ public partial class MainWindow : Window
         _conversationManager.EmergencySave(reason);
     }
 
-    private void DrainPendingBridgeEventsForShutdown(string reason)
+    private void DrainPendingBridgeEventsSynchronously(
+        string reason,
+        TraceCategory traceCategory,
+        string operation,
+        int maxEvents)
     {
         var sw = Stopwatch.StartNew();
         var handled = 0;
         var deltaEvents = 0;
         var initialPending = PendingBridgeEventCount;
 
-        while (handled < 10_000)
+        while (handled < maxEvents && _bridgeEventQueue.TryDequeue(out var evt))
         {
-            SquadSdkEvent? evt;
-            lock (_bridgeEventQueueGate)
-            {
-                evt = _pendingBridgeEvents.Count > 0
-                    ? _pendingBridgeEvents.Dequeue()
-                    : null;
-                if (evt is null)
-                    _bridgeEventDispatchPending = false;
-            }
-
-            if (evt is null)
-                break;
-
             if (IsHighFrequencyBridgeEvent(evt.Type))
                 deltaEvents++;
 
@@ -46588,29 +46625,67 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                HandleUiCallbackException($"DrainPendingBridgeEventsForShutdown:{evt.Type}", ex, showDialog: false);
+                HandleUiCallbackException($"DrainPendingBridgeEventsSynchronously:{evt.Type}", ex, showDialog: false);
             }
 
             handled++;
         }
 
-        var remaining = PendingBridgeEventCount;
+        var shouldPostMore = _bridgeEventQueue.CompleteDrainPass(out var remaining);
+        if (shouldPostMore)
+            PostClaimedBridgeEventDrain();
+
         if (initialPending > 0 || handled > 0 || remaining > 0)
         {
             SquadDashTrace.Write(
-                TraceCategory.Shutdown,
-                $"Bridge queue drained before emergency save reason={reason} initial={initialPending} handled={handled} deltaEvents={deltaEvents} remaining={remaining} elapsedMs={sw.ElapsedMilliseconds}");
+                traceCategory,
+                $"Bridge queue drained before {operation} reason={reason} initial={initialPending} handled={handled} deltaEvents={deltaEvents} remaining={remaining} elapsedMs={sw.ElapsedMilliseconds}");
         }
     }
 
-    private int PendingBridgeEventCount
+    private async Task WaitForBridgeUiEventsAppliedAsync()
     {
-        get
+        if (Dispatcher.CheckAccess())
         {
-            lock (_bridgeEventQueueGate)
-                return _pendingBridgeEvents.Count;
+            DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000);
+        }
+        else
+        {
+            await Dispatcher.InvokeAsync(() => DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000));
+        }
+
+        // A previously posted batch may still be tracked even though the synchronous drain
+        // consumed its events. Let that callback retire, then make one final request-scoped
+        // pass before the coordinator turn is persisted and cleared.
+        await _postedUiActionTracker.WaitForDrainAsync();
+
+        if (Dispatcher.CheckAccess())
+        {
+            DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization-posted-actions",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000);
+        }
+        else
+        {
+            await Dispatcher.InvokeAsync(() => DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization-posted-actions",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000));
         }
     }
+
+    private int PendingBridgeEventCount => _bridgeEventQueue.Count;
 
     private void MainWindow_PreProcessInput(object sender, PreProcessInputEventArgs e)
     {
@@ -46634,19 +46709,24 @@ public partial class MainWindow : Window
 
     private void QueueBridgeEventForUi(SquadSdkEvent evt)
     {
-        var shouldPost = false;
-        lock (_bridgeEventQueueGate)
-        {
-            _pendingBridgeEvents.Enqueue(evt);
-            if (!_bridgeEventDispatchPending)
-            {
-                _bridgeEventDispatchPending = true;
-                shouldPost = true;
-            }
-        }
+        if (_bridgeEventQueue.EnqueueAndTryClaimDispatch(evt))
+            PostClaimedBridgeEventDrain();
+    }
 
-        if (shouldPost)
-            PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch");
+    private void SchedulePendingBridgeEventDrain()
+    {
+        if (_bridgeEventQueue.TryClaimDispatchForPendingEvents())
+            PostClaimedBridgeEventDrain();
+    }
+
+    private void PostClaimedBridgeEventDrain()
+    {
+        if (PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch"))
+            return;
+
+        // Closing can be cancelled or deferred. Do not leave the queue believing a callback
+        // exists when the dispatcher helper intentionally declined to post one.
+        _bridgeEventQueue.ReleaseDispatchClaim();
     }
 
     private void DrainBridgeEventQueueOnUi()
@@ -46655,36 +46735,25 @@ public partial class MainWindow : Window
         var handled = 0;
         var deltaEvents = 0;
 
-        while (handled < BridgeEventUiBatchLimit && sw.ElapsedMilliseconds < BridgeEventUiBatchMaxMs)
+        while (handled < BridgeEventUiBatchLimit &&
+               sw.ElapsedMilliseconds < BridgeEventUiBatchMaxMs &&
+               _bridgeEventQueue.TryDequeue(out var evt))
         {
-            SquadSdkEvent? evt;
-            lock (_bridgeEventQueueGate)
-            {
-                evt = _pendingBridgeEvents.Count > 0
-                    ? _pendingBridgeEvents.Dequeue()
-                    : null;
-            }
-
-            if (evt is null)
-                break;
-
             if (IsHighFrequencyBridgeEvent(evt.Type))
                 deltaEvents++;
 
-            HandleEvent(evt);
+            try
+            {
+                HandleEvent(evt);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException($"DrainBridgeEventQueueOnUi:{evt.Type}", ex, showDialog: false);
+            }
             handled++;
         }
 
-        var shouldPostMore = false;
-        var remaining = 0;
-        lock (_bridgeEventQueueGate)
-        {
-            remaining = _pendingBridgeEvents.Count;
-            if (remaining > 0)
-                shouldPostMore = true;
-            else
-                _bridgeEventDispatchPending = false;
-        }
+        var shouldPostMore = _bridgeEventQueue.CompleteDrainPass(out var remaining);
 
         if (handled >= BridgeEventUiBatchLimit || sw.ElapsedMilliseconds >= BridgeEventUiBatchMaxMs)
         {
@@ -46694,7 +46763,13 @@ public partial class MainWindow : Window
         }
 
         if (shouldPostMore)
-            PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch");
+            PostClaimedBridgeEventDrain();
+    }
+
+    private void ResumeUiDispatchAfterCancelledClose()
+    {
+        _mainWindowClosingInProgress = false;
+        SchedulePendingBridgeEventDrain();
     }
 
     private static bool IsHighFrequencyBridgeEvent(string? eventType) =>
@@ -46732,14 +46807,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PostToUiAsync(Action action, string source)
+    private bool PostToUiAsync(Action action, string source)
     {
         if (_isClosing || _mainWindowClosingInProgress || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-            return;
+            return false;
 
+        long? registeredSequence = null;
         try
         {
             var sequence = _postedUiActionTracker.RegisterPostedAction();
+            registeredSequence = sequence;
             var queuedAt = Stopwatch.GetTimestamp();
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
@@ -46768,14 +46845,21 @@ public partial class MainWindow : Window
                     }
                 }
             }));
+            return true;
         }
         catch (ObjectDisposedException ex)
         {
+            if (registeredSequence is { } sequence)
+                _postedUiActionTracker.MarkCompleted(sequence);
             SquadDashTrace.Write("Shutdown", $"{source} ignored after disposal: {ex.Message}");
+            return false;
         }
         catch (InvalidOperationException ex)
         {
+            if (registeredSequence is { } sequence)
+                _postedUiActionTracker.MarkCompleted(sequence);
             SquadDashTrace.Write("Shutdown", $"{source} ignored during dispatcher shutdown: {ex.Message}");
+            return false;
         }
     }
 
@@ -49246,6 +49330,33 @@ public partial class MainWindow : Window
 
                     // Refresh the panel so any newly-read messages are rendered at lower opacity.
                     _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                }
+            });
+        }
+
+        // Restore any plan viewer windows that were open at last shutdown.
+        if (_docsPanelState.OpenPlanViewerGroupIds is { Count: > 0 } openPlanGroupIds)
+        {
+            var capturedGroupIds = openPlanGroupIds.ToList();
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+            {
+                if (_currentWorkspace is null)
+                    return;
+
+                _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+                var pendingStore = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+                foreach (var gid in capturedGroupIds)
+                {
+                    var durablePlan = _planStore.Load(gid);
+                    if (durablePlan is not null)
+                    {
+                        OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(durablePlan), durablePlan);
+                        continue;
+                    }
+
+                    var pendingPlan = pendingStore.Load(gid);
+                    if (pendingPlan is not null)
+                        OpenDecomposePlanViewer(pendingPlan);
                 }
             });
         }

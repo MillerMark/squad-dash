@@ -192,6 +192,7 @@
     <Compile Include="..\SquadDash\LoopBoundaryDiagnostics.cs" Link="Source\LoopBoundaryDiagnostics.cs" />
     <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
     <Compile Include="..\SquadDash\QueueRestorePolicy.cs" Link="Source\QueueRestorePolicy.cs" />
+    <Compile Include="..\SquadDash\QueueStopPauseState.cs" Link="Source\QueueStopPauseState.cs" />
     <Compile Include="..\SquadDash\LoopCloseRecoveryPolicy.cs" Link="Source\LoopCloseRecoveryPolicy.cs" />
     <Compile Include="..\SquadDash\ShutdownProtectionPolicy.cs" Link="Source\ShutdownProtectionPolicy.cs" />
     <Compile Include="..\SquadDash\AgentImagePathResolver.cs" Link="Source\AgentImagePathResolver.cs" />
@@ -307,6 +308,7 @@
     <Compile Include="..\SquadDash\HostCommandRegistry.cs" Link="Source\HostCommandRegistry.cs" />
     <Compile Include="..\SquadDash\HostCommandExecutor.cs" Link="Source\HostCommandExecutor.cs" />
     <Compile Include="..\SquadDash\HostCommandParser.cs" Link="Source\HostCommandParser.cs" />
+    <Compile Include="..\SquadDash\BridgeEventDispatchQueue.cs" Link="Source\BridgeEventDispatchQueue.cs" />
     <Compile Include="..\SquadDash\PostedUiActionTracker.cs" Link="Source\PostedUiActionTracker.cs" />
     <Compile Include="..\SquadDash\AgentStatusCard.cs" Link="Source\AgentStatusCard.cs" />
     <Compile Include="..\SquadDash\ActivitySpinner.cs" Link="Source\ActivitySpinner.cs" />

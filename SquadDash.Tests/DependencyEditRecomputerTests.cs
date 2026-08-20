@@ -230,6 +230,132 @@ internal sealed class DependencyEditRecomputerTests
         Assert.That(result.StageAssignments![Id(3)], Is.EqualTo(0));
     }
 
+    [Test]
+    public void Recompute_RemovingDependency_ReleasesConsumerFromTaskValidation()
+    {
+        var group = new DecomposedTaskGroup(
+            GroupId, "Validated dependency", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, []),
+                Task(3, [Id(1), Id(2)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Review second", "Validate second task output",
+                    [Id(2)], [Id(3)], ["Output is correct"], Mode: "evidence"),
+            ]);
+        var firstRemoval = group with
+        {
+            Tasks = group.Tasks.Select(task => task.Id == Id(3)
+                ? task with { DependsOn = [Id(2)] }
+                : task).ToArray(),
+        };
+        var firstResult = DependencyEditRecomputer.Recompute(firstRemoval);
+        var secondRemoval = firstResult.RecomputedGroup! with
+        {
+            Tasks = firstResult.RecomputedGroup.Tasks.Select(task => task.Id == Id(3)
+                ? task with { DependsOn = [] }
+                : task).ToArray(),
+        };
+
+        var result = DependencyEditRecomputer.Recompute(secondRemoval);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstResult.RecomputedGroup!.Validations!.Single().BeforeTaskIds,
+                Is.EqualTo(new[] { Id(3) }));
+            Assert.That(firstResult.StageAssignments![Id(3)], Is.EqualTo(1));
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.RecomputedGroup!.Validations!.Single().BeforeTaskIds, Is.Empty);
+            Assert.That(result.StageAssignments![Id(3)], Is.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public void Recompute_AddingDependency_BlocksConsumerOnTaskValidation()
+    {
+        var group = new DecomposedTaskGroup(
+            GroupId, "Validated dependency", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, []),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Review first", "Validate first task output",
+                    [Id(1)], [], ["Output is correct"], Mode: "evidence"),
+            ]);
+        var edited = group with
+        {
+            Tasks = group.Tasks.Select(task => task.Id == Id(2)
+                ? task with { DependsOn = [Id(1)] }
+                : task).ToArray(),
+        };
+
+        var result = DependencyEditRecomputer.Recompute(edited);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.RecomputedGroup!.Validations!.Single().BeforeTaskIds,
+                Is.EqualTo(new[] { Id(2) }));
+            Assert.That(result.StageAssignments![Id(2)], Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void Recompute_TaskValidation_BlocksEveryDirectDependent()
+    {
+        var group = new DecomposedTaskGroup(
+            GroupId, "Validated fanout", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(1)]),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Review first", "Validate first task output",
+                    [Id(1)], [Id(2)], ["Output is correct"], Mode: "evidence"),
+            ]);
+
+        var result = DependencyEditRecomputer.Recompute(group);
+
+        Assert.That(result.RecomputedGroup!.Validations!.Single().BeforeTaskIds,
+            Is.EqualTo(new[] { Id(2), Id(3) }));
+    }
+
+    [Test]
+    public void Recompute_MultiTaskValidation_PreservesAuthoredBoundary()
+    {
+        var group = new DecomposedTaskGroup(
+            GroupId, "Stage validation", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, []),
+                Task(3, []),
+            ],
+            Validations:
+            [
+                new DecomposedValidationNode(
+                    GroupId + "-VAL-001", "Review stage", "Validate the authored boundary",
+                    [Id(1), Id(2)], [Id(3)], ["Stage is correct"], Mode: "evidence"),
+            ]);
+
+        var result = DependencyEditRecomputer.Recompute(group);
+
+        var validation = result.RecomputedGroup!.Validations!.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation.AfterTaskIds, Is.EqualTo(new[] { Id(1), Id(2) }));
+            Assert.That(validation.BeforeTaskIds, Is.EqualTo(new[] { Id(3) }));
+        });
+    }
+
     // ─── Display label correctness ────────────────────────────────────────────
 
     [Test]
@@ -359,6 +485,41 @@ internal sealed class DependencyEditRecomputerTests
         // It's a single-task exit gate
         Assert.That(result.ApprovalBoundaryAnchors[GroupId + "-GATE-001"],
             Does.StartWith("task-after:").Or.StartsWith("stage:"));
+    }
+
+    [Test]
+    public void Recompute_SplitGateBoundary_ReplacesStaleStageAnchorWithCoveredAllJoin()
+    {
+        var gateId = GroupId + "-GATE-001";
+        var group = new DecomposedTaskGroup(
+            GroupId, "Split gate plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(1)]),
+                Task(4, [Id(3)]),
+                Task(5, [Id(1), Id(4)]),
+            ],
+            ApprovalGates:
+            [
+                new DecomposedGate(
+                    gateId,
+                    "Review the broad boundary",
+                    [Id(1), Id(4)],
+                    [Id(2), Id(5)],
+                    PresentationAnchor: "stage:2"),
+            ]);
+
+        var result = DependencyEditRecomputer.Recompute(group);
+
+        var expectedAnchor = "all:" + Id(5);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.ApprovalBoundaryAnchors![gateId], Is.EqualTo(expectedAnchor));
+            Assert.That(result.RecomputedGroup!.ApprovalGates!.Single().PresentationAnchor,
+                Is.EqualTo(expectedAnchor));
+        });
     }
 
     [Test]

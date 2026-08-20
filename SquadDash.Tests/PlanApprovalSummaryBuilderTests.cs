@@ -8,7 +8,7 @@ internal sealed class PlanApprovalSummaryBuilderTests
         [
             new PlanTask("A", "Task A", "A", [], "mid", PlanTaskStatus.Pending),
             new PlanTask("B", "Task B", "B", ["A"], "mid", PlanTaskStatus.Pending),
-            new PlanTask("C", "Task C", "C", ["B"], "mid", PlanTaskStatus.Pending),
+            new PlanTask("C", "Task C", "C", ["A", "B"], "mid", PlanTaskStatus.Pending),
         ], gates, new PlanProgress(0, 3), new PlanTimestamps(DateTimeOffset.UtcNow));
 
     [Test]
@@ -30,7 +30,7 @@ internal sealed class PlanApprovalSummaryBuilderTests
     {
         var plan = MakePlan([
             new("G1", "one", ["A"], ["B"], PlanGateStatus.Pending, PresentationAnchor: "task-before:B"),
-            new("G2", "two", ["B"], ["C"], PlanGateStatus.Pending, PresentationAnchor: "all:C"),
+            new("G2", "two", ["A", "B"], ["C"], PlanGateStatus.Pending, PresentationAnchor: "all:C"),
         ]);
 
         var result = PlanApprovalSummaryBuilder.Build(plan, new Dictionary<string, int>{{"A",0},{"B",1},{"C",2}});
