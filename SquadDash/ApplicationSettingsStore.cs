@@ -487,6 +487,25 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveCliWorkspaceSelection(
+        string workspaceFolder,
+        CliSelectionMode mode,
+        string? customPath) {
+        using var mutex = AcquireMutex();
+
+        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var selections = current.CliSelectionByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        selections[normalizedWorkspace] = new CliWorkspaceSelection(
+            mode,
+            string.IsNullOrWhiteSpace(customPath) ? null : customPath.Trim());
+
+        var updated = current with { CliSelectionByWorkspace = selections };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveLastUsedModel(string model) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1247,6 +1266,13 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, string> HomeBranchByWorkspace { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Per-workspace CLI selection mode and optional custom path.
+    /// Keyed by normalised workspace folder path.
+    /// </summary>
+    public IReadOnlyDictionary<string, CliWorkspaceSelection> CliSelectionByWorkspace { get; init; } =
+        new Dictionary<string, CliWorkspaceSelection>(StringComparer.OrdinalIgnoreCase);
+
     public string? UserName { get; init; }
     public string? SpeechRegion { get; init; }
     public SpeechProvider SpeechProvider { get; init; } = SpeechProvider.Azure;
@@ -1874,6 +1900,20 @@ internal sealed record ApplicationSettingsSnapshot(
             }
         }
 
+        var normalizedCliSelections = new Dictionary<string, CliWorkspaceSelection>(StringComparer.OrdinalIgnoreCase);
+        if (CliSelectionByWorkspace is not null) {
+            foreach (var entry in CliSelectionByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key))
+                    continue;
+
+                var normalizedWorkspace = Path.GetFullPath(entry.Key)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedCliSelections[normalizedWorkspace] = new CliWorkspaceSelection(
+                    entry.Value.Mode,
+                    string.IsNullOrWhiteSpace(entry.Value.CustomPath) ? null : entry.Value.CustomPath.Trim());
+            }
+        }
+
         return new ApplicationSettingsSnapshot(
             lastOpenedFolder,
             normalizedFolders,
@@ -1987,6 +2027,7 @@ internal sealed record ApplicationSettingsSnapshot(
             RuntimeIssueSimulationByWorkspace = normalizedRuntimeSimulations,
             BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
             HomeBranchByWorkspace = normalizedHomeBranches,
+            CliSelectionByWorkspace = normalizedCliSelections,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
             LastGuidedTourEditorTourName = LastGuidedTourEditorTourName,
             LastGuidedTourEditorStepIndex = Math.Max(0, LastGuidedTourEditorStepIndex),
@@ -2033,6 +2074,10 @@ internal enum DeveloperRuntimeIssueSimulation {
     BuildTempFiles,
     GenericRuntimeFailure
 }
+
+internal sealed record CliWorkspaceSelection(
+    CliSelectionMode Mode,
+    string? CustomPath);
 
 internal sealed record WorkspaceWindowPlacement(
     double Left,

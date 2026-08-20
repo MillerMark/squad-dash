@@ -116,8 +116,10 @@
     <Compile Include="..\SquadDash\SquadDashPaths.cs" Link="Source\SquadDashPaths.cs" />
     <Compile Include="..\SquadDash\MutexLease.cs" Link="Source\MutexLease.cs" />
     <Compile Include="..\SquadDash\ISquadCliResolutionService.cs" Link="Source\ISquadCliResolutionService.cs" />
+    <Compile Include="..\SquadDash\ISquadCliSelectionStore.cs" Link="Source\ISquadCliSelectionStore.cs" />
     <Compile Include="..\SquadDash\CliCmdEscaping.cs" Link="Source\CliCmdEscaping.cs" />
     <Compile Include="..\SquadDash\SquadCliResolutionService.cs" Link="Source\SquadCliResolutionService.cs" />
+    <Compile Include="..\SquadDash\SquadCliSelectionStore.cs" Link="Source\SquadCliSelectionStore.cs" />
     <Compile Include="..\SquadDash\SquadCliCommands.cs" Link="Source\SquadCliCommands.cs" />
     <Compile Include="..\SquadDash\TraceCategory.cs" Link="Source\TraceCategory.cs" />
     <Compile Include="..\SquadDash\TranscriptViewMode.cs" Link="Source\TranscriptViewMode.cs" />
