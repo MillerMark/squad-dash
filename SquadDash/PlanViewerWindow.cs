@@ -1791,7 +1791,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         ApplySelectionVisual();
                         RefreshDetailPanel();
                     };
-                    var remove = CreateThemedMenuItem("Delete validation", definitionEditable);
+                    var remove = new MenuItem { Header = "Delete validation", IsEnabled = definitionEditable };
+                    remove.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     remove.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit($"Delete validation {capturedValidationId}?")) return;
@@ -2479,7 +2480,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
             border.SetResourceReference(Border.BorderBrushProperty, borderColorKey);
             border.Tag = $"task:{task.Id}";
-            WireSelectionClick(border);
             WireTaskCardDrag(border, task.Id);
             Canvas.SetLeft(border, position.X);
             Canvas.SetTop(border, position.Y);
@@ -2656,14 +2656,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                     contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTask.Id));
                     contextMenu.Items.Add(CreateThemedMenuSeparator());
-                    var addValidation = CreateThemedMenuItem("Add validation after this step", definitionEditable);
+                    var addValidation = new MenuItem { Header = "Add validation after this step", IsEnabled = definitionEditable };
+                    addValidation.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     addValidation.Click += (_, _) => ApplyStagedMutation(
                         StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTask.Id),
                         selectKind: "validation",
                         beginEditingSelection: true);
                     contextMenu.Items.Add(addValidation);
 
-                    var deleteTask = CreateThemedMenuItem("Delete step", group.Tasks.Count > 1 && definitionEditable);
+                    var deleteTask = new MenuItem { Header = "Delete step", IsEnabled = group.Tasks.Count > 1 && definitionEditable };
+                    deleteTask.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     deleteTask.Click += (_, _) =>
                     {
                         if (!ConfirmDestructivePlanEdit(
@@ -2745,13 +2747,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTaskId));
                 contextMenu.Items.Add(CreateThemedMenuSeparator());
-                var addValidation = CreateThemedMenuItem("Add validation after this step", definitionEditable);
+                var addValidation = new MenuItem { Header = "Add validation after this step", IsEnabled = definitionEditable };
+                addValidation.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 addValidation.Click += (_, _) => ApplyStagedMutation(
                     StagedPlanEditor.AddValidationAfterTask(_plan!.Group, capturedTaskId),
                     selectKind: "validation",
                     beginEditingSelection: true);
                 contextMenu.Items.Add(addValidation);
-                var deleteTask = CreateThemedMenuItem("Delete step", group.Tasks.Count > 1 && definitionEditable);
+                var deleteTask = new MenuItem { Header = "Delete step", IsEnabled = group.Tasks.Count > 1 && definitionEditable };
+                deleteTask.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 deleteTask.Click += (_, _) =>
                 {
                     if (!ConfirmDestructivePlanEdit($"Delete step {capturedTaskId} and reconnect its dependents?"))
@@ -4610,6 +4614,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return fallback;
     }
 
+    private static ToolTip BuildTaskToolTip(DecomposedSubTask task, PlanTask? durableTask)
+    {
+        var panel = new StackPanel { MaxWidth = 560 };
+
+        TextBlock AddText(
+            string text,
+            string foreground = "LabelText",
+            FontWeight? weight = null,
+            Thickness? margin = null)
+        {
+            var block = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                FontWeight = weight ?? FontWeights.Normal,
+                Margin = margin ?? new Thickness(0),
+            };
+            block.SetResourceReference(TextBlock.ForegroundProperty, foreground);
+            block.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            panel.Children.Add(block);
+            return block;
+        }
+
+        AddText(task.Title ?? task.Id, weight: FontWeights.Bold, margin: new Thickness(0, 0, 0, 5));
+        if (!string.IsNullOrWhiteSpace(task.Description))
+            AddText(task.Description);
+
+        if (durableTask is not null)
+            AddText($"Status: {durableTask.Status}", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 0));
+
+        if (task.DependsOn.Count > 0)
+        {
+            AddText("Depends on:", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 2));
+            foreach (var dep in task.DependsOn)
+                AddText("• " + dep, "SubtleText");
+        }
+
+        return new ToolTip { Content = panel };
+    }
+
     private static ToolTip BuildValidationToolTip(
         DecomposedValidationNode validation,
         PlanValidationNode? durableValidation,
@@ -4907,10 +4951,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return item;
     }
 
-    private static Separator CreateThemedMenuSeparator()
+    private Separator CreateThemedMenuSeparator()
     {
         var separator = new Separator();
-        separator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+        separator.Style = TryFindResource("ThemedMenuSeparatorStyle") as Style;
         return separator;
     }
 
@@ -7845,6 +7889,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         element.PreviewMouseLeftButtonDown += (_, e) => OnTaskCardPreviewMouseLeftButtonDown(element, taskId, e);
         element.MouseLeftButtonUp += OnTaskCardMouseLeftButtonUp;
         element.LostMouseCapture += OnTaskCardLostMouseCapture;
+        // Right-click selects the card before the context menu opens (same as WireSelectionClick does for other elements).
+        element.PreviewMouseRightButtonDown += (_, _) => SelectElement("task", taskId);
     }
 
     private static IReadOnlyList<(UIElement Connector, Effect? OriginalEffect)> CaptureConnectorEffects(
@@ -8789,7 +8835,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnTaskCardMouseLeftButtonUp(object? sender, MouseButtonEventArgs e)
     {
+        var wasDragActive = _taskCardDragState?.IsActive ?? false;
+        var taskId = _taskCardDragState?.TaskId;
         CommitTaskCardDrag();
+        // Treat as a click (selection toggle) only when no real drag occurred.
+        if (!wasDragActive && taskId is not null)
+            SelectElement("task", taskId);
     }
 
     private void OnTaskCardLostMouseCapture(object? sender, MouseEventArgs e)
