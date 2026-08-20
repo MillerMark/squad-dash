@@ -2787,10 +2787,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             var verificationIndicator = new Border
             {
-                Width = 22 * _scaleFactor,
+                Width = 26 * _scaleFactor,
                 Height = 22 * _scaleFactor,
-                CornerRadius = new CornerRadius(11 * _scaleFactor),
-                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
+                BorderThickness = new Thickness(0, 1, 1, 1),
                 Background = Brushes.Transparent,
                 ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
                     ? "This is a verification-only step, so it does not receive another independent verification pass."
@@ -2803,9 +2803,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 verificationOnly
                     ? $"{task.Title ?? task.Id}: verification-only step"
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
-            verificationIndicator.Tag = $"task:{task.Id}";
+            verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + 3 * _scaleFactor);
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + Math.Round(2.4 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 22);
             canvas.Children.Add(verificationIndicator);
@@ -5620,6 +5620,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (validation is not null)
                 PopulateValidationDetail(validation, _durablePlan);
         }
+        else if (_selectedElement.Kind == "verification")
+        {
+            var taskId = _selectedElement.Id;
+            var durableTask = _durablePlan?.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.TaskId, taskId, StringComparison.Ordinal));
+            var decomposedTask = _plan?.Group?.Tasks?.FirstOrDefault(t =>
+                string.Equals(t.Id, taskId, StringComparison.Ordinal));
+            var verificationLevel = PlanTaskVerificationLevel.Normalize(
+                durableTask?.VerificationLevel ?? decomposedTask?.VerificationLevel);
+            var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(durableTask)
+                || PlanTaskExecutionPolicy.IsVerificationOnly(decomposedTask);
+            var taskTitle = durableTask?.Title ?? decomposedTask?.Title ?? taskId;
+            PopulateVerificationDetail(taskTitle, taskId, verificationLevel, verificationOnly);
+        }
         else if (_selectedElement.Kind == "gate")
         {
             if (int.TryParse(_selectedElement.Id, out var gateIndex))
@@ -6615,6 +6629,104 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Before Task IDs
         AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
+    }
+
+    private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly)
+    {
+        if (_detailDocument is null)
+            return;
+
+        _detailDocument.Blocks.Clear();
+
+        var titlePara = new Paragraph(new Run("Verification") { FontWeight = FontWeights.Bold });
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.Margin = new Thickness(0, 0, 0, 4);
+        _detailDocument.Blocks.Add(titlePara);
+
+        var taskPara = new Paragraph(new Run($"Step: {taskTitle}"));
+        taskPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        taskPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        taskPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(taskPara);
+
+        if (verificationOnly)
+        {
+            var voPara = new Paragraph(new Run(
+                "This step is a verification-only task. It evaluates prior work and does not produce repository commits. " +
+                "It does not receive an additional independent verification pass."));
+            voPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            voPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            voPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(voPara);
+            return;
+        }
+
+        var levelLabel = verificationLevel switch
+        {
+            PlanTaskVerificationLevel.Lightweight => "Lightweight",
+            PlanTaskVerificationLevel.Enhanced => "Enhanced",
+            _ => "Standard",
+        };
+        var levelPara = new Paragraph();
+        levelPara.Inlines.Add(new Run("Verification level: ") { FontWeight = FontWeights.SemiBold });
+        levelPara.Inlines.Add(new Run(levelLabel));
+        levelPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        levelPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        levelPara.Margin = new Thickness(0, 0, 0, 8);
+        _detailDocument.Blocks.Add(levelPara);
+
+        AddSectionHeader("Assigned To");
+        var whoPara = new Paragraph(new Run("Fact Checker (Verity Cross) — a non-mutating independent review agent."));
+        whoPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        whoPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        whoPara.Margin = new Thickness(0, 0, 0, 12);
+        _detailDocument.Blocks.Add(whoPara);
+
+        AddSectionHeader("Instructions Sent to Verifier");
+
+        string instructions = verificationLevel switch
+        {
+            PlanTaskVerificationLevel.Enhanced =>
+                "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, " +
+                "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
+                "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
+                "broken while the reported tests still pass.",
+            PlanTaskVerificationLevel.Lightweight =>
+                "Perform a lightweight review: validate the task-owned claims against the actual diff, production " +
+                "wiring, and tests. (Note: lightweight verification may be upgraded to standard if critical files " +
+                "or security-sensitive paths were changed.)",
+            _ =>
+                "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
+                "production wiring, and tests.",
+        };
+        var instrPara = new Paragraph(new Run(instructions));
+        instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        instrPara.Margin = new Thickness(0, 0, 0, 12);
+        _detailDocument.Blocks.Add(instrPara);
+
+        AddSectionHeader("Possible Outcomes");
+        var verdictList = new System.Windows.Documents.List();
+        verdictList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        verdictList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        verdictList.MarkerStyle = TextMarkerStyle.None;
+        verdictList.Margin = new Thickness(0, 0, 0, 8);
+        foreach (var (verdict, desc) in new (string, string)[]
+        {
+            ("accepted", "Every material claim is supported. Task moves to complete."),
+            ("rework-required", "A clear, bounded defect was found. Task is sent back."),
+            ("human-review-required", "Evidence is incomplete or intent is ambiguous. Flagged for human judgment."),
+        })
+        {
+            var p = new Paragraph();
+            p.Inlines.Add(new Run($"{verdict}: ") { FontWeight = FontWeights.SemiBold });
+            p.Inlines.Add(new Run(desc));
+            verdictList.ListItems.Add(new ListItem(p));
+        }
+        _detailDocument.Blocks.Add(verdictList);
+
+        PrependInspectorToolbar();
     }
 
     private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)
