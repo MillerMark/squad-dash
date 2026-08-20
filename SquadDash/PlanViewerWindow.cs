@@ -8388,6 +8388,61 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 group.UpdateEndpoints(updatedFrom, updatedTo);
             }
         }
+
+        // Keep impacted ALL gate badges centered on the live mean midpoint of all
+        // connected tasks while drag displacement is in effect.
+        if (_visualizationGates is { Count: > 0 } gates)
+        {
+            for (var gi = 0; gi < gates.Count; gi++)
+            {
+                var gate = gates[gi];
+                var gateAffected =
+                    gate.Dependencies.Any(depId =>
+                        string.Equals(depId, dragState.TaskId, StringComparison.Ordinal) ||
+                        dragState.DisplacedSiblingTops.ContainsKey(depId)) ||
+                    gate.Targets.Any(target =>
+                        string.Equals(target.Id, dragState.TaskId, StringComparison.Ordinal) ||
+                        dragState.DisplacedSiblingTops.ContainsKey(target.Id));
+
+                if (!gateAffected)
+                    continue;
+
+                var connectedMidpointYSum = 0.0;
+                var connectedTaskCount = 0;
+                foreach (var depId in gate.Dependencies)
+                {
+                    if (_taskCardPositions.TryGetValue(depId, out var depPosition))
+                    {
+                        connectedMidpointYSum += depPosition.Y + NodeHeight / 2.0;
+                        connectedTaskCount++;
+                    }
+                }
+
+                foreach (var target in gate.Targets)
+                {
+                    if (_taskCardPositions.TryGetValue(target.Id, out var targetPosition))
+                    {
+                        connectedMidpointYSum += targetPosition.Y + NodeHeight / 2.0;
+                        connectedTaskCount++;
+                    }
+                }
+
+                if (connectedTaskCount == 0)
+                    continue;
+
+                var liveCenterY = connectedMidpointYSum / connectedTaskCount;
+                var gateTag = $"alljoin:{gi}";
+                foreach (var child in _graphCanvas.Children.OfType<FrameworkElement>())
+                {
+                    if (child.Tag is string childTag &&
+                        string.Equals(childTag, gateTag, StringComparison.Ordinal))
+                    {
+                        Canvas.SetTop(child, liveCenterY - 17 * _scaleFactor);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void RestoreTaskCardDragGlow(TaskCardDragState dragState)
