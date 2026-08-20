@@ -2252,16 +2252,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanTaskActivityState.Assessing or
                 PlanTaskActivityState.Verifying or
                 PlanTaskActivityState.Reworking;
-            var prereqLines = task.DependsOn.Count == 0
-                ? ["None — this step can start immediately."]
-                : task.DependsOn.Select(id =>
-                {
-                    if (!tasksById.TryGetValue(id, out var dep)) return $"• {id}";
-                    var label = dep.Title ?? dep.Description;
-                    return "• " + (label.Length > 60 ? label[..60] + "…" : label);
-                }).ToArray();
-
-            string? taskIconKey = isTaskExecuting ? null : durableTask?.Status switch
+            string? taskIconKey= isTaskExecuting ? null : durableTask?.Status switch
             {
                 PlanTaskStatus.Complete   or
                 PlanTaskStatus.Superseded => "TaskSucceeded",
@@ -2443,13 +2434,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = BuildTaskToolTip(
-                    task.Title ?? task.Description,
-                    task.Description,
-                    prereqLines,
-                    durableTask?.CompletionSummary,
-                    durableTask?.Commit,
-                    durableTask?.ProvenanceChain),
+                ToolTip         = "Click to inspect",
                 Child           = nodeLayout,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
@@ -5088,121 +5073,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var separator = new Separator();
         separator.Style = TryFindResource("ThemedMenuSeparatorStyle") as Style;
         return separator;
-    }
-
-    private static ToolTip BuildTaskToolTip(
-        string title,
-        string description,
-        string[] prereqLines,
-        string? completionSummary = null,
-        string? commit = null,
-        ProofProvenanceChain? provenanceChain = null)
-    {
-        var titleBlock = new TextBlock
-        {
-            Text = title,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 500,
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 5),
-        };
-        titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-
-        var descBlock = new TextBlock
-        {
-            Text         = description,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth     = 500,
-        };
-        descBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        descBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-
-        var prereqHeader = new TextBlock
-        {
-            Text       = "Prerequisites:",
-            FontWeight = FontWeights.SemiBold,
-            Margin     = new Thickness(0, 8, 0, 2),
-        };
-        prereqHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        prereqHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-
-        var panel = new StackPanel { MaxWidth = 500 };
-        panel.Children.Add(titleBlock);
-        panel.Children.Add(descBlock);
-        panel.Children.Add(prereqHeader);
-        foreach (var line in prereqLines)
-        {
-            var lineBlock = new TextBlock
-            {
-                Text         = line,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            lineBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            lineBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(lineBlock);
-        }
-
-        if (completionSummary is not null)
-        {
-            var completionHeader = new TextBlock
-            {
-                Text       = "Completion:",
-                FontWeight = FontWeights.SemiBold,
-                Margin     = new Thickness(0, 8, 0, 2),
-            };
-            completionHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            completionHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(completionHeader);
-
-            var summaryBlock = new TextBlock
-            {
-                Text         = completionSummary,
-                TextWrapping = TextWrapping.Wrap,
-            };
-            summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            summaryBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(summaryBlock);
-        }
-
-        if (commit is not null)
-        {
-            var shortCommit = commit.Length >= 7 ? commit[..7] : commit;
-            var commitBlock = new TextBlock
-            {
-                Text         = $"Commit: [{shortCommit}]",
-                TextWrapping = TextWrapping.Wrap,
-                Margin       = new Thickness(0, 4, 0, 0),
-                FontFamily   = new FontFamily("Consolas, Courier New, monospace"),
-            };
-            commitBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            commitBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(commitBlock);
-        }
-
-        if (provenanceChain is { Entries.Count: > 0 })
-        {
-            var provenanceHeader = new TextBlock
-            {
-                Text       = "Prior attempts:",
-                FontWeight = FontWeights.SemiBold,
-                Margin     = new Thickness(0, 8, 0, 2),
-            };
-            provenanceHeader.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            provenanceHeader.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(provenanceHeader);
-
-            var provenanceSummary = new TextBlock
-            {
-                Text         = provenanceChain.BuildSummary(),
-                TextWrapping = TextWrapping.Wrap,
-            };
-            provenanceSummary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            provenanceSummary.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
-            panel.Children.Add(provenanceSummary);
-        }
-
-        return new ToolTip { Content = panel };
     }
 
     private static Dictionary<string, int> CalculateLevels(
