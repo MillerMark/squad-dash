@@ -488,6 +488,41 @@ internal sealed class DependencyEditRecomputerTests
     }
 
     [Test]
+    public void Recompute_SplitGateBoundary_ReplacesStaleStageAnchorWithCoveredAllJoin()
+    {
+        var gateId = GroupId + "-GATE-001";
+        var group = new DecomposedTaskGroup(
+            GroupId, "Split gate plan", "main", "summary",
+            [
+                Task(1, []),
+                Task(2, [Id(1)]),
+                Task(3, [Id(1)]),
+                Task(4, [Id(3)]),
+                Task(5, [Id(1), Id(4)]),
+            ],
+            ApprovalGates:
+            [
+                new DecomposedGate(
+                    gateId,
+                    "Review the broad boundary",
+                    [Id(1), Id(4)],
+                    [Id(2), Id(5)],
+                    PresentationAnchor: "stage:2"),
+            ]);
+
+        var result = DependencyEditRecomputer.Recompute(group);
+
+        var expectedAnchor = "all:" + Id(5);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.ApprovalBoundaryAnchors![gateId], Is.EqualTo(expectedAnchor));
+            Assert.That(result.RecomputedGroup!.ApprovalGates!.Single().PresentationAnchor,
+                Is.EqualTo(expectedAnchor));
+        });
+    }
+
+    [Test]
     public void Recompute_NoApprovalGates_ApprovalBoundaryAnchorsIsEmpty()
     {
         var result = DependencyEditRecomputer.Recompute(MakeGroup());

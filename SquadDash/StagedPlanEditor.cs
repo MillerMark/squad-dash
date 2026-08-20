@@ -130,8 +130,9 @@ internal static class StagedPlanEditor
                     DependsOn = dependsOn.Distinct(StringComparer.Ordinal).ToArray(),
                 }
                 : task).ToArray();
-        return DependencyEditRecomputer.SynchronizeTaskValidationBoundaries(
+        var updated = DependencyEditRecomputer.SynchronizeTaskValidationBoundaries(
             group with { Tasks = tasks });
+        return DependencyEditRecomputer.SynchronizeApprovalPresentationAnchors(updated);
     }
 
     internal static DecomposedTaskGroup UpdateTaskAdvanced(
@@ -296,7 +297,8 @@ internal static class StagedPlanEditor
         }
         var updated = DependencyEditRecomputer.SynchronizeTaskValidationBoundaries(
             group with { Tasks = tasks.ToArray() });
-        return DependencyEditRecomputer.ReconcileAuditBoundary(updated);
+        updated = DependencyEditRecomputer.ReconcileAuditBoundary(updated);
+        return DependencyEditRecomputer.SynchronizeApprovalPresentationAnchors(updated);
     }
 
     internal static DecomposedTaskGroup DeleteTask(DecomposedTaskGroup group, string taskId)
@@ -374,7 +376,8 @@ internal static class StagedPlanEditor
             ApprovalGates = gates.Length == 0 ? null : gates,
             Validations = validations.Length == 0 ? null : validations,
         });
-        return DependencyEditRecomputer.ReconcileAuditBoundary(updated);
+        updated = DependencyEditRecomputer.ReconcileAuditBoundary(updated);
+        return DependencyEditRecomputer.SynchronizeApprovalPresentationAnchors(updated);
     }
 
     internal static DecomposedTaskGroup DeleteValidation(

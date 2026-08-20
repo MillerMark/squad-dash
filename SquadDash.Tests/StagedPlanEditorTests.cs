@@ -62,6 +62,30 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UpdateTask_DependencyChangeReplacesStaleApprovalAnchor()
+    {
+        var gateId = GroupId + "-GATE-001";
+        var original = MakeGroup() with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    gateId,
+                    "Review first output",
+                    [Id(1)],
+                    [Id(2)],
+                    PresentationAnchor: "stage:1"),
+            ],
+        };
+
+        var updated = StagedPlanEditor.UpdateTask(
+            original, Id(3), "Third", "Third result", "mid", [Id(1)]);
+
+        Assert.That(updated.ApprovalGates!.Single().PresentationAnchor,
+            Is.EqualTo($"task-before:{Id(2)}"));
+    }
+
+    [Test]
     public void UpdatePlanAndAdvancedTaskFields_ChangeOnlyEditableDefinitionData()
     {
         var group = StagedPlanEditor.UpdatePlan(

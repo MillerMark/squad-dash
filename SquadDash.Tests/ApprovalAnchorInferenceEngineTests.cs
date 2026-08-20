@@ -112,9 +112,9 @@ internal sealed class ApprovalAnchorInferenceEngineTests
         var result = ApprovalAnchorInferenceEngine.Infer(plan, levels);
 
         Assert.That(result, Is.Not.Null);
-        // after:[A,C] spans levels 0 and 1 — doesn't match any stage boundary
-        // before:[E] is single element — resolves to task-before:E
-        Assert.That(result!.PrimaryAnchor, Is.EqualTo("task-before:E"));
+        // after:[A,C] spans levels 0 and 1 and does not cover E's independent D input.
+        // The renderable projection is therefore C's exit, not E's whole entry.
+        Assert.That(result!.PrimaryAnchor, Is.EqualTo("task-after:C"));
     }
 
     // ── Equivalent controls (half-opacity) ────────────────────────────────────
@@ -502,6 +502,52 @@ internal sealed class ApprovalAnchorInferenceEngineTests
         // Explicit anchor overrides inference
         Assert.That(result!.PrimaryAnchor, Is.EqualTo("task-before:B"));
         Assert.That(result.RequirementsSentence, Does.Contain("Task B"));
+    }
+
+    [Test]
+    public void StaleStageAnchor_FallsBackToCoveredAllJoin()
+    {
+        var tasks = new[]
+        {
+            T("A", "pending"),
+            T("B", "pending", "A"),
+            T("E", "pending", "A"),
+            T("C", "pending", "E"),
+            T("D", "pending", "A", "C"),
+        };
+        var gate = new PlanApprovalGate(
+            "G1", "Broad approval", ["A", "C"], ["B", "D"], PlanGateStatus.Pending,
+            PresentationAnchor: "stage:2");
+        var plan = MakePlan(tasks, [gate]);
+        var levels = Levels(("A", 0), ("B", 1), ("E", 1), ("C", 2), ("D", 3));
+
+        var result = ApprovalAnchorInferenceEngine.Infer(plan, levels);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PrimaryAnchor, Is.EqualTo("all:D"));
+    }
+
+    [Test]
+    public void ExplicitCoveredControlAnchor_RemainsPrimary()
+    {
+        var tasks = new[]
+        {
+            T("A", "pending"),
+            T("B", "pending", "A"),
+            T("E", "pending", "A"),
+            T("C", "pending", "E"),
+            T("D", "pending", "A", "C"),
+        };
+        var gate = new PlanApprovalGate(
+            "G1", "Broad approval", ["A", "C"], ["B", "D"], PlanGateStatus.Pending,
+            PresentationAnchor: "task-before:B");
+        var plan = MakePlan(tasks, [gate]);
+        var levels = Levels(("A", 0), ("B", 1), ("E", 1), ("C", 2), ("D", 3));
+
+        var result = ApprovalAnchorInferenceEngine.Infer(plan, levels);
+
+        Assert.That(result, Is.Not.Null);
+        Assert.That(result!.PrimaryAnchor, Is.EqualTo("task-before:B"));
     }
 
     // ── Requirements sentence content ─────────────────────────────────────────

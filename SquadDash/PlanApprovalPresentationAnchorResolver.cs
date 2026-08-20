@@ -14,8 +14,13 @@ internal static class PlanApprovalPresentationAnchorResolver
         IReadOnlyList<PlanTask> tasks,
         IReadOnlyDictionary<string, int> levels)
     {
-        if (!string.IsNullOrWhiteSpace(gate.PresentationAnchor))
-            return gate.PresentationAnchor;
+        var candidates = new List<string>();
+
+        void AddCandidate(string anchor)
+        {
+            if (!candidates.Contains(anchor, StringComparer.Ordinal))
+                candidates.Add(anchor);
+        }
 
         var stageCount = levels.Count == 0 ? 0 : levels.Values.Max() + 1;
         for (var leftLevel = 0; leftLevel < stageCount - 1; leftLevel++)
@@ -30,23 +35,78 @@ internal static class PlanApprovalPresentationAnchorResolver
                 .Select(task => task.TaskId).ToArray();
             if (SameBoundary(gate, immediateAfter, immediateBefore) ||
                 SameBoundary(gate, legacyAfter, legacyBefore))
-                return $"stage:{leftLevel + 1}";
+                AddCandidate($"stage:{leftLevel + 1}");
         }
 
         var allGroups = tasks.Where(task => task.DependsOn.Count > 1)
             .GroupBy(task => string.Join("\u001f", task.DependsOn.OrderBy(id => id, StringComparer.Ordinal)));
-        foreach (var group in allGroups)
+        var joins = allGroups.Select(group => (
+            Targets: group.Select(task => task.TaskId).ToArray(),
+            Dependencies: group.First().DependsOn.ToArray())).ToArray();
+        foreach (var join in joins)
         {
-            var targets = group.Select(task => task.TaskId).ToArray();
-            var dependencies = group.First().DependsOn.ToArray();
-            if (SameBoundary(gate, dependencies, targets))
-                return "all:" + string.Join("|", targets.OrderBy(id => id, StringComparer.Ordinal));
+            if (SameBoundary(gate, join.Dependencies, join.Targets))
+                AddCandidate(AllAnchor(join.Targets));
         }
 
-        if (gate.AfterTaskIds.Count == 1) return $"task-after:{gate.AfterTaskIds[0]}";
-        if (gate.BeforeTaskIds.Count == 1) return $"task-before:{gate.BeforeTaskIds[0]}";
-        return null;
+        if (gate.AfterTaskIds.Count == 1 &&
+            tasks.Any(task => string.Equals(task.TaskId, gate.AfterTaskIds[0], StringComparison.Ordinal)))
+        {
+            var taskId = gate.AfterTaskIds[0];
+            var directDependents = tasks
+                .Where(task => task.DependsOn.Contains(taskId, StringComparer.Ordinal))
+                .Select(task => task.TaskId)
+                .ToArray();
+            if (PlanGateVisualizationPolicy.GraphEquivalent(
+                    tasks,
+                    gate.AfterTaskIds, gate.BeforeTaskIds,
+                    [taskId], directDependents))
+                AddCandidate($"task-after:{taskId}");
+        }
+        if (gate.BeforeTaskIds.Count == 1 &&
+            tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, gate.BeforeTaskIds[0], StringComparison.Ordinal)) is { } beforeTask &&
+            beforeTask.DependsOn.Count > 0 &&
+            PlanGateVisualizationPolicy.GraphEquivalent(
+                tasks,
+                gate.AfterTaskIds, gate.BeforeTaskIds,
+                beforeTask.DependsOn, [beforeTask.TaskId]))
+            AddCandidate($"task-before:{beforeTask.TaskId}");
+
+        // A broad approval boundary is also projected onto the ALL joins and task edges it
+        // completely covers. Those projections are real controls, so one of them must become
+        // the primary when a dependency edit makes the previously stored anchor disappear.
+        foreach (var join in joins)
+            if (PlanGateVisualizationPolicy.CompletelyCovers(
+                    tasks, gate, join.Dependencies, join.Targets))
+                AddCandidate(AllAnchor(join.Targets));
+
+        foreach (var task in tasks)
+        {
+            var directDependents = tasks
+                .Where(candidate => candidate.DependsOn.Contains(task.TaskId, StringComparer.Ordinal))
+                .Select(candidate => candidate.TaskId)
+                .ToArray();
+            if (directDependents.Length > 0 &&
+                PlanGateVisualizationPolicy.CompletelyCovers(
+                    tasks, gate, [task.TaskId], directDependents))
+                AddCandidate($"task-after:{task.TaskId}");
+        }
+
+        foreach (var task in tasks.Where(task => task.DependsOn.Count > 0))
+            if (PlanGateVisualizationPolicy.CompletelyCovers(
+                    tasks, gate, task.DependsOn, [task.TaskId]))
+                AddCandidate($"task-before:{task.TaskId}");
+
+        if (!string.IsNullOrWhiteSpace(gate.PresentationAnchor) &&
+            candidates.Contains(gate.PresentationAnchor, StringComparer.Ordinal))
+            return gate.PresentationAnchor;
+
+        return candidates.FirstOrDefault();
     }
+
+    private static string AllAnchor(IEnumerable<string> targetIds) =>
+        "all:" + string.Join("|", targetIds.OrderBy(id => id, StringComparer.Ordinal));
 
     private static bool SameBoundary(
         PlanApprovalGate gate,

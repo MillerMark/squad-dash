@@ -2065,7 +2065,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var joinIsLocked = existingJoinGate is not null || displayedJoinGate is not null ||
                                coveringJoinGate is not null || collectivelyCoveredJoin;
             var joinAnchor = AllAnchor(joinBeforeIds);
-            var joinIsPrimary = existingJoinGate is null || IsPrimary(existingJoinGate, joinAnchor);
+            var joinGate = existingJoinGate ?? coveringJoinGate;
+            var joinIsPrimary = IsPrimary(joinGate, joinAnchor);
             var joinController = coveringJoinGate is null ? null : ResolvePresentationAnchor(coveringJoinGate);
             var joinExecutionLocked = durablePlan is not null &&
                 PlanApprovalControlLockPolicy.PlanHasExecutionContext(durablePlan) &&
@@ -2083,7 +2084,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var badgeContent = new Grid();
             badgeContent.Children.Add(badgeText);
 
-            var joinGate = existingJoinGate ?? coveringJoinGate;
             var joinChangeActive = IsApprovalChangeActive(joinGate);
             var joinVisual = PlanApprovalHistoricalPresentationPolicy.Resolve(
                 joinExecutionLocked,
@@ -2112,7 +2112,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredJoin
                             ? "Every incoming path is approved separately. Click to consolidate them into this ALL approval requirement."
                         : coveringJoinGate is not null
-                            ? "This ALL join is covered by a larger approval requirement."
+                            ? joinIsPrimary
+                                ? "This ALL join is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This ALL join is covered by a larger approval requirement."
                         : joinIsLocked
                             ? joinIsPrimary
                                 ? "Human approval is required after every incoming step completes and before joined work begins. Click to review; right-click to remove."
@@ -2125,8 +2127,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         if (coveringJoinGate is not null)
                         {
-                            var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                durablePlan!, coveringJoinGate.GateId, joinAnchor);
+                            var coveringUpdated = joinIsPrimary &&
+                                                  PlanGateManager.CanRemoveGate(durablePlan!, coveringJoinGate)
+                                ? PlanGateManager.RemoveGate(durablePlan!, coveringJoinGate.GateId)
+                                : PlanGateManager.SetPresentationAnchor(
+                                    durablePlan!, coveringJoinGate.GateId, joinAnchor);
                             if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                             return;
                         }
@@ -2156,8 +2161,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         }
                         if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                     },
-                    joinIsLocked && (!joinIsPrimary || coveringJoinGate is not null ||
-                                     collectivelyCoveredJoin) ? 0.5 : 1.0,
+                    PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                        joinIsLocked, joinIsPrimary, collectivelyCoveredJoin),
                     approved: joinApproved,
                     awaitingApproval: joinAwaiting,
                     approvalChangeActive: joinChanging,
@@ -3030,9 +3035,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : null;
                     var beforeEngaged = existingBeforeGate is not null || coveringBeforeGate is not null ||
                                         collectivelyCoveredEntry;
-                    var beforeIsPrimary = IsPrimary(existingBeforeGate, beforeAnchor);
-                    var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var controllingBeforeGate = existingBeforeGate ?? coveringBeforeGate;
+                    var beforeIsPrimary = IsPrimary(controllingBeforeGate, beforeAnchor);
+                    var beforeController = coveringBeforeGate is null ? null : ResolvePresentationAnchor(coveringBeforeGate);
                     var collectivelyUnresolvedEntry = collectivelyCoveredEntry && durablePlan.ApprovalGates.Any(candidate =>
                         IsUnresolvedApproval(candidate) &&
                         capturedTaskForStop.DependsOn.Any(id =>
@@ -3063,7 +3068,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredEntry
                             ? "This step entry is covered by every incoming approval requirement."
                         : coveringBeforeGate is not null
-                            ? "This step entry is covered by a larger approval requirement."
+                            ? beforeIsPrimary
+                                ? "This step entry is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This step entry is covered by a larger approval requirement."
                             : beforeEngaged
                             ? beforeIsPrimary
                                 ? "Human approval is required before this step begins. Click to review; right-click to remove."
@@ -3079,8 +3086,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringBeforeGate is not null)
                             {
-                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                    durablePlan, coveringBeforeGate.GateId, beforeAnchor);
+                                var coveringUpdated = beforeIsPrimary &&
+                                                      PlanGateManager.CanRemoveGate(durablePlan, coveringBeforeGate)
+                                    ? PlanGateManager.RemoveGate(durablePlan, coveringBeforeGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(
+                                        durablePlan, coveringBeforeGate.GateId, beforeAnchor);
                                 if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
@@ -3113,8 +3123,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                            beforeEngaged && (!beforeIsPrimary || coveringBeforeGate is not null ||
-                                              collectivelyCoveredEntry) ? 0.5 : 1.0,
+                            PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                                beforeEngaged, beforeIsPrimary, collectivelyCoveredEntry),
                             approved: beforeApproved,
                             awaitingApproval: beforeAwaiting,
                             approvalChangeActive: beforeChanging,
@@ -3228,7 +3238,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : collectivelyCoveredByAllJoins
                             ? "This step exit is covered by its enabled ALL approval requirements."
                         : coveringAfterGate is not null
-                            ? "This step exit is covered by a larger approval requirement."
+                            ? afterIsPrimary
+                                ? "This step exit is the primary control for a larger approval requirement. Click to review; right-click to remove."
+                                : "This step exit is covered by a larger approval requirement."
                             : afterEngaged
                             ? afterIsPrimary
                                 ? afterRemovalBlocked
@@ -3246,8 +3258,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (coveringAfterGate is not null)
                             {
-                                var coveringUpdated = PlanGateManager.SetPresentationAnchor(
-                                    durablePlan, coveringAfterGate.GateId, afterAnchor);
+                                var coveringUpdated = afterIsPrimary &&
+                                                      PlanGateManager.CanRemoveGate(durablePlan, coveringAfterGate)
+                                    ? PlanGateManager.RemoveGate(durablePlan, coveringAfterGate.GateId)
+                                    : PlanGateManager.SetPresentationAnchor(
+                                        durablePlan, coveringAfterGate.GateId, afterAnchor);
                                 if (!ReferenceEquals(coveringUpdated, durablePlan)) onGatesChanged(coveringUpdated);
                                 return;
                             }
@@ -3280,8 +3295,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             }
                             if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);
                         },
-                            afterEngaged && (!afterIsPrimary ||
-                                             collectivelyCoveredByAllJoins) ? 0.5 : 1.0,
+                            PlanGateVisualizationPolicy.ApprovalControlOpacity(
+                                afterEngaged, afterIsPrimary, collectivelyCoveredByAllJoins),
                             approved: afterApproved,
                             awaitingApproval: afterAwaiting,
                             approvalChangeActive: afterChanging,

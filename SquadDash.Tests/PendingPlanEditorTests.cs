@@ -280,7 +280,7 @@ internal sealed class PendingPlanEditorTests
             Assert.That(reloadedGate.AfterTaskIds, Is.EqualTo(gate.AfterTaskIds));
             Assert.That(reloadedGate.BeforeTaskIds, Is.EqualTo(gate.BeforeTaskIds));
             Assert.That(reloadedGate.Question, Is.EqualTo(gate.Question));
-            Assert.That(reloadedGate.PresentationAnchor, Is.EqualTo(gate.PresentationAnchor));
+            Assert.That(reloadedGate.PresentationAnchor, Is.EqualTo($"task-before:{secondId}"));
             Assert.That(reloadedValidation.ValidationId, Is.EqualTo(validation.ValidationId));
             Assert.That(reloadedValidation.Title, Is.EqualTo(validation.Title));
             Assert.That(reloadedValidation.Description, Is.EqualTo(validation.Description));
@@ -353,7 +353,8 @@ internal sealed class PendingPlanEditorTests
         {
             Assert.That(reloadedRecompute.StageAssignments, Is.EqualTo(recompute.StageAssignments));
             Assert.That(reloadedRecompute.DisplayLabels, Is.EqualTo(recompute.DisplayLabels));
-            Assert.That(reloaded.Group.ApprovalGates![0].PresentationAnchor, Is.EqualTo("stage:2"));
+            Assert.That(reloaded.Group.ApprovalGates![0].PresentationAnchor,
+                Is.EqualTo($"task-before:{thirdId}"));
             Assert.That(HasDuplicateGateBoundary(reloaded.Group), Is.False);
         });
     }
