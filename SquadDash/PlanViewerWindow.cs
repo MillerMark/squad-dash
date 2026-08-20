@@ -6629,53 +6629,156 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(statusPara);
 
-        // Mode
-        if (!string.IsNullOrWhiteSpace(validation.Mode))
-        {
-            var modePara = new Paragraph();
-            modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
-            modePara.Inlines.Add(new Run(validation.Mode));
-            modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            modePara.Margin = new Thickness(0, 0, 0, 8);
-            _detailDocument.Blocks.Add(modePara);
-        }
+        var hasResultView = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(validation.Status, "failed", StringComparison.OrdinalIgnoreCase);
 
-        // Description
-        if (!string.IsNullOrWhiteSpace(validation.Description))
+        if (hasResultView)
         {
-            var descPara = new Paragraph(new Run(validation.Description));
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            descPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(descPara);
-        }
-
-        // Assertions list
-        if (validation.Assertions is { Count: > 0 })
-        {
-            AddSectionHeader("Assertions");
-            var assertList = new List();
-            assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            assertList.MarkerStyle = TextMarkerStyle.None;
-            assertList.Margin = new Thickness(0, 0, 0, 12);
-            for (int i = 0; i < validation.Assertions.Count; i++)
+            if (!string.IsNullOrWhiteSpace(validation.Summary))
             {
-                var assertion = validation.Assertions[i];
-                var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
-                var indicator = hasEvidence
-                    ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
-                    : "• ";
-                var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
-                var para = new Paragraph();
-                var indicatorRun = new Run(indicator);
-                indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
-                para.Inlines.Add(indicatorRun);
-                para.Inlines.Add(new Run(assertion));
-                assertList.ListItems.Add(new ListItem(para));
+                AddSectionHeader("Summary");
+                var summaryPara = new Paragraph(new Run(validation.Summary));
+                summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                summaryPara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(summaryPara);
             }
-            _detailDocument.Blocks.Add(assertList);
+
+            if (!string.IsNullOrWhiteSpace(validation.ValidatedCommit))
+            {
+                var commitPara = new Paragraph(new Run($"Evaluated at commit: {validation.ValidatedCommit}")
+                {
+                    FontFamily = new FontFamily("Consolas"),
+                });
+                commitPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                commitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                commitPara.Margin = new Thickness(0, 0, 0, 4);
+                _detailDocument.Blocks.Add(commitPara);
+            }
+
+            if (validation.CompletedAt is { } completedAt)
+            {
+                var completedPara = new Paragraph(new Run($"Completed: {completedAt.UtcDateTime:yyyy-MM-dd HH:mm} UTC"));
+                completedPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                completedPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                completedPara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(completedPara);
+            }
+
+            if (validation.Assertions is { Count: > 0 })
+            {
+                AddSectionHeader("Assertions");
+                var assertList = new List();
+                assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                assertList.MarkerStyle = TextMarkerStyle.None;
+                assertList.Margin = new Thickness(0, 0, 0, 12);
+                for (int i = 0; i < validation.Assertions.Count; i++)
+                {
+                    var assertion = validation.Assertions[i];
+                    var hasEvidence = validation.Evidence is not null
+                        && i < validation.Evidence.Count
+                        && !string.IsNullOrWhiteSpace(validation.Evidence[i]);
+                    var para = new Paragraph();
+                    if (hasEvidence)
+                    {
+                        var evidenceText = validation.Evidence![i];
+                        var isPassedAssertion = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
+                            || evidenceText.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
+                        var indicator = isPassedAssertion ? "✓" : "✗";
+                        var indicatorColor = isPassedAssertion ? "PriorityLow" : "PriorityHigh";
+
+                        var indicatorRun = new Run(indicator + " ");
+                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
+                        para.Inlines.Add(indicatorRun);
+                        para.Inlines.Add(new Run(assertion));
+                        para.Inlines.Add(new LineBreak());
+
+                        var evidenceRun = new Run("    " + evidenceText)
+                        {
+                            FontStyle = FontStyles.Italic,
+                        };
+                        evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        evidenceRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                        para.Inlines.Add(evidenceRun);
+                    }
+                    else
+                    {
+                        para.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        para.Inlines.Add(new Run("• " + assertion));
+                    }
+
+                    assertList.ListItems.Add(new ListItem(para));
+                }
+
+                _detailDocument.Blocks.Add(assertList);
+            }
+
+            if (!string.IsNullOrWhiteSpace(validation.Description))
+            {
+                var contextLabel = new Paragraph(new Run("What this validation checked:") { FontWeight = FontWeights.SemiBold });
+                contextLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                contextLabel.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                contextLabel.Margin = new Thickness(0, 0, 0, 2);
+                _detailDocument.Blocks.Add(contextLabel);
+
+                var descPara = new Paragraph(new Run(validation.Description));
+                descPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                descPara.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(descPara);
+            }
+        }
+        else
+        {
+            // Mode
+            if (!string.IsNullOrWhiteSpace(validation.Mode))
+            {
+                var modePara = new Paragraph();
+                modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
+                modePara.Inlines.Add(new Run(validation.Mode));
+                modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                modePara.Margin = new Thickness(0, 0, 0, 8);
+                _detailDocument.Blocks.Add(modePara);
+            }
+
+            // Description
+            if (!string.IsNullOrWhiteSpace(validation.Description))
+            {
+                var descPara = new Paragraph(new Run(validation.Description));
+                descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                descPara.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(descPara);
+            }
+
+            // Assertions list
+            if (validation.Assertions is { Count: > 0 })
+            {
+                AddSectionHeader("Assertions");
+                var assertList = new List();
+                assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                assertList.MarkerStyle = TextMarkerStyle.None;
+                assertList.Margin = new Thickness(0, 0, 0, 12);
+                for (int i = 0; i < validation.Assertions.Count; i++)
+                {
+                    var assertion = validation.Assertions[i];
+                    var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
+                    var indicator = hasEvidence
+                        ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
+                        : "• ";
+                    var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
+                    var para = new Paragraph();
+                    var indicatorRun = new Run(indicator);
+                    indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
+                    para.Inlines.Add(indicatorRun);
+                    para.Inlines.Add(new Run(assertion));
+                    assertList.ListItems.Add(new ListItem(para));
+                }
+                _detailDocument.Blocks.Add(assertList);
+            }
         }
 
         // After Task IDs
@@ -6774,6 +6877,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         })
         {
             var p = new Paragraph();
+            var bulletRun = new Run("• ");
+            bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            p.Inlines.Add(bulletRun);
             p.Inlines.Add(new Run($"{verdict}: ") { FontWeight = FontWeights.SemiBold });
             p.Inlines.Add(new Run(desc));
             verdictList.ListItems.Add(new ListItem(p));
