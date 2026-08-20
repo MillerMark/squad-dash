@@ -20,6 +20,7 @@ internal static class ProviderFailureContinuationPolicy
         return category is
             ProviderFailureCategory.Authentication or
             ProviderFailureCategory.DeploymentOrModel or
-            ProviderFailureCategory.EndpointOrProtocol;
+            ProviderFailureCategory.EndpointOrProtocol or
+            ProviderFailureCategory.RateLimitOrQuota;
     }
 }

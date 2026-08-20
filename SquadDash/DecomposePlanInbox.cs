@@ -29,6 +29,16 @@ internal static class DecomposePlanInbox
     internal static bool RequestsInboxDelivery(DecomposedTaskGroup group) =>
         string.Equals(group.Delivery, "inbox", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A transcript-only proposal that survives a workspace transition no longer has a reliable
+    /// nearby action surface. Promote it to the workspace Inbox so it remains discoverable without
+    /// requiring another Coordinator turn in that workspace.
+    /// </summary>
+    internal static bool ShouldCreateAutomaticReminderOnWorkspaceHydration(
+        PendingDecomposePlan plan,
+        bool reminderExistsIncludingArchive) =>
+        !RequestsInboxDelivery(plan.Group) && !reminderExistsIncludingArchive;
+
     internal static bool IsUnreadAutomaticReminder(
         PendingDecomposePlan plan,
         InboxMessage? message)

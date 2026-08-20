@@ -136,12 +136,12 @@ internal sealed class ProviderFailurePresentationTests
     [TestCase(ProviderFailureCategory.Authentication, true)]
     [TestCase(ProviderFailureCategory.DeploymentOrModel, true)]
     [TestCase(ProviderFailureCategory.EndpointOrProtocol, true)]
-    [TestCase(ProviderFailureCategory.RateLimitOrQuota, false)]
+    [TestCase(ProviderFailureCategory.RateLimitOrQuota, true)]
     [TestCase(ProviderFailureCategory.Timeout, false)]
     [TestCase(ProviderFailureCategory.Network, false)]
     [TestCase(ProviderFailureCategory.ProviderService, false)]
     [TestCase(ProviderFailureCategory.Unknown, false)]
-    public void RequiredPlanAgentFailure_OnlyHardConfigurationFailuresInterrupt(
+    public void RequiredPlanAgentFailure_TerminalConfigurationOrRateLimitFailuresInterrupt(
         ProviderFailureCategory category,
         bool expected)
     {
@@ -217,6 +217,39 @@ internal sealed class ProviderFailurePresentationTests
             Assert.That(narrative.Blocks.Count, Is.Zero);
             Assert.That(thread.Document.Blocks.Count, Is.EqualTo(2));
             Assert.That(thread.Document.Blocks.LastBlock, Is.TypeOf<BlockUIContainer>());
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Append_RepeatedFailureMovesOneUpdatedCardToTranscriptBottom()
+    {
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Coordinator",
+            DateTimeOffset.Now);
+        var first = ProviderFailurePresentation.Analyze(
+            "HTTP 429 rate limit exceeded. Request-ID first",
+            new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
+        var second = ProviderFailurePresentation.Analyze(
+            "HTTP 429 rate limit exceeded. Request-ID second",
+            new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
+
+        ProviderFailureTranscriptBlockFactory.Append(thread, first, "Arjun Sen");
+        thread.Document.Blocks.Add(new Paragraph(new Run("newer transcript work")));
+        ProviderFailureTranscriptBlockFactory.Append(thread, second, "Arjun Sen");
+
+        var failureCards = thread.Document.Blocks
+            .Cast<Block>()
+            .Where(ProviderFailureTranscriptBlockFactory.IsProviderFailureContainer)
+            .ToArray();
+        var latest = (ProviderFailureTranscriptBlockFactory.ProviderFailureTranscriptTag)
+            ((BlockUIContainer)failureCards.Single()).Tag;
+        Assert.Multiple(() =>
+        {
+            Assert.That(failureCards, Has.Length.EqualTo(1));
+            Assert.That(thread.Document.Blocks.LastBlock, Is.SameAs(failureCards[0]));
+            Assert.That(latest.Failure.RawError, Does.Contain("Request-ID second"));
         });
     }
 

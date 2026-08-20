@@ -68,7 +68,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
     }
 
     [Test]
-    public void FailedObservedPrimaryLaunch_RequiresFreshAttempt()
+    public void FailedObservedPrimaryLaunch_PreservesAttemptAndBlocksAutomaticRetry()
     {
         var attempt = Attempt() with
         {
@@ -82,7 +82,8 @@ internal sealed class PlanExecutionRecoveryPolicyTests
 
         Assert.That(
             PlanExecutionRecoveryPolicy.Resolve(attempt, [Assignment], 0, 0),
-            Is.EqualTo(PlanExecutionRecoveryAction.StartFreshAttempt));
+            Is.EqualTo(PlanExecutionRecoveryAction.Block));
+        Assert.That(PlanExecutionRecoveryPolicy.HasTerminalWorkerFailure(attempt), Is.True);
     }
 
     [Test]

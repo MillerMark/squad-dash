@@ -103,11 +103,14 @@ Before authoring a plan:
   description should be a bounded execution contract, not a step-by-step pseudo-implementation.
 - Use dependencies only for real prerequisites. Mark parallel work only when it can safely proceed
   without unproduced inputs or conflicting ownership.
-- Give every implementation task an observable outcome and a named production consumer or
-  integration path.
+- Give every implementation task an observable outcome and a production consumer or integration
+  path. Use exact implementation names only when verified and decision-relevant; execution handoffs
+  capture the concrete files and symbols actually changed for downstream work.
 - Use stable output/input contracts when one task produces something another must consume.
-- Add validation nodes only for meaningful cross-task contracts, and make every assertion
-  falsifiable with AI-accessible evidence.
+- Add a validation node when its independent result contributes meaningful confidence at a
+  cross-task boundary, and make every assertion falsifiable with AI-accessible evidence. Omit one
+  when it only repeats evidence already produced by a task. Neither outcome is preferred; judge the
+  validation by the value it adds to the plan.
 - Use human approval or observation requirements only when the result cannot honestly be established
   by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat

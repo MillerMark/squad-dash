@@ -18,6 +18,14 @@ internal static class ProviderFailureTranscriptBlockFactory
     {
         ArgumentNullException.ThrowIfNull(thread);
         var container = Create(failure, agentLabel);
+        var fingerprint = ((ProviderFailureTranscriptTag)container.Tag).Fingerprint;
+        var previousMatches = thread.Document.Blocks
+            .OfType<BlockUIContainer>()
+            .Where(block => block.Tag is ProviderFailureTranscriptTag tag &&
+                            string.Equals(tag.Fingerprint, fingerprint, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var previous in previousMatches)
+            thread.Document.Blocks.Remove(previous);
         thread.Document.Blocks.Add(container);
         return container;
     }
@@ -93,9 +101,18 @@ internal static class ProviderFailureTranscriptBlockFactory
 
         return TranscriptCardLayout.CreateContainer(
             border,
-            new ProviderFailureCopyPayload(failure, normalizedLabel),
+            new ProviderFailureTranscriptTag(
+                BuildFingerprint(failure, normalizedLabel),
+                failure,
+                normalizedLabel),
             new Thickness(0, 5, 0, 10));
     }
+
+    internal static bool IsProviderFailureContainer(Block block) =>
+        block is BlockUIContainer { Tag: ProviderFailureTranscriptTag };
+
+    private static string BuildFingerprint(ProviderFailurePresentation failure, string agentLabel) =>
+        string.Join("|", agentLabel, failure.Category, failure.Title, failure.ContextLine ?? string.Empty);
 
     private static TextBlock CreateTextBlock(string text, FontWeight weight, Thickness margin)
     {
@@ -110,7 +127,8 @@ internal static class ProviderFailureTranscriptBlockFactory
         return textBlock;
     }
 
-    private sealed record ProviderFailureCopyPayload(
+    internal sealed record ProviderFailureTranscriptTag(
+        string Fingerprint,
         ProviderFailurePresentation Failure,
         string AgentLabel) : ICopyable
     {

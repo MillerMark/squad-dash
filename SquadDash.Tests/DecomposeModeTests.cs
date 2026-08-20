@@ -543,6 +543,34 @@ internal sealed class PendingDecomposePlanStoreTests
 internal sealed class DecomposePlanInboxTests
 {
     [Test]
+    public void WorkspaceHydration_PromotesUnhandledTranscriptProposalOnlyOnce()
+    {
+        var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+            [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+        var pending = new PendingDecomposePlan("abc123", group);
+        var explicitPending = pending with { Group = pending.Group with { Delivery = "inbox" } };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                DecomposePlanInbox.ShouldCreateAutomaticReminderOnWorkspaceHydration(
+                    pending,
+                    reminderExistsIncludingArchive: false),
+                Is.True);
+            Assert.That(
+                DecomposePlanInbox.ShouldCreateAutomaticReminderOnWorkspaceHydration(
+                    pending,
+                    reminderExistsIncludingArchive: true),
+                Is.False);
+            Assert.That(
+                DecomposePlanInbox.ShouldCreateAutomaticReminderOnWorkspaceHydration(
+                    explicitPending,
+                    reminderExistsIncludingArchive: false),
+                Is.False);
+        });
+    }
+
+    [Test]
     public void BuildMessage_CreatesHighPriorityPlanAttachmentAndHostActions()
     {
         var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",

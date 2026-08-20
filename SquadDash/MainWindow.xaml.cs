@@ -909,7 +909,14 @@ public partial class MainWindow : Window
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
         _noWorkspaceOnStart    = noWorkspaceOnStart;
-        _squadCliAdapter = new SquadCliAdapter(_workspacePaths, (op, ex) => HandleUiCallbackException(op, ex));
+        var cliResolutionService = serviceProvider?.GetService<ISquadCliResolutionService>() ??
+                                   new SquadCliResolutionService(
+                                       new SystemProcessRunner(),
+                                       new SystemEnvironmentProvider());
+        _squadCliAdapter = new SquadCliAdapter(
+            _workspacePaths,
+            cliResolutionService,
+            (op, ex) => HandleUiCallbackException(op, ex));
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
@@ -6537,7 +6544,7 @@ public partial class MainWindow : Window
         }
 
         var reason =
-            $"Required plan agent {agentLabel} could not start because {failure.Title}. " +
+            $"Required plan agent {agentLabel} could not complete because {failure.Title}. " +
             "SquadDash stopped the coordinator and plan loop so no dependent work runs with a missing required result.";
         SquadDashTrace.Write(
             "UI",
@@ -10253,7 +10260,7 @@ public partial class MainWindow : Window
             });
     }
 
-    private void RestorePendingDecomposeApprovalSurfaces()
+    private void RestorePendingDecomposeApprovalSurfaces(bool promoteUnaddressedToInbox = false)
     {
         if (_currentWorkspace is null)
             return;
@@ -10288,6 +10295,15 @@ public partial class MainWindow : Window
             }
             if (_inboxStore?.Exists(reminderId, includeArchive: true) == true)
                 continue;
+
+            if (promoteUnaddressedToInbox && _inboxStore is not null &&
+                DecomposePlanInbox.ShouldCreateAutomaticReminderOnWorkspaceHydration(
+                    plan,
+                    reminderExistsIncludingArchive: false))
+            {
+                SaveDecomposePlanInboxReminder(plan, explicitlyRequested: false);
+                continue;
+            }
 
             AppendPendingDecomposeApproval(plan);
             SquadDashTrace.Write(
@@ -35078,7 +35094,7 @@ public partial class MainWindow : Window
         // is not necessarily the last persisted turn. Rebuild approval actions from the
         // durable pending-plan store after hydration and state repair instead of inferring
         // ownership from transcript position.
-        RestorePendingDecomposeApprovalSurfaces();
+        RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true);
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
         RestoreAwaitingApprovalGateUI();

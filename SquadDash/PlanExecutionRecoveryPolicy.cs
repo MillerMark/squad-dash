@@ -28,6 +28,12 @@ internal static class PlanExecutionRecoveryPolicy
         int repairRequestCount,
         int freshAttemptCount)
     {
+        // A worker that exhausted provider/runtime recovery is an operational stop, not corrupt
+        // provenance. Preserve its attempt and working tree for an explicit resume instead of
+        // spending money on a replacement worker or trying to repair a result that never existed.
+        if (HasTerminalWorkerFailure(attempt))
+            return PlanExecutionRecoveryAction.Block;
+
         if (HasTerminalEvidenceContamination(attempt, expectedAssignments))
             return freshAttemptCount < MaxFreshAttemptsPerTask
                 ? PlanExecutionRecoveryAction.StartFreshAttempt
@@ -46,18 +52,21 @@ internal static class PlanExecutionRecoveryPolicy
             return false;
         if (attempt.GenericChildToolCallIds is { Count: > 0 })
             return true;
-        if (!string.IsNullOrWhiteSpace(attempt.GenericPrimaryToolCallId) &&
-            (attempt.GenericCompletedAt is null || attempt.GenericSucceeded != true))
-            return true;
+        return false;
+    }
 
-        return attempt.Assignments.Any(evidence =>
-        {
-            if (string.IsNullOrWhiteSpace(evidence.PrimaryToolCallId))
-                return false;
-            if (evidence.CompletedAt is null || evidence.Succeeded != true)
-                return true;
+    internal static bool HasTerminalWorkerFailure(PlanExecutionAttemptState? attempt)
+    {
+        if (attempt is null)
             return false;
-        });
+        if (!string.IsNullOrWhiteSpace(attempt.GenericPrimaryToolCallId) &&
+            attempt.GenericCompletedAt is not null &&
+            attempt.GenericSucceeded == false)
+            return true;
+        return attempt.Assignments.Any(evidence =>
+            !string.IsNullOrWhiteSpace(evidence.PrimaryToolCallId) &&
+            evidence.CompletedAt is not null &&
+            evidence.Succeeded == false);
     }
 
     internal static IReadOnlyList<PlanExecutionAttemptState> ArchiveRejectedAttempt(

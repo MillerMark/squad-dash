@@ -45,18 +45,21 @@ cohesion requirements**:
    observable; "add a helper class" or "write unit tests" alone are not, because they describe
    artifacts rather than outcomes.
 2. **Production consumer.** The step description must state *how* its output reaches a production
-   consumer. Name the call site, event subscription, configuration entry, or integration test that
-   proves the result is wired — not merely present in the repository. For example, "SearchPanel
-   calls `ISearchIndex.Query` and renders results" names the consumer; "Introduce ISearchIndex"
-   does not.
+   consumer or integration surface — not merely that an artifact will exist in the repository.
+   Name exact call sites, events, configuration entries, tests, files, or symbols only when they
+   have already been verified and the precision prevents a materially different implementation.
+   Do not invent exact implementation details during planning. Execution handoffs will record the
+   concrete files and symbols actually changed so downstream steps can continue the accepted work.
 
 Artifact-only wording such as "add a helper", "create a utility", or "add tests" is **insufficient**
 unless the same step or a named successor integrates the artifact into a production path.
 
 When separate tasks produce and consume components, declare the outputs and integration
-responsibility in their descriptions and add first-class validation nodes for important cross-task
-contracts. A supporting-artifact task may complete before production integration, but its later
-consumers and the validation that proves their relationship must be explicit.
+responsibility in their descriptions. Use a first-class validation node when an independent result
+adds meaningful confidence at that boundary, protects downstream work from a plausible integration
+failure, or verifies a contract not already established by task evidence. Omit it when it merely
+repeats a step's own build, tests, or verification. Neither including nor omitting validations is
+preferred; make the judgment from the value the validation adds.
 
 ### Proportional completion proof
 
@@ -130,9 +133,11 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `groupId`: uppercase letters followed by `-YYYYMMDD`; pattern `^[A-Z]+-\d{8}$`.
 - `groupTitle`: short user-facing title.
 - `branch`: suggested new Git branch using a conventional descriptive name.
-- `summary`: concise guiding intent for the whole plan: the user-visible outcome, architectural direction,
-  and non-negotiable cohesion constraint. SquadDash injects this north star into every task, validation,
-  verification, rework, and human-review turn, so write it to remain useful outside the proposal conversation.
+- `summary`: one short paragraph, normally one to three sentences, giving the guiding intent for the
+  whole plan: the user-visible outcome, architectural direction, and any non-negotiable cohesion
+  constraint. Keep implementation detail in the relevant tasks. SquadDash injects this north star
+  into every task, validation, verification, rework, and human-review turn, so write it to remain
+  useful outside the proposal conversation.
 - `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
   to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: required array containing 1–25 task objects.
@@ -217,10 +222,12 @@ not required. Use the exact property names below; do not substitute familiar sho
   SquadDash marks the parent superseded only after the revised plan is approved.
 - `tasks[].amendmentGateId`: host-owned compatibility metadata for a dynamically inserted amendment;
   never emit it in an ordinary new plan.
-- `validations`: optional array of at most 16 first-class, non-mutating cross-task validation nodes. Include these
-  when correctness depends on outputs from multiple tasks communicating, being consumed, replacing a
-  placeholder, or jointly satisfying an observable scenario. Do not add ceremonial validations to a
-  simple plan whose task-level acceptance already proves the result.
+- `validations`: optional array of at most 16 first-class, non-mutating cross-task validation nodes.
+  Include one when its independent result adds meaningful confidence at a cross-task boundary,
+  protects downstream work from a plausible integration failure, or establishes a contract not
+  already proven by task evidence. Omit one when it would merely repeat a task's build, tests, or
+  verification and would not affect the decision to continue. Exercise judgment; neither presence
+  nor absence is preferred.
 - `validations[].validationId`: exactly `{groupId}-VAL-NNN`.
 - `validations[].title`: concise user-facing contractual outcome, normally 2–5 words. It is always
   rendered below the validation shield, including in narrow stage columns, so do not repeat the

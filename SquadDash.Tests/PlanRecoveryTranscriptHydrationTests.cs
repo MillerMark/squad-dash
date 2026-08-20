@@ -30,7 +30,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         var mainWindowSource = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var managerSource = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
         const string loadCall = "await _conversationManager.LoadWorkspaceConversationAsync();";
-        const string restoreCall = "RestorePendingDecomposeApprovalSurfaces();";
+        const string restoreCall = "RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true);";
 
         var loadIndex = mainWindowSource.IndexOf(loadCall, StringComparison.Ordinal);
         var restoreIndex = mainWindowSource.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
@@ -51,7 +51,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var restoreStart = source.IndexOf(
-            "private void RestorePendingDecomposeApprovalSurfaces()",
+            "private void RestorePendingDecomposeApprovalSurfaces(bool promoteUnaddressedToInbox = false)",
             StringComparison.Ordinal);
         var bannerStart = source.IndexOf(
             "private void AppendPlanMovedToInboxBanner(",
@@ -75,6 +75,8 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         {
             Assert.That(restoreAndBanner, Does.Contain("AppendPlanMovedToInboxBanner(plan, reminder)"));
             Assert.That(restoreAndBanner, Does.Contain("IsUnreadAutomaticReminder(plan, reminder)"));
+            Assert.That(restoreAndBanner, Does.Contain("ShouldCreateAutomaticReminderOnWorkspaceHydration("));
+            Assert.That(restoreAndBanner, Does.Contain("SaveDecomposePlanInboxReminder(plan, explicitlyRequested: false)"));
             Assert.That(restoreAndBanner, Does.Contain("new Hyperlink(new Run(\"Inbox\"))"));
             Assert.That(restoreAndBanner, Does.Contain("new Hyperlink(new Run(\"View plan\"))"));
             Assert.That(restoreAndBanner, Does.Contain("OpenOrFocusInboxMessage(message.Id)"));

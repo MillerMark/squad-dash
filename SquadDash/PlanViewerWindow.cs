@@ -853,16 +853,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(correctionStatus);
         }
 
+        var summaryFontSize = TryFindResource("FontSizeBody") is double configuredSummaryFontSize
+            ? configuredSummaryFontSize
+            : 14d;
         var summaryBlock = new TextBlock
         {
             Text         = group.Summary,
             TextWrapping = TextWrapping.Wrap,
-            FontWeight   = FontWeights.SemiBold,
-            Margin       = new Thickness(0, 0, 0, 6),
+            FontWeight   = FontWeights.Normal,
+            FontSize     = summaryFontSize,
+            LineHeight   = summaryFontSize * 1.35,
+            Margin       = new Thickness(0),
         };
         summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        summaryBlock.FontSize = quickReplyFontSize;
-        header.Children.Add(summaryBlock);
+
+        var summaryPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+        summaryPanel.Children.Add(summaryBlock);
+        if (group.Summary.Length > 360)
+        {
+            var collapsedHeight = summaryBlock.LineHeight * 3;
+            summaryBlock.MaxHeight = collapsedHeight;
+            summaryBlock.TextTrimming = TextTrimming.CharacterEllipsis;
+
+            var toggleText = new TextBlock { Margin = new Thickness(0, 2, 0, 0) };
+            var toggleLink = new Hyperlink(new Run("More")) { Cursor = Cursors.Hand };
+            toggleLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+            var expanded = false;
+            toggleLink.Click += (_, _) =>
+            {
+                expanded = !expanded;
+                summaryBlock.MaxHeight = expanded ? double.PositiveInfinity : collapsedHeight;
+                summaryBlock.TextTrimming = expanded ? TextTrimming.None : TextTrimming.CharacterEllipsis;
+                ((Run)toggleLink.Inlines.FirstInline!).Text = expanded ? "Less" : "More";
+            };
+            toggleText.Inlines.Add(toggleLink);
+            summaryPanel.Children.Add(toggleText);
+        }
+        header.Children.Add(summaryPanel);
 
         var hintBlock = new TextBlock
         {
