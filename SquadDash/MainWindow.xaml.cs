@@ -12213,6 +12213,8 @@ public partial class MainWindow : Window
         _openPlanViewerWindows.Add((groupId, win));
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
             ReferenceEquals(e.Window, win));
+        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"PlanViewer:{groupId}", win);
+        FloatingWindowPositionStore.Shared.TryRestore($"PlanViewer:{groupId}", win);
         win.Show();
         if (_currentWorkspace is not null)
         {
@@ -44662,6 +44664,10 @@ public partial class MainWindow : Window
             foreach (var inboxWin in _openInboxWindows)
                 FloatingWindowPositionStore.Shared.Save($"InboxMessage:{inboxWin.MessageId}", inboxWin);
 
+            // Safety-net: save positions for any plan viewer windows still open.
+            foreach (var (gid, planWin) in _openPlanViewerWindows)
+                FloatingWindowPositionStore.Shared.Save($"PlanViewer:{gid}", planWin);
+
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
                 e.Cancel = true;
@@ -44845,6 +44851,18 @@ public partial class MainWindow : Window
                 };
                 _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
             }
+
+            // Persist open plan viewer IDs.
+            var openPlanGroupIds = _openPlanViewerWindows
+                .Select(entry => entry.GroupId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToList();
+            var planViewerState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+            _docsPanelState = planViewerState with
+            {
+                OpenPlanViewerGroupIds = openPlanGroupIds.Count > 0 ? openPlanGroupIds : [],
+            };
+            _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
 
             // Capture docs panel state (only when panel is open; closed state is already
             // written by SetDocumentationMode when the user toggles it off).
@@ -49246,6 +49264,33 @@ public partial class MainWindow : Window
 
                     // Refresh the panel so any newly-read messages are rendered at lower opacity.
                     _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                }
+            });
+        }
+
+        // Restore any plan viewer windows that were open at last shutdown.
+        if (_docsPanelState.OpenPlanViewerGroupIds is { Count: > 0 } openPlanGroupIds)
+        {
+            var capturedGroupIds = openPlanGroupIds.ToList();
+            Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, () =>
+            {
+                if (_currentWorkspace is null)
+                    return;
+
+                _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+                var pendingStore = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
+                foreach (var gid in capturedGroupIds)
+                {
+                    var durablePlan = _planStore.Load(gid);
+                    if (durablePlan is not null)
+                    {
+                        OpenDecomposePlanViewer(PendingDecomposePlanAdapter.FromPlan(durablePlan), durablePlan);
+                        continue;
+                    }
+
+                    var pendingPlan = pendingStore.Load(gid);
+                    if (pendingPlan is not null)
+                        OpenDecomposePlanViewer(pendingPlan);
                 }
             });
         }
