@@ -10,6 +10,10 @@ namespace SquadDash;
 /// </summary>
 internal static class PlanStoreUpdater
 {
+    internal static Plan ApplyPause(Plan existing) => existing with { IsPaused = true };
+
+    internal static Plan ApplyResume(Plan existing) => existing with { IsPaused = false };
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -370,16 +374,24 @@ internal static class PlanStoreUpdater
         PlanTaskCommitEvidence? taskCommitEvidence = null)
     {
         var now = DateTimeOffset.UtcNow;
+        var existingData = existing.InterruptionData;
+        interruptedTaskId ??= existing.Progress.ExecutingTaskId;
+        interruptedTaskId ??= existingData?.InterruptedTaskId;
+        interruptedTaskId ??= InferUniqueRecoverableTaskId(existing);
+        var interruptedTask = existing.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal));
         var interruptionData = new PlanInterruptionData(
             Reason:              reason,
             RecoveryState:       PlanRecoveryState.PendingRecovery,
             LoopIteration:       loopIteration,
             InterruptedTaskId:   interruptedTaskId,
-            LastCompletedTaskId: lastCompletedTaskId,
-            LastCommit:          lastCommit,
-            AffectedPaths:       affectedPaths,
-            PartialWorkEvidence: partialWorkEvidence,
-            TaskCommitEvidence:  taskCommitEvidence);
+            LastCompletedTaskId: lastCompletedTaskId ?? existingData?.LastCompletedTaskId,
+            LastCommit:          lastCommit ?? existingData?.LastCommit ?? interruptedTask?.Handoff?.Commit,
+            AffectedPaths:       affectedPaths ?? existingData?.AffectedPaths ?? interruptedTask?.Handoff?.ChangedFiles,
+            PartialWorkEvidence: partialWorkEvidence ?? existingData?.PartialWorkEvidence ?? interruptedTask?.Handoff?.Summary,
+            TaskCommitEvidence:  taskCommitEvidence ?? existingData?.TaskCommitEvidence,
+            RecoveryAssessment:  existingData?.RecoveryAssessment,
+            RecoveryCorrection:  existingData?.RecoveryCorrection);
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,
@@ -387,6 +399,14 @@ internal static class PlanStoreUpdater
             Progress         = existing.Progress with { ExecutingTaskId = null },
             Timestamps       = existing.Timestamps with { InterruptedAt = now, LastRunAt = now },
         };
+    }
+
+    internal static string? InferUniqueRecoverableTaskId(Plan plan)
+    {
+        var candidates = plan.Tasks.Where(task =>
+            task.Status == PlanTaskStatus.HumanReviewRequired ||
+            PlanTaskStatus.IsWorkInProgress(task.Status)).ToArray();
+        return candidates.Length == 1 ? candidates[0].TaskId : null;
     }
 
     /// <summary>
@@ -1558,6 +1578,7 @@ internal static class PlanStoreUpdater
         plan = RepairLegacyAmendmentDisplayLabels(plan);
         plan = RepairContradictoryRecoveryAcceptance(plan);
         plan = RepairLostPlanRevisionReopen(plan);
+        plan = RepairInterruptedMissingTaskIdentity(plan);
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1614,6 +1635,26 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    private static Plan RepairInterruptedMissingTaskIdentity(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
+            !string.IsNullOrWhiteSpace(plan.InterruptionData?.InterruptedTaskId))
+            return plan;
+
+        var taskId = InferUniqueRecoverableTaskId(plan);
+        if (taskId is null) return plan;
+        var task = plan.Tasks.First(candidate => candidate.TaskId == taskId);
+        var interruption = (plan.InterruptionData ?? new PlanInterruptionData(
+            "Recovered an interrupted review boundary.", PlanRecoveryState.PendingRecovery, 0)) with
+        {
+            InterruptedTaskId = taskId,
+            LastCommit = plan.InterruptionData?.LastCommit ?? task.Handoff?.Commit,
+            AffectedPaths = plan.InterruptionData?.AffectedPaths ?? task.Handoff?.ChangedFiles,
+            PartialWorkEvidence = plan.InterruptionData?.PartialWorkEvidence ?? task.Handoff?.Summary,
+        };
+        return plan with { InterruptionData = interruption };
     }
 
     /// <summary>
@@ -2051,7 +2092,8 @@ internal static class PlanStoreUpdater
                 Inputs: sub.Inputs,
                 ProofRequirements: MapProofRequirements(sub.ProofRequirements),
                 DisplayStepLabel: (index + 1).ToString(),
-                ExecutionMode: sub.ExecutionMode);
+                ExecutionMode: sub.ExecutionMode,
+                VerificationLevel: sub.VerificationLevel);
         }).ToList();
     }
 
@@ -2090,6 +2132,7 @@ internal static class PlanStoreUpdater
                 Outputs            = MapOutputs(sub.Outputs),
                 Inputs             = sub.Inputs,
                 ProofRequirements  = MapProofRequirements(sub.ProofRequirements),
+                VerificationLevel = sub.VerificationLevel,
                 DisplayStepLabel   = durable.DisplayStepLabel ?? (index + 1).ToString(),
             };
         }).ToList();
@@ -2166,7 +2209,8 @@ internal static class PlanStoreUpdater
             Outputs:            MapOutputs(sub.Outputs),
             Inputs:             sub.Inputs,
             ProofRequirements:  MapProofRequirements(sub.ProofRequirements),
-            ExecutionMode:      sub.ExecutionMode);
+            ExecutionMode:      sub.ExecutionMode,
+            VerificationLevel:  sub.VerificationLevel);
 
     private static IReadOnlyList<PlanTaskOutput>? MapOutputs(
         IReadOnlyList<DecomposedTaskOutput>? outputs) =>

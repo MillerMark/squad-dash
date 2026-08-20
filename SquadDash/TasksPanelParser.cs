@@ -248,6 +248,7 @@ internal static class TasksPanelParser {
                 string? genericAgentReason = null;
                 string? amendmentGateId = null;
                 string? executionMode = null;
+                string? verificationLevel = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -297,6 +298,12 @@ internal static class TasksPanelParser {
                         executionMode = metadata["executionMode:".Length..].Trim();
                         if (executionMode is not (PlanTaskExecutionMode.Implementation or PlanTaskExecutionMode.Verification))
                             errors.Add($"Task {taskId} has invalid executionMode '{executionMode}'.");
+                    }
+                    else if (metadata.StartsWith("verificationLevel:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        verificationLevel = metadata["verificationLevel:".Length..].Trim();
+                        if (!PlanTaskVerificationLevel.IsValid(verificationLevel))
+                            errors.Add($"Task {taskId} has invalid verificationLevel '{verificationLevel}'.");
                     }
                     else if (metadata.StartsWith("amendmentGateId:", StringComparison.OrdinalIgnoreCase))
                         amendmentGateId = metadata["amendmentGateId:".Length..].Trim();
@@ -349,7 +356,8 @@ internal static class TasksPanelParser {
                     taskId, description, dependsOn, priority, taskTitle, parentTaskId,
                     agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason,
                     AmendmentGateId: amendmentGateId,
-                    ExecutionMode: executionMode));
+                    ExecutionMode: executionMode,
+                    VerificationLevel: verificationLevel));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

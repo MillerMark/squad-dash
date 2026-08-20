@@ -279,6 +279,8 @@ internal sealed class DecomposedTasksWriter
                 sb.AppendLine($"  genericAgentReason: {task.GenericAgentReason}");
             if (!string.IsNullOrWhiteSpace(task.ExecutionMode))
                 sb.AppendLine($"  executionMode: {task.ExecutionMode}");
+            if (!string.IsNullOrWhiteSpace(task.VerificationLevel))
+                sb.AppendLine($"  verificationLevel: {task.VerificationLevel}");
             if (!string.IsNullOrWhiteSpace(task.ParentTaskId))
                 sb.AppendLine($"  parentTaskId: {task.ParentTaskId}");
             if (!string.IsNullOrWhiteSpace(task.AmendmentGateId))
@@ -317,6 +319,8 @@ internal sealed class DecomposedTasksWriter
             yield return $"  genericAgentReason: {task.GenericAgentReason}";
         if (!string.IsNullOrWhiteSpace(task.ExecutionMode))
             yield return $"  executionMode: {task.ExecutionMode}";
+        if (!string.IsNullOrWhiteSpace(task.VerificationLevel))
+            yield return $"  verificationLevel: {task.VerificationLevel}";
         if (!string.IsNullOrWhiteSpace(task.ParentTaskId))
             yield return $"  parentTaskId: {task.ParentTaskId}";
         if (!string.IsNullOrWhiteSpace(task.AmendmentGateId))

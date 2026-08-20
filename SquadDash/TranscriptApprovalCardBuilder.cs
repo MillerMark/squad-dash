@@ -626,11 +626,14 @@ internal static class TranscriptApprovalCardBuilder
         var approveLabel = reviewedTaskIds.Length == 1
             ? $"{ResolveCompletionStepLabel(plan, reviewedTaskIds[0])} Is Complete"
             : "Reviewed Steps Are Complete";
+        approveLabel += plan.IsPaused ? " & Stay Paused" : " & Continue";
 
         approveButton = TranscriptQuickReplyFactory.CreateButton(
             approveLabel,
             fontSize,
-            toolTip: "Enabled after every verification item is checked. Records your human verification and continues the plan without another AI review.");
+            toolTip: plan.IsPaused
+                ? "Enabled after every verification item is checked. Records your human verification and keeps the plan paused."
+                : "Enabled after every verification item is checked. Records your human verification and continues the plan without another AI review.");
         AutomationProperties.SetName(approveButton, approveLabel);
 
         // Shared approve action used by button click and keyboard shortcut

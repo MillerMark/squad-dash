@@ -68,15 +68,19 @@ internal static class PlanRecoveryActionPresentationBuilder
             {
                 return new PlanRecoveryPrimaryActionPresentation(
                     PlanRecoveryPrimaryActionKind.ApproveAmendment,
-                    "Approve Amendment & Continue",
-                    "Accept the host-recorded amendment commit shown on this card, approve its checkpoint, and continue. No additional AI assessment runs.",
+                    plan.IsPaused ? "Approve Amendment & Stay Paused" : "Approve Amendment & Continue",
+                    plan.IsPaused
+                        ? "Accept the host-recorded amendment commit and approve its checkpoint while keeping the plan paused."
+                        : "Accept the host-recorded amendment commit shown on this card, approve its checkpoint, and continue. No additional AI assessment runs.",
                     "accept-step-complete");
             }
 
             return new PlanRecoveryPrimaryActionPresentation(
                 PlanRecoveryPrimaryActionKind.AcceptStep,
-                $"{stepLabel} Is Complete",
-                $"Accept the host-recorded commit shown on this card, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                plan.IsPaused ? $"{stepLabel} Is Complete & Stay Paused" : $"{stepLabel} Is Complete & Continue",
+                plan.IsPaused
+                    ? $"Accept the host-recorded commit, mark only {stepLabel} complete, and keep the plan paused."
+                    : $"Accept the host-recorded commit shown on this card, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
                 "accept-step-complete");
         }
 

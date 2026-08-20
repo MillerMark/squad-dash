@@ -29,6 +29,23 @@ internal sealed class PlanStoreUpdaterInterruptedTests
     // ── ApplyInterrupted ──────────────────────────────────────────────────────
 
     [Test]
+    public void Pause_IsDurableAndIndependentOfLifecycle()
+    {
+        var awaitingReview = MakePlan(PlanLifecycleStatus.Interrupted);
+
+        var paused = PlanStoreUpdater.ApplyPause(awaitingReview);
+        var resumed = PlanStoreUpdater.ApplyResume(paused);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(paused.IsPaused, Is.True);
+            Assert.That(paused.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+            Assert.That(resumed.IsPaused, Is.False);
+            Assert.That(resumed.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+        });
+    }
+
+    [Test]
     public void ApplyInterrupted_SetsLifecycleStatus()
     {
         var plan    = MakePlan();
@@ -104,6 +121,71 @@ internal sealed class PlanStoreUpdaterInterruptedTests
         Assert.That(data.AffectedPaths,       Is.EqualTo(paths));
         Assert.That(data.PartialWorkEvidence, Is.EqualTo("partial evidence"));
         Assert.That(data.TaskCommitEvidence,  Is.SameAs(evidence));
+    }
+
+    [Test]
+    public void ApplyInterrupted_GenericStopPreservesExistingRecoveryEvidence()
+    {
+        var evidence = new PlanTaskCommitEvidence(
+            "GRP-001", "attempt-1", "base123", "abc1234", "Completed task");
+        var plan = MakePlan() with
+        {
+            InterruptionData = new PlanInterruptionData(
+                "Human review required", PlanRecoveryState.PendingRecovery, 2,
+                InterruptedTaskId: "GRP-001", TaskCommitEvidence: evidence),
+        };
+
+        var updated = PlanStoreUpdater.ApplyInterrupted(
+            plan, "Plan execution stopped before the current task was accepted.", 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.InterruptionData?.InterruptedTaskId, Is.EqualTo("GRP-001"));
+            Assert.That(updated.InterruptionData?.TaskCommitEvidence, Is.SameAs(evidence));
+        });
+    }
+
+    [Test]
+    public void ApplyInterrupted_InfersOnlyHumanReviewStepWhenCurrentIdentityWasLost()
+    {
+        var task = new PlanTask(
+            "GRP-001", "T1", "desc", [], "mid", PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                "abc1234", "Candidate ready", ["src/foo.cs"], null, DateTimeOffset.UtcNow));
+        var plan = MakePlan() with
+        {
+            Tasks = [task],
+            Progress = new PlanProgress(0, 1),
+        };
+
+        var updated = PlanStoreUpdater.ApplyInterrupted(plan, "generic stop", 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.InterruptionData?.InterruptedTaskId, Is.EqualTo("GRP-001"));
+            Assert.That(updated.InterruptionData?.LastCommit, Is.EqualTo("abc1234"));
+            Assert.That(updated.InterruptionData?.AffectedPaths, Is.EqualTo(new[] { "src/foo.cs" }));
+        });
+    }
+
+    [Test]
+    public void RepairInconsistentState_RepairsInterruptedReviewWithMissingIdentity()
+    {
+        var task = new PlanTask(
+            "GRP-001", "T1", "desc", [], "mid", PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                "abc1234", "Candidate ready", ["src/foo.cs"], null, DateTimeOffset.UtcNow));
+        var plan = MakePlan(PlanLifecycleStatus.Interrupted) with
+        {
+            Tasks = [task],
+            Progress = new PlanProgress(0, 1),
+            InterruptionData = new PlanInterruptionData(
+                "generic stop", PlanRecoveryState.PendingRecovery, 0),
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.That(repaired.InterruptionData?.InterruptedTaskId, Is.EqualTo("GRP-001"));
     }
 
     // ── ApplyStopped ──────────────────────────────────────────────────────────

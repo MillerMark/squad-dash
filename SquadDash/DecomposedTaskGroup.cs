@@ -115,4 +115,7 @@ internal sealed record DecomposedSubTask(
                                                 string? AmendmentGateId = null,
     [property: JsonPropertyName("executionMode")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? ExecutionMode = null);
+                                                string? ExecutionMode = null,
+    [property: JsonPropertyName("verificationLevel")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? VerificationLevel = null);

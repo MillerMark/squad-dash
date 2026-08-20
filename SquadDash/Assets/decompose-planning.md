@@ -31,7 +31,8 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
 `summary`, and 1–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
 `delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, an explicit
-`agentRoutingMode`, and an explicit `executionMode` (`implementation` or `verification`).
+`agentRoutingMode`, an explicit `executionMode` (`implementation` or `verification`), and an optional
+`verificationLevel` (`lightweight`, `standard`, or `enhanced`).
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
@@ -145,6 +146,12 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `tasks[].executionMode`: required for new plans; either `"implementation"` for source-producing
   work or `"verification"` for non-mutating proof work. Verification tasks must declare at least one
   `proofRequirements` entry and must not create a commit merely to satisfy plan bookkeeping.
+- `tasks[].verificationLevel`: optional single string for implementation work. Omit it for the default
+  `"standard"` independent review. Use `"lightweight"` only for low-risk, locally provable work where
+  host checks of commands, evidence, commit scope, and changed files are sufficient; the host may
+  upgrade it when the actual diff is riskier. Use `"enhanced"` when cross-cutting, integration, safety,
+  or test-sensitivity risk warrants deeper counterexample and negative-case scrutiny. Do not add a
+  nested verification object. This setting has no effect on `executionMode: "verification"` steps.
 - `tasks[].agentRoutingMode`: required; either `"assigned"` or `"generic"`. Never omit this to obtain a fallback.
 - `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. `agentHandle` and `role` are required non-empty strings; `allowGenericChildren` is a required boolean. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments remain unavailable until SquadDash can isolate writers in separate worktrees. Exact example: `"agentAssignments":[{"agentHandle":"arjun-sen","role":"Implement the persistence service","allowGenericChildren":true}]`.
 - `tasks[].agentAssignments[].agentHandle`: required exact active roster handle.

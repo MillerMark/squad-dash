@@ -6,6 +6,23 @@ internal static class PlanTaskExecutionMode
     internal const string Verification = "verification";
 }
 
+internal static class PlanTaskVerificationLevel
+{
+    internal const string Lightweight = "lightweight";
+    internal const string Standard = "standard";
+    internal const string Enhanced = "enhanced";
+
+    internal static string Normalize(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        Lightweight => Lightweight,
+        Enhanced => Enhanced,
+        _ => Standard,
+    };
+
+    internal static bool IsValid(string? value) =>
+        value is null || Normalize(value) == value.Trim().ToLowerInvariant();
+}
+
 /// <summary>
 /// Distinguishes source-producing work from non-mutating proof work. Older plans did not
 /// serialize executionMode, so a narrow title-based fallback keeps their final verification
@@ -28,7 +45,36 @@ internal static class PlanTaskExecutionPolicy
             task.ProofRequirements);
 
     internal static bool RequiresIndependentVerification(DecomposedSubTask? task) =>
-        !IsVerificationOnly(task);
+        task is not null && !IsVerificationOnly(task) &&
+        PlanTaskVerificationLevel.Normalize(task.VerificationLevel) != PlanTaskVerificationLevel.Lightweight;
+
+    internal static bool RequiresIndependentVerification(
+        DecomposedSubTask? task,
+        IReadOnlyList<string> changedFiles) =>
+        task is not null && !IsVerificationOnly(task) &&
+        (PlanTaskVerificationLevel.Normalize(task.VerificationLevel) != PlanTaskVerificationLevel.Lightweight ||
+         ShouldUpgradeLightweightVerification(task, changedFiles));
+
+    internal static bool RequiresIndependentVerification(PlanTask? task) =>
+        task is not null && !IsVerificationOnly(task) &&
+        PlanTaskVerificationLevel.Normalize(task.VerificationLevel) != PlanTaskVerificationLevel.Lightweight;
+
+    internal static bool ShouldUpgradeLightweightVerification(
+        DecomposedSubTask task,
+        IReadOnlyList<string> changedFiles)
+    {
+        if (PlanTaskVerificationLevel.Normalize(task.VerificationLevel) != PlanTaskVerificationLevel.Lightweight)
+            return false;
+        if (string.Equals(task.Priority, "critical", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return changedFiles.Any(path =>
+            path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("migration", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("security", StringComparison.OrdinalIgnoreCase) ||
+            path.Contains("auth", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static bool IsVerificationOnly<TOutput, TProof>(
         string? executionMode,

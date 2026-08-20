@@ -52,6 +52,7 @@ internal sealed class PlanLifecycleControlValidationTests
                 Reason:        "Paused by user after the previous task was accepted.",
                 RecoveryState: PlanRecoveryState.PendingRecovery,
                 LoopIteration: 3),
+            IsPaused = true,
         };
 
     private static Plan MakeAbortedPlan(string planId = "CTRL-001") =>
@@ -101,10 +102,10 @@ internal sealed class PlanLifecycleControlValidationTests
         return (controller, activePanel, archivedPanel, archivedSection, log);
     }
 
-    // ── 1. Executing plan exposes pause button with accessibility name ────────
+    // ── 1. Plans panel stays status-only; primary controls live in the visualizer ────────
 
     [Test]
-    public void ExecutingPlan_ShowsPauseButton_WithAccessibilityName() =>
+    public void ExecutingPlan_ShowsRunningStatusWithoutInlineControl() =>
         WpfTestContext.Run(() =>
         {
             var (ctrl, activePanel, _, _, _) = BuildControllerWithActions();
@@ -115,22 +116,20 @@ internal sealed class PlanLifecycleControlValidationTests
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
             var titleRow = (Grid)rowStack.Children[0];
-            var pauseButton = titleRow.Children.OfType<Button>().FirstOrDefault();
+            var activity = rowStack.Children.OfType<TextBlock>()
+                .FirstOrDefault(block => block.Text.Contains("running", StringComparison.OrdinalIgnoreCase));
 
             Assert.Multiple(() =>
             {
-                Assert.That(pauseButton, Is.Not.Null, "Executing plan must show a pause button.");
-                Assert.That(pauseButton!.Content, Is.EqualTo("Ⅱ"));
-                Assert.That(AutomationProperties.GetName(pauseButton),
-                    Is.EqualTo("Pause after current step"),
-                    "Pause button must have an accessible name for screen readers.");
+                Assert.That(titleRow.Children.OfType<Button>(), Is.Empty);
+                Assert.That(activity?.Text, Is.EqualTo("Step 3 running"));
             });
         });
 
     // ── 2. Pause button invokes the pausePlan action ──────────────────────────
 
     [Test]
-    public void ExecutingPlan_PauseButtonClick_InvokesPauseAction() =>
+    public void ExecutingPlan_ContextMenuPauseInvokesPauseAction() =>
         WpfTestContext.Run(() =>
         {
             var (ctrl, activePanel, _, _, log) = BuildControllerWithActions();
@@ -139,29 +138,21 @@ internal sealed class PlanLifecycleControlValidationTests
             ctrl.Refresh([plan]);
 
             var row = activePanel.Children.OfType<Border>().Single();
-            var rowStack = (StackPanel)row.Child;
-            var titleRow = (Grid)rowStack.Children[0];
-            var pauseButton = titleRow.Children.OfType<Button>().First();
-
-            pauseButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-
-            var status = ((StackPanel)activePanel.Children.OfType<Border>().Single().Child)
-                .Children.OfType<TextBlock>()
-                .Single(block => Equals(block.Tag, "PlanTransientStatus"));
+            var pauseItem = row.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Pause After Current Step"));
+            pauseItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Multiple(() =>
             {
                 Assert.That(log, Has.Count.EqualTo(1));
                 Assert.That(log[0].Action, Is.EqualTo("pause"));
                 Assert.That(log[0].Plan.PlanId, Is.EqualTo(plan.PlanId));
-                Assert.That(status.Text, Is.EqualTo("Pausing after this turn…"));
-                Assert.That(pauseButton.IsEnabled, Is.False);
             });
         });
 
     // ── 3. User-paused plan shows resume button with accessibility name ───────
 
     [Test]
-    public void UserPausedPlan_ShowsResumeButton_WithAccessibilityName() =>
+    public void UserPausedPlan_ShowsPausedStatusWithoutInlineControl() =>
         WpfTestContext.Run(() =>
         {
             var (ctrl, activePanel, _, _, _) = BuildControllerWithActions();
@@ -172,22 +163,20 @@ internal sealed class PlanLifecycleControlValidationTests
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
             var titleRow = (Grid)rowStack.Children[0];
-            var resumeButton = titleRow.Children.OfType<Button>().FirstOrDefault();
+            var pausedStatus = rowStack.Children.OfType<TextBlock>()
+                .FirstOrDefault(block => string.Equals(block.Text, "Paused", StringComparison.Ordinal));
 
             Assert.Multiple(() =>
             {
-                Assert.That(resumeButton, Is.Not.Null, "User-paused plan must show a resume button.");
-                Assert.That(resumeButton!.Content, Is.EqualTo("▶"));
-                Assert.That(AutomationProperties.GetName(resumeButton),
-                    Is.EqualTo("Resume plan"),
-                    "Resume button must have an accessible name.");
+                Assert.That(titleRow.Children.OfType<Button>(), Is.Empty);
+                Assert.That(pausedStatus, Is.Not.Null);
             });
         });
 
     // ── 4. Resume routes to startPlan (not resumePlan) — skips assessment ─────
 
     [Test]
-    public void UserPausedPlan_ResumeClick_RoutesToStartNotAssess() =>
+    public void UserPausedPlan_ContextMenuResumeRoutesToStartNotAssess() =>
         WpfTestContext.Run(() =>
         {
             var (ctrl, activePanel, _, _, log) = BuildControllerWithActions();
@@ -196,11 +185,9 @@ internal sealed class PlanLifecycleControlValidationTests
             ctrl.Refresh([plan]);
 
             var row = activePanel.Children.OfType<Border>().Single();
-            var rowStack = (StackPanel)row.Child;
-            var titleRow = (Grid)rowStack.Children[0];
-            var resumeButton = titleRow.Children.OfType<Button>().First();
-
-            resumeButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var resumeItem = row.ContextMenu!.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Resume Plan"));
+            resumeItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
 
             Assert.That(log, Has.Count.EqualTo(1));
             Assert.That(log[0].Action, Is.EqualTo("start"),
@@ -499,6 +486,6 @@ internal sealed class PlanLifecycleControlValidationTests
 
             Assert.That(activityBlock, Is.Not.Null,
                 "User-paused plan must show 'Paused after accepted step' activity label.");
-            Assert.That(activityBlock!.Text, Is.EqualTo("Paused after accepted step"));
+            Assert.That(activityBlock!.Text, Is.EqualTo("Paused"));
         });
 }

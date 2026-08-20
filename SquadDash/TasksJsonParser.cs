@@ -258,6 +258,12 @@ internal static class TasksJsonParser
                     "or have its human-only proof routed to an approval gate");
             }
 
+            if (!PlanTaskVerificationLevel.IsValid(task.VerificationLevel))
+            {
+                return Fail("invalid-task-verification-level",
+                    $"task '{task.Id}' verificationLevel must be lightweight, standard, or enhanced");
+            }
+
             var proofIds = new HashSet<string>(StringComparer.Ordinal);
             var humanProofCount = (task.ProofRequirements ?? [])
                 .Count(requirement => PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType));
@@ -765,6 +771,9 @@ internal static class TasksJsonParser
                 Add("verification-task-without-proof",
                     $"verification task '{taskId}' must declare at least one proof requirement " +
                     "or have its human-only proof routed to an approval gate");
+            if (!PlanTaskVerificationLevel.IsValid(task.VerificationLevel))
+                Add("invalid-task-verification-level",
+                    $"task '{taskId}' verificationLevel must be lightweight, standard, or enhanced");
         }
 
         var gateIds = new HashSet<string>(StringComparer.Ordinal);

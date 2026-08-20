@@ -35,6 +35,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan>? _onGatesChanged;
     private readonly Action<Plan>? _onStartPlan;
     private readonly Action<Plan>? _onResumePlan;
+    private readonly Action<Plan>? _onPausePlan;
     private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
     private readonly string? _interruptedPrimaryActionLabel;
     private readonly string? _interruptedPrimaryActionHint;
@@ -174,6 +175,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onGatesChanged = null,
         Action<Plan>? onStartPlan    = null,
         Action<Plan>? onResumePlan   = null,
+        Action<Plan>? onPausePlan    = null,
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange = null,
         string? interruptedPrimaryActionLabel = null,
         string? interruptedPrimaryActionHint = null,
@@ -218,6 +220,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onGatesChanged     = onGatesChanged;
         _onStartPlan        = onStartPlan;
         _onResumePlan       = onResumePlan;
+        _onPausePlan        = onPausePlan;
         _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
         _interruptedPrimaryActionLabel = interruptedPrimaryActionLabel;
         _interruptedPrimaryActionHint = interruptedPrimaryActionHint;
@@ -434,6 +437,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             : _onGatesChanged;
         var onStartPlan        = _onStartPlan;
         var onResumePlan       = _onResumePlan;
+        var onPausePlan        = _onPausePlan;
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
         var onEndPlan          = _onEndPlan;
         var onContinueInterruptedTask = _onContinueInterruptedTask;
@@ -457,6 +461,88 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var header = new StackPanel { Margin = new Thickness(22, 16, 22, 2) };
         _header = header;
+
+        var primaryControls = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8),
+        };
+        Button AddPrimaryButton(string label, string hint, Action action, bool enabled = true)
+        {
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label, quickReplyFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(hint));
+            button.Focusable = false;
+            button.IsEnabled = enabled;
+            button.Margin = new Thickness(0, 0, 6, 0);
+            button.Click += (_, _) => action();
+            primaryControls.Children.Add(button);
+            return button;
+        }
+
+        if (durablePlan is not null && !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus))
+        {
+            if (durablePlan.IsPaused)
+            {
+                if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                    durablePlan.Progress.ExecutingTaskId is not null)
+                {
+                    AddPrimaryButton("Pausing…", "The current step will finish and no new step will start.",
+                        () => { }, enabled: false);
+                }
+                else if (onResumePlan is not null)
+                    AddPrimaryButton("Resume", "Release this plan's durable pause. Work proceeds only when its current boundary allows it.",
+                        () => onResumePlan(durablePlan));
+            }
+            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Approved && onStartPlan is not null)
+            {
+                AddPrimaryButton("Start", "Begin executing this approved plan.",
+                    () => { onStartPlan(durablePlan); Close(); });
+            }
+            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onPausePlan is not null)
+            {
+                AddPrimaryButton("Pause", "Pause safely after the currently accepted step; no new step will start.",
+                    () => onPausePlan(durablePlan));
+            }
+            else if ((durablePlan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or PlanLifecycleStatus.Interrupted) &&
+                     onPausePlan is not null)
+            {
+                var awaitingHumanReview = durablePlan.Tasks.Any(task =>
+                    task.Status == PlanTaskStatus.HumanReviewRequired);
+                AddPrimaryButton(awaitingHumanReview ? "Review & Pause" : "Pause",
+                    "Hold this plan at its current review or recovery boundary.",
+                    () => onPausePlan(durablePlan));
+            }
+        }
+
+        if (_editHistory is not null)
+        {
+            if (primaryControls.Children.Count > 0)
+            {
+                var separator = new Border { Width = 1, Margin = new Thickness(2, 2, 8, 2) };
+                separator.SetResourceReference(Border.BackgroundProperty, "SubtleBorder");
+                primaryControls.Children.Add(separator);
+            }
+            var undo = AddPrimaryButton("Undo", "Undo the most recent plan edit.", UndoStagedEdit);
+            undo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekUndo, out var undoError);
+            var redo = AddPrimaryButton("Redo", "Redo the most recently undone plan edit.", RedoStagedEdit);
+            redo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekRedo, out var redoError);
+            if ((undoError ?? redoError) is { Length: > 0 } historyError)
+            {
+                var status = new TextBlock
+                {
+                    Text = "Undo/redo is blocked at the execution boundary. " + historyError,
+                    TextWrapping = TextWrapping.Wrap,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(2, 0, 0, 0),
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                primaryControls.Children.Add(status);
+            }
+        }
+        if (primaryControls.Children.Count > 0)
+            header.Children.Add(primaryControls);
 
         if (applyAction is not null)
         {
@@ -622,9 +708,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Orientation = Orientation.Horizontal,
                 Margin      = new Thickness(0, 0, 0, 8),
             };
+            var safeResume = PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
             // Safe continuation owns the recovery choice. A ready validation is simply the next
             // scheduler boundary and must not create a duplicate "Resume Validation" action.
-            if (onAdoptVerifiedCommitRange is not null && onResumePlan is null)
+            if (onAdoptVerifiedCommitRange is not null && !safeResume)
             {
                 var capturedPlan = durablePlan;
                 var capturedAction = onAdoptVerifiedCommitRange;
@@ -660,7 +747,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(adoptButton);
             }
-            if (onContinueInterruptedTask is not null && onResumePlan is null)
+            if (onContinueInterruptedTask is not null && !safeResume)
             {
                 var capturedPlan = durablePlan;
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
@@ -684,11 +771,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(continueButton);
             }
-            if (onResumePlan is not null)
+            if (onResumePlan is not null && safeResume && !durablePlan.IsPaused)
             {
                 var capturedPlan   = durablePlan;
                 var capturedAction = onResumePlan;
-                var safeResume = PlanRecoveryResumePolicy.IsSafelyResumable(capturedPlan);
                 var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
                     safeResume ? "Resume Plan" : "Resume Plan Anyway…",
                     quickReplyFontSize,
@@ -765,31 +851,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             statusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
             correctionStatus.Children.Add(statusText);
             header.Children.Add(correctionStatus);
-        }
-
-        if (durablePlan is not null &&
-            durablePlan.LifecycleStatus == PlanLifecycleStatus.Approved &&
-            onStartPlan is not null)
-        {
-            var approvedPanel = new WrapPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin      = new Thickness(0, 0, 0, 8),
-            };
-            var capturedPlan   = durablePlan;
-            var capturedAction = onStartPlan;
-            var startButton    = TranscriptQuickReplyFactory.CreateButton(
-                "Start Plan",
-                quickReplyFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip("Begin executing this approved plan."));
-            startButton.Focusable = false;
-            startButton.Click += (_, _) =>
-            {
-                capturedAction(capturedPlan);
-                Close();
-            };
-            approvedPanel.Children.Add(startButton);
-            header.Children.Add(approvedPanel);
         }
 
         var summaryBlock = new TextBlock
@@ -926,9 +987,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 gateMsg.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 gateMsg.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 var approveButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Approve & Continue",
+                    durablePlan.IsPaused ? "Approve & Stay Paused" : "Approve & Continue",
                     quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip("Approve this gate and resume plan execution."));
+                    toolTip: ToolTipHelper.MakeThemedToolTip(durablePlan.IsPaused
+                        ? "Approve this gate while keeping the plan paused."
+                        : "Approve this gate and resume plan execution."));
                 approveButton.Focusable = false;
                 approveButton.Click += (_, _) =>
                 {
@@ -2522,6 +2585,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         contextMenu.Items.Add(dependsOnSubmenu1);
                         contextMenu.Items.Add(new Separator());
                     }
+                    contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTask.Id));
+                    contextMenu.Items.Add(new Separator());
                     var addValidation = new MenuItem
                     {
                         Header = "Add validation after this step",
@@ -2619,6 +2684,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     contextMenu.Items.Add(dependsOnSubmenu2);
                     contextMenu.Items.Add(new Separator());
                 }
+                contextMenu.Items.Add(CreateVerificationLevelSubmenu(capturedTaskId));
+                contextMenu.Items.Add(new Separator());
                 var addValidation = new MenuItem
                 {
                         Header = "Add validation after this step",
@@ -2672,6 +2739,42 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             Panel.SetZIndex(border, 20);
             canvas.Children.Add(border);
+
+            var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
+            var verificationLevel = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
+            var verificationIndicatorText = new TextBlock
+            {
+                Text = verificationOnly ? "—" : verificationLevel[..1].ToUpperInvariant(),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold,
+            };
+            verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            var verificationIndicator = new Border
+            {
+                Width = 22 * _scaleFactor,
+                Height = 22 * _scaleFactor,
+                CornerRadius = new CornerRadius(11 * _scaleFactor),
+                BorderThickness = new Thickness(1),
+                Background = Brushes.Transparent,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
+                    ? "This is a verification-only step, so it does not receive another independent verification pass."
+                    : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
+                Child = verificationIndicatorText,
+            };
+            verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
+            System.Windows.Automation.AutomationProperties.SetName(
+                verificationIndicator,
+                verificationOnly
+                    ? $"{task.Title ?? task.Id}: verification-only step"
+                    : $"{task.Title ?? task.Id}: {verificationLevel} verification");
+            verificationIndicator.Tag = $"task:{task.Id}";
+            WireSelectionClick(verificationIndicator);
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth + 6 * _scaleFactor);
+            Canvas.SetTop(verificationIndicator, position.Y);
+            Panel.SetZIndex(verificationIndicator, 22);
+            canvas.Children.Add(verificationIndicator);
+            RegisterTaskDragOverlay(task.Id, verificationIndicator);
 
             if (hasAgentAvatars)
             {
@@ -3311,7 +3414,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }, System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
-        canvas.Width  = Math.Max(positions.Values.Max(point => point.X) + NodeWidth, validationRailRight);
+        canvas.Width  = Math.Max(
+            positions.Values.Max(point => point.X) + NodeWidth + 34 * _scaleFactor,
+            validationRailRight);
         canvas.Height = Math.Max(
             positions.Values.Max(point => point.Y) + NodeHeight,
             Math.Max(
@@ -3833,6 +3938,51 @@ internal sealed class PlanViewerWindow : ChromedWindow
     /// stage-changing edits require confirmation before routing through
     /// <see cref="ApplyStagedMutation"/>.
     /// </summary>
+    private MenuItem CreateVerificationLevelSubmenu(string taskId)
+    {
+        var task = _plan?.Group.Tasks.FirstOrDefault(candidate => candidate.Id == taskId);
+        var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
+        var definitionEditable = IsTaskDefinitionEditable(taskId) && !verificationOnly;
+        var current = PlanTaskVerificationLevel.Normalize(task?.VerificationLevel);
+        var submenu = new MenuItem
+        {
+            Header = "Verification Level",
+            IsEnabled = definitionEditable,
+            ToolTip = verificationOnly
+                ? ToolTipHelper.MakeThemedToolTip(
+                    "Verification-only steps do not receive a second independent verification pass.")
+                : !definitionEditable
+                    ? ToolTipHelper.MakeThemedToolTip(
+                        "Verification level cannot be changed after this step enters execution history.")
+                    : null,
+        };
+
+        foreach (var (value, label) in new[]
+        {
+            (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
+            (PlanTaskVerificationLevel.Standard, "Standard"),
+            (PlanTaskVerificationLevel.Enhanced, "Enhanced"),
+        })
+        {
+            var captured = value;
+            var item = new MenuItem
+            {
+                Header = label,
+                IsCheckable = true,
+                IsChecked = current == value,
+            };
+            item.Click += (_, _) =>
+            {
+                if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
+                ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
+                    _plan.Group, taskId, captured), selectKind: "task", selectId: taskId);
+            };
+            submenu.Items.Add(item);
+        }
+
+        return submenu;
+    }
+
     private MenuItem? CreateDependsOnSubmenu(
         string taskId,
         DecomposedTaskGroup group,
@@ -5871,27 +6021,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             locked.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             locked.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             toolbar.Children.Add(locked);
-        }
-        if (_editHistory is not null)
-        {
-            var undo = AddButton("Undo", UndoStagedEdit, "Undo the most recent plan edit.");
-            undo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekUndo, out var undoError);
-            var redo = AddButton("Redo", RedoStagedEdit, "Redo the most recently undone plan edit.");
-            redo.IsEnabled = CanApplyHistoryCandidate(_editHistory.PeekRedo, out var redoError);
-            var historyError = undoError ?? redoError;
-            if (!string.IsNullOrWhiteSpace(historyError))
-            {
-                var status = new TextBlock
-                {
-                    Text = "Undo/redo is blocked at the execution boundary. " + historyError,
-                    TextWrapping = TextWrapping.Wrap,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(2, 0, 0, 4),
-                };
-                status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
-                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                toolbar.Children.Add(status);
-            }
         }
         if (_requestAiReview is not null && _plan is not null)
         {

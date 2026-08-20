@@ -129,6 +129,10 @@ Before authoring a plan:
 - Use generic routing only when no active roster specialist is appropriate, and explain why.
 - Do not assign Rory implementation work merely because Rory authored the plan.
 - Keep verification independent from implementation when the host protocol requires it.
+- Tune each implementation step with only the simple `verificationLevel` enum when useful:
+  omit it for standard, use lightweight for low-risk locally provable changes, and enhanced for
+  cross-cutting or integration-sensitive work. Do not invent nested verification settings or use
+  this field to duplicate validation shields.
 
 ## Quality Bar
 

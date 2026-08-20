@@ -827,8 +827,15 @@ internal sealed class PlansPanelController
 
     private static string? BuildActivityLabel(Plan plan)
     {
+        if (plan.IsPaused)
+        {
+            if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval) ||
+                plan.Tasks.Any(task => task.Status == PlanTaskStatus.HumanReviewRequired))
+                return "Paused · review pending";
+            return "Paused";
+        }
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
-            return "Approval ready";
+            return "Awaiting your review";
         if (plan.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree)
             return "Waiting for clean workspace";
         if (PlanRecoveryResumePolicy.IsReworkPreflightPause(plan))
@@ -849,59 +856,6 @@ internal sealed class PlansPanelController
 
     private FrameworkElement BuildTitleStatusOrControl(Plan plan)
     {
-        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing && _pausePlan is not null)
-        {
-            var pause = new Button
-            {
-                Content = "Ⅱ",
-                Width = 20,
-                Height = 20,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0, 0, 5, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = ToolTipHelper.MakeThemedToolTip("Pause plan execution after the current step is accepted."),
-            };
-            System.Windows.Automation.AutomationProperties.SetName(pause, "Pause after current step");
-            pause.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
-            pause.Click += (_, args) =>
-            {
-                args.Handled = true;
-                if (_pausePlan(plan))
-                {
-                    pause.IsEnabled = false;
-                    SetPlanStatus(plan.PlanId, "Pausing after this turn…");
-                }
-            };
-            return pause;
-        }
-
-        if (PlanRecoveryResumePolicy.IsSafelyResumable(plan) && _startPlan is not null)
-        {
-            var resume = new Button
-            {
-                Content = "▶",
-                Width = 20,
-                Height = 20,
-                Padding = new Thickness(0),
-                Margin = new Thickness(0, 0, 5, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = ToolTipHelper.MakeThemedToolTip(
-                    PlanRecoveryResumePolicy.IsAmendmentPreflightPause(plan)
-                        ? "Resume the added amendment after committing or stashing the blocking changes; completed tasks remain accepted."
-                        : PlanRecoveryResumePolicy.IsReworkPreflightPause(plan)
-                            ? "Resume the already-prepared rework after committing or stashing the blocking changes."
-                            : "Resume with the next runnable plan step."),
-            };
-            System.Windows.Automation.AutomationProperties.SetName(resume, "Resume plan");
-            resume.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
-            resume.Click += (_, args) =>
-            {
-                args.Handled = true;
-                _startPlan(plan);
-            };
-            return resume;
-        }
-
         if (plan.LifecycleStatus == PlanLifecycleStatus.Completed)
         {
             const double size = 14;

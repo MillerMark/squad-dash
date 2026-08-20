@@ -24,6 +24,7 @@ internal static class PlanTaskVerificationPromptBuilder
                            "If it cannot establish a claim without human observation, it must use `human-review-required`; it must never simulate or imply a human observation.");
         builder.AppendLine();
         builder.AppendLine("Independently verify the candidate task result below. Do not modify the repository.");
+        AppendVerificationLevelInstructions(builder, task);
         builder.AppendLine("Your job is to find missing or overstated work, unsupported claims, disconnected production wiring, " +
                            "and tests that pass without proving the behavior requested by the task.");
         builder.AppendLine();
@@ -128,6 +129,25 @@ internal static class PlanTaskVerificationPromptBuilder
         AppendVerdictRules(builder);
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
+    }
+
+    private static void AppendVerificationLevelInstructions(StringBuilder builder, PlanTask task)
+    {
+        var level = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
+        builder.AppendLine($"Host-selected verification level: `{level}`. This level is authoritative; the coordinator must not reinterpret it.");
+        if (level == PlanTaskVerificationLevel.Enhanced)
+        {
+            builder.AppendLine(
+                "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, actual diff, " +
+                "production paths, and tests. Challenge the candidate with counter-hypotheses and negative cases; inspect integration " +
+                "boundaries and test sensitivity; and identify behavior that could remain broken while the reported tests still pass.");
+        }
+        else
+        {
+            builder.AppendLine(
+                "Perform the standard independent review: validate the task-owned claims against the actual diff, production wiring, and tests.");
+        }
+        builder.AppendLine();
     }
 
     private static void AppendVerdictRules(StringBuilder builder)

@@ -352,7 +352,7 @@ internal sealed class CompletedWorkReviewPresentationTests
             Assert.That(result.Message.Actions.Select(a => a.Label),
                 Is.EqualTo(new[]
                 {
-                    "Step 1 Is Complete",
+                    "Step 1 Is Complete & Continue",
                     "✎ Continue Working on Step 1…",
                     "✎ Revise Remaining Plan…",
                 }));

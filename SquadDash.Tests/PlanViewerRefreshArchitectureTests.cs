@@ -46,8 +46,8 @@ internal sealed class PlanViewerRefreshArchitectureTests
             Assert.That(source, Does.Contain("Header = \"Add validation after this step\"")
                 .And.Contain("Header = \"Delete step\"")
                 .And.Contain("Header = \"Delete validation\""));
-            Assert.That(source, Does.Contain("AddButton(\"Undo\"")
-                .And.Contain("AddButton(\"Redo\"")
+            Assert.That(source, Does.Contain("AddPrimaryButton(\"Undo\"")
+                .And.Contain("AddPrimaryButton(\"Redo\"")
                 .And.Contain("Review with AI"));
             Assert.That(source, Does.Contain("TourActionLabel = ReviewActionLabel(annotation)")
                 .And.Contain("TourPrevRequested")

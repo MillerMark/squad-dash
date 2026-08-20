@@ -48,6 +48,68 @@ internal sealed class PlanTaskExecutionPolicyTests
     }
 
     [Test]
+    public void VerificationLevel_DefaultsToStandard_AndRoundTripsEnhanced()
+    {
+        var defaultTask = MakeTask("Implement feature", PlanTaskExecutionMode.Implementation);
+        var enhancedTask = defaultTask with { VerificationLevel = PlanTaskVerificationLevel.Enhanced };
+
+        Assert.That(PlanTaskVerificationLevel.Normalize(defaultTask.VerificationLevel),
+            Is.EqualTo(PlanTaskVerificationLevel.Standard));
+        var durable = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("revision", MakeGroup(enhancedTask)), DateTimeOffset.UtcNow);
+        var restored = PendingDecomposePlanAdapter.FromPlan(durable);
+        Assert.That(restored.Group.Tasks.Single().VerificationLevel,
+            Is.EqualTo(PlanTaskVerificationLevel.Enhanced));
+    }
+
+    [Test]
+    public void Lightweight_SkipsSeparateReview_UnlessHostDetectsElevatedRisk()
+    {
+        var lightweight = MakeTask("Implement feature", PlanTaskExecutionMode.Implementation) with
+        {
+            VerificationLevel = PlanTaskVerificationLevel.Lightweight,
+            Priority = "mid",
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(lightweight), Is.False);
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(
+                lightweight, ["SquadDash/Formatting.cs"]), Is.False);
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(
+                lightweight, ["SquadDash/SquadDash.csproj"]), Is.True);
+        });
+    }
+
+    [Test]
+    public void Parser_RejectsUnknownVerificationLevel()
+    {
+        const string text = """
+            TASKS_JSON:
+            {
+              "groupId":"VERIFY-20260813",
+              "groupTitle":"Verify",
+              "branch":"feature/verify",
+              "summary":"Verify the feature",
+              "tasks":[{
+                "id":"VERIFY-20260813-001",
+                "title":"Implement feature",
+                "description":"Implement the approved behavior.",
+                "dependsOn":[],
+                "priority":"high",
+                "executionMode":"implementation",
+                "verificationLevel":"exhaustive",
+                "agentRoutingMode":"generic",
+                "genericAgentReason":"No specialist is required."
+              }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(text, out _, out var diagnostic), Is.False);
+        Assert.That(diagnostic?.Code, Is.EqualTo("invalid-task-verification-level"));
+    }
+
+    [Test]
     public void TasksProjectionRoundTrip_PreservesExecutionMode()
     {
         using var workspace = new TestWorkspace();
@@ -61,6 +123,23 @@ internal sealed class PlanTaskExecutionPolicyTests
             .Tasks.Single();
 
         Assert.That(restored.ExecutionMode, Is.EqualTo(PlanTaskExecutionMode.Verification));
+    }
+
+    [Test]
+    public void TasksProjectionRoundTrip_PreservesVerificationLevel()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.GetPath("tasks.md");
+        var task = MakeTask("Implement feature", PlanTaskExecutionMode.Implementation) with
+        {
+            VerificationLevel = PlanTaskVerificationLevel.Enhanced,
+        };
+        new DecomposedTasksWriter().WriteGroup(path, MakeGroup(task));
+
+        var restored = TasksPanelParser.Parse(File.ReadAllLines(path))
+            .DecomposeGroups["VERIFY-20260813"].Tasks.Single();
+
+        Assert.That(restored.VerificationLevel, Is.EqualTo(PlanTaskVerificationLevel.Enhanced));
     }
 
     [Test]

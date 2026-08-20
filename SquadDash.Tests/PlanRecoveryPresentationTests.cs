@@ -298,7 +298,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
-            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete"));
+            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete & Continue"));
             Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
             Assert.That(action.Hint, Does.Contain("No additional AI assessment"));
         });

@@ -9585,7 +9585,7 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         SyncPlansPanel();
 
-        if (updated.LifecycleStatus == PlanLifecycleStatus.Interrupted)
+        if (updated.LifecycleStatus == PlanLifecycleStatus.Interrupted && !updated.IsPaused)
         {
             try
             {
@@ -9625,14 +9625,43 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8),
         };
-        var planLink = new Hyperlink(new Run(current.Title))
+        var planLink = new Hyperlink(new Run($"View current plan — revision {current.RevisionNumber}"))
         {
             Cursor = Cursors.Hand,
-            ToolTip = "Open plan",
+            ToolTip = "Open the currently authoritative plan",
         };
         planLink.Click += (_, _) => OpenPlanFromStore(current);
         System.Windows.Automation.AutomationProperties.SetName(planLink, $"Open plan {current.Title}");
         planTitle.Inlines.Add(planLink);
+        if (preview.UpdatedPlan is { } proposedPlan)
+        {
+            planTitle.Inlines.Add(new Run("  ·  "));
+            var proposedLink = new Hyperlink(new Run($"View proposed plan — revision {proposedPlan.RevisionNumber}"))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = "Open a read-only preview of the proposed revision",
+            };
+            proposedLink.Click += (_, _) =>
+            {
+                var previewPlan = proposedPlan with
+                {
+                    Summary = "PROPOSED REVISION — not active. " + proposedPlan.Summary,
+                };
+                var previewWindow = new PlanViewerWindow(
+                    PendingDecomposePlanAdapter.FromPlan(previewPlan),
+                    _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath),
+                    _inboxFontSize,
+                    durablePlan: previewPlan)
+                {
+                    Owner = CanShowOwnedWindow() ? this : null,
+                    Title = $"Proposed Plan — {proposedPlan.DisplayName} — Revision {proposedPlan.RevisionNumber}",
+                };
+                previewWindow.Show();
+            };
+            System.Windows.Automation.AutomationProperties.SetName(
+                proposedLink, $"View proposed revision {proposedPlan.RevisionNumber}");
+            planTitle.Inlines.Add(proposedLink);
+        }
         planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         stack.Children.Add(planTitle);
 
@@ -9668,7 +9697,7 @@ public partial class MainWindow : Window
 
         var actions = new WrapPanel { Orientation = Orientation.Horizontal };
         var approve = TranscriptQuickReplyFactory.CreateButton(
-            "Approve revision and continue",
+            current.IsPaused ? "Approve Revision & Stay Paused" : "Approve Revision & Continue",
             _transcriptFontSize);
         var revise = TranscriptQuickReplyFactory.CreateButton(
             "✏️ Revise proposal",
@@ -11908,8 +11937,29 @@ public partial class MainWindow : Window
             : null;
         var isSafelyResumable = durablePlan is not null &&
                                 PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
-        Action<Plan>? onResumePlan = isSafelyResumable
-            ? p => _ = StartOrResumeDurablePlanAsync(p)
+        Action<Plan>? onResumePlan = durablePlan is not null &&
+                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+            ? p =>
+              {
+                  var current = _planStore?.Load(p.PlanId) ?? p;
+                  var resumed = current.IsPaused ? PlanStoreUpdater.ApplyResume(current) : current;
+                  if (!ReferenceEquals(resumed, current))
+                      PublishPlanProgress(resumed);
+                  if (resumed.LifecycleStatus == PlanLifecycleStatus.Approved ||
+                      PlanRecoveryResumePolicy.IsSafelyResumable(resumed))
+                      _ = StartOrResumeDurablePlanAsync(resumed);
+              }
+            : null;
+        Action<Plan>? onPausePlan = durablePlan is not null &&
+                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+            ? p =>
+              {
+                  var current = _planStore?.Load(p.PlanId) ?? p;
+                  var paused = PlanStoreUpdater.ApplyPause(current);
+                  PublishPlanProgress(paused);
+                  if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
+                      RequestPlanPauseAfterCurrentStep(paused);
+              }
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         var interruptedRecoveryAction = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
@@ -12103,7 +12153,7 @@ public partial class MainWindow : Window
             // Plan proposal actions and prose mirror their Inbox presentation rather than
             // inheriting the independently zoomable coordinator transcript size.
             displayedPlan, activeBranch, _inboxFontSize, applyAction, durablePlan,
-            onGatesChanged, onStartPlan, onResumePlan, onAdoptVerifiedCommitRange,
+            onGatesChanged, onStartPlan, onResumePlan, onPausePlan, onAdoptVerifiedCommitRange,
             interruptedPrimaryActionLabel, interruptedPrimaryActionHint, onEndPlan, onApproveGate,
             onUnapproveGate,
             viewPreflightChanges: ShowPlanPreflightChangesAsync,
@@ -13246,8 +13296,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (result.Status == "complete" &&
-            PlanTaskExecutionPolicy.RequiresIndependentVerification(persistedTask))
+        if (result.Status == "complete" && persistedTask is not null &&
+            !PlanTaskExecutionPolicy.IsVerificationOnly(persistedTask))
         {
             var baseline = activeExecution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit;
             if (string.IsNullOrWhiteSpace(baseline))
@@ -13266,6 +13316,23 @@ public partial class MainWindow : Window
                 .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            if (!PlanTaskExecutionPolicy.RequiresIndependentVerification(persistedTask, changedFiles))
+            {
+                AppendPlanExecutionJournal(
+                    groupId,
+                    taskId,
+                    "lightweight-verification-complete",
+                    PlanExecutionJournal.Serialize(new
+                    {
+                        VerificationLevel = PlanTaskVerificationLevel.Lightweight,
+                        Candidate = result,
+                        HostRecordedBaseline = baseline,
+                        HostRecordedChangedFiles = changedFiles,
+                        HostChecks = new[] { "result-schema", "proof-evidence", "commit-scope", "changed-files" },
+                    }));
+                goto accept_without_independent_verification;
+            }
+
             var pendingVerification = new PendingTaskVerification(
                 groupId,
                 taskId,
@@ -13313,6 +13380,8 @@ public partial class MainWindow : Window
 
             return;
         }
+
+        accept_without_independent_verification:
 
         if (activeExecution is not null && executionAttempt is not null)
             _conversationManager.UpdateActiveLoopExecutionState(
@@ -15520,7 +15589,7 @@ public partial class MainWindow : Window
                                (completionError ?? "unknown persistence failure"));
                 }
             }
-            if (resolution.ShouldResume && !completedAtApproval)
+            if (resolution.ShouldResume && !completedAtApproval && !resolution.UpdatedPlan.IsPaused)
             {
                 if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                 {
@@ -17482,7 +17551,9 @@ public partial class MainWindow : Window
         if (combinedHumanReviewGate is not null && humanChecklistItems.Length > 0)
         {
             var completionButton = AddAsyncResultAction(
-                $"{stepLabel} Is Complete",
+                durablePlan!.IsPaused
+                    ? $"{stepLabel} Is Complete & Stay Paused"
+                    : $"{stepLabel} Is Complete & Continue",
                 $"Enabled once every verification item is checked. Mark {stepLabel} complete, record the human checkpoint, and continue without another AI review.",
                 async () =>
                 {
@@ -19290,7 +19361,8 @@ public partial class MainWindow : Window
         // projection and does not contain outputs, inputs, approval gates, or validation nodes;
         // sending that projection back through TASKS_JSON validation can reject valid plans after
         // their completed work has already been accepted.
-        await StartOrResumeDurablePlanAsync(acceptedPlan!);
+        if (!acceptedPlan!.IsPaused)
+            await StartOrResumeDurablePlanAsync(acceptedPlan);
         return true;
     }
 

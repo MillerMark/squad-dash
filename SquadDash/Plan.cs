@@ -287,7 +287,10 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskReviewActivity>? ReviewActivity = null,
     [property: JsonPropertyName("executionMode")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? ExecutionMode = null);
+                                                string? ExecutionMode = null,
+    [property: JsonPropertyName("verificationLevel")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? VerificationLevel = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -577,7 +580,12 @@ internal sealed record Plan(
     /// </summary>
     [property: JsonPropertyName("displayTitle")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                    string? DisplayTitle = null)
+                                                    string? DisplayTitle = null,
+
+    /// <summary>A durable user hold. It is independent of the execution/review lifecycle.</summary>
+    [property: JsonPropertyName("isPaused")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+                                                    bool IsPaused = false)
 {
     [JsonIgnore]
     internal string DisplayName =>

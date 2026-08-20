@@ -286,6 +286,28 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
+    public void EnhancedVerificationPrompt_IsHostDirectedAndRequiresRiskDerivedCrossExamination()
+    {
+        var plan = MakePlan();
+        var task = plan.Tasks[1] with { VerificationLevel = PlanTaskVerificationLevel.Enhanced };
+        plan = plan with { Tasks = [plan.Tasks[0], task] };
+        var candidate = new DecomposeStepResult(
+            "P", "P-2", "rev", "complete", "abcdef1", "Wired consumer", null,
+            new DecomposeStepVerification("passed", "dotnet test", "green"));
+
+        var prompt = PlanTaskVerificationPromptBuilder.Build(
+            plan, task, candidate, "1111111", ["src/Consumer.cs"], "1 file changed");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("Host-selected verification level: `enhanced`"));
+            Assert.That(prompt, Does.Contain("coordinator must not reinterpret it"));
+            Assert.That(prompt, Does.Contain("counter-hypotheses and negative cases"));
+            Assert.That(prompt, Does.Contain("test sensitivity"));
+        });
+    }
+
+    [Test]
     public void Parser_AcceptedVerdictWithBoundedCorrectionBecomesReworkRequired()
     {
         var json = """

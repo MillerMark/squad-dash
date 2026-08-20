@@ -492,7 +492,7 @@ public class TranscriptApprovalCardBuilderTests
                 text => text.Contains("See your inbox message for more detail.", StringComparison.Ordinal));
             Assert.That(inboxIndex, Is.GreaterThan(step7Index));
             Assert.That(card.ApproveButton.Content?.ToString(),
-                Is.EqualTo("Reviewed Steps Are Complete"));
+                Is.EqualTo("Reviewed Steps Are Complete & Continue"));
         });
     }
 

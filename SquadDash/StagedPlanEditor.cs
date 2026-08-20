@@ -157,6 +157,24 @@ internal static class StagedPlanEditor
         return group with { Tasks = tasks };
     }
 
+    internal static DecomposedTaskGroup UpdateTaskVerificationLevel(
+        DecomposedTaskGroup group,
+        string taskId,
+        string? verificationLevel)
+    {
+        var normalized = PlanTaskVerificationLevel.Normalize(verificationLevel);
+        var tasks = group.Tasks.Select(task => task.Id == taskId
+            ? task with
+            {
+                // Standard is the compatibility default, so omit it from serialized plans.
+                VerificationLevel = normalized == PlanTaskVerificationLevel.Standard
+                    ? null
+                    : normalized,
+            }
+            : task).ToArray();
+        return group with { Tasks = tasks };
+    }
+
     internal static DecomposedTaskGroup UpdateValidation(
         DecomposedTaskGroup group,
         string validationId,
