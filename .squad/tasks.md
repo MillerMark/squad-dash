@@ -1,4 +1,256 @@
-﻿<!-- decompose-group: PVDRAG-20260818 | branch: feature/plan-visualizer-drag-reorder | revision: 935b93cff34fd006 -->
+<!-- decompose-group: CLIDETECT-20260814 | branch: feature/cli-detection-and-selection | revision: 4420f5060b1feebc -->
+**[CLIDETECT-20260814] CLI Detection and Selection**
+> Introduce a central ISquadCliResolutionService that detects workspace-local npm, global npm, native PATH-found, and custom-path Squad CLI installations via injectable IProcessRunner and IEnvironmentProvider abstractions; exposes both CliSelectionMode (user intent) and CliInstallSource (detected reality) on ResolvedCliCandidate; persists per-workspace selection atomically through ISquadCliSelectionStore.SaveSelectionAsync using the repository's established mutex/LoadCore/SaveCore pattern (dedicated SaveCliWorkspaceSelection method on ApplicationSettingsStore); replaces the boolean SupportsAgentCmd with a tri-state CliCapabilityStatus (Supported/NotSupported/Unknown) gated at 0.9.5 (CLI 0.10.x and later also satisfies this threshold); routes every CLI invocation (SquadCliAdapter, SquadInstallerService, SquadInstallationStateService, SquadOrchestrationService, SquadWatchHealthService) and the title-bar version/update display through the resolution pipeline; uses a single canonical CliCmdEscaping.CmdQuoteToken helper for cmd.exe NpmShim invocations (shared by ProbeVersionAsync and BuildCommandStartInfo; no diverging quoting logic permitted) and ProcessStartInfo.ArgumentList for NodeScript and NativeExecutable; IProcessRunner returns CliInvocationResult capturing ExitCode, Stdout, Stderr, and TimedOut. Node remains a SquadDash prerequisite; npm prerequisite checks apply only to WorkspaceNpm and GlobalNpm install and update operations — NativeOther and Custom execution paths must not require npm; npx is not a mechanism or prerequisite anywhere in the pipeline. GlobalNpm classification requires confirmed npm provenance (squad.cmd directory must be inside the npm prefix returned by npm config get prefix); unconfirmed PATH-found squad.cmd candidates are NativeOther. CanAutoUpdate is set true only when TargetVersion is strictly newer than the installed Version (semver comparison); equal, installed-is-newer, and unknown-version cases produce CanAutoUpdate=false. All detection method call sites on SquadInstallationStateService must pass the resolved CliCandidate; no fallback-to-file-system path exists. Update command child processes inherit the full parent Process PATH. Services are registered in App.xaml.cs. The Preferences UI and title bar reflect both selection mode and detected source, CliUpdateInstruction with TargetVersion (populated by ProbeVersionAsync via npm view), and the tri-state capability indicator without inventing capabilities. NativeWinGet is not a CliInstallSource value; all native executables found via PATH are NativeOther. WorkspaceNpm update uses --save-dev; GlobalNpm update uses -g.
+
+- [ ] **[CLIDETECT-20260814-001]** Define CLI resolution contracts, enums, data models, and injectable abstractions
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Create the public API surface for the CLI resolution subsystem in SquadDash/.
+
+New file SquadDash/ISquadCliResolutionService.cs:
+(1) CliSelectionMode enum: Auto, WorkspaceLocal, GlobalNpm, NativeSystem, CustomPath — the user's declared preference.
+(2) CliInstallSource enum: WorkspaceNpm, GlobalNpm, NativeOther, Custom, Unknown — what the resolution service actually detected. NativeWinGet is not a valid value and must not be defined; all native executables found via PATH are classified as NativeOther. These two types are distinct: Auto selection may detect a WorkspaceNpm source.
+(3) CliRuntimeType enum: NodeScript (invoked as node "<entryScriptPath>" <args>), NpmShim (squad.cmd shim via cmd.exe), NativeExecutable (squad.exe or native binary).
+(4) CliCapabilityStatus enum: Supported (version >= 0.9.5, including 0.10.x and any later minor/major version), NotSupported (version known but < 0.9.5), Unknown (version not yet probed or parse failed). Replaces the boolean SupportsAgentCmd entirely.
+(5) CliUpdateInstruction record: string? UpdateCommand, bool CanAutoUpdate, string? DisplayMessage, string? TargetVersion.
+(6) ResolvedCliCandidate record: CliSelectionMode SelectionMode, CliInstallSource DetectedSource, CliRuntimeType RuntimeType, string ExecutablePath, string? EntryScriptPath, string? Version, bool IsAvailable, CliCapabilityStatus AgentCmdSupport, string? ProbeError, CliUpdateInstruction UpdateInstruction. For NodeScript candidates, ExecutablePath is the path to the node.exe launcher binary and EntryScriptPath is the path to the .js entry-point file; these are always distinct properties serving different purposes.
+(7) ISquadCliResolutionService interface: Task<ResolvedCliCandidate> ResolveAsync(string workspaceDir), Task<ResolvedCliCandidate> ResolveWithModeAsync(CliSelectionMode mode, string workspaceDir), Task<ResolvedCliCandidate> ProbeVersionAsync(ResolvedCliCandidate candidate).
+(8) CliInvocationResult record: int ExitCode, string? Stdout, string? Stderr, bool TimedOut — the complete result of a CLI invocation returned by IProcessRunner.RunAsync; captures exit code, both output streams, and timeout state. Callers must inspect ExitCode and TimedOut; they must not infer success from non-null Stdout alone.
+(9) IProcessRunner interface: Task<CliInvocationResult> RunAsync(string fileName, string[] args, TimeSpan timeout) — enables deterministic test doubles; real implementation (SystemProcessRunner) authored in task 002.
+(10) IEnvironmentProvider interface: string? GetEnvironmentVariable(string name, EnvironmentVariableTarget target), bool FileExists(string path) — enables deterministic test doubles; real implementation (SystemEnvironmentProvider) authored in task 002. IEnvironmentProvider does not include a GetNodeVersion method; Node.js version probing is performed by calling IProcessRunner.RunAsync("node", new[]{"--version"}, TimeSpan.FromSeconds(5)) inside SquadInstallerService.ValidatePrerequisitesAsync (task 005).
+(11) CmdQuoteToken canonical helper — new file SquadDash/CliCmdEscaping.cs containing a file-scoped static class CliCmdEscaping with a single static method string CmdQuoteToken(string token) implementing the following contract: (a) wrap the token unconditionally in double quotes; (b) apply correct internal escaping for cmd.exe; the exact escape sequences are implementation-defined and must be validated by real cmd.exe round-trip invocation tests in task 008, not by string-comparison-only assertions. This is the sole canonical CMD quoting implementation in the codebase. Both ProbeVersionAsync in SquadCliResolutionService (task 002) and BuildCommandStartInfo in SquadCliCommands (task 004) must use CliCmdEscaping.CmdQuoteToken for every cmd.exe NpmShim invocation; no separate or diverging CMD quoting logic is permitted anywhere else in the codebase.
+
+New file SquadDash/ISquadCliSelectionStore.cs:
+(12) ISquadCliSelectionStore interface: CliSelectionMode GetSelectionMode(string workspaceDir), string? GetCustomPath(string workspaceDir), Task SaveSelectionAsync(string workspaceDir, CliSelectionMode mode, string? customPath). SaveSelectionAsync is the sole mutation method — no separate SetSelectionMode or SetCustomPath — to prevent partial-write inconsistency.
+
+Observable outcome: dotnet build SquadDash/SquadDash.csproj succeeds with all new types resolvable from their namespaces and no existing file broken. Production consumer: task 002 implements ISquadCliResolutionService, IProcessRunner (returning CliInvocationResult), and IEnvironmentProvider; task 003 implements ISquadCliSelectionStore; task 004 uses CliCmdEscaping.CmdQuoteToken; all compile against these contracts.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"orion-vale","role":"Author the complete public API contracts, enums, records, and interface signatures for the CLI resolution subsystem including CliInstallSource, CliCapabilityStatus, TargetVersion on CliUpdateInstruction, IProcessRunner, and IEnvironmentProvider","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-002]** Implement SquadCliResolutionService with merged-PATH probing and injectable abstractions
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Implement SquadCliResolutionService in SquadDash/SquadCliResolutionService.cs. Also implement SystemProcessRunner (IProcessRunner) and SystemEnvironmentProvider (IEnvironmentProvider) in SquadDash/.
+
+Resolution pipeline — ResolveAsync and ResolveWithModeAsync:
+- WorkspaceLocal: look for <workspaceDir>/node_modules/.bin/squad.cmd (NpmShim) and the workspace-local NodeScript entry point (NodeScript). EntryScriptPath is resolved by reading the workspace package's package.json bin.squad field; if absent, fall back to <workspaceDir>/node_modules/@bradygaster/squad-cli/dist/cli-entry.js as the verified Squad CLI 0.12 fallback. cli/cli-entry.js is not a valid entry path and must not be used. ExecutablePath for NodeScript candidates is the path to node.exe, found by probing merged-PATH entries via IEnvironmentProvider (searching each PATH entry for node.exe or node) — node.exe is not located next to or alongside the .js file; it is resolved from PATH independently of the npm package directory. RuntimeType=NodeScript when a valid EntryScriptPath is found; RuntimeType=NpmShim when squad.cmd is found.
+- GlobalNpm: scan each merged-PATH entry for squad.cmd; exclude any directory whose path contains "node_modules" (prevents workspace-local shims from matching). Before assigning DetectedSource=GlobalNpm, confirm npm provenance: call IProcessRunner.RunAsync("npm", new[]{"config","get","prefix"}, TimeSpan.FromSeconds(5)) and verify that the directory containing squad.cmd begins with the returned npm prefix path (case-insensitive, path-normalized). If provenance is confirmed (ExitCode=0 and squad.cmd directory is inside the npm prefix): DetectedSource=GlobalNpm; then attempt to resolve the JS entry point: look for <npmPrefix>/node_modules/@bradygaster/squad-cli/package.json, parse its bin.squad field, and resolve the entry-script path relative to the package root; fallback entry-script path: <npmPrefix>/node_modules/@bradygaster/squad-cli/dist/cli-entry.js. If the entry-script path exists (IEnvironmentProvider.FileExists), set RuntimeType=NodeScript, ExecutablePath=node.exe path (resolved from merged-PATH), EntryScriptPath=resolved JS path. If no entry-script path is resolvable, set RuntimeType=NpmShim, ExecutablePath=squad.cmd path. Explicit preference: for confirmed GlobalNpm installations, NodeScript via ArgumentList is preferred; NpmShim via cmd.exe is the fallback used only when no EntryScriptPath can be resolved. If npm is unavailable, RunAsync returns TimedOut=true, ExitCode != 0, or the squad.cmd directory is not inside the npm prefix → classify the candidate as DetectedSource=NativeOther, RuntimeType=NpmShim; do not assign GlobalNpm without confirmed provenance.
+- NativeSystem: scan merged-PATH entries for squad.exe and squad.cmd (excluding already-matched GlobalNpm candidates and node_modules paths); RuntimeType=NativeExecutable for .exe, NpmShim for .cmd with unconfirmed provenance. Do not probe any fixed directory outside PATH (no WinGet Links path, no fixed installer directory). All PATH-found native candidates that are not provenance-confirmed GlobalNpm are NativeOther.
+- CustomPath: use IEnvironmentProvider.FileExists on the stored custom path; RuntimeType determined by extension.
+- Auto: try WorkspaceLocal → GlobalNpm → NativeSystem → IsAvailable=false in order; stop at first found.
+
+PATH merging: start with the current process PATH (IEnvironmentProvider.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process)) as the base; append User-level PATH entries (EnvironmentVariableTarget.User) not already present (case-insensitive, path-normalized); then append Machine-level PATH entries (EnvironmentVariableTarget.Machine) not already present. The result preserves process-first order and deduplicates across all three targets. Explicit prohibition: PATH must NOT be reconstructed as User + Machine only; the process PATH must always be the starting set to avoid losing entries already injected by the runtime environment. This merged PATH is used for all PATH scanning in the resolution pipeline.
+
+Version probing (ProbeVersionAsync): invoke the CLI with --version via IProcessRunner.RunAsync with a 5-second timeout. For NpmShim candidates, construct the cmd.exe invocation using CliCmdEscaping.CmdQuoteToken (defined in task 001): fileName="cmd.exe", args=new[]{ "/c", CliCmdEscaping.CmdQuoteToken(candidate.ExecutablePath) + " --version" } — or equivalent token construction that routes through the same helper used by BuildCommandStartInfo. Do not implement any independent quoting logic in ProbeVersionAsync; CliCmdEscaping.CmdQuoteToken is the sole CMD quoting implementation. For all runtime types, inspect the returned CliInvocationResult: parse Stdout as a semantic version; set AgentCmdSupport=Supported if version >= 0.9.5 (CLI 0.10.x and any later version also satisfies this threshold — the comparison is >= 0.9.5, not an exact check), NotSupported if version < 0.9.5, Unknown if TimedOut=true, ExitCode != 0, or Stdout is null or unparseable (set ProbeError to a descriptive message). Also discover the latest available version: call IProcessRunner.RunAsync("npm", new[]{"view","@bradygaster/squad-cli","version"}, TimeSpan.FromSeconds(5)); on success (ExitCode=0 and non-null Stdout), set CliUpdateInstruction.TargetVersion to the trimmed Stdout. If the call fails, TimedOut=true, or ExitCode != 0, TargetVersion remains null and UpdateCommand uses the @latest suffix instead. This npm view call inside ProbeVersionAsync is the sole mechanism for populating TargetVersion; no other component owns this responsibility.
+
+CliUpdateInstruction factory — semantic version comparison: CanAutoUpdate is set to true only when all three conditions hold: (a) DetectedSource is WorkspaceNpm or GlobalNpm; (b) TargetVersion parses successfully as a semantic version; (c) the installed Version also parses successfully as a semantic version and TargetVersion is strictly greater than Version. If Version is null or unparseable (AgentCmdSupport=Unknown or probe failed), if Version equals TargetVersion, or if Version is already greater than TargetVersion, set CanAutoUpdate=false. Per-source rules:
+- WorkspaceNpm (IsAvailable=true, CanAutoUpdate=true): UpdateCommand="npm install --save-dev @bradygaster/squad-cli@{TargetVersion}" (substitute @latest if TargetVersion is null), DisplayMessage="Update to v{TargetVersion}".
+- WorkspaceNpm (IsAvailable=true, CanAutoUpdate=false — version equal or installed newer, TargetVersion known): UpdateCommand=null, DisplayMessage="Squad CLI is up to date."
+- WorkspaceNpm (IsAvailable=true, CanAutoUpdate=false — TargetVersion null, npm view failed or timed out): UpdateCommand=null, DisplayMessage="Unable to determine latest version. Check your internet connection or npm registry access."
+- WorkspaceNpm (IsAvailable=false): CanAutoUpdate=false, UpdateCommand=null, DisplayMessage="Run 'npm install --save-dev @bradygaster/squad-cli' to install Squad CLI in this workspace."
+- GlobalNpm (CanAutoUpdate=true): UpdateCommand="npm install -g @bradygaster/squad-cli@{TargetVersion}" (substitute @latest if TargetVersion is null), DisplayMessage="Update to v{TargetVersion}".
+- GlobalNpm (CanAutoUpdate=false — version equal or installed newer, TargetVersion known): UpdateCommand=null, DisplayMessage="Squad CLI is up to date."
+- GlobalNpm (CanAutoUpdate=false — TargetVersion null, npm view failed or timed out): UpdateCommand=null, DisplayMessage="Unable to determine latest version. Check your internet connection or npm registry access."
+- NativeOther (all NativeSystem executables and any PATH-found squad.cmd with unconfirmed npm provenance): CanAutoUpdate=false, UpdateCommand=null, DisplayMessage="Squad CLI was installed outside npm. Check your installation source for updates."
+- Custom: CanAutoUpdate=false, UpdateCommand=null, DisplayMessage="Check your custom installation source for updates."
+
+Observable outcome: SquadCliResolutionService correctly resolves a workspace-local squad.cmd to NpmShim/WorkspaceNpm; a PATH-found squad.exe to NativeExecutable/NativeOther (never NativeWinGet); a PATH-found squad.cmd whose directory is not inside the confirmed npm prefix to NativeOther (provenance unconfirmed); a WorkspaceNpm unavailable candidate to CanAutoUpdate=false with install-guidance DisplayMessage; and an installed-version-equal-to-TargetVersion candidate to CanAutoUpdate=false — all when given controlled IEnvironmentProvider and IProcessRunner responses. Production consumer: task 004 calls SquadCliCommands.BuildCommandStartInfo with the resolved candidate; task 005 injects ISquadCliResolutionService into all five services.
+  dependsOn: CLIDETECT-20260814-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement SquadCliResolutionService with merged-PATH, PATH-only NativeSystem probing (NativeOther for all native executables, no WinGet Links probe), version parsing with CliCapabilityStatus, TargetVersion population via npm view in ProbeVersionAsync, split WorkspaceNpm (--save-dev) and GlobalNpm (-g) CliUpdateInstruction factory, WorkspaceLocal unavailable install-guidance, and real SystemProcessRunner/SystemEnvironmentProvider implementations; register in App.xaml.cs","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-003]** Implement SquadCliSelectionStore with atomic per-workspace persistence
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Implement SquadCliSelectionStore.cs in SquadDash/.
+
+The store implements ISquadCliSelectionStore:
+- GetSelectionMode(workspaceDir): synchronous read from the current ApplicationSettingsSnapshot.CliWorkspaceSelections[workspaceDir]?.Mode, defaulting to Auto if absent.
+- GetCustomPath(workspaceDir): synchronous read from snapshot.CliWorkspaceSelections[workspaceDir]?.CustomPath.
+- SaveSelectionAsync(workspaceDir, mode, customPath): calls _settingsStore.SaveCliWorkspaceSelection(workspaceDir, mode, customPath) — a new dedicated public method added to ApplicationSettingsStore that follows the repository's established atomic pattern exactly as all other settings mutations do: acquire the named mutex (using var mutex = AcquireMutex()), call LoadCore() to get the current snapshot, shallow-copy CliWorkspaceSelections into a new Dictionary<string, CliWorkspaceSelectionEntry>, set the entry for the normalized workspaceDir key to new CliWorkspaceSelectionEntry { Mode = mode, CustomPath = customPath }, build an updated snapshot (var updated = current with { CliWorkspaceSelections = updatedDictionary }), then call SaveCore(updated). No SaveAsync method is to be invented or referenced; it does not exist in ApplicationSettingsStore.
+
+ApplicationSettingsSnapshot extension:
+- Add Dictionary<string, CliWorkspaceSelectionEntry> CliWorkspaceSelections { get; set; } = new() — JSON-compatible, defaults to empty, does not break existing settings deserialization.
+- Add record CliWorkspaceSelectionEntry: CliSelectionMode Mode, string? CustomPath.
+- No migration is needed. LocalCliEntryPath is a constant defined in SquadCliCommands.cs, not a field in ApplicationSettingsStore or its snapshot; there is no legacy settings value to migrate. The store initializes with an empty CliWorkspaceSelections dictionary; workspaces with no entry default to Auto mode.
+
+Register SquadCliSelectionStore as a singleton for ISquadCliSelectionStore in App.xaml.cs.
+
+Observable outcome: saving a selection via SaveSelectionAsync and reloading preserves mode and custom path per workspace; exactly one SaveCliWorkspaceSelection call (and thus exactly one SaveCore invocation on ApplicationSettingsStore) is made per save (verified by task 008 scenario 15). Production consumer: task 002 calls GetSelectionMode/GetCustomPath during resolution; task 006 calls SaveSelectionAsync when the user confirms preferences.
+  dependsOn: CLIDETECT-20260814-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement SquadCliSelectionStore with atomic SaveSelectionAsync, ApplicationSettingsSnapshot schema extension; register in App.xaml.cs","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-004]** Refactor SquadCliCommands.cs to accept ResolvedCliCandidate with tokenized args and safe CMD escaping
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Refactor SquadCliCommands.cs to replace per-runtime ProcessStartInfo construction with a single BuildCommandStartInfo(ResolvedCliCandidate candidate, string[] args) method and to use CliCmdEscaping.CmdQuoteToken as the sole cmd.exe quoting implementation.
+
+NodeScript via ProcessStartInfo.ArgumentList (node.exe as FileName, EntryScriptPath as first ArgumentList entry, followed by args — no cmd.exe) is the preferred dispatch. NpmShim via cmd.exe is the fallback when no EntryScriptPath is available.
+Building ProcessStartInfo per runtime type:
+- NodeScript: FileName = candidate.ExecutablePath (node.exe path); ArgumentList = new[]{ candidate.EntryScriptPath }.Concat(args); UseShellExecute=false; RedirectStandardOutput, RedirectStandardError = true.
+- NpmShim: FileName="cmd.exe"; Arguments = "/c " + CliCmdEscaping.CmdQuoteToken(candidate.ExecutablePath) + " " + string.Join(" ", args.Select(CliCmdEscaping.CmdQuoteToken)); UseShellExecute=false; RedirectStandardOutput, RedirectStandardError = true. This must use CliCmdEscaping.CmdQuoteToken for every token — the same helper used by ProbeVersionAsync in task 002; no separate or alternative quoting implementation is introduced.
+- NativeExecutable: FileName = candidate.ExecutablePath; ArgumentList = args; UseShellExecute=false; RedirectStandardOutput, RedirectStandardError = true.
+
+For all runtime types, the resulting ProcessStartInfo captures stdout, stderr, and exit code; callers must read both streams and the ExitCode; timeout handling is the caller's responsibility using a CancellationToken or process.WaitForExit(timeout).
+
+Remove LocalCliEntryPath and any per-invocation node.exe or cmd.exe hardcoding. Callers (SquadCliAdapter, SquadOrchestrationService, SquadWatchHealthService) that currently call BuildCommandStartInfo or equivalent must be updated to pass the resolved candidate.
+
+Update command construction: RunSquadCliUpdate in task 006 passes the update command string from ResolvedCliCandidate.UpdateInstruction.UpdateCommand directly to LaunchPowerShellCommandWindow; SquadCliCommands is not involved in update command construction.
+
+Observable outcome: dotnet build succeeds with no LocalCliEntryPath references, no FileName="node" literals, and no cmd.exe quoting logic outside CliCmdEscaping.CmdQuoteToken. Production consumer: task 005 migrations call BuildCommandStartInfo with resolved candidates from ISquadCliResolutionService; task 008 tests confirm NpmShim dispatch uses CliCmdEscaping.CmdQuoteToken.
+  dependsOn: CLIDETECT-20260814-002, CLIDETECT-20260814-003
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Refactor SquadCliCommands.cs to accept ResolvedCliCandidate, produce correctly-typed ProcessStartInfo with tokenized args, apply CMD escaping for NpmShim paths, and use ArgumentList for NodeScript and NativeExecutable","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-005]** Migrate all CLI-invoking services to ISquadCliResolutionService and register in App.xaml.cs
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Migrate all five CLI-adjacent services to ISquadCliResolutionService and enforce the resolved-candidate contract on SquadInstallationStateService.
+
+1. SquadCliAdapter: inject ISquadCliResolutionService; call ResolveAsync(currentWorkspaceDir) before each CLI invocation; remove TryResolveSquadVersion()'s direct "cmd.exe /c npx squad --version" probe — call ISquadCliResolutionService.ProbeVersionAsync(candidate) instead; expose the active ResolvedCliCandidate (e.g., as a public property or through CheckForSquadUpdateAsync's return value) so MainWindow.xaml.cs can read candidate.Version and candidate.UpdateInstruction for the title-bar update display in task 006.
+2. SquadInstallerService: inject ISquadCliResolutionService; remove where.exe npx from ValidatePrerequisitesAsync entirely — npx is not a mechanism or prerequisite anywhere in the pipeline. Gate the where.exe npm prerequisite check on the resolved candidate's DetectedSource: call where.exe npm only when DetectedSource is WorkspaceNpm or GlobalNpm; skip the npm check entirely for NativeOther and Custom candidates (npm is not required for those execution paths). where.exe node remains the only unconditional prerequisite check. Additionally, ValidatePrerequisitesAsync must probe the Node.js version by calling IProcessRunner.RunAsync("node", new[]{"--version"}, TimeSpan.FromSeconds(5)): on success (ExitCode=0 and non-null Stdout), parse the version string (e.g., "v22.5.0") and return a failure result with message "Squad CLI requires Node.js 22.5 or newer. Please update your Node.js installation." if the parsed version is less than 22.5.0; on failure (ExitCode != 0, TimedOut=true, or null Stdout), treat Node.js as not found and return a failure result with message "Node.js was not found. Please install Node.js 22.5 or newer." IEnvironmentProvider is not used for Node.js version probing. Use the resolved candidate for install command construction.
+3. SquadOrchestrationService: inject ISquadCliResolutionService; replace hardcoded ProcessStartInfo { FileName = "node" } in RunLocalCliAsync with SquadCliCommands.BuildCommandStartInfo using the resolved candidate.
+4. SquadWatchHealthService: inject ISquadCliResolutionService; replace direct SquadCliCommands.WatchHealth and StartWatch calls with candidate-aware calls via BuildCommandStartInfo.
+5. SquadInstallationStateService — required resolved candidate: change all public detection method signatures so the ResolvedCliCandidate parameter is required (non-optional, no default value). No overload, null check, or code path exists that falls back to file-system-only detection once a resolved candidate is available. Every call site in the codebase that invokes any detection method on SquadInstallationStateService must first obtain a resolved candidate via ISquadCliResolutionService.ResolveAsync and pass it; no call site may pass null or invoke a parameter-less variant. Remove the fallback-to-file-system implementation path and any code comment that described the null-candidate behavior.
+
+Observable outcome: dotnet build exits with zero errors and zero Obsolete warnings; no FileName = "node" literal remains in SquadCliAdapter, SquadOrchestrationService, or SquadWatchHealthService; where.exe npx does not appear anywhere; where.exe npm appears only in the WorkspaceNpm/GlobalNpm code path of SquadInstallerService.ValidatePrerequisitesAsync; SquadCliAdapter exposes the active ResolvedCliCandidate for the title-bar; all SquadInstallationStateService detection method call sites pass a non-null resolved candidate. Production consumer: task 006 reads the exposed ResolvedCliCandidate from SquadCliAdapter to route the title-bar update display.
+  dependsOn: CLIDETECT-20260814-004
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Migrate SquadCliAdapter, SquadInstallerService, SquadInstallationStateService, SquadOrchestrationService, and SquadWatchHealthService to ISquadCliResolutionService; resolve SquadInstallationStateService async mismatch via pre-resolved candidate parameter (approach b); register all four services as singletons in App.xaml.cs","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-006]** Add CLI selection section to PreferencesWindow and route title-bar update display through ResolvedCliCandidate
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Wire the resolved candidate into PreferencesWindow and into MainWindow title-bar update logic; ensure update command child processes inherit the full parent Process PATH.
+
+PreferencesWindow CLI tab — injected dependencies: ISquadCliResolutionService, ISquadCliSelectionStore, string workspaceDir (passed via existing PreferencesWindow.Open static factory extension).
+
+New controls on the CLI tab:
+- Mode selector: RadioButton group for Auto, WorkspaceLocal, GlobalNpm, NativeSystem, CustomPath (CliSelectionMode).
+- Resolved path: read-only TextBox showing ResolvedCliCandidate.ExecutablePath.
+- Capability indicator: tri-state icon/label for CliCapabilityStatus (green=Supported, amber=NotSupported, grey=Unknown) — displays "Loop support requires Squad CLI >= 0.9.5".
+- Custom-path file browser: enabled only when mode is CustomPath.
+When the user saves: call ISquadCliSelectionStore.SaveSelectionAsync(workspaceDir, selectedMode, customPath) — one atomic call.
+
+Title-bar update (MainWindow.xaml.cs):
+- UpdateSquadUpdateBadge: reads candidate.Version and candidate.UpdateInstruction.CanAutoUpdate from the exposed ResolvedCliCandidate on SquadCliAdapter; shows the update badge only when CanAutoUpdate=true. Removes direct _squadCliAdapter.LatestSquadVersion and _squadCliAdapter.SquadVersion references from this method.
+- ShowVersionContextMenu: populates menu items from candidate.Version, candidate.UpdateInstruction.DisplayMessage, and candidate.UpdateInstruction.UpdateCommand. No hardcoded "npm install @bradygaster/squad-cli" string.
+- RunSquadCliUpdate(string updateCommand): pass updateCommand as the PowerShell command body to LaunchPowerShellCommandWindow, replacing the hardcoded "npm install @bradygaster/squad-cli@{targetVersion}" string.
+
+Process PATH inheritance for CreatePowerShellCommandStartInfo: when UseShellExecute=true, environment inheritance is automatic — do not set a custom Environment dictionary on its ProcessStartInfo, as doing so would strip the parent environment including PATH. When UseShellExecute=false is used for an update command launch, construct the merged PATH string using the following algorithm and assign it to ProcessStartInfo.Environment["PATH"]: (1) start with the current process PATH: Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process); (2) split on ";", trimming empty entries; (3) append entries from User PATH (EnvironmentVariableTarget.User), split on ";", that are not already present (case-insensitive path comparison); (4) append entries from Machine PATH (EnvironmentVariableTarget.Machine), split on ";", that are not already present (case-insensitive path comparison); (5) join with ";" to produce the merged PATH string; (6) assign this merged PATH string to ProcessStartInfo.Environment["PATH"]. Explicit prohibition: do not assign PATH = User entries + Machine entries without first prepending the current process PATH entries. Process PATH must come first and must not be dropped; omitting it loses runtime-injected entries.
+
+Observable outcome: PreferencesWindow CLI tab displays the resolved executable path, mode selector, and tri-state capability indicator; user selection change persists atomically; title bar badge appears only when CanAutoUpdate=true; RunSquadCliUpdate passes the candidate's UpdateCommand unchanged to LaunchPowerShellCommandWindow; update child process inherits the full PATH. Production consumer: users interact with PreferencesWindow to select CLI mode; MainWindow title bar displays version and update availability sourced from ResolvedCliCandidate.
+  dependsOn: CLIDETECT-20260814-002, CLIDETECT-20260814-003, CLIDETECT-20260814-005
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Build the CLI selection section in PreferencesWindow with mode/source/path/version display, re-probe, custom-path browser, and tri-state AgentCmdSupport indicator; update PreferencesWindow.Open signature and all MainWindow call sites; route title-bar UpdateSquadUpdateBadge and ShowVersionContextMenu through ResolvedCliCandidate.Version and UpdateInstruction","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-007]** Unit test title-bar update indicator against all candidate types and edge cases
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Write seven deterministic unit tests for the title-bar update indicator in SquadDash.Tests/. Tests use a mock ISquadCliResolutionService (or a controlled SquadCliAdapter stub) that returns pre-constructed ResolvedCliCandidate values. No processes are launched; no file system or environment is consulted.
+
+Scenarios:
+1. WorkspaceNpm candidate, CanAutoUpdate=true, TargetVersion="1.2.0": UpdateSquadUpdateBadge sets SquadUpdateBadge.Visibility=Visible; ToolTip contains "v1.2.0"; ShowVersionContextMenu adds a menu item whose header contains "v1.2.0"; RunSquadCliUpdate receives command body "npm install --save-dev @bradygaster/squad-cli@1.2.0".
+2. GlobalNpm candidate, CanAutoUpdate=true, UpdateCommand="npm install -g @bradygaster/squad-cli@1.2.0": the command body passed to RunSquadCliUpdate matches UpdateInstruction.UpdateCommand exactly — not a hardcoded npm string.
+3. NativeSystem candidate (DetectedSource=NativeOther), CanAutoUpdate=false, DisplayMessage="Squad CLI was installed outside npm. Check your installation source for updates.": SquadUpdateBadge.Visibility=Collapsed; no update menu item is added to the context menu; DisplayMessage text is visible in the version info tooltip.
+4. Custom-path candidate, CanAutoUpdate=false, DisplayMessage="Check your custom installation source for updates.": badge is Collapsed; no update menu item; DisplayMessage is present in the context menu or version tooltip.
+5. WorkspaceNpm candidate with UpdateCommand="npm install --save-dev @bradygaster/squad-cli@1.2.0": RunSquadCliUpdate receives exactly this string — regression guard verifying that no hardcoded workspace npm install string is substituted in place of UpdateInstruction.UpdateCommand.
+6. GlobalNpm candidate with UpdateCommand="npm install -g @bradygaster/squad-cli@1.2.0": RunSquadCliUpdate receives exactly this string — regression guard verifying that no hardcoded global npm install string is substituted in place of UpdateInstruction.UpdateCommand.
+7. Candidate with IsAvailable=false: SquadUpdateBadge.Visibility=Collapsed regardless of CanAutoUpdate value; no update menu item is present in the context menu.
+
+All seven tests pass under dotnet test SquadDash.Tests without launching real processes.
+
+Observable outcome: all seven title-bar update indicator tests pass and confirm the title-bar code in task 006 reads from the resolved candidate correctly. Production consumer: task 010 counts these seven tests in the final passing suite.
+  dependsOn: CLIDETECT-20260814-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Write the seven deterministic title-bar update indicator tests covering all candidate source types (WorkspaceNpm --save-dev command, GlobalNpm -g command, NativeOther neutral DisplayMessage, Custom, IsAvailable=false suppression) and two exact UpdateCommand regression scenarios","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-008]** Implement the full 28-scenario resolution service, persistence, and CMD-escaping test matrix
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Write the full 28-scenario test matrix for SquadCliResolutionService, SquadCliSelectionStore, and CliCmdEscaping.CmdQuoteToken in SquadDash.Tests/ using injectable test doubles.
+
+Test infrastructure: FakeProcessRunner implements IProcessRunner (returns controlled CliInvocationResult values — ExitCode, Stdout, Stderr, TimedOut — per configured call); FakeEnvironmentProvider implements IEnvironmentProvider (returns controlled PATH entries and FileExists results per path). No real processes are launched in resolution, persistence, or update instruction scenarios; CMD-escaping scenarios 18–26 invoke real cmd.exe processes to verify round-trip correctness.
+
+Resolution service scenarios (1–11):
+1. Auto, workspace-local NodeScript entry point present (FakeEnvironmentProvider resolves EntryScriptPath via the workspace package.json bin.squad field, or dist/cli-entry.js as the Squad CLI 0.12 fallback; FakeEnvironmentProvider.FileExists=true for the resolved EntryScriptPath; FakeEnvironmentProvider PATH includes a directory containing node.exe) → SelectionMode=Auto, DetectedSource=WorkspaceNpm, RuntimeType=NodeScript, IsAvailable=true; ExecutablePath is the node.exe path resolved by probing FakeEnvironmentProvider's merged-PATH entries (not the npm package directory); EntryScriptPath is the resolved workspace-local entry script path.
+2. Auto, workspace-local squad.cmd present → SelectionMode=Auto, DetectedSource=WorkspaceNpm, RuntimeType=NpmShim, IsAvailable=true.
+3. Auto, no local CLI, squad.cmd in a non-node_modules merged-PATH entry, FakeProcessRunner returns ExitCode=0 and an npm prefix whose bin folder contains the squad.cmd directory (provenance confirmed) and FakeEnvironmentProvider resolves the entry-script via package.json bin.squad → SelectionMode=Auto, DetectedSource=GlobalNpm, RuntimeType=NodeScript, ExecutablePath=node.exe path, EntryScriptPath=resolved JS path, IsAvailable=true (NodeScript-preferred case). NpmShim fallback sub-case within this scenario: same provenance confirmed but FakeEnvironmentProvider returns FileExists=false for all candidate entry-script paths → RuntimeType=NpmShim, ExecutablePath=squad.cmd path, EntryScriptPath=null, IsAvailable=true.
+4. Auto, no local or global CLI, squad.exe in a merged-PATH entry → DetectedSource=NativeOther, RuntimeType=NativeExecutable, IsAvailable=true; FakeEnvironmentProvider is never called with any WinGet Links path argument; no probe of any fixed non-PATH directory is performed.
+5. Auto, WorkspaceLocal requested but no local CLI present → IsAvailable=false, UpdateInstruction.DisplayMessage contains 'npm install --save-dev @bradygaster/squad-cli'.
+6. Auto, nothing found anywhere → IsAvailable=false, DetectedSource=Unknown.
+7. WorkspaceLocal mode explicit, no local CLI present → IsAvailable=false; GlobalNpm and NativeSystem are not probed.
+8. GlobalNpm mode, squad.cmd path is inside a directory containing "node_modules" → excluded; IsAvailable=false.
+9. CustomPath mode, .exe path exists (FileExists=true) → IsAvailable=true, DetectedSource=Custom.
+10. PATH-found squad.cmd, FakeProcessRunner returns TimedOut=true for npm config get prefix (provenance unconfirmed) → DetectedSource=NativeOther, CanAutoUpdate=false; the candidate must not be classified as GlobalNpm.
+11. PATH-found squad.cmd, FakeProcessRunner returns ExitCode=0 for npm config get prefix but returned prefix path does not contain the squad.cmd directory (provenance unconfirmed — directory mismatch) → DetectedSource=NativeOther, CanAutoUpdate=false.
+
+Version comparison and CliUpdateInstruction scenarios (12–17):
+12. ProbeVersionAsync: FakeProcessRunner Stdout="0.9.7", TargetVersion="0.9.9" → AgentCmdSupport=Supported, CanAutoUpdate=true, UpdateCommand contains "@0.9.9".
+13. TargetVersion equal to installed Version ("0.9.7" installed, "0.9.7" available) → CanAutoUpdate=false, UpdateCommand=null.
+14. Installed version newer than TargetVersion ("1.0.0" installed, "0.9.9" available) → CanAutoUpdate=false, UpdateCommand=null.
+15. Version probe returns null Stdout (TimedOut=false, ExitCode=0 but empty) → AgentCmdSupport=Unknown, CanAutoUpdate=false.
+16. Version probe TimedOut=true → AgentCmdSupport=Unknown, CanAutoUpdate=false.
+17. CLI 0.10.3 installed, TargetVersion="0.10.5" → AgentCmdSupport=Supported, CanAutoUpdate=true (version >= 0.9.5 threshold confirmed; 0.10.x satisfies this).
+
+CMD-escaping scenarios (18–26) — each test writes a temporary .bat fixture file (in Path.GetTempPath()) that echoes each received argument on a separate line and exits with code 0; calls the production CliCmdEscaping.CmdQuoteToken (or BuildCommandStartInfo for the NpmShim path) to build the actual cmd.exe invocation targeting that fixture; executes the invocation through a real cmd.exe process; and asserts: (a) exit code is 0, (b) each argument echoed to stdout matches the expected unescaped value, (c) stderr is empty, (d) the process did not time out; the temporary .bat fixture file is deleted after the test:
+18. Plain token "squad" — stdout echoed output equals "squad".
+19. Token with spaces "C:\Program Files\squad.cmd" — stdout echoes the path as one unbroken argument, not split on the space.
+20. Token with an internal double-quote character — stdout echoes the token with the embedded quote intact.
+21. Token with & character "foo&bar" — stdout echoes & as a literal character, not a command separator.
+22. Token with ^ character "foo^bar" — stdout echoes ^ as a literal character.
+23. Token with % character "foo%PATH%bar" — stdout echoes literal percent signs and variable name unchanged (no variable expansion).
+24. Token with ! character "foo!var!bar" — stdout echoes literal exclamation marks and variable name unchanged (no delayed-expansion).
+25. Token with spaces and & "C:\My Docs\a&b.cmd" — stdout echoes the composite token as one argument with & as a literal character.
+26. Empty string — stdout echoes an empty argument.
+
+PowerShell update-launch scenarios (27–28):
+27. PowerShell update-launch passthrough — given a WorkspaceNpm ResolvedCliCandidate with UpdateInstruction.UpdateCommand="npm install --save-dev @bradygaster/squad-cli@1.2.0", RunSquadCliUpdate passes exactly that string to LaunchPowerShellCommandWindow with no additional quoting, escaping, or modification; the command string arriving at LaunchPowerShellCommandWindow equals UpdateInstruction.UpdateCommand verbatim, exactly as produced by the resolution service and without further transformation.
+28. PATH sentinel survival test (executing test) — set up controlled User and Machine PATH values via FakeEnvironmentProvider containing entries not in the current process PATH; append a unique sentinel directory string to the current process PATH before the test runs: Environment.SetEnvironmentVariable("PATH", Environment.GetEnvironmentVariable("PATH") + ";C:\\SentinelDir\\UniqueXYZ", EnvironmentVariableTarget.Process); call the production CreatePowerShellCommandStartInfo (or equivalent) to generate the PowerShell launch script that embeds the merged PATH; execute the generated script through a real cmd.exe or powershell.exe process that echoes $env:PATH to stdout; assert that (a) the process-only sentinel C:\SentinelDir\UniqueXYZ is present in stdout, and (b) at least one fresh User or Machine PATH entry from FakeEnvironmentProvider is also present in stdout. This test does not use FakeProcessRunner to capture ProcessStartInfo; it launches a real child process. Cleanup: restore the original process PATH value after the test.
+
+Observable outcome: dotnet test SquadDash.Tests exits with code 0; all 28 scenarios pass with no skips. Production consumer: task 009 integration tests call the same FakeProcessRunner/FakeEnvironmentProvider infrastructure and depend on all 28 scenarios passing.
+  dependsOn: CLIDETECT-20260814-002, CLIDETECT-20260814-003
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Write the full 28-scenario test matrix for SquadCliResolutionService and SquadCliSelectionStore using FakeProcessRunner and FakeEnvironmentProvider; replace WinGet Links probe test with NativeSystem PATH-only test; assert WorkspaceLocal unavailable UpdateInstruction guidance message; verify SaveCore invocation count via SaveCliWorkspaceSelection","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-009]** Integration tests for migrated services and Preferences CLI section data binding
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Write 10 integration test scenarios that exercise the full ISquadCliResolutionService → SquadCliAdapter → SquadInstallerService call chain using injectable doubles, confirming that resolution, prerequisite gating, and update command routing work end-to-end.
+
+All integration scenarios use FakeProcessRunner and FakeEnvironmentProvider from task 008.
+
+Scenarios:
+1. WorkspaceNpm detected, TargetVersion strictly newer → SquadCliAdapter exposes CanAutoUpdate=true; title-bar badge visible; RunSquadCliUpdate passes the UpdateCommand unchanged to LaunchPowerShellCommandWindow.
+2. WorkspaceNpm detected, installed version equals TargetVersion → CanAutoUpdate=false; title-bar badge hidden; DisplayMessage="Squad CLI is up to date."
+3. WorkspaceNpm detected, installed version newer than TargetVersion → CanAutoUpdate=false; badge hidden.
+4. NativeOther detected (PATH squad.cmd with provenance unconfirmed) → SquadCliAdapter.CanAutoUpdate=false; SquadInstallerService does not call where.exe npm; no npm -g update command offered.
+5. NativeOther detected (PATH squad.exe) → SquadCliAdapter.CanAutoUpdate=false; SquadInstallerService does not call where.exe npm; no update offered; DisplayMessage="Squad CLI was installed outside npm. Check your installation source for updates."
+6. Custom path configured → SquadCliAdapter.CanAutoUpdate=false; SquadInstallerService does not call where.exe npm; DisplayMessage="Check your custom installation source for updates."
+7. WorkspaceLocal unavailable → SquadInstallerService returns prerequisite failure with install-guidance message; SquadCliAdapter.IsAvailable=false.
+8. AgentCmdSupport=NotSupported (version < 0.9.5) → CapabilityStatus indicator in PreferencesWindow shows amber; loop-start is gated.
+9. Version probe TimedOut=true → AgentCmdSupport=Unknown; indicator shows grey; CanAutoUpdate=false.
+10. SquadInstallationStateService called with a resolved candidate (non-null) → detection logic uses the candidate; no file-system-only fallback code path is reached.
+
+Observable outcome: dotnet test SquadDash.Tests exits with code 0; all 10 integration scenarios pass with no skips. Production consumer: task 010 verification runs dotnet test and confirms all 45 tests (7 + 28 + 10) pass.
+  dependsOn: CLIDETECT-20260814-005, CLIDETECT-20260814-006
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Write the 10 integration tests for the five migrated services and the Preferences CLI section, covering all specified scenarios","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[CLIDETECT-20260814-010]** Final build and focused test check
+  Group: CLIDETECT-20260814 | Branch: feature/cli-detection-and-selection | Priority: high
+  description: Reuse the accepted task handoffs and the three preceding validation results; do not re-audit their implementation details. At the final HEAD, run the SquadDash build and the existing CLI detection test groups once, confirming the title-bar, resolution/persistence/escaping, and integration suites remain green. Record the git tree hash before and after these non-mutating commands and require it to remain unchanged. Do not add tests or modify source in this step.
+  dependsOn: CLIDETECT-20260814-007, CLIDETECT-20260814-008, CLIDETECT-20260814-009
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Run the final build and existing CLI detection test groups without re-auditing completed work","allowGenericChildren":false}]
+  agentRoutingMode: assigned
+  executionMode: verification
+
+
+<!-- decompose-group: PVDRAG-20260818 | branch: feature/plan-visualizer-drag-reorder | revision: 935b93cff34fd006 -->
 **[PVDRAG-20260818] Plan Visualizer Vertical Drag and Reorder**
 > Add vertical drag interaction to Plan Visualizer task cards: cards are horizontally locked and move vertically with the mouse, constrained to their stage column with a rubber-band effect at the boundaries. During drag, the card and all its connectors glow and arrows update in real time. Dragging a card over a same-stage sibling swaps their positions live; releasing commits the order to the plan model and Escape cancels the drag.
 
@@ -1020,7 +1272,7 @@ Do NOT commit tasks.md. Commit only the doc files. Build verification is not req
   - Options → Discoverability: "Start the Tour" button
 
 
-- [ ] **[Guided Tour] Click-to-pick target in Edit Step dialog** *(Owner: Lyra Morn)*
+- [x] **[Guided Tour] Click-to-pick target in Edit Step dialog** *(Owner: Lyra Morn)*
   The "Target..." button in FrmGuidedTourStepEditor should launch a click-to-pick mode:
   the cursor becomes a crosshair/highlight overlay, user clicks any live control in the app,
   and the target ID field is populated with a resolved identifier for that control.
@@ -1029,13 +1281,13 @@ Do NOT commit tasks.md. Commit only the doc files. Build verification is not req
   instead of ShowDialog()) so the user can click controls in the main window while the dialog is open.
   Queue tab items also need to implement ITourTarget so individual queued prompts can be pointed to.
 
-- [ ] **[Guided Tour] Make FrmGuidedTourStepEditor modeless** *(Owner: Lyra Morn)*
+- [x] **[Guided Tour] Make FrmGuidedTourStepEditor modeless** *(Owner: Lyra Morn)*
   Currently opened via ShowDialog() making it modal. Switch to Show() so the editor stays open
   while the user interacts with the rest of the app (required for click-to-pick target flow and
   for pointing callouts at queue tabs). Requires GuidedTourController to handle the async
   open/close lifecycle rather than blocking on ShowDialog return.
 
-- [ ] **[Guided Tour] ITourTarget interface for targetable controls** *(Owner: Lyra Morn)*
+- [x] **[Guided Tour] ITourTarget interface for targetable controls** *(Owner: Lyra Morn)*
   Define ITourTarget interface (single property: string TourTargetId). Implement on queue tab items
   so they can be individually targeted by callouts. The target registry (used by callout placement)
   should accept ITourTarget lookups in addition to named FrameworkElements. DataContext of queue
@@ -1044,7 +1296,7 @@ Do NOT commit tasks.md. Commit only the doc files. Build verification is not req
 - [x] **[Developer Menu] Fix F11 Theme Reveal conflict with Full Screen Transcript**
   Moved Theme Reveal to Ctrl+F11. Key handler updated to pass bare F11 through to Full Screen Transcript.
 
-- [ ] **[Docking] Refactor DockingMapBuilderto loop-based zone layout***(Owner: Lyra Morn)*
+- [x] **[Docking] Refactor DockingMapBuilderto loop-based zone layout***(Owner: Lyra Morn)*
   DockingMapBuilder.BuildDockingMap currently uses hardcoded per-zone if/else chains for suppression,
   thin generation, and slot layout (Left3/Left2/Left, Right/Right2/Right3). This makes adding a 4th
   zone tier a near-rewrite. Prerequisite: lock down test cases for all N=0/1/2 configurations (Left and
