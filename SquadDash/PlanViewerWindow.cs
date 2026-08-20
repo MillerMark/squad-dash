@@ -8255,6 +8255,52 @@ internal sealed class PlanViewerWindow : ChromedWindow
             connector.Effect = TaskNodeGlowEffect();
     }
 
+    /// <summary>
+    /// Computes the Y position for a connector's exit point on the source card's right edge,
+    /// distributing exits vertically in sorted target-Y order to minimize crossings.
+    /// </summary>
+    private double ComputeSourceExitY(
+        string sourceTaskId,
+        ConnectorGroup thisConnectorGroup,
+        double thisDraggedTargetMidY,
+        double sourceCardTop)
+    {
+        if (!_connectorsByTask.TryGetValue(sourceTaskId, out var groups))
+            return sourceCardTop + NodeHeight / 2.0;
+
+        var targetYs = new List<double>();
+        foreach (var g in groups.Distinct())
+        {
+            if (!g.GetEndpointRole(sourceTaskId).HasFlag(ConnectorEndpointRole.Start))
+                continue;
+
+            if (ReferenceEquals(g, thisConnectorGroup))
+            {
+                targetYs.Add(thisDraggedTargetMidY);
+            }
+            else
+            {
+                var targetId = g.TaskIds.FirstOrDefault(id =>
+                    g.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+                if (targetId is not null && _taskCardPositions.TryGetValue(targetId, out var targetPos))
+                    targetYs.Add(targetPos.Y + NodeHeight / 2.0);
+                else
+                    targetYs.Add(g.CurrentTo.Y);
+            }
+        }
+
+        if (targetYs.Count <= 1)
+            return sourceCardTop + NodeHeight / 2.0;
+
+        targetYs.Sort();
+
+        var rank = targetYs.BinarySearch(thisDraggedTargetMidY);
+        if (rank < 0)
+            rank = ~rank;
+        rank = Math.Min(rank, targetYs.Count - 1);
+        return sourceCardTop + NodeHeight * (rank + 1.0) / (targetYs.Count + 1.0);
+    }
+
     private void UpdateTaskCardDragConnectors(TaskCardDragState dragState, double top)
     {
         if (_graphCanvas is null)
@@ -8275,6 +8321,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 connectorState.EndOffsetWithinCard.HasValue)
             {
                 updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
+            }
+
+            // When the dragged task is the target (End) but NOT the source of this connector,
+            // recalculate the upstream exit Y so arrows adjust during drag to minimize crossings.
+            if (connectorState.Role == ConnectorEndpointRole.End &&
+                !string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
+                _taskCardPositions.TryGetValue(connectorState.SourceTaskId, out var sourcePos))
+            {
+                var cardHeight = dragState.Element.ActualHeight > 0 ? dragState.Element.ActualHeight : NodeHeight;
+                var draggedMidY = top + cardHeight / 2.0;
+                var newExitY = ComputeSourceExitY(connectorState.SourceTaskId, group, draggedMidY, sourcePos.Y);
+                updatedFrom = new Point(updatedFrom.X, newExitY);
             }
 
             if (!string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
