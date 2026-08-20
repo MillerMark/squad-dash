@@ -212,7 +212,7 @@ internal sealed class PromptExecutionController {
 
     // ── Injected — Health Timer ───────────────────────────────────────────
     private readonly DispatcherTimer _promptHealthTimer;
-    private readonly Func<Task> _waitForPostedUiActionsAsync;
+    private readonly Func<Task> _waitForBridgeUiEventsAppliedAsync;
     private readonly Func<Task<string?>>? _consumeInterruptedPromptFreshnessInstructionAsync;
 
     // ── Injected — Misc MainWindow helpers ────────────────────────────────
@@ -413,7 +413,7 @@ internal sealed class PromptExecutionController {
         Action<string, bool> maybePublishRoutingIssue,
         // Health Timer
         DispatcherTimer promptHealthTimer,
-        Func<Task> waitForPostedUiActionsAsync,
+        Func<Task> waitForBridgeUiEventsAppliedAsync,
         // Misc MainWindow helpers
         Func<bool> getModelObservedThisSession,
         // Tool entries (for MarkActiveToolsAsFailed)
@@ -468,7 +468,7 @@ internal sealed class PromptExecutionController {
         _waitForRoutingRepairSettleAsync       = waitForRoutingRepairSettleAsync;
         _maybePublishRoutingIssue              = maybePublishRoutingIssue;
         _promptHealthTimer                     = promptHealthTimer;
-        _waitForPostedUiActionsAsync           = waitForPostedUiActionsAsync;
+        _waitForBridgeUiEventsAppliedAsync     = waitForBridgeUiEventsAppliedAsync;
         _consumeInterruptedPromptFreshnessInstructionAsync = consumeInterruptedPromptFreshnessInstructionAsync;
         _getModelObservedThisSession           = getModelObservedThisSession;
         _workspacePaths                        = workspacePaths;
@@ -2057,7 +2057,7 @@ internal sealed class PromptExecutionController {
             SquadDashTrace.Write("UI", $"ExecuteCodeHealthTurnAsync failed: {ex}");
         }
         finally {
-            await _waitForPostedUiActionsAsync();
+            await _waitForBridgeUiEventsAppliedAsync();
             _transcriptSink.CoordinatorThread.CurrentTurn = null;
             _setIsPromptRunning(false);
             _updateInteractiveControlState();
@@ -2217,10 +2217,11 @@ internal sealed class PromptExecutionController {
             }
         }
         finally {
-            // Bridge events are posted onto the UI dispatcher. Wait for any already-posted
-            // callbacks to run before persisting and clearing the live turn so tail response
-            // chunks are not dropped after the bridge reports completion.
-            await _waitForPostedUiActionsAsync();
+            // The bridge resolves a prompt after publishing its terminal event, but UI dispatch
+            // can be temporarily suppressed by a deferred close. Apply every queued bridge event
+            // before persisting and clearing the live turn so successful tool completions and the
+            // coordinator's tail response cannot be stranded or misclassified as failures.
+            await _waitForBridgeUiEventsAppliedAsync();
 
             if (_currentPromptStartedAt is not null)
                 StopPromptHealthMonitoring("completed");

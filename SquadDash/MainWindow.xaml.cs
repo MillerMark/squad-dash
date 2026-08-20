@@ -556,9 +556,7 @@ public partial class MainWindow : Window
     private readonly List<Image> _toolIconImages = [];
     private readonly HashSet<TranscriptResponseEntry> _pendingResponseEntryRenders = [];
     private readonly HashSet<TranscriptThoughtEntry> _pendingThoughtEntryRenders = [];
-    private readonly object _bridgeEventQueueGate = new();
-    private readonly Queue<SquadSdkEvent> _pendingBridgeEvents = new();
-    private bool _bridgeEventDispatchPending;
+    private readonly BridgeEventDispatchQueue _bridgeEventQueue = new();
     private DateTimeOffset _lastKeyboardInputAt = DateTimeOffset.MinValue;
     private readonly PostedUiActionTracker _postedUiActionTracker;
     private readonly UiActionReplayRegistry _uiActionReplayRegistry;
@@ -1715,7 +1713,7 @@ public partial class MainWindow : Window
             waitForRoutingRepairSettleAsync: () => WaitForRoutingRepairStateToSettleAsync(),
             maybePublishRoutingIssue: (reason, force) => MaybePublishRoutingIssueSystemEntry(reason, force),
             promptHealthTimer: _promptHealthTimer,
-            waitForPostedUiActionsAsync: () => _postedUiActionTracker.WaitForDrainAsync(),
+            waitForBridgeUiEventsAppliedAsync: WaitForBridgeUiEventsAppliedAsync,
             getModelObservedThisSession: () => _modelObservedThisSession,
             workspacePaths: _workspacePaths,
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
@@ -44676,7 +44674,7 @@ public partial class MainWindow : Window
             {
                 e.Cancel = true;
                 _restartPending = true;
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 SquadDashTrace.Write("Shutdown", "Close requested while PTT active or draining. Deferring restart until final phrase is received.");
                 EmergencySaveAfterDrainingBridgeEvents("close-while-ptt-active");
                 return;
@@ -44702,7 +44700,7 @@ public partial class MainWindow : Window
             {
                 e.Cancel = true;
                 EmergencySaveAfterDrainingBridgeEvents("restart-close-deferred");
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 return;
             }
 
@@ -44742,7 +44740,7 @@ public partial class MainWindow : Window
                 if (dialog.ShowDialog() != true)
                 {
                     SquadDashTrace.Write("Shutdown", "Close cancelled by user.");
-                    _mainWindowClosingInProgress = false;
+                    ResumeUiDispatchAfterCancelledClose();
                     return;
                 }
 
@@ -44756,24 +44754,24 @@ public partial class MainWindow : Window
                     case ShutdownChoice.AfterCurrentTurn:
                         _deferredShutdown = DeferredShutdownMode.AfterCurrentTurn;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after current turn.");
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
 
                     case ShutdownChoice.AfterAllQueued:
                         _deferredShutdown = DeferredShutdownMode.AfterAllQueued;
                         SquadDashTrace.Write("Shutdown", "Deferred shutdown scheduled: after all queued items.");
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
 
                     default:
-                        _mainWindowClosingInProgress = false;
+                        ResumeUiDispatchAfterCancelledClose();
                         return;
                 }
             }
 
             if (e.Cancel)
             {
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 return;
             }
 
@@ -44783,7 +44781,7 @@ public partial class MainWindow : Window
             if (_guidedTourController?.FlushEditorChanges() == false)
             {
                 e.Cancel = true;
-                _mainWindowClosingInProgress = false;
+                ResumeUiDispatchAfterCancelledClose();
                 MessageBox.Show(
                     "The guided tour editor could not save its pending changes. Shutdown was cancelled.",
                     "Guided Tour Save Failed",
@@ -46594,7 +46592,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        DrainPendingBridgeEventsForShutdown(reason);
+        DrainPendingBridgeEventsSynchronously(reason, TraceCategory.Shutdown, "emergency save", 10_000);
 
         // Safety net: if the turn ended without a "done" bridge event (e.g. the app is closing
         // while a response is still streaming), attempt to flush any complete INBOX_MESSAGE_JSON
@@ -46605,28 +46603,19 @@ public partial class MainWindow : Window
         _conversationManager.EmergencySave(reason);
     }
 
-    private void DrainPendingBridgeEventsForShutdown(string reason)
+    private void DrainPendingBridgeEventsSynchronously(
+        string reason,
+        TraceCategory traceCategory,
+        string operation,
+        int maxEvents)
     {
         var sw = Stopwatch.StartNew();
         var handled = 0;
         var deltaEvents = 0;
         var initialPending = PendingBridgeEventCount;
 
-        while (handled < 10_000)
+        while (handled < maxEvents && _bridgeEventQueue.TryDequeue(out var evt))
         {
-            SquadSdkEvent? evt;
-            lock (_bridgeEventQueueGate)
-            {
-                evt = _pendingBridgeEvents.Count > 0
-                    ? _pendingBridgeEvents.Dequeue()
-                    : null;
-                if (evt is null)
-                    _bridgeEventDispatchPending = false;
-            }
-
-            if (evt is null)
-                break;
-
             if (IsHighFrequencyBridgeEvent(evt.Type))
                 deltaEvents++;
 
@@ -46636,29 +46625,67 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                HandleUiCallbackException($"DrainPendingBridgeEventsForShutdown:{evt.Type}", ex, showDialog: false);
+                HandleUiCallbackException($"DrainPendingBridgeEventsSynchronously:{evt.Type}", ex, showDialog: false);
             }
 
             handled++;
         }
 
-        var remaining = PendingBridgeEventCount;
+        var shouldPostMore = _bridgeEventQueue.CompleteDrainPass(out var remaining);
+        if (shouldPostMore)
+            PostClaimedBridgeEventDrain();
+
         if (initialPending > 0 || handled > 0 || remaining > 0)
         {
             SquadDashTrace.Write(
-                TraceCategory.Shutdown,
-                $"Bridge queue drained before emergency save reason={reason} initial={initialPending} handled={handled} deltaEvents={deltaEvents} remaining={remaining} elapsedMs={sw.ElapsedMilliseconds}");
+                traceCategory,
+                $"Bridge queue drained before {operation} reason={reason} initial={initialPending} handled={handled} deltaEvents={deltaEvents} remaining={remaining} elapsedMs={sw.ElapsedMilliseconds}");
         }
     }
 
-    private int PendingBridgeEventCount
+    private async Task WaitForBridgeUiEventsAppliedAsync()
     {
-        get
+        if (Dispatcher.CheckAccess())
         {
-            lock (_bridgeEventQueueGate)
-                return _pendingBridgeEvents.Count;
+            DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000);
+        }
+        else
+        {
+            await Dispatcher.InvokeAsync(() => DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000));
+        }
+
+        // A previously posted batch may still be tracked even though the synchronous drain
+        // consumed its events. Let that callback retire, then make one final request-scoped
+        // pass before the coordinator turn is persisted and cleared.
+        await _postedUiActionTracker.WaitForDrainAsync();
+
+        if (Dispatcher.CheckAccess())
+        {
+            DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization-posted-actions",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000);
+        }
+        else
+        {
+            await Dispatcher.InvokeAsync(() => DrainPendingBridgeEventsSynchronously(
+                "coordinator-turn-finalization-posted-actions",
+                TraceCategory.UI,
+                "turn finalization",
+                100_000));
         }
     }
+
+    private int PendingBridgeEventCount => _bridgeEventQueue.Count;
 
     private void MainWindow_PreProcessInput(object sender, PreProcessInputEventArgs e)
     {
@@ -46682,19 +46709,24 @@ public partial class MainWindow : Window
 
     private void QueueBridgeEventForUi(SquadSdkEvent evt)
     {
-        var shouldPost = false;
-        lock (_bridgeEventQueueGate)
-        {
-            _pendingBridgeEvents.Enqueue(evt);
-            if (!_bridgeEventDispatchPending)
-            {
-                _bridgeEventDispatchPending = true;
-                shouldPost = true;
-            }
-        }
+        if (_bridgeEventQueue.EnqueueAndTryClaimDispatch(evt))
+            PostClaimedBridgeEventDrain();
+    }
 
-        if (shouldPost)
-            PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch");
+    private void SchedulePendingBridgeEventDrain()
+    {
+        if (_bridgeEventQueue.TryClaimDispatchForPendingEvents())
+            PostClaimedBridgeEventDrain();
+    }
+
+    private void PostClaimedBridgeEventDrain()
+    {
+        if (PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch"))
+            return;
+
+        // Closing can be cancelled or deferred. Do not leave the queue believing a callback
+        // exists when the dispatcher helper intentionally declined to post one.
+        _bridgeEventQueue.ReleaseDispatchClaim();
     }
 
     private void DrainBridgeEventQueueOnUi()
@@ -46703,36 +46735,25 @@ public partial class MainWindow : Window
         var handled = 0;
         var deltaEvents = 0;
 
-        while (handled < BridgeEventUiBatchLimit && sw.ElapsedMilliseconds < BridgeEventUiBatchMaxMs)
+        while (handled < BridgeEventUiBatchLimit &&
+               sw.ElapsedMilliseconds < BridgeEventUiBatchMaxMs &&
+               _bridgeEventQueue.TryDequeue(out var evt))
         {
-            SquadSdkEvent? evt;
-            lock (_bridgeEventQueueGate)
-            {
-                evt = _pendingBridgeEvents.Count > 0
-                    ? _pendingBridgeEvents.Dequeue()
-                    : null;
-            }
-
-            if (evt is null)
-                break;
-
             if (IsHighFrequencyBridgeEvent(evt.Type))
                 deltaEvents++;
 
-            HandleEvent(evt);
+            try
+            {
+                HandleEvent(evt);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException($"DrainBridgeEventQueueOnUi:{evt.Type}", ex, showDialog: false);
+            }
             handled++;
         }
 
-        var shouldPostMore = false;
-        var remaining = 0;
-        lock (_bridgeEventQueueGate)
-        {
-            remaining = _pendingBridgeEvents.Count;
-            if (remaining > 0)
-                shouldPostMore = true;
-            else
-                _bridgeEventDispatchPending = false;
-        }
+        var shouldPostMore = _bridgeEventQueue.CompleteDrainPass(out var remaining);
 
         if (handled >= BridgeEventUiBatchLimit || sw.ElapsedMilliseconds >= BridgeEventUiBatchMaxMs)
         {
@@ -46742,7 +46763,13 @@ public partial class MainWindow : Window
         }
 
         if (shouldPostMore)
-            PostToUiAsync(DrainBridgeEventQueueOnUi, "Bridge.EventReceived:batch");
+            PostClaimedBridgeEventDrain();
+    }
+
+    private void ResumeUiDispatchAfterCancelledClose()
+    {
+        _mainWindowClosingInProgress = false;
+        SchedulePendingBridgeEventDrain();
     }
 
     private static bool IsHighFrequencyBridgeEvent(string? eventType) =>
@@ -46780,14 +46807,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PostToUiAsync(Action action, string source)
+    private bool PostToUiAsync(Action action, string source)
     {
         if (_isClosing || _mainWindowClosingInProgress || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-            return;
+            return false;
 
+        long? registeredSequence = null;
         try
         {
             var sequence = _postedUiActionTracker.RegisterPostedAction();
+            registeredSequence = sequence;
             var queuedAt = Stopwatch.GetTimestamp();
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
@@ -46816,14 +46845,21 @@ public partial class MainWindow : Window
                     }
                 }
             }));
+            return true;
         }
         catch (ObjectDisposedException ex)
         {
+            if (registeredSequence is { } sequence)
+                _postedUiActionTracker.MarkCompleted(sequence);
             SquadDashTrace.Write("Shutdown", $"{source} ignored after disposal: {ex.Message}");
+            return false;
         }
         catch (InvalidOperationException ex)
         {
+            if (registeredSequence is { } sequence)
+                _postedUiActionTracker.MarkCompleted(sequence);
             SquadDashTrace.Write("Shutdown", $"{source} ignored during dispatcher shutdown: {ex.Message}");
+            return false;
         }
     }
 
