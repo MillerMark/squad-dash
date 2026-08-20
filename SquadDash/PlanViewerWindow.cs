@@ -870,19 +870,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(correctionStatus);
         }
 
-        var summaryFontSize = TryFindResource("FontSizeBody") is double configuredSummaryFontSize
-            ? configuredSummaryFontSize
-            : 14d;
         var summaryBlock = new TextBlock
         {
             Text         = group.Summary,
             TextWrapping = TextWrapping.Wrap,
             FontWeight   = FontWeights.Normal,
-            FontSize     = summaryFontSize,
-            LineHeight   = summaryFontSize * 1.35,
+            LineHeight   = 14d * _scaleFactor * 1.35d,
             Margin       = new Thickness(0),
         };
         summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         var summaryPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
         summaryPanel.Children.Add(summaryBlock);
