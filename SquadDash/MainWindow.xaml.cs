@@ -459,6 +459,7 @@ public partial class MainWindow : Window
     private readonly PromptQueueCoordinator _promptQueueCoordinator;
     private PromptQueue _promptQueue => _promptQueueCoordinator.Queue;
     private bool _queueManuallyPaused;
+    private readonly QueueStopPauseState _queueStopPauseState = new();
     private bool _queuePausePending;
     // True until the durable queue, selected tab, editor selection, pause, and
     // loop handoff have all been restored for the active workspace.
@@ -3911,6 +3912,8 @@ public partial class MainWindow : Window
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
+        if (!paused)
+            _queueStopPauseState.RecordQueueResumed();
         EditPauseQueueDrainMenuItem.Visibility  = paused ? Visibility.Collapsed : Visibility.Visible;
         EditResumeQueueDrainMenuItem.Visibility = paused ? Visibility.Visible   : Visibility.Collapsed;
         // When pausing with no queued items the border is normally Collapsed;
@@ -3980,6 +3983,15 @@ public partial class MainWindow : Window
             _docsPanelState = (_docsPanelState ?? new WorkspaceDocsPanelState()) with { QueuePaused = paused ? (bool?)true : false };
             _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
         }
+    }
+
+    private void ResumeQueueAfterStoppedWorkResponseIfNeeded()
+    {
+        if (!_queueStopPauseState.ConsumeResponseResume(_queueManuallyPaused || _queuePausePending))
+            return;
+
+        SquadDashTrace.Write("Queue", "Corrective response received after Stop — resuming automatic prompt queue processing.");
+        SetQueuePaused(false);
     }
 
     private void SyncPromptTextBoxSimBorder()
@@ -5132,7 +5144,10 @@ public partial class MainWindow : Window
             _planAbortRequestedByUser = true;
 
         if (_promptQueue.Count > 0)
+        {
+            _queueStopPauseState.RecordStopPause(_queueManuallyPaused || _queuePausePending);
             SetQueuePaused(true);
+        }
 
         if (IsLoopRunning)
             ForceStopLoopForRunningWorkStop();
@@ -24141,6 +24156,7 @@ public partial class MainWindow : Window
                     PromptTextBox.Clear();
                     _pec.DisableQuickReplies(quickReplyEntry);
                     ClearActiveQuickReplyState(quickReplyEntry);
+                    ResumeQueueAfterStoppedWorkResponseIfNeeded();
                     ResetQueuePausedState();
                     // ApplyFollowUpHeader consumes any pending attachment for the active draft
                     // ("" tabId) and injects it as a header. Skipping it here would orphan the
@@ -41111,6 +41127,7 @@ public partial class MainWindow : Window
         }
 
         SquadDashTrace.Write("UI", $"Interrupt recovery: resending last prompt ({lastPrompt.Length} chars).");
+        ResumeQueueAfterStoppedWorkResponseIfNeeded();
         ResetQueuePausedState();
         await _pec.ExecutePromptAsync(lastPrompt, addToHistory: false, clearPromptBox: false);
     }
@@ -41150,6 +41167,7 @@ public partial class MainWindow : Window
         }
 
         SquadDashTrace.Write("UI", $"Interrupt recovery: git diff captured ({diffOutput.Length} chars), injecting as prompt.");
+        ResumeQueueAfterStoppedWorkResponseIfNeeded();
         ResetQueuePausedState();
         var prompt = $"The prompt was interrupted. Here is the current git diff — please review for partial changes and advise:\n\n```\n{diffOutput}\n```";
         await _pec.ExecutePromptAsync(prompt, addToHistory: false, clearPromptBox: false);
@@ -41284,6 +41302,7 @@ public partial class MainWindow : Window
 
             _pec.DisableQuickReplies(payload.Entry);
             ClearActiveQuickReplyState(payload.Entry);
+            ResumeQueueAfterStoppedWorkResponseIfNeeded();
             ResetQueuePausedState();
             var pendingLaunch = CreatePendingQuickReplyLaunch(payload);
             _pendingQuickReplyLaunch = pendingLaunch;

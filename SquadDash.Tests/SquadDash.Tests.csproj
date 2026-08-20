@@ -192,6 +192,7 @@
     <Compile Include="..\SquadDash\LoopBoundaryDiagnostics.cs" Link="Source\LoopBoundaryDiagnostics.cs" />
     <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
     <Compile Include="..\SquadDash\QueueRestorePolicy.cs" Link="Source\QueueRestorePolicy.cs" />
+    <Compile Include="..\SquadDash\QueueStopPauseState.cs" Link="Source\QueueStopPauseState.cs" />
     <Compile Include="..\SquadDash\LoopCloseRecoveryPolicy.cs" Link="Source\LoopCloseRecoveryPolicy.cs" />
     <Compile Include="..\SquadDash\ShutdownProtectionPolicy.cs" Link="Source\ShutdownProtectionPolicy.cs" />
     <Compile Include="..\SquadDash\AgentImagePathResolver.cs" Link="Source\AgentImagePathResolver.cs" />
