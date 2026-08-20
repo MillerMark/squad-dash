@@ -12,7 +12,8 @@ namespace SquadDash;
 
 internal sealed class SquadCliAdapter {
     private readonly IWorkspacePaths _workspacePaths;
-    private readonly Action<string, Exception> _onError;
+    private readonly ISquadCliResolutionService _cliResolutionService;
+    private Action<string, Exception> _onError;
     private string? _squadVersion;
     private string? _lastObservedModel;
     private string? _latestSquadVersion;
@@ -25,13 +26,39 @@ internal sealed class SquadCliAdapter {
         set => _lastObservedModel = value;
     }
 
-    public SquadCliAdapter(IWorkspacePaths workspacePaths, Action<string, Exception> onError) {
+    public SquadCliAdapter(IWorkspacePaths workspacePaths, ISquadCliResolutionService cliResolutionService)
+        : this(
+            workspacePaths,
+            cliResolutionService,
+            (_, ex) => SquadDashTrace.Write("SquadCli", $"Adapter operation failed: {ex.Message}")) {
+    }
+
+    public SquadCliAdapter(
+        IWorkspacePaths workspacePaths,
+        ISquadCliResolutionService cliResolutionService,
+        Action<string, Exception> onError) {
         _workspacePaths = workspacePaths;
+        _cliResolutionService = cliResolutionService;
         _onError = onError;
     }
 
-    public async Task ResolveSquadVersionAsync() {
-        _squadVersion = await Task.Run(TryResolveSquadVersion);
+    public void SetErrorHandler(Action<string, Exception> onError) {
+        _onError = onError ?? throw new ArgumentNullException(nameof(onError));
+    }
+
+    public async Task ResolveSquadVersionAsync(string? workspaceDirectory = null) {
+        var workingDirectory = string.IsNullOrWhiteSpace(workspaceDirectory)
+            ? _workspacePaths.ApplicationRoot
+            : workspaceDirectory;
+
+        try {
+            var candidate = await _cliResolutionService.ResolveAsync(workingDirectory).ConfigureAwait(false);
+            _squadVersion = candidate.IsAvailable ? candidate.Version : null;
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("SquadCli", $"Version resolve failed: {ex.Message}");
+            _squadVersion = null;
+        }
     }
 
     public async Task CheckForSquadUpdateAsync() {
@@ -145,33 +172,6 @@ internal sealed class SquadCliAdapter {
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
             SquadDashTrace.Write("SquadCli", $"Version check failed: {ex.Message}");
         }
-        return null;
-    }
-
-    private string? TryResolveSquadVersion() {
-        try {
-            var process = Process.Start(new ProcessStartInfo {
-                FileName = "cmd.exe",
-                Arguments = "/c npx squad --version",
-                WorkingDirectory = _workspacePaths.ApplicationRoot,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-
-            if (process is null)
-                return null;
-
-            var standardOutput = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit(5000);
-
-            if (process.ExitCode == 0 && !string.IsNullOrWhiteSpace(standardOutput))
-                return standardOutput;
-        }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException) {
-            SquadDashTrace.Write("SquadCli", $"Version resolve failed: {ex.Message}");
-        }
-
         return null;
     }
 
