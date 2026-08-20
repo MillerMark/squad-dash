@@ -81,6 +81,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
     private FlowDocument? _detailDocument;
+    private WrapPanel? _inspectorToolbarPanel;
+    private Func<string?>? _inspectorEditorSaveAction;
+    private TextBlock? _inspectorEditorStatus;
     private FrameworkElement? _approvalSummary;
     private FrameworkElement? _header;
     private FrameworkElement? _readingHint;
@@ -1111,10 +1114,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "BodyText");
-        Grid.SetColumn(detailViewer, 2);
-        splitGrid.Children.Add(detailViewer);
+
+        var inspectorGrid = new Grid();
+        inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+        var toolbarPanel = new WrapPanel
+        {
+            Margin = new Thickness(6, 4, 6, 4),
+        };
+        toolbarPanel.SetResourceReference(WrapPanel.BackgroundProperty, "CardSurface");
+        Grid.SetRow(toolbarPanel, 0);
+        inspectorGrid.Children.Add(toolbarPanel);
+
+        Grid.SetRow(detailViewer, 1);
+        inspectorGrid.Children.Add(detailViewer);
+
+        Grid.SetColumn(inspectorGrid, 2);
+        splitGrid.Children.Add(inspectorGrid);
 
         _detailDocument = detailDocument;
+        _inspectorToolbarPanel = toolbarPanel;
 
         Grid.SetRow(splitGrid, 1);
         root.Children.Add(splitGrid);
@@ -5766,6 +5786,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        _inspectorEditorSaveAction = null;
+        _inspectorEditorStatus = null;
+
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
             PrependInspectorToolbar();
@@ -5869,8 +5892,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void PrependInspectorToolbar()
     {
-        if (_detailDocument is null) return;
-        var toolbar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        if (_inspectorToolbarPanel is null) return;
+        _inspectorToolbarPanel.Children.Clear();
 
         Button AddButton(string label, Action click, string? toolTip = null)
         {
@@ -5879,7 +5902,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 toolTip: toolTip is null ? null : ToolTipHelper.MakeThemedToolTip(toolTip));
             button.Margin = new Thickness(0, 0, 6, 4);
             button.Click += (_, _) => click();
-            toolbar.Children.Add(button);
+            _inspectorToolbarPanel.Children.Add(button);
             return button;
         }
 
@@ -5890,6 +5913,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _isInspectorEditing = !_isInspectorEditing;
                 RefreshDetailPanel();
             }, "Edit this staged-plan element in the inspector.");
+
+            if (_isInspectorEditing && _inspectorEditorSaveAction is not null)
+            {
+                AddButton("Save changes", () =>
+                {
+                    var error = _inspectorEditorSaveAction();
+                    if (_inspectorEditorStatus is not null)
+                        _inspectorEditorStatus.Text = error ?? string.Empty;
+                });
+            }
         }
         else if (_saveDefinitionEdit is not null && _selectedElement is not null &&
                  _selectedElement.Kind is "task" or "validation" or "gate" or "humanapproval")
@@ -5904,7 +5937,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             locked.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             locked.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            toolbar.Children.Add(locked);
+            _inspectorToolbarPanel.Children.Add(locked);
         }
         if (_requestAiReview is not null && _plan is not null)
         {
@@ -5928,7 +5961,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
                 spinner.SetContinuousActive(true);
-                toolbar.Children.Add(spinner);
+                _inspectorToolbarPanel.Children.Add(spinner);
             }
             if (!string.IsNullOrWhiteSpace(_reviewStatusMessage))
             {
@@ -5941,7 +5974,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 status.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
                 status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                toolbar.Children.Add(status);
+                _inspectorToolbarPanel.Children.Add(status);
             }
         }
 
@@ -5961,14 +5994,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             count.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             count.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            toolbar.Children.Add(count);
+            _inspectorToolbarPanel.Children.Add(count);
         }
-
-        var container = new BlockUIContainer(toolbar) { Margin = new Thickness(0) };
-        if (_detailDocument.Blocks.FirstBlock is { } first)
-            _detailDocument.Blocks.InsertBefore(first, container);
-        else
-            _detailDocument.Blocks.Add(container);
     }
 
     private bool CanEditSelectedElement() =>
@@ -6395,23 +6422,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void AddEditorActions(StackPanel panel, TextBlock status, Func<string?> save)
     {
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-        var saveButton = TranscriptQuickReplyFactory.CreateButton("Save changes", _quickReplyFontSize);
-        var cancelButton = TranscriptQuickReplyFactory.CreateButton("Cancel", _quickReplyFontSize);
-        cancelButton.Margin = new Thickness(6, 0, 0, 0);
-        saveButton.Click += (_, _) =>
-        {
-            var error = save();
-            if (error is not null) status.Text = error;
-        };
-        cancelButton.Click += (_, _) =>
-        {
-            _isInspectorEditing = false;
-            RefreshDetailPanel();
-        };
-        buttons.Children.Add(saveButton);
-        buttons.Children.Add(cancelButton);
-        panel.Children.Add(buttons);
+        _inspectorEditorSaveAction = save;
+        _inspectorEditorStatus = status;
         panel.Children.Add(status);
     }
 
