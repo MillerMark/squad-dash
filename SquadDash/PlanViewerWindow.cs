@@ -29,6 +29,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Plan? _durablePlan;
     private IReadOnlyList<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>? _visualizationGates;
     private IReadOnlyList<IReadOnlyList<ConnectorGroup>>? _visualizationGateConnectorGroups;
+    private FrameworkElement?[]? _allGateBadgeElements;
 
     private readonly string? _activeBranch;
     private readonly double _quickReplyFontSize;
@@ -1374,6 +1375,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _taskCardPositions[entry.Key] = entry.Value;
 
         _visualizationGateConnectorGroups = null;
+        _allGateBadgeElements = null;
 
         // Tasks that share the exact same prerequisite set share one ALL gate. This expresses
         // the AND dependency without the all-to-all mesh that made the old graph ambiguous.
@@ -2216,6 +2218,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _visualizationGateConnectorGroups = gateConnectorGroups
             .Select(list => (IReadOnlyList<ConnectorGroup>)list.AsReadOnly())
             .ToList();
+        if (_visualizationGates is { Count: > 0 })
+        {
+            var badgeElements = new FrameworkElement?[_visualizationGates.Count];
+            for (var bgi = 0; bgi < _visualizationGates.Count; bgi++)
+            {
+                var gateTag = $"alljoin:{bgi}";
+                badgeElements[bgi] = canvas.Children.OfType<FrameworkElement>()
+                    .FirstOrDefault(c => c.Tag is string t && string.Equals(t, gateTag, StringComparison.Ordinal));
+            }
+            _allGateBadgeElements = badgeElements;
+        }
 
         var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
         var avatarChipsByAgent = new Dictionary<string, List<Border>>(StringComparer.OrdinalIgnoreCase);
@@ -8180,7 +8193,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 !string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
                 _taskCardPositions.TryGetValue(connectorState.SourceTaskId, out var sourcePos))
             {
-                var cardHeight = dragState.Element.ActualHeight > 0 ? dragState.Element.ActualHeight : NodeHeight;
+                var cardHeight = dragState.Element is not null && dragState.Element.ActualHeight > 0
+                    ? dragState.Element.ActualHeight
+                    : NodeHeight;
                 var draggedMidY = top + cardHeight / 2.0;
                 var newExitY = ComputeSourceExitY(connectorState.SourceTaskId, group, draggedMidY, sourcePos.Y);
                 updatedFrom = new Point(updatedFrom.X, newExitY);
@@ -8256,15 +8271,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var liveCenterY = connectedMidpointYSum / connectedTaskCount;
 
                 // Move the badge element.
-                var gateTag = $"alljoin:{gi}";
-                foreach (var child in _graphCanvas.Children.OfType<FrameworkElement>())
+                if (_allGateBadgeElements is not null &&
+                    gi < _allGateBadgeElements.Length &&
+                    _allGateBadgeElements[gi] is FrameworkElement badge)
                 {
-                    if (child.Tag is string childTag &&
-                        string.Equals(childTag, gateTag, StringComparison.Ordinal))
-                    {
-                        Canvas.SetTop(child, liveCenterY - 17 * _scaleFactor);
-                        break;
-                    }
+                    Canvas.SetTop(badge, liveCenterY - 17 * _scaleFactor);
                 }
 
                 // Update connector endpoints so arrows follow the badge.
