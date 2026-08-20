@@ -22,6 +22,13 @@ internal static class PlanTaskVerificationPromptBuilder
                            "Do not perform the verification yourself or substitute the implementation agent, a generic reviewer, or prose-only findings.");
         builder.AppendLine("After the fact-checker returns, relay its PLAN_TASK_VERIFICATION_JSON result exactly as the only top-level result. " +
                            "If it cannot establish a claim without human observation, it must use `human-review-required`; it must never simulate or imply a human observation.");
+        builder.AppendLine(PlanDelegationRequestContext.Build(
+            plan.PlanId,
+            plan.Revision,
+            task.TaskId,
+            "verification",
+            candidate.ExecutionAttemptId,
+            plan.Branch));
         builder.AppendLine();
         builder.AppendLine("Independently verify the candidate task result below. Do not modify the repository.");
         AppendVerificationLevelInstructions(builder, task);

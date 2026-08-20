@@ -107,7 +107,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string prompt,
         string workingDirectory,
         string? sessionId = null,
-        string? configDirectory = null) {
+        string? configDirectory = null,
+        SquadSdkPlanDelegationGuard? planDelegationGuard = null) {
         if (string.IsNullOrWhiteSpace(prompt))
             throw new ArgumentException("Prompt cannot be empty.", nameof(prompt));
         if (string.IsNullOrWhiteSpace(workingDirectory))
@@ -125,7 +126,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 prompt,
                 workingDirectory,
                 sessionId,
-                configDirectory).ConfigureAwait(false);
+                configDirectory,
+                planDelegationGuard).ConfigureAwait(false);
         }
         finally {
             _promptLock.Release();
@@ -306,7 +308,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string prompt,
         string workingDirectory,
         string? sessionId,
-        string? configDirectory) {
+        string? configDirectory,
+        SquadSdkPlanDelegationGuard? planDelegationGuard) {
         var effectiveSessionId = ResolvePromptSessionIdForProvider(sessionId);
 
         try {
@@ -315,6 +318,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 workingDirectory,
                 effectiveSessionId,
                 configDirectory,
+                planDelegationGuard,
                 allowRecoverableSessionReset: !string.IsNullOrWhiteSpace(effectiveSessionId)).ConfigureAwait(false);
         }
         catch (RecoverableSessionResetException ex) when (!string.IsNullOrWhiteSpace(effectiveSessionId)) {
@@ -333,6 +337,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 workingDirectory,
                 sessionId: null,
                 configDirectory,
+                planDelegationGuard,
                 allowRecoverableSessionReset: false).ConfigureAwait(false);
         }
     }
@@ -377,6 +382,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string workingDirectory,
         string? sessionId,
         string? configDirectory,
+        SquadSdkPlanDelegationGuard? planDelegationGuard,
         bool allowRecoverableSessionReset) {
         var requestId = Guid.NewGuid().ToString("N");
         var request = new SquadSdkPromptRequest(
@@ -386,7 +392,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             configDirectory,
             requestId,
             Model: ActiveProfile?.Model ?? CopilotDefaultModel,
-            NamedAgentRoutes: NamedAgentRoutes);
+            NamedAgentRoutes: NamedAgentRoutes,
+            PlanDelegationGuard: planDelegationGuard);
         await RunBridgeRequestOnceAsync(
             request,
             requestId,
@@ -1835,7 +1842,27 @@ internal sealed record SquadSdkPromptRequest(
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "prompt",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
-    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null);
+    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null,
+    [property: JsonPropertyName("planDelegationGuard"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkPlanDelegationGuard? PlanDelegationGuard = null);
+
+public sealed record SquadSdkKnownPlanWork(
+    [property: JsonPropertyName("planId")] string PlanId,
+    [property: JsonPropertyName("workItemIds")] IReadOnlyList<string> WorkItemIds);
+
+public sealed record SquadSdkActivePlanDelegation(
+    [property: JsonPropertyName("planId")] string PlanId,
+    [property: JsonPropertyName("revision")] string Revision,
+    [property: JsonPropertyName("workItemId")] string WorkItemId,
+    [property: JsonPropertyName("phase")] string Phase,
+    [property: JsonPropertyName("attemptId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? AttemptId,
+    [property: JsonPropertyName("branch")] string Branch,
+    [property: JsonPropertyName("currentBranch")] string CurrentBranch,
+    [property: JsonPropertyName("workspacePath")] string WorkspacePath,
+    [property: JsonPropertyName("agentHandles")] IReadOnlyList<string> AgentHandles);
+
+public sealed record SquadSdkPlanDelegationGuard(
+    [property: JsonPropertyName("knownPlans")] IReadOnlyList<SquadSdkKnownPlanWork> KnownPlans,
+    [property: JsonPropertyName("active"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkActivePlanDelegation? Active = null);
 
 internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("selectedOption")] string SelectedOption,

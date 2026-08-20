@@ -152,6 +152,26 @@ internal sealed class PlanResumeBranchPolicyTests
         });
     }
 
+    [Test]
+    public void PromptDrivenSafeResume_UsesNormalHostStartBeforeLookingForFailedTask()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private async Task<bool> TryApplyDecomposeRecoveryFromResponseAsync", StringComparison.Ordinal);
+        var nextMethod = source.IndexOf(
+            "private void QueueDecomposeReplan", methodStart, StringComparison.Ordinal);
+        var method = source[methodStart..nextMethod];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method.IndexOf("PlanLifecycleStatus.WaitingForCleanWorktree", StringComparison.Ordinal),
+                Is.GreaterThanOrEqualTo(0));
+            Assert.That(method.IndexOf("await StartOrResumeDurablePlanAsync(resumable)", StringComparison.Ordinal),
+                Is.LessThan(method.IndexOf("var recoveryTaskId", StringComparison.Ordinal)),
+                "A preflight-paused plan has no failed task; its validated recovery JSON must enter the normal host resume path first.");
+        });
+    }
+
     private static PlanResumeBranchSituation Situation(
         PlanResumeBranchRelationship relationship,
         int currentOnly = 0,

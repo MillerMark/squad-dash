@@ -2363,7 +2363,8 @@ internal sealed class PromptExecutionController {
                     CurrentDispatchedItem),
                 includePlanReviewActivityProtocol:
                     !HumanReviewResponseContractPolicy.RequiresClarificationProtocol(
-                        CurrentDispatchedItem?.SourceTag));
+                        CurrentDispatchedItem?.SourceTag),
+                userPrompt: prompt);
         var parts = new[] { pending, docsCtx, tasksCtx, queueCtx, questionCtx, triggeredCtx, artifactCtx, inboxCtx, commitReportingCtx, subAgentApprovalGroupCtx, decomposePlanningCtx, _instructionProvider.Get().TurnSummary, hostCmdCtx }.Where(p => p is not null).ToArray();
         var supplemental = parts.Length == 0 ? null : string.Join("\n\n", parts);
         var buildResult = _promptBuilder.Build(
