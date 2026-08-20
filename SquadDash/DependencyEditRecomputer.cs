@@ -106,11 +106,12 @@ internal static class DependencyEditRecomputer
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out var cycleIds))
             return DependencyEditRecomputeResult.Cycle(cycleIds ?? []);
 
-        var validations = group.Validations ?? [];
+        var synchronizedGroup = SynchronizeTaskValidationBoundaries(group);
+        var validations = synchronizedGroup.Validations ?? [];
 
         // Use the same production layout engine the Plan Visualizer uses.
         var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(
-            group.Tasks,
+            synchronizedGroup.Tasks,
             validations);
 
         var stageAssignments = (IReadOnlyDictionary<string, int>)levels;
@@ -119,7 +120,7 @@ internal static class DependencyEditRecomputer
         // position within the same level. This matches the column-then-row traversal
         // order the Plan Visualizer uses and produces the same sequential display labels
         // that PendingDecomposePlanAdapter.ToPlan would assign from scratch.
-        var indexedTasks = group.Tasks
+        var indexedTasks = synchronizedGroup.Tasks
             .Select((task, originalIndex) => (task, originalIndex))
             .ToArray();
 
@@ -134,11 +135,12 @@ internal static class DependencyEditRecomputer
             .Select((task, index) => (task.Id, Label: (index + 1).ToString()))
             .ToDictionary(item => item.Id, item => item.Label, StringComparer.Ordinal);
 
-        var recomputedGroup = ReconcileAuditBoundary(group with { Tasks = StripOrphanedInputs(sortedTasks) });
+        var recomputedGroup = ReconcileAuditBoundary(
+            synchronizedGroup with { Tasks = StripOrphanedInputs(sortedTasks) });
 
         // Approval boundary anchors: resolve each gate using the new stage assignments.
         var approvalBoundaryAnchors = ResolveApprovalBoundaryAnchors(
-            group.ApprovalGates ?? [],
+            synchronizedGroup.ApprovalGates ?? [],
             sortedTasks,
             levels);
 
@@ -156,6 +158,42 @@ internal static class DependencyEditRecomputer
             displayLabels,
             approvalBoundaryAnchors,
             eligibleValidationIds);
+    }
+
+    /// <summary>
+    /// Keeps validations attached after a single task synchronized with that task's direct
+    /// dependents. Adding a dependency makes the validation block the new consumer; removing
+    /// the dependency releases that consumer. Multi-task/stage validations and final audits
+    /// are authored boundaries and are intentionally preserved.
+    /// </summary>
+    internal static DecomposedTaskGroup SynchronizeTaskValidationBoundaries(
+        DecomposedTaskGroup group)
+    {
+        if (group.Validations is null or { Count: 0 })
+            return group;
+
+        var taskIds = group.Tasks.Select(task => task.Id).ToHashSet(StringComparer.Ordinal);
+        var changed = false;
+        var validations = group.Validations.Select(validation =>
+        {
+            if (string.Equals(validation.Mode, "audit", StringComparison.Ordinal) ||
+                validation.AfterTaskIds.Count != 1 ||
+                !taskIds.Contains(validation.AfterTaskIds[0]))
+                return validation;
+
+            var validatedTaskId = validation.AfterTaskIds[0];
+            var directDependentIds = group.Tasks
+                .Where(task => task.DependsOn.Contains(validatedTaskId, StringComparer.Ordinal))
+                .Select(task => task.Id)
+                .ToArray();
+            if (validation.BeforeTaskIds.SequenceEqual(directDependentIds, StringComparer.Ordinal))
+                return validation;
+
+            changed = true;
+            return validation with { BeforeTaskIds = directDependentIds };
+        }).ToArray();
+
+        return changed ? group with { Validations = validations } : group;
     }
 
     // ── Approval boundary anchor resolution ─────────────────────────────────────

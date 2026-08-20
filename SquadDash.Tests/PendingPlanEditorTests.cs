@@ -227,7 +227,7 @@ internal sealed class PendingPlanEditorTests
     }
 
     [Test]
-    public void Apply_DependencyEdit_PreservesApprovalGatesAndValidations()
+    public void Apply_DependencyEdit_PreservesNodesAndSynchronizesValidationBoundary()
     {
         var pendingStore = new PendingDecomposePlanStore(_squad);
         var baseGroup = StagedPlanEditorTests.MakeGroup();
@@ -285,7 +285,7 @@ internal sealed class PendingPlanEditorTests
             Assert.That(reloadedValidation.Title, Is.EqualTo(validation.Title));
             Assert.That(reloadedValidation.Description, Is.EqualTo(validation.Description));
             Assert.That(reloadedValidation.AfterTaskIds, Is.EqualTo(validation.AfterTaskIds));
-            Assert.That(reloadedValidation.BeforeTaskIds, Is.EqualTo(validation.BeforeTaskIds));
+            Assert.That(reloadedValidation.BeforeTaskIds, Is.EqualTo(new[] { secondId, thirdId }));
             Assert.That(reloadedValidation.Assertions, Is.EqualTo(validation.Assertions));
             Assert.That(reloadedValidation.Mode, Is.EqualTo(validation.Mode));
         });
