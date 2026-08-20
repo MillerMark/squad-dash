@@ -62,6 +62,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
     private readonly Action<Dictionary<string, double>>? _saveLayoutNudges;
     private readonly Action<Plan, string>? _onRetryValidation;
+    private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
+    private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
     private Action<PlanTaskActivityPulseEvent>? _taskActivityPulseHandler;
@@ -206,7 +208,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
         Action<Dictionary<string, double>>? saveLayoutNudges = null,
-        Action<Plan, string>? onRetryValidation = null)
+        Action<Plan, string>? onRetryValidation = null,
+        Func<ApplicationSettingsSnapshot>? getSettings = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -252,6 +255,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _saveReviewState = saveReviewState;
         _saveLayoutNudges = saveLayoutNudges;
         _onRetryValidation = onRetryValidation;
+        _getSettings = getSettings;
+        if (_getSettings is not null)
+            _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
         if (saveDefinitionEdit is not null)
             _editHistory = new StagedPlanEditHistory(plan.Group);
 
@@ -264,6 +270,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += OnPlanViewerPreviewKeyDown;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (_pttAttachment?.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox) == true)
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) => _pttAttachment?.HandlePreviewKeyUp(e);
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
@@ -271,6 +283,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             _preflightPollTimer?.Stop();
             _reviewCallout?.Close();
+            if (_pttAttachment?.IsActive == true) _ = _pttAttachment.StopAsync();
+            _pttAttachment?.Dispose();
         };
 
         if (broker is not null && durablePlan is not null)
@@ -6251,6 +6265,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         editor.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
         editor.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
         editor.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+        editor.SetResourceReference(TextBox.CaretBrushProperty, "BodyText");
         panel.Children.Add(label);
         panel.Children.Add(editor);
         return editor;
@@ -7248,6 +7263,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             textBox.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
             textBox.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
             textBox.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
+            textBox.SetResourceReference(TextBox.CaretBrushProperty, "BodyText");
             editor.Children.Add(textBox);
             return textBox;
         }

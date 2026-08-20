@@ -9673,7 +9673,8 @@ public partial class MainWindow : Window
                     PendingDecomposePlanAdapter.FromPlan(previewPlan),
                     _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath),
                     _inboxFontSize,
-                    durablePlan: previewPlan)
+                    durablePlan: previewPlan,
+                    getSettings: () => _settingsSnapshot)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {proposedPlan.DisplayName} — Revision {proposedPlan.RevisionNumber}",
@@ -12225,7 +12226,8 @@ public partial class MainWindow : Window
             saveReviewState: saveReviewState,
             saveLayoutNudges: saveLayoutNudges,
             onRetryValidation: (current, validationId) =>
-                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId))
+                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
+            getSettings: () => _settingsSnapshot)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
