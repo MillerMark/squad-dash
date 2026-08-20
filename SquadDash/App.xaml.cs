@@ -55,6 +55,9 @@ namespace SquadDash {
             services.AddSingleton<SquadRoutingDocumentService>();
             services.AddSingleton<SquadInstallationStateService>();
             services.AddSingleton<SquadInstallerService>();
+            services.AddSingleton<IProcessRunner, SystemProcessRunner>();
+            services.AddSingleton<IEnvironmentProvider, SystemEnvironmentProvider>();
+            services.AddSingleton<ISquadCliResolutionService, SquadCliResolutionService>();
             services.AddSingleton<RunningInstanceRegistry>();
             services.AddSingleton<RestartCoordinatorStateStore>();
             var clipboardEditorsDir = Path.Combine(
