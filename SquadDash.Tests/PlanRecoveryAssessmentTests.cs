@@ -7,6 +7,74 @@ internal sealed class PlanRecoveryAssessmentTests
         PLAN_RECOVERY_ASSESSMENT_JSON:
         """;
 
+    [TestCase(false, PlanRecoveryClassification.Complete, true)]
+    [TestCase(false, PlanRecoveryClassification.Partial, true)]
+    [TestCase(false, PlanRecoveryClassification.NotStarted, true)]
+    [TestCase(false, PlanRecoveryClassification.Inconclusive, false)]
+    [TestCase(true, PlanRecoveryClassification.Complete, false)]
+    [TestCase(true, PlanRecoveryClassification.Partial, false)]
+    [TestCase(true, PlanRecoveryClassification.NotStarted, false)]
+    public void ContinuationPolicy_RestrictsAdvisoryAssessmentsToRecommendations(
+        bool advisoryOnly,
+        string classification,
+        bool expected)
+    {
+        Assert.That(
+            PlanRecoveryAssessmentContinuationPolicy.MayContinueAutomatically(
+                advisoryOnly,
+                classification),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void SnapshotFingerprint_IsStableForSameRepositoryContent()
+    {
+        var untracked = new[] { (Path: "new.txt", ContentHash: "abc123") };
+        var first = PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(
+            "head-1", "tracked diff\n", untracked);
+        var second = PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(
+            "head-1", "tracked diff\r\n", untracked);
+        var evidence = new PlanRecoveryDecisionEvidence(
+            "Recommendation.",
+            [],
+            DateTimeOffset.UtcNow,
+            HeadCommit: "head-1",
+            RepositoryFingerprint: first);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second, Is.EqualTo(first));
+            Assert.That(
+                PlanRecoveryAssessmentSnapshotPolicy.IsCurrent(
+                    evidence,
+                    new PlanRecoveryRepositorySnapshot("head-1", second)),
+                Is.True);
+        });
+    }
+
+    [Test]
+    public void SnapshotFingerprint_ChangesWhenRepositoryContentChanges()
+    {
+        var first = PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(
+            "head-1",
+            "tracked diff",
+            [("new.txt", "abc123")]);
+        var changedTracked = PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(
+            "head-1",
+            "different diff",
+            [("new.txt", "abc123")]);
+        var changedUntracked = PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(
+            "head-1",
+            "tracked diff",
+            [("new.txt", "def456")]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(changedTracked, Is.Not.EqualTo(first));
+            Assert.That(changedUntracked, Is.Not.EqualTo(first));
+        });
+    }
+
     [Test]
     public void CompleteAssessment_WithPassedVerificationAndAttributedCommit_Parses()
     {

@@ -463,7 +463,22 @@ internal sealed record PlanRecoveryCorrectionContext(
 internal sealed record PlanRecoveryDecisionEvidence(
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("commits")] IReadOnlyList<PlanEvidenceCommit> Commits,
-    [property: JsonPropertyName("assessedAt")] DateTimeOffset AssessedAt);
+    [property: JsonPropertyName("assessedAt")] DateTimeOffset AssessedAt,
+    [property: JsonPropertyName("classification")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Classification = null,
+    [property: JsonPropertyName("verification")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposeStepVerification? Verification = null,
+    [property: JsonPropertyName("remainingWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? RemainingWork = null,
+    [property: JsonPropertyName("headCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? HeadCommit = null,
+    [property: JsonPropertyName("repositoryFingerprint")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? RepositoryFingerprint = null);
 
 /// <summary>
 /// Host-validated provenance for a commit produced by the interrupted task. This is deliberately

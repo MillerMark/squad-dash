@@ -19,6 +19,7 @@ using System.Windows.Navigation;
 using System.Collections.Generic;
 using System.Windows.Media.Imaging;
 using System.Collections.ObjectModel;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Windows.Media.Animation;
 using System.Runtime.InteropServices;
@@ -10688,7 +10689,7 @@ public partial class MainWindow : Window
         var plan = PendingDecomposePlanAdapter.FromPlan(durablePlan);
         if (decision.Action is "resume-verification" or "assess-and-continue")
         {
-            await AssessAndContinuePlanRecoveryAsync(plan, recoveryTaskId);
+            await AssessPlanRecoveryAsync(plan, recoveryTaskId);
             return true;
         }
         if (decision.Action is "accept-step-complete" or "review-completed-work")
@@ -17326,8 +17327,7 @@ public partial class MainWindow : Window
     private void AppendDecomposeRecoveryActions(
         PendingDecomposePlan plan,
         string taskId,
-        bool showEndPlan = false,
-        bool assessmentRetry = false)
+        bool showEndPlan = false)
     {
         var recoveryTag = new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId);
         var recoverySurface = new Section { Tag = recoveryTag };
@@ -17672,21 +17672,55 @@ public partial class MainWindow : Window
             var assessmentStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
                 assessmentTask?.DisplayStepLabel,
                 assessmentTask?.Title ?? taskTitle);
-            var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-            assessmentParagraph.Inlines.Add(new Run($"{assessmentStepLabel} appears implemented "));
-            var evidenceLink = new Hyperlink(new Run("(evidence)"))
-            {
-                Cursor = Cursors.Hand,
-                ToolTip = ToolTipHelper.MakeThemedToolTip("Review the commits, changed files, and assessment evidence"),
-            };
-            evidenceLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            evidenceLink.Click += (_, _) => _ = OpenEvidenceViewerAsync(assessmentEvidence.Commits);
-            assessmentParagraph.Inlines.Add(evidenceLink);
+            var assessmentPresentation = PlanRecoveryAssessmentCardPresentationBuilder.Build(
+                assessmentEvidence,
+                assessmentStepLabel);
+            var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 5);
             MarkdownFlowDocumentBuilder.AddInboxInlineText(
                 assessmentParagraph.Inlines,
-                ", but its commits could not be attributed confidently enough for automatic acceptance. " +
-                "SquadDash cannot confirm that the existing work completes this step. No repository changes were made.");
+                assessmentPresentation.Finding);
             blocks.Add(assessmentParagraph);
+
+            if (assessmentEvidence.Verification is { } verification)
+            {
+                var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+                verificationParagraph.Margin = new Thickness(12, 0, 0, 4);
+                var verificationText = string.IsNullOrWhiteSpace(verification.Summary)
+                    ? $"Verification: {verification.Status}"
+                    : $"Verification ({verification.Status}): {verification.Summary}";
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                    verificationParagraph.Inlines,
+                    verificationText);
+                blocks.Add(verificationParagraph);
+            }
+
+            if (assessmentEvidence.RemainingWork is { Count: > 0 })
+            {
+                var remainingHeader = CreateTranscriptParagraph(bottomMargin: 2);
+                remainingHeader.Inlines.Add(new Run("Remaining work:") { FontWeight = FontWeights.SemiBold });
+                blocks.Add(remainingHeader);
+                foreach (var remainingItem in assessmentEvidence.RemainingWork)
+                {
+                    var remainingParagraph = CreateTranscriptParagraph(bottomMargin: 2);
+                    remainingParagraph.Margin = new Thickness(12, 0, 0, 2);
+                    MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                        remainingParagraph.Inlines,
+                        "• " + remainingItem);
+                    blocks.Add(remainingParagraph);
+                }
+            }
+
+            var assessmentRecommendation = CreateTranscriptParagraph(bottomMargin: 6);
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                assessmentRecommendation.Inlines,
+                assessmentPresentation.Recommendation);
+            blocks.Add(assessmentRecommendation);
+
+            AddAssessmentAction(assessmentEvidence);
+            AddNavigationLink(
+                $"Review repository changes for {assessmentStepLabel}",
+                "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+                () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
 
             AddAsyncResultAction(
                 $"Accept {assessmentStepLabel} as Complete",
@@ -17773,6 +17807,12 @@ public partial class MainWindow : Window
                 recommendation.Inlines,
                 recommendationText);
             blocks.Add(recommendation);
+
+            if (assessmentEvidence is null &&
+                primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+            {
+                AddAssessmentAction(previousAssessment: null);
+            }
 
         }
 
@@ -17873,7 +17913,7 @@ public partial class MainWindow : Window
             async () =>
             {
                 if (primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ResumeVerification)
-                    await AssessAndContinuePlanRecoveryAsync(plan, taskId);
+                    await AssessPlanRecoveryAsync(plan, taskId);
                 else
                     await RetryDecomposeTaskAsync(plan, taskId);
             });
@@ -17909,6 +17949,52 @@ public partial class MainWindow : Window
             link.Click += (_, _) => action();
             paragraph.Inlines.Add(link);
             blocks.Add(paragraph);
+        }
+
+        void AddAssessmentAction(PlanRecoveryDecisionEvidence? previousAssessment)
+        {
+            var assessmentPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Visibility = previousAssessment is null ? Visibility.Visible : Visibility.Collapsed,
+            };
+            var label = previousAssessment is null ? "Assess with AI" : "Reassess with AI";
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label,
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(
+                    "Request a quick, read-only recommendation for the current repository state. " +
+                    "The plan stays stopped and you make the decision."));
+            button.Click += async (_, _) =>
+            {
+                assessmentPanel.IsEnabled = false;
+                button.Content = "Assessing with AI…";
+                PrepareForHostRecoveryAction();
+                try
+                {
+                    await AssessPlanRecoveryAsync(plan, taskId, advisoryOnly: true);
+                }
+                catch (Exception ex)
+                {
+                    button.Content = label;
+                    assessmentPanel.IsEnabled = true;
+                    HandleUiCallbackException("Assess plan recovery", ex);
+                }
+            };
+            assessmentPanel.Children.Add(button);
+            blocks.Add(TranscriptCardLayout.CreateContainer(
+                assessmentPanel,
+                margin: new Thickness(0, 0, 0, 4)));
+
+            if (previousAssessment is not null && durablePlan is not null)
+            {
+                _ = ShowRecoveryReassessmentWhenStaleAsync(
+                    durablePlan.PlanId,
+                    durablePlan.Revision,
+                    taskId,
+                    previousAssessment.AssessedAt,
+                    assessmentPanel);
+            }
         }
 
         Button AddAction(
@@ -18006,6 +18092,43 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task ShowRecoveryReassessmentWhenStaleAsync(
+        string planId,
+        string revision,
+        string taskId,
+        DateTimeOffset assessedAt,
+        FrameworkElement assessmentPanel)
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+
+        try
+        {
+            var snapshot = await CapturePlanRecoveryRepositorySnapshotAsync(
+                _currentWorkspace.FolderPath);
+            var latest = _planStore.Load(planId);
+            var latestAssessment = latest?.InterruptionData?.RecoveryAssessment;
+            if (latest is null ||
+                !string.Equals(latest.Revision, revision, StringComparison.Ordinal) ||
+                !string.Equals(latest.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal) ||
+                latestAssessment is null ||
+                latestAssessment.AssessedAt != assessedAt ||
+                PlanRecoveryAssessmentSnapshotPolicy.IsCurrent(latestAssessment, snapshot))
+                return;
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (assessmentPanel.IsLoaded || assessmentPanel.Parent is not null)
+                    assessmentPanel.Visibility = Visibility.Visible;
+            });
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Could not determine whether plan recovery assessment is stale for plan={planId} task={taskId}: {ex.Message}");
+        }
+    }
+
     private void AppendCompletedWorkReviewDetails(
         BlockCollection blocks,
         CompletedWorkReviewPresentation review)
@@ -18091,7 +18214,9 @@ public partial class MainWindow : Window
         string BaselineCommit,
         string AssessedHead,
         string StatusSnapshot,
+        string RepositoryFingerprint,
         IReadOnlyList<PlanRecoveryCommitReference> CommitReferences,
+        bool AdvisoryOnly,
         int RepairAttempts = 0,
         int RepositoryChangeRetries = 0);
 
@@ -18113,7 +18238,7 @@ public partial class MainWindow : Window
             ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
         if (string.IsNullOrWhiteSpace(taskId))
             throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
-        await AssessAndContinuePlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
+        await AssessPlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
         return true;
     }
 
@@ -18167,7 +18292,10 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task AssessAndContinuePlanRecoveryAsync(PendingDecomposePlan plan, string taskId)
+    private async Task AssessPlanRecoveryAsync(
+        PendingDecomposePlan plan,
+        string taskId,
+        bool advisoryOnly = false)
     {
         if (_currentWorkspace is null || _planStore is null) return;
         if (_isPromptRunning || _loopController.IsRunning)
@@ -18190,7 +18318,7 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Plan {durable.PlanId} requires branch '{durable.Branch}', but '{activeBranch}' is active.");
 
-        if (PlanVerificationRecoveryPolicy.CanResume(durable, taskId))
+        if (!advisoryOnly && PlanVerificationRecoveryPolicy.CanResume(durable, taskId))
         {
             try
             {
@@ -18217,7 +18345,22 @@ public partial class MainWindow : Window
             }
         }
 
-        await QueuePlanRecoveryAssessmentAsync(plan, durable, taskId, repositoryChangeRetries: 0);
+        var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+        if (advisoryOnly && PlanRecoveryAssessmentSnapshotPolicy.IsCurrent(
+                                durable.InterruptionData?.RecoveryAssessment,
+                                currentSnapshot))
+        {
+            ShowSystemTranscriptEntry(
+                "The existing AI recovery assessment already matches the current repository. No new assessment was requested.");
+            return;
+        }
+
+        await QueuePlanRecoveryAssessmentAsync(
+            plan,
+            durable,
+            taskId,
+            repositoryChangeRetries: 0,
+            advisoryOnly);
     }
 
     private async Task ResumeInterruptedTaskVerificationAsync(Plan durable, string taskId)
@@ -18335,13 +18478,15 @@ public partial class MainWindow : Window
         PendingDecomposePlan plan,
         Plan durable,
         string taskId,
-        int repositoryChangeRetries)
+        int repositoryChangeRetries,
+        bool advisoryOnly = false)
     {
         if (_currentWorkspace is null) return;
 
         var workspace = _currentWorkspace.FolderPath;
         var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
-        var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        var snapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+        var head = snapshot.HeadCommit;
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
         var status = NormalizeGitSnapshot(await RunGitAsync(
             workspace, "status --porcelain --untracked-files=all"));
@@ -18353,10 +18498,11 @@ public partial class MainWindow : Window
         var evidence = await GatherPlanRecoveryEvidenceAsync(
             workspace, durable.PlanId, taskId, baseline, plan, commitReferences);
         var prompt = BuildPlanRecoveryAssessmentPrompt(
-            durable, taskId, assessmentId, evidence);
+            durable, taskId, assessmentId, evidence, advisoryOnly);
 
         _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
-            plan, taskId, assessmentId, baseline, head, status, commitReferences,
+            plan, taskId, assessmentId, baseline, head, status, snapshot.Fingerprint, commitReferences,
+            AdvisoryOnly: advisoryOnly,
             RepositoryChangeRetries: repositoryChangeRetries);
         _broker.Publish(new PlanRecoveryAssessmentActivityEvent(durable.PlanId, taskId, IsActive: true));
         _promptQueue.EnqueueAtFront(
@@ -18368,7 +18514,9 @@ public partial class MainWindow : Window
         SyncSendButton();
         if (repositoryChangeRetries == 0)
             ShowSystemTranscriptEntry(
-                $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
+                advisoryOnly
+                    ? $"Requesting a quick AI assessment of the current work for “{durable.Title}.” The plan remains stopped and no repository changes will be made."
+                    : $"Assessing the current work for “{durable.Title}” before continuing. The plan remains stopped until the evidence is validated.");
         _ = DrainQueueIfNeededAsync();
     }
 
@@ -18394,7 +18542,8 @@ public partial class MainWindow : Window
         Plan plan,
         string taskId,
         string assessmentId,
-        string evidence)
+        string evidence,
+        bool advisoryOnly = false)
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
@@ -18432,12 +18581,23 @@ public partial class MainWindow : Window
                 These entries identify work that must be inspected; they are not proof of completion. Compare the
                 repository changes with the current task specification and include them in the assessment.
                 """;
+        var assessmentScope = advisoryOnly
+            ? """
+              This is a quick recommendation for a human decision, not a full code review. Prioritize the task's
+              observable outcome, expected files, and likely implementation commits; stop once there is enough
+              evidence for a concise recommendation. Run at most one focused, non-mutating verification command when
+              it materially improves confidence.
+              """
+            : """
+              This assessment belongs to an automatic recovery path. Gather enough evidence for the host to apply its
+              existing validated continuation policy without introducing a human checkpoint unnecessarily.
+              """;
         return $$"""
             Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
-            Do not edit files, create commits, revert work, or start the task. Inspect the repository and, when useful,
-            run non-mutating verification commands. Do not build SquadDash itself because this live application treats
-            a self-build as a restart request. Determine whether the task is complete, partially complete, not
-            started, or inconclusive. Classify every commit in the supplied baseline-to-HEAD range as task, mixed,
+            {{assessmentScope}}
+            Do not edit files, create commits, revert work, or start the task. Do not build SquadDash itself because
+            this live application treats a self-build as a restart request. Determine whether the task
+            is complete, partially complete, not started, or inconclusive. Classify every commit in the supplied baseline-to-HEAD range as task, mixed,
             unrelated, unknown, or superseded. A mixed commit contains both task and unrelated work. Superseded means
             the commit implements an older task specification that the current plan revision replaced; it does not
             count as work satisfying the current task revision. Do not infer ownership from
@@ -18696,13 +18856,19 @@ public partial class MainWindow : Window
         }
 
         var workspace = _currentWorkspace.FolderPath;
-        var currentHead = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+        var currentHead = currentSnapshot.HeadCommit;
         var currentStatus = NormalizeGitSnapshot(await RunGitAsync(
             workspace, "status --porcelain --untracked-files=all"));
         if (!string.Equals(currentHead, context.AssessedHead, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(currentStatus, context.StatusSnapshot, StringComparison.Ordinal))
+            !string.Equals(currentStatus, context.StatusSnapshot, StringComparison.Ordinal) ||
+            !string.Equals(
+                currentSnapshot.Fingerprint,
+                context.RepositoryFingerprint,
+                StringComparison.OrdinalIgnoreCase))
         {
-            if (PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(context.RepositoryChangeRetries))
+            if (!context.AdvisoryOnly &&
+                PlanRecoveryAssessmentRetryPolicy.CanRetryRepositoryChange(context.RepositoryChangeRetries))
             {
                 SquadDashTrace.Write(
                     TraceCategory.General,
@@ -18716,7 +18882,8 @@ public partial class MainWindow : Window
                         PendingDecomposePlanAdapter.FromPlan(durable),
                         durable,
                         context.TaskId,
-                        context.RepositoryChangeRetries + 1);
+                        context.RepositoryChangeRetries + 1,
+                        context.AdvisoryOnly);
                 }
                 catch (Exception ex)
                 {
@@ -18729,7 +18896,9 @@ public partial class MainWindow : Window
 
             KeepPlanStoppedAfterAssessment(
                 context,
-                "The repository changed again while evidence was being checked. Reopen the current recovery card after repository activity has settled.");
+                context.AdvisoryOnly
+                    ? "The repository changed while AI was assessing it. Use Reassess with AI when you want a recommendation for the new state."
+                    : "The repository changed again while evidence was being checked. Reopen the current recovery card after repository activity has settled.");
             return;
         }
 
@@ -18803,69 +18972,92 @@ public partial class MainWindow : Window
                 assessment.Relation,
                 assessment.Reason));
         }
-        switch (response.Classification)
+
+        if (PlanRecoveryAssessmentContinuationPolicy.MayContinueAutomatically(
+                context.AdvisoryOnly,
+                response.Classification))
         {
-            case PlanRecoveryClassification.Complete:
+            switch (response.Classification)
             {
-                var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
-                var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
-                DecomposeWorktreePolicy.HasOnlyAllowedChanges(currentStatus, allowed, out var nonHostPaths);
-                if (nonHostPaths.Count > 0)
+                case PlanRecoveryClassification.Complete:
                 {
-                    KeepPlanStoppedAfterAssessment(
-                        context,
-                        "AI found completed work, but uncommitted repository changes prevent safe acceptance. Commit or stash them, then assess again.");
+                    var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+                    var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
+                    DecomposeWorktreePolicy.HasOnlyAllowedChanges(currentStatus, allowed, out var nonHostPaths);
+                    if (nonHostPaths.Count > 0)
+                    {
+                        KeepPlanStoppedAfterAssessment(
+                            context,
+                            "AI found completed work, but uncommitted repository changes prevent safe acceptance. Commit or stash them, then assess again.");
+                        return;
+                    }
+
+                    await AcceptAssessedPlanRecoveryAsync(durable, context, response, attributed[^1]);
                     return;
                 }
-                await AcceptAssessedPlanRecoveryAsync(durable, context, response, attributed[^1]);
-                break;
-            }
-            case PlanRecoveryClassification.Partial:
-            {
-                var assessedContinuation = new AssessedRecoveryContinuationState(
-                    planId, context.TaskId, response.Summary, response.RemainingWork!);
-                ShowSystemTranscriptEntry(
-                    $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and is resuming only the remaining work.");
-                await RetryDecomposeTaskAsync(
-                    context.Plan, context.TaskId, assessedContinuation);
-                break;
-            }
-            case PlanRecoveryClassification.NotStarted:
-                ShowSystemTranscriptEntry(
-                    $"AI found no work for {context.TaskId}. SquadDash is starting the task normally.");
-                await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
-                break;
-            default:
-                var evidenceCommits = normalizedSupporting
-                    .Concat(normalizedCommits)
-                    .GroupBy(commit => commit.Commit, StringComparer.OrdinalIgnoreCase)
-                    .Select(group => group.First())
-                    .ToArray();
-                var terminalCommit = evidenceCommits.LastOrDefault()?.Commit ?? context.AssessedHead;
-                var decisionEvidence = new PlanRecoveryDecisionEvidence(
-                    response.Summary, evidenceCommits, DateTimeOffset.UtcNow);
-                var interruption = durable.InterruptionData ?? new PlanInterruptionData(
-                    response.Summary, "human-review-required", 0, context.TaskId);
-                var commitEvidence = new PlanTaskCommitEvidence(
-                    context.TaskId, null, context.BaselineCommit, terminalCommit,
-                    response.Summary, response.Verification, evidenceCommits);
-                var assessedPlan = durable with
+                case PlanRecoveryClassification.Partial:
                 {
-                    InterruptionData = interruption with
-                    {
-                        Reason = response.Summary,
-                        RecoveryState = "human-review-required",
-                        TaskCommitEvidence = commitEvidence,
-                        RecoveryAssessment = decisionEvidence,
-                    }
-                };
-                _planStore.Save(assessedPlan);
-                _broker.Publish(new PlanProgressEvent(assessedPlan.PlanId, assessedPlan));
-                ShowSystemTranscriptEntry(PlanRecoveryPresentationBuilder.AssessmentStoppedMessage);
-                AppendDecomposeRecoveryActions(
-                    context.Plan, context.TaskId, assessmentRetry: true);
-                break;
+                    var assessedContinuation = new AssessedRecoveryContinuationState(
+                        planId, context.TaskId, response.Summary, response.RemainingWork!);
+                    ShowSystemTranscriptEntry(
+                        $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and is resuming only the remaining work.");
+                    await RetryDecomposeTaskAsync(
+                        context.Plan, context.TaskId, assessedContinuation);
+                    return;
+                }
+                case PlanRecoveryClassification.NotStarted:
+                    ShowSystemTranscriptEntry(
+                        $"AI found no work for {context.TaskId}. SquadDash is starting the task normally.");
+                    await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
+                    return;
+            }
         }
+
+        var evidenceCommits = normalizedSupporting
+            .Concat(normalizedCommits)
+            .GroupBy(commit => commit.Commit, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        var decisionEvidence = new PlanRecoveryDecisionEvidence(
+            response.Summary,
+            evidenceCommits,
+            DateTimeOffset.UtcNow,
+            response.Classification,
+            response.Verification,
+            response.RemainingWork,
+            context.AssessedHead,
+            context.RepositoryFingerprint);
+        var interruption = durable.InterruptionData ?? new PlanInterruptionData(
+            "Plan execution stopped before the task result was recorded.",
+            "pending-recovery",
+            0,
+            context.TaskId);
+        var assessedPlan = durable with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = interruption with
+            {
+                RecoveryState = "assessment-ready",
+                RecoveryAssessment = decisionEvidence,
+            },
+        };
+        _planStore.Save(assessedPlan);
+        _broker.Publish(new PlanProgressEvent(assessedPlan.PlanId, assessedPlan));
+        LoadTasksPanel();
+
+        var task = assessedPlan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, context.TaskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task?.DisplayStepLabel,
+            task?.Title ?? context.TaskId);
+        var assessmentPresentation = PlanRecoveryAssessmentCardPresentationBuilder.Build(
+            decisionEvidence,
+            stepLabel);
+        ShowSystemTranscriptEntry(
+            $"AI assessment complete — {assessmentPresentation.Finding} The plan is still stopped for your decision.");
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+            CoordinatorThread.Document.Blocks);
+        AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
     }
 
     private async Task AcceptAssessedPlanRecoveryAsync(
@@ -18920,9 +19112,6 @@ public partial class MainWindow : Window
                     DecomposeGroupExecutionState.Complete,
                     updated);
 
-                // A newly-ready gate does not necessarily stop the plan. Reload the result of
-                // approval advancement before selecting the next boundary: a gate can block a
-                // later task while independent work remains executable now.
                 updated = _planStore.Load(durable.PlanId) ?? updated;
                 nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(updated);
             }
@@ -18977,11 +19166,55 @@ public partial class MainWindow : Window
         string message)
     {
         ShowSystemTranscriptEntry("The plan remains stopped. " + message);
-        AppendDecomposeRecoveryActions(context.Plan, context.TaskId, assessmentRetry: true);
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+            CoordinatorThread.Document.Blocks);
+        AppendDecomposeRecoveryActions(context.Plan, context.TaskId);
     }
 
     private static string NormalizeGitSnapshot(string value) =>
         value.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd();
+
+    private static async Task<PlanRecoveryRepositorySnapshot> CapturePlanRecoveryRepositorySnapshotAsync(
+        string workspace)
+    {
+        var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        var trackedDiff = await RunGitAsync(
+            workspace,
+            "diff --binary --no-ext-diff HEAD --");
+        var untrackedOutput = await RunGitAsync(
+            workspace,
+            "ls-files --others --exclude-standard -z");
+        var workspaceRoot = Path.GetFullPath(workspace)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar;
+        var untracked = new List<(string Path, string ContentHash)>();
+        foreach (var relativePath in untrackedOutput.Split(
+                     '\0',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(workspace, relativePath));
+            if (!fullPath.StartsWith(workspaceRoot, StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(fullPath))
+            {
+                untracked.Add((relativePath, "unavailable"));
+                continue;
+            }
+
+            await using var stream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 81920,
+                useAsync: true);
+            var hash = Convert.ToHexString(await SHA256.HashDataAsync(stream)).ToLowerInvariant();
+            untracked.Add((relativePath, hash));
+        }
+
+        return new PlanRecoveryRepositorySnapshot(
+            head,
+            PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(head, trackedDiff, untracked));
+    }
 
     private sealed record PendingRecoveryAnalysisContext(PendingDecomposePlan Plan, string TaskId);
 

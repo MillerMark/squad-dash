@@ -397,6 +397,16 @@ internal static class PlanRecoveryAssessmentRetryPolicy
         completedRetries < MaximumRepositoryChangeRetries;
 }
 
+internal static class PlanRecoveryAssessmentContinuationPolicy
+{
+    internal static bool MayContinueAutomatically(bool advisoryOnly, string classification) =>
+        !advisoryOnly &&
+        !string.Equals(
+            classification,
+            PlanRecoveryClassification.Inconclusive,
+            StringComparison.Ordinal);
+}
+
 internal static class PlanRecoveryAssessmentErrorReport
 {
     internal const string LinkPrefix = "app://plan-recovery-assessment-error/";

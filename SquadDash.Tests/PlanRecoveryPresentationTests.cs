@@ -4,6 +4,27 @@ namespace SquadDash.Tests;
 internal sealed class PlanRecoveryPresentationTests
 {
     [Test]
+    public void AssessmentCard_PartialWorkRecommendsContinuingOnlyRemainingWork()
+    {
+        var assessment = new PlanRecoveryDecisionEvidence(
+            "The service migration is present, but registration is missing.",
+            [],
+            DateTimeOffset.UtcNow,
+            Classification: PlanRecoveryClassification.Partial,
+            RemainingWork: ["Register the service."]);
+
+        var presentation = PlanRecoveryAssessmentCardPresentationBuilder.Build(
+            assessment,
+            "Step 5");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Finding, Does.Contain("partial work"));
+            Assert.That(presentation.Recommendation, Does.Contain("continue working"));
+        });
+    }
+
+    [Test]
     public void AssessedHumanReview_SuppressesDuplicatedGenericReason()
     {
         var assessment = new PlanRecoveryDecisionEvidence(

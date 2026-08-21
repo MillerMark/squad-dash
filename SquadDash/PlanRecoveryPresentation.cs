@@ -43,7 +43,7 @@ internal sealed record PlanRecoveryPrimaryActionPresentation(
 /// <summary>
 /// One recovery decision model shared by the transcript, Inbox, and Plan Viewer. Evidence is
 /// investigated through links on the recovery surface; an action never opens a second copy of
-/// the same evidence and no recovery action launches a redundant AI assessment.
+/// the same evidence. The separate, explicitly requested assessment action is advisory only.
 /// </summary>
 internal static class PlanRecoveryActionPresentationBuilder
 {
@@ -109,6 +109,35 @@ internal static class PlanRecoveryActionPresentationBuilder
                 ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain."
                 : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain.",
             "accept-step-complete");
+    }
+}
+
+internal sealed record PlanRecoveryAssessmentCardPresentation(
+    string Finding,
+    string Recommendation);
+
+internal static class PlanRecoveryAssessmentCardPresentationBuilder
+{
+    internal static PlanRecoveryAssessmentCardPresentation Build(
+        PlanRecoveryDecisionEvidence assessment,
+        string stepLabel)
+    {
+        var classification = assessment.Classification?.Trim().ToLowerInvariant();
+        return classification switch
+        {
+            PlanRecoveryClassification.Complete => new(
+                $"AI found that {stepLabel} appears complete. {assessment.Summary}",
+                $"Recommendation: review the evidence, then mark {stepLabel} complete if it matches your intent."),
+            PlanRecoveryClassification.Partial => new(
+                $"AI found partial work for {stepLabel}. {assessment.Summary}",
+                $"Recommendation: continue working on {stepLabel} using the remaining-work findings below."),
+            PlanRecoveryClassification.NotStarted => new(
+                $"AI did not find work satisfying {stepLabel}. {assessment.Summary}",
+                $"Recommendation: continue working on {stepLabel}."),
+            _ => new(
+                $"AI could not confidently determine whether {stepLabel} is complete. {assessment.Summary}",
+                $"Recommendation: review the repository evidence before deciding whether to complete or continue {stepLabel}."),
+        };
     }
 }
 
