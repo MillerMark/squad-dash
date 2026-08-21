@@ -2857,28 +2857,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                Rectangle CreateVerificationSquare()
+                FrameworkElement CreateStandardVerificationIndicator()
                 {
-                    var square = new Rectangle
+                    var checkGlyph = new TextBlock
                     {
-                        Width = 10 * _scaleFactor,
-                        Height = 10 * _scaleFactor,
-                        RadiusX = 2 * _scaleFactor,
-                        RadiusY = 2 * _scaleFactor,
-                        StrokeThickness = 1.5 * _scaleFactor,
-                        Fill = Brushes.Transparent,
+                        Text = "✔",
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
                     };
-                    square.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
-                    if (isTaskComplete)
-                        square.SetResourceReference(Shape.FillProperty, "PriorityLow");
-                    return square;
+                    checkGlyph.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    checkGlyph.SetResourceReference(
+                        TextBlock.ForegroundProperty,
+                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
+                    return checkGlyph;
                 }
 
                 verificationIndicatorContent = verificationLevel switch
                 {
                     PlanTaskVerificationLevel.Lightweight => CreateLightweightVerificationIndicator(),
                     PlanTaskVerificationLevel.Enhanced => CreateEnhancedVerificationIndicator(),
-                    _ => CreateVerificationSquare(),
+                    _ => CreateStandardVerificationIndicator(),
                 };
 
                 FrameworkElement CreateLightweightVerificationIndicator()
@@ -2900,17 +2898,35 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 FrameworkElement CreateEnhancedVerificationIndicator()
                 {
-                    var panel = new StackPanel
+                    var glyph1 = new TextBlock
+                    {
+                        Text = "✔",
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    glyph1.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    glyph1.SetResourceReference(
+                        TextBlock.ForegroundProperty,
+                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
+
+                    var glyph2 = new TextBlock
+                    {
+                        Text = "✔",
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    glyph2.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    glyph2.SetResourceReference(
+                        TextBlock.ForegroundProperty,
+                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
+
+                    var twoChecks = new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    var first = CreateVerificationSquare();
-                    first.Margin = new Thickness(0, 0, 3 * _scaleFactor, 0);
-                    panel.Children.Add(first);
-                    panel.Children.Add(CreateVerificationSquare());
-                    return panel;
+                    twoChecks.Children.Add(glyph1);
+                    twoChecks.Children.Add(glyph2);
+                    return twoChecks;
                 }
             }
             var verificationIndicator = new Border
