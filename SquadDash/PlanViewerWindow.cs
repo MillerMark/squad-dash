@@ -1081,7 +1081,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var canvas = new Canvas
         {
-            Background          = Brushes.Transparent,
             Margin              = new Thickness(18, 4, 18, 18),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment   = VerticalAlignment.Top,
@@ -1110,13 +1109,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var scroll = new ScrollViewer
         {
             Content = canvas,
-            Margin  = new Thickness(22, 0, 22, 0),
+            Margin  = new Thickness(22, 0, 0, 0),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
         _graphScroll = scroll;
         scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
-        scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "CardSurface");
+        scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
+        canvas.SetResourceReference(Canvas.BackgroundProperty, "CardSurface");
         scroll.PreviewMouseWheel += OnGraphScrollPreviewMouseWheel;
 
         var splitGrid = new Grid();
