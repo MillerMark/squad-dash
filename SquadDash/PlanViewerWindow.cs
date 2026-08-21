@@ -2841,17 +2841,83 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
             var verificationLevel = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
-            var verificationIndicatorText = new TextBlock
+            var isTaskComplete = borderColorKey == "PriorityLow";
+            FrameworkElement verificationIndicatorContent;
+            if (verificationOnly)
             {
-                Text = verificationOnly ? "—" : verificationLevel[..1].ToUpperInvariant(),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                FontWeight = FontWeights.SemiBold,
-            };
-            verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                var verificationIndicatorText = new TextBlock
+                {
+                    Text = "—",
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontWeight = FontWeights.SemiBold,
+                };
+                verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                verificationIndicatorContent = verificationIndicatorText;
+            }
+            else
+            {
+                Rectangle CreateVerificationSquare()
+                {
+                    var square = new Rectangle
+                    {
+                        Width = 10 * _scaleFactor,
+                        Height = 10 * _scaleFactor,
+                        RadiusX = 2 * _scaleFactor,
+                        RadiusY = 2 * _scaleFactor,
+                        StrokeThickness = 1.5 * _scaleFactor,
+                        Fill = Brushes.Transparent,
+                    };
+                    square.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
+                    if (isTaskComplete)
+                        square.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                    return square;
+                }
+
+                verificationIndicatorContent = verificationLevel switch
+                {
+                    PlanTaskVerificationLevel.Lightweight => CreateLightweightVerificationIndicator(),
+                    PlanTaskVerificationLevel.Enhanced => CreateEnhancedVerificationIndicator(),
+                    _ => CreateVerificationSquare(),
+                };
+
+                FrameworkElement CreateLightweightVerificationIndicator()
+                {
+                    var indicator = new Ellipse
+                    {
+                        Width = 10 * _scaleFactor,
+                        Height = 10 * _scaleFactor,
+                        StrokeThickness = 1.5 * _scaleFactor,
+                        Fill = Brushes.Transparent,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    indicator.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
+                    if (isTaskComplete)
+                        indicator.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                    return indicator;
+                }
+
+                FrameworkElement CreateEnhancedVerificationIndicator()
+                {
+                    var panel = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    var first = CreateVerificationSquare();
+                    first.Margin = new Thickness(0, 0, 3 * _scaleFactor, 0);
+                    panel.Children.Add(first);
+                    panel.Children.Add(CreateVerificationSquare());
+                    return panel;
+                }
+            }
             var verificationIndicator = new Border
             {
-                Width = 26 * _scaleFactor,
+                Width = !verificationOnly && verificationLevel == PlanTaskVerificationLevel.Enhanced
+                    ? 40 * _scaleFactor
+                    : 26 * _scaleFactor,
                 Height = 22 * _scaleFactor,
                 CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
                 BorderThickness = new Thickness(0, 1, 1, 1),
@@ -2859,7 +2925,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
                     ? "This is a verification-only step, so it does not receive another independent verification pass."
                     : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
-                Child = verificationIndicatorText,
+                Child = verificationIndicatorContent,
             };
             verificationIndicator.SetResourceReference(Border.BackgroundProperty, "CardSurface");
             if (Application.Current.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
@@ -5016,20 +5082,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
             hitTarget.Tag = $"humanapproval:{selectionAnchor}";
             hitTarget.Cursor = Cursors.Hand;
             WireSelectionClick(hitTarget);
-            if (toggle is not null && stop is not null)
-            {
-                var menu = CreateThemedMenu();
-                var toggleItem = CreateThemedMenuItem(toggleActionLabel ?? "Change this approval control");
-                toggleItem.Click += (_, _) => toggle();
-                menu.Items.Add(toggleItem);
-                hitTarget.ContextMenu = menu;
-            }
-
+        }
+        if (toggle is not null && stop is not null)
+        {
+            var menu = CreateThemedMenu();
+            var actionLabel = engaged
+                ? toggleActionLabel ?? "Change this approval control"
+                : "Require human approval here";
+            var toggleItem = CreateThemedMenuItem(actionLabel);
+            toggleItem.Click += (_, _) => toggle();
+            menu.Items.Add(toggleItem);
+            hitTarget.ContextMenu = menu;
         }
         // Approval/unapproval context menu for the human-gate icon.
         if (approveAction is not null || unapproveAction is not null)
         {
-            var menu = CreateThemedMenu();
+            var menu = hitTarget.ContextMenu ?? CreateThemedMenu();
+            if (menu.Items.Count > 0)
+                menu.Items.Add(CreateThemedMenuSeparator());
             if (approveAction is not null)
             {
                 var approveItem = CreateThemedMenuItem("Approve this step");
@@ -5044,6 +5114,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             hitTarget.ContextMenu = menu;
         }
+        if (hitTarget.ContextMenu is ContextMenu approvalMenu)
+            AppendDeveloperNormalizeMenuItem(approvalMenu);
         return hitTarget;
     }
 
