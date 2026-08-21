@@ -2967,19 +2967,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            var verificationGlowColor = taskBorderBrush?.Color
-                ?? (app?.TryFindResource("TaskSucceededFill") is SolidColorBrush verificationGlowBrush
-                    ? verificationGlowBrush.Color
-                    : Color.FromRgb(0x0E, 0x64, 0x2F));
             verificationIndicator.MouseEnter += (_, _) =>
             {
-                verificationIndicator.Effect = new DropShadowEffect
-                {
-                    Color = verificationGlowColor,
-                    BlurRadius = 8 * _scaleFactor,
-                    ShadowDepth = 0,
-                    Opacity = 0.8,
-                };
+                verificationIndicator.Effect = TaskNodeGlowEffect();
             };
             verificationIndicator.MouseLeave += (_, _) =>
             {
