@@ -2880,7 +2880,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Height = 10 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Child = checkPath,
-                        Opacity = applyCompletionOpacity ? (isTaskComplete ? 1.0 : 0.25) : 1.0,
+                        Opacity = applyCompletionOpacity ? (isTaskComplete ? 1.0 : 0.35) : 1.0,
                     };
                 }
 
@@ -2906,7 +2906,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Fill = Brushes.Transparent,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Opacity = isTaskComplete ? 1.0 : 0.25,
+                        Opacity = isTaskComplete ? 1.0 : 0.35,
                     };
                     indicator.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
                     if (isTaskComplete)
@@ -2921,7 +2921,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Opacity = isTaskComplete ? 1.0 : 0.25,
+                        Opacity = isTaskComplete ? 1.0 : 0.35,
                     };
                     twoChecks.Children.Add(MakeCheckmarkIcon(applyCompletionOpacity: false));
                     var spacer = new FrameworkElement { Width = 2 * _scaleFactor };
