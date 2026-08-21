@@ -328,6 +328,77 @@ internal sealed class TasksJsonParserTests
     }
 
     [Test]
+    public void TryParse_MultipleIndependentReferenceErrors_ReturnsCompleteDiagnosticList()
+    {
+        const string json = """
+            {
+              "groupId": "PROJ-20240101",
+              "groupTitle": "Plan",
+              "branch": "main",
+              "summary": "Summary",
+              "tasks": [
+                {
+                  "id": "PROJ-20240101-001",
+                  "title": "First",
+                  "description": "First",
+                  "dependsOn": ["PROJ-20240101-901", "PROJ-20240101-902"],
+                  "priority": "high"
+                }
+              ],
+              "approvalGates": [
+                {
+                  "gateId": "GATE-001",
+                  "message": "Review",
+                  "question": "Approved?",
+                  "afterTaskIds": ["PROJ-20240101-903"],
+                  "beforeTaskIds": ["PROJ-20240101-904"]
+                }
+              ]
+            }
+            """;
+
+        var parsed = TasksJsonParser.TryParse(WrapJson(json), out _, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Message, Does.Contain("4 independent schema problems"));
+            Assert.That(diagnostic?.Message, Does.Contain("PROJ-20240101-901"));
+            Assert.That(diagnostic?.Message, Does.Contain("PROJ-20240101-902"));
+            Assert.That(diagnostic?.Message, Does.Contain("PROJ-20240101-903"));
+            Assert.That(diagnostic?.Message, Does.Contain("PROJ-20240101-904"));
+            Assert.That(diagnostic?.Message, Does.Contain("unknown-task-dependency"));
+            Assert.That(diagnostic?.Message, Does.Contain("unknown-gate-after-task"));
+            Assert.That(diagnostic?.Message, Does.Contain("unknown-gate-before-task"));
+        });
+    }
+
+    [Test]
+    public void TryParse_ShapeAndReferenceErrors_AreReportedTogether()
+    {
+        const string tasksJson = """
+            [{
+              "id": "PROJ-20240101-001",
+              "title": "",
+              "description": "Work",
+              "dependsOn": ["PROJ-20240101-999"],
+              "priority": "high"
+            }]
+            """;
+
+        var parsed = TasksJsonParser.TryParse(
+            WrapJson(MinimalGroupJson(tasksJson: tasksJson)), out _, out var diagnostic);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(diagnostic?.Message, Does.Contain("2 independent schema problems"));
+            Assert.That(diagnostic?.Message, Does.Contain("missing-task-title"));
+            Assert.That(diagnostic?.Message, Does.Contain("unknown-task-dependency"));
+        });
+    }
+
+    [Test]
     public void TryParse_DuplicateTaskIds_ReturnsFalse()
     {
         const string groupId = "PROJ-20240101";

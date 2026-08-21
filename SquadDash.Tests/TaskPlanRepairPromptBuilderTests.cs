@@ -97,10 +97,11 @@ internal sealed class TaskPlanRepairPromptBuilderTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(prompt, Does.Contain("3 independent schema problems were found"));
+            Assert.That(prompt, Does.Contain("4 independent schema problems were found"));
             Assert.That(prompt, Does.Contain("invalid-task-id"));
             Assert.That(prompt, Does.Contain("invalid-task-priority"));
             Assert.That(prompt, Does.Contain("missing-gate-question"));
+            Assert.That(prompt, Does.Contain("gate-after-final-task"));
         });
     }
 

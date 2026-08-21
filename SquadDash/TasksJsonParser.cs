@@ -623,6 +623,7 @@ internal static class TasksJsonParser
             return true;
 
         var changed = false;
+        var conflicts = new List<TasksJsonParseDiagnostic>();
         if (root["tasks"] is JsonArray tasks)
         {
             foreach (var node in tasks)
@@ -635,10 +636,10 @@ internal static class TasksJsonParser
                 var hasCanonicalAssignments = task["agentAssignments"] is JsonArray;
                 if (!string.IsNullOrWhiteSpace(assignedTo) && hasCanonicalAssignments)
                 {
-                    diagnostic = new TasksJsonParseDiagnostic(
+                    conflicts.Add(new TasksJsonParseDiagnostic(
                         "conflicting-agent-assignment-shapes",
-                        $"task '{taskId}' contains both assignedTo and agentAssignments; remove assignedTo and keep one canonical assignment");
-                    return false;
+                        $"task '{taskId}' contains both assignedTo and agentAssignments; remove assignedTo and keep one canonical assignment"));
+                    continue;
                 }
 
                 if (!string.IsNullOrWhiteSpace(assignedTo))
@@ -681,6 +682,17 @@ internal static class TasksJsonParser
                     }
                 }
             }
+        }
+
+        if (conflicts.Count > 0)
+        {
+            diagnostic = new TasksJsonParseDiagnostic(
+                conflicts[0].Code,
+                conflicts.Count == 1
+                    ? conflicts[0].Message
+                    : $"{conflicts.Count} independent schema problems were found:\n- " +
+                      string.Join("\n- ", conflicts.Select(value => $"{value.Code}: {value.Message}")));
+            return false;
         }
 
         if (changed)
@@ -774,8 +786,97 @@ internal static class TasksJsonParser
             if (!PlanTaskVerificationLevel.IsValid(task.VerificationLevel))
                 Add("invalid-task-verification-level",
                     $"task '{taskId}' verificationLevel must be lightweight, standard, or enhanced");
+
+            var assignedHandles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var assignment in task.AgentAssignments ?? [])
+            {
+                var handle = assignment.AgentHandle ?? string.Empty;
+                if (!AgentHandlePattern.IsMatch(handle) ||
+                    string.IsNullOrWhiteSpace(assignment.Role) ||
+                    !assignedHandles.Add(handle))
+                    Add("invalid-agent-assignment",
+                        $"task '{taskId}' has an invalid or duplicate agent assignment '{handle}'");
+            }
+
+            var proofIds = new HashSet<string>(StringComparer.Ordinal);
+            var humanProofCount = (task.ProofRequirements ?? [])
+                .Count(requirement => PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType));
+            if (humanProofCount > MaxHumanProofRequirementsPerCheckpoint)
+                Add("too-many-human-proof-requirements",
+                    $"task '{taskId}' declares {humanProofCount} human checks; " +
+                    $"a checkpoint may contain at most {MaxHumanProofRequirementsPerCheckpoint}");
+            foreach (var requirement in task.ProofRequirements ?? [])
+            {
+                var requirementId = requirement.RequirementId ?? string.Empty;
+                if (!OutputIdPattern.IsMatch(requirementId) ||
+                    !OutputIdPattern.IsMatch(requirement.ProofType ?? string.Empty) ||
+                    string.IsNullOrWhiteSpace(requirement.Description) ||
+                    !proofIds.Add(requirementId))
+                    Add("invalid-proof-requirement",
+                        $"task '{taskId}' has invalid or duplicate proof requirement '{requirementId}'");
+                else if (PlanProofCapabilityPolicy.Classify(requirement.ProofType) ==
+                         PlanProofExecutorKind.Unsupported)
+                    Add("unsupported-proof-type",
+                        $"task '{taskId}' uses unsupported proofType '{requirement.ProofType}'");
+                if (PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType) &&
+                    !string.IsNullOrWhiteSpace(requirement.Question) &&
+                    PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question).Count != 1)
+                    Add("non-atomic-human-proof",
+                        $"task '{taskId}' must give proof requirement '{requirementId}' one atomic true/false question");
+            }
         }
 
+        var outputOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var task in parsed.Tasks)
+        {
+            foreach (var output in task.Outputs ?? [])
+            {
+                var outputId = output.OutputId ?? string.Empty;
+                if (!OutputIdPattern.IsMatch(outputId) ||
+                    string.IsNullOrWhiteSpace(output.Description) ||
+                    !outputOwners.TryAdd(outputId, task.Id))
+                    Add("invalid-task-output",
+                        $"task '{task.Id}' has invalid or duplicate output id '{output.OutputId}'");
+            }
+        }
+
+        var tasksById = parsed.Tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.Id))
+            .GroupBy(task => task.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        foreach (var task in parsed.Tasks)
+        {
+            foreach (var dependencyId in task.DependsOn ?? [])
+                if (!taskIds.Contains(dependencyId))
+                    Add("unknown-task-dependency",
+                        $"task '{task.Id}' depends on unknown id '{dependencyId}'");
+
+            if (!string.IsNullOrWhiteSpace(task.ParentTaskId) &&
+                (!taskIds.Contains(task.ParentTaskId) ||
+                 string.Equals(task.ParentTaskId, task.Id, StringComparison.Ordinal)))
+                Add("invalid-parent-task",
+                    $"task '{task.Id}' has invalid parentTaskId '{task.ParentTaskId}'");
+
+            foreach (var input in task.Inputs ?? [])
+            {
+                if (!outputOwners.TryGetValue(input, out var ownerId) ||
+                    string.Equals(ownerId, task.Id, StringComparison.Ordinal) ||
+                    !DependsTransitivelyOn(tasksById, task.Id, ownerId))
+                    Add("invalid-task-input",
+                        $"task '{task.Id}' references input '{input}' without depending on its producer");
+            }
+        }
+
+        var dependedUponTaskIds = parsed.Tasks
+            .SelectMany(task => task.DependsOn ?? [])
+            .Where(taskIds.Contains)
+            .ToHashSet(StringComparer.Ordinal);
+        var rootTaskIds = parsed.Tasks
+            .Where(task => task.DependsOn is null || task.DependsOn.Count == 0)
+            .Select(task => task.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var leafTaskIds = taskIds.Where(id => !dependedUponTaskIds.Contains(id))
+            .ToHashSet(StringComparer.Ordinal);
         var gateIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var gate in parsed.ApprovalGates ?? [])
         {
@@ -788,6 +889,51 @@ internal static class TasksJsonParser
                 Add("missing-gate-message", $"gate '{gateId}' has an empty message");
             if (string.IsNullOrWhiteSpace(gate.Question))
                 Add("missing-gate-question", $"gate '{gateId}' must tell the reviewer exactly what to verify or decide");
+
+            var gateProofIds = new HashSet<string>(StringComparer.Ordinal);
+            var humanProofCount = gate.ProofRequirements?.Count ?? 0;
+            if (humanProofCount > MaxHumanProofRequirementsPerCheckpoint)
+                Add("too-many-human-proof-requirements",
+                    $"gate '{gateId}' declares {humanProofCount} human checks; " +
+                    $"a checkpoint may contain at most {MaxHumanProofRequirementsPerCheckpoint}");
+            foreach (var requirement in gate.ProofRequirements ?? [])
+            {
+                var requirementId = requirement.RequirementId ?? string.Empty;
+                if (!OutputIdPattern.IsMatch(requirementId) ||
+                    string.IsNullOrWhiteSpace(requirement.Description) ||
+                    !gateProofIds.Add(requirementId) ||
+                    !PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))
+                    Add("invalid-human-proof-checkpoint",
+                        $"gate '{gateId}' has invalid, duplicate, or non-human proof requirement '{requirementId}'");
+                if (!string.IsNullOrWhiteSpace(requirement.Question) &&
+                    PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question).Count != 1)
+                    Add("non-atomic-human-proof",
+                        $"gate '{gateId}' must give proof requirement '{requirementId}' one atomic true/false question");
+            }
+            if (!string.IsNullOrWhiteSpace(gate.Question) &&
+                (gate.ProofRequirements is null || gate.ProofRequirements.Count == 0) &&
+                PlanHumanReviewChecklist.SplitLegacyQuestions(gate.Question).Count != 1)
+                Add("non-atomic-gate-question",
+                    $"gate '{gateId}' must contain one atomic true/false question or separate proof requirements");
+
+            foreach (var id in gate.AfterTaskIds ?? [])
+                if (!taskIds.Contains(id))
+                    Add("unknown-gate-after-task",
+                        $"gate '{gateId}' afterTaskIds references unknown task '{id}'");
+            foreach (var id in gate.BeforeTaskIds ?? [])
+                if (!taskIds.Contains(id))
+                    Add("unknown-gate-before-task",
+                        $"gate '{gateId}' beforeTaskIds references unknown task '{id}'");
+
+            var afterIds = gate.AfterTaskIds ?? [];
+            var beforeIds = gate.BeforeTaskIds ?? [];
+            if (afterIds.Count == 0 && beforeIds.Count > 0 && beforeIds.All(rootTaskIds.Contains))
+                Add("gate-before-first-task",
+                    $"gate '{gateId}' is a before-first-step gate; use plan-level execution approval instead");
+            if (beforeIds.Count == 0 && afterIds.Count > 0 && afterIds.All(leafTaskIds.Contains) &&
+                gate.ProofRequirements is not { Count: > 0 })
+                Add("gate-after-final-task",
+                    $"gate '{gateId}' is an after-final-step gate; it would never block any task");
         }
 
         if (parsed.Validations is { Count: > 16 })
@@ -804,11 +950,41 @@ internal static class TasksJsonParser
             if (string.IsNullOrWhiteSpace(validation.Title) ||
                 string.IsNullOrWhiteSpace(validation.Description) ||
                 validation.Assertions is not { Count: > 0 } ||
+                (validation.Assertions ?? []).Any(string.IsNullOrWhiteSpace) ||
+                (validation.Assertions ?? []).Distinct(StringComparer.Ordinal).Count() !=
+                    (validation.Assertions?.Count ?? 0) ||
                 validation.AfterTaskIds is not { Count: > 0 })
                 Add("incomplete-validation", $"validation '{validation.ValidationId}' is missing its title, description, prerequisites, or assertions");
             if (validation.Mode is not ("command" or "evidence" or "hybrid" or "audit") ||
                 (validation.Mode is "command" or "hybrid") && validation.Commands is not { Count: > 0 })
                 Add("invalid-validation-mode", $"validation '{validation.ValidationId}' has an invalid mode or no command");
+
+            foreach (var id in validation.AfterTaskIds ?? [])
+                if (!taskIds.Contains(id))
+                    Add("unknown-validation-after-task",
+                        $"validation '{validation.ValidationId}' afterTaskIds references unknown task '{id}'");
+            foreach (var id in validation.BeforeTaskIds ?? [])
+                if (!taskIds.Contains(id))
+                    Add("unknown-validation-before-task",
+                        $"validation '{validation.ValidationId}' beforeTaskIds references unknown task '{id}'");
+            foreach (var id in (validation.AfterTaskIds ?? [])
+                         .Intersect(validation.BeforeTaskIds ?? [], StringComparer.Ordinal))
+                Add("overlapping-validation-boundary",
+                    $"validation '{validation.ValidationId}' contains task '{id}' in both afterTaskIds and beforeTaskIds");
+            foreach (var outputId in validation.OutputIds ?? [])
+            {
+                if (!outputOwners.TryGetValue(outputId, out var ownerId) ||
+                    !(validation.AfterTaskIds ?? []).Any(afterId =>
+                        string.Equals(afterId, ownerId, StringComparison.Ordinal) ||
+                        DependsTransitivelyOn(tasksById, afterId, ownerId)))
+                    Add("unknown-validation-output",
+                        $"validation '{validation.ValidationId}' references unavailable output '{outputId}'");
+            }
+            if ((validation.BeforeTaskIds ?? []).Any(beforeId =>
+                    (validation.AfterTaskIds ?? []).Any(afterId =>
+                        DependsTransitivelyOn(tasksById, afterId, beforeId))))
+                Add("validation-dependency-cycle",
+                    $"validation '{validation.ValidationId}' creates a dependency cycle");
         }
 
         return diagnostics;
