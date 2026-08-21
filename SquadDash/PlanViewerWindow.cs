@@ -2884,7 +2884,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     PlanTaskVerificationLevel.Enhanced => CreateEnhancedVerificationIndicator(),
                     _ => CreateStandardVerificationIndicator(),
                 };
-                verificationIndicatorContent.Margin = new Thickness(6 * _scaleFactor, 0, 0, 0);
+                verificationIndicatorContent.Margin = new Thickness(10 * _scaleFactor, 0, 0, 0);
 
                 FrameworkElement CreateLightweightVerificationIndicator()
                 {
@@ -3012,7 +3012,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(14.6 * _scaleFactor));
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(17.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
