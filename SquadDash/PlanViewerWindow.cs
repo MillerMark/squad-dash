@@ -1103,18 +1103,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             durablePlan is not null &&
             durablePlan.LifecycleStatus != PlanLifecycleStatus.Staged)
         {
-            var developerMenu = CreateThemedMenu();
-            var normalizeItem = CreateThemedMenuItem("Normalize this plan…");
-            normalizeItem.Click += (_, _) => NormalizeCurrentPlanFromDeveloperMenu();
-            developerMenu.Items.Add(normalizeItem);
-            canvas.ContextMenu = developerMenu;
-            canvas.ContextMenuOpening += (_, e) =>
-            {
-                // This command belongs to the canvas background, not task cards, approval
-                // controls, validation shields, or other interactive graph elements.
-                if (!ReferenceEquals(canvas.InputHitTest(Mouse.GetPosition(canvas)), canvas))
-                    e.Handled = true;
-            };
+            var canvasMenu = CreateThemedMenu();
+            AppendDeveloperNormalizeMenuItem(canvasMenu);
+            canvas.ContextMenu = canvasMenu;
         }
         var scroll = new ScrollViewer
         {
@@ -2726,6 +2717,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     contextMenu.Items.Add(deleteTask);
                 }
 
+                AppendDeveloperNormalizeMenuItem(contextMenu);
+
                 MenuItem CreateInsertTaskMenuItem(bool insertAfter, bool isEnabled)
                 {
                     var relativePosition = insertAfter ? "after" : "before";
@@ -2813,6 +2806,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     ApplyStagedMutation(StagedPlanEditor.DeleteTask(_plan!.Group, capturedTaskId));
                 };
                 contextMenu.Items.Add(deleteTask);
+                AppendDeveloperNormalizeMenuItem(contextMenu);
                 border.ContextMenu = contextMenu;
             }
 
@@ -5065,6 +5059,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var item = new MenuItem { Header = header, IsEnabled = isEnabled };
         item.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         return item;
+    }
+
+    private void AppendDeveloperNormalizeMenuItem(ContextMenu menu)
+    {
+        const string normalizeTag = "developer-normalize-plan";
+        if (!SquadDashEnvironment.IsDeveloperMode ||
+            _saveDefinitionEdit is null ||
+            _durablePlan is null ||
+            _durablePlan.LifecycleStatus == PlanLifecycleStatus.Staged ||
+            menu.Items.OfType<MenuItem>().Any(item =>
+                string.Equals(item.Tag as string, normalizeTag, StringComparison.Ordinal)))
+            return;
+
+        if (menu.Items.Count > 0)
+            menu.Items.Add(CreateThemedMenuSeparator());
+        var normalizeItem = CreateThemedMenuItem("Normalize this plan…");
+        normalizeItem.Tag = normalizeTag;
+        normalizeItem.Click += (_, _) => NormalizeCurrentPlanFromDeveloperMenu();
+        menu.Items.Add(normalizeItem);
     }
 
     private Separator CreateThemedMenuSeparator()

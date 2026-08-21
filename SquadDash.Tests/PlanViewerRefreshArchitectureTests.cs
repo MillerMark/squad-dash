@@ -78,6 +78,27 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void DeveloperNormalization_AppendsWithoutSuppressingExistingContextMenus()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var appendCount = source.Split(
+            "AppendDeveloperNormalizeMenuItem(",
+            StringSplitOptions.None).Length - 1;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Not.Contain("canvas.ContextMenuOpening"),
+                "The canvas must not handle routed context-menu events from task or gate controls.");
+            Assert.That(appendCount, Is.GreaterThanOrEqualTo(4),
+                "The developer command should be appended to the canvas and existing task menus through one helper.");
+            Assert.That(source, Does.Contain("if (menu.Items.Count > 0)")
+                .And.Contain("menu.Items.Add(CreateThemedMenuSeparator())")
+                .And.Contain("menu.Items.Add(normalizeItem)"),
+                "Appending the developer command must preserve the menu's regular items.");
+        });
+    }
+
+    [Test]
     public void HumanApprovalContextMenus_UseTheLowContrastThemedSeparator()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
