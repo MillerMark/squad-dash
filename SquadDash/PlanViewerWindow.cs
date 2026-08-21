@@ -7113,6 +7113,53 @@ internal sealed class PlanViewerWindow : ChromedWindow
         AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
     }
 
+    private FrameworkElement BuildStandardInlineIcon(double opacity)
+    {
+        if (Application.Current.FindResource("TaskSucceededGeometry") is not Geometry geom)
+            return new UIElement() as FrameworkElement ?? new Border();
+        var path = new Path { Data = geom };
+        path.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+        return new Viewbox { Width = 14, Height = 14, Stretch = Stretch.Uniform, Child = path, Opacity = opacity };
+    }
+
+    private FrameworkElement BuildLightweightInlineIcon(double opacity)
+    {
+        var ellipse = new Ellipse
+        {
+            Width = 12,
+            Height = 12,
+            StrokeThickness = 1.5,
+            Fill = Brushes.Transparent,
+        };
+        ellipse.SetResourceReference(Shape.StrokeProperty, "TaskSucceededFill");
+        if (opacity >= 1.0)
+            ellipse.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+        return new Border { Width = 14, Height = 14, Child = ellipse, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = opacity };
+    }
+
+    private FrameworkElement BuildEnhancedInlineIcon(double opacity)
+    {
+        var starGeometry = Geometry.Parse(
+            "M2373.875,421.375C2393.875,421.625,2411.875,433.5,2427.625,453.875L2427.875,454.25 " +
+            "2429.125,455.375C2444.875,475.875,2458.5,504.75,2470,539.375L2472.25,545.125 " +
+            "2587,888.5 2801,1525.25 2821.875,1525.625 2827.375,1525.625 2827.375,1525.625 " +
+            "2891.25,1526.625 3841.625,1526.75 3877.375,1526.875C3954.125,1527.625,3997.5,1541.5," +
+            "4009.75,1579.875L4010,1589.125 4014.875,1597.25C4026.5,1635.75,3991.5,1680.125," +
+            "3932.75,1723L3928,1727 3163.5,2288 3076.5,2354 3091.375,2398.5 3090.25,2398.875 " +
+            "3410.5,3361.125 3421.625,3395.125C3445.25,3468.125,3445.625,3513.75,3413.25,3537.5" +
+            "C3380.75,3561.125,3327.375,3542.75,3267.375,3501.625L3262.125,3498.375 " +
+            "2358.375,2878.875 2352.625,2883 2352,2882.125 1533.75,3481.25 " +
+            "1504.75,3502.25C1442.375,3547.125,1399.125,3561.375,1366.625,3537.75" +
+            "C1334.125,3514.125,1335.375,3457.75,1356.25,3388L1357.75,3382 " +
+            "1663.875,2356.5 828.75,1724.875 800.25,1703.125C739.5,1656.25,713.375,1619," +
+            "726.625,1581C740,1543.125,794.375,1528,867.125,1528L873.375,1527.75 " +
+            "1945.75,1526.5 2011.5,1332.25 2269.875,563.75 2281.375,530" +
+            "C2306.625,457.375,2333.625,420.75,2373.875,421.375z");
+        var starPath = new Path { Data = starGeometry };
+        starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+        return new Viewbox { Width = 14, Height = 14, Stretch = Stretch.Uniform, Child = starPath, Opacity = opacity };
+    }
+
     private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly, PlanTask? durableTask = null)
     {
         if (_detailDocument is null)
@@ -7150,9 +7197,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
             PlanTaskVerificationLevel.Enhanced => "Enhanced",
             _ => "Standard",
         };
+        bool isComplete = durableTask?.Status == PlanTaskStatus.Complete;
+        double iconOpacity = isComplete ? 1.0 : 0.50;
+        FrameworkElement levelIcon = verificationLevel switch
+        {
+            PlanTaskVerificationLevel.Enhanced => BuildEnhancedInlineIcon(iconOpacity),
+            PlanTaskVerificationLevel.Lightweight => BuildLightweightInlineIcon(iconOpacity),
+            _ => BuildStandardInlineIcon(iconOpacity),
+        };
         var levelPara = new Paragraph();
         levelPara.Inlines.Add(new Run("Verification level: ") { FontWeight = FontWeights.SemiBold });
-        levelPara.Inlines.Add(new Run(levelLabel));
+        levelPara.Inlines.Add(new InlineUIContainer(levelIcon) { BaselineAlignment = BaselineAlignment.Center });
+        levelPara.Inlines.Add(new Run(" " + levelLabel));
         levelPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
         levelPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         levelPara.Margin = new Thickness(0, 0, 0, 8);
