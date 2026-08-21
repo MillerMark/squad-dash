@@ -513,6 +513,13 @@ internal sealed class WorkspaceConversationStore {
                 ProtocolJsonBlocks = segment.ProtocolJsonBlocks
             })
             .ToArray();
+        var hostNotices = turn.GetHostNotices()
+            .Select(notice => new TranscriptHostNoticeRecord(
+                notice.Text.Trim(),
+                NormalizeSequence(notice.Sequence),
+                notice.OccurredAt.ToUniversalTime()))
+            .Where(notice => !string.IsNullOrWhiteSpace(notice.Text))
+            .ToArray();
 
         var turnAge = now - turn.StartedAt;
         var stripDetail = turnAge > ToolDetailRetentionPeriod;
@@ -603,7 +610,8 @@ internal sealed class WorkspaceConversationStore {
             turn.ThinkingCollapsed,
             tools,
             thoughts,
-            responseSegments) {
+            responseSegments,
+            hostNotices) {
             ToolsSuppressedCount = toolsSuppressedCount,
             AgentReports        = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null,
             IsSystemInjected    = turn.IsSystemInjected,
@@ -1132,7 +1140,8 @@ internal sealed record TranscriptTurnRecord(
     bool ThinkingCollapsed,
     IReadOnlyList<TranscriptToolRecord> Tools,
     IReadOnlyList<TranscriptThoughtRecord>? Thoughts = null,
-    IReadOnlyList<TranscriptResponseSegmentRecord>? ResponseSegments = null) {
+    IReadOnlyList<TranscriptResponseSegmentRecord>? ResponseSegments = null,
+    IReadOnlyList<TranscriptHostNoticeRecord>? HostNotices = null) {
 
     public DateTimeOffset Timestamp => CompletedAt ?? StartedAt;
     public int? ToolsSuppressedCount { get; init; }
@@ -1199,6 +1208,11 @@ internal sealed record TranscriptTurnRecord(
 
         return [new TranscriptResponseSegmentRecord(ResponseText.TrimEnd())];
     }
+
+    public IReadOnlyList<TranscriptHostNoticeRecord> GetHostNotices() =>
+        HostNotices is { Count: > 0 }
+            ? HostNotices
+            : Array.Empty<TranscriptHostNoticeRecord>();
 }
 
 internal sealed record TranscriptThoughtRecord(
@@ -1227,6 +1241,11 @@ internal sealed record TranscriptResponseSegmentRecord(
     public int? Sequence { get; init; }
     public IReadOnlyList<TranscriptProtocolJsonBlock>? ProtocolJsonBlocks { get; init; }
 }
+
+internal sealed record TranscriptHostNoticeRecord(
+    string Text,
+    int? Sequence,
+    DateTimeOffset OccurredAt);
 
 internal sealed record TranscriptProtocolJsonBlock(
     string Marker,

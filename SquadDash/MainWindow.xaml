@@ -326,7 +326,7 @@
                     <Setter TargetName="AgentCardBorder" Property="Padding" Value="6,0,6,0" />
                     <Setter TargetName="AgentCardBorder" Property="CornerRadius" Value="9" />
                 </DataTrigger>
-                <DataTrigger Binding="{Binding StatusText}" Value="Throttled">
+                <DataTrigger Binding="{Binding IsThrottled}" Value="True">
                     <Setter TargetName="StatusTextBlock" Property="FontWeight" Value="Bold" />
                     <Setter TargetName="StatusTextBlock" Property="Foreground" Value="{DynamicResource TaskFailureText}" />
                 </DataTrigger>

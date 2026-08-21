@@ -16,6 +16,7 @@ using System.Threading;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Microsoft.CognitiveServices.Speech;
 
 namespace SquadDash;
@@ -24,6 +25,9 @@ internal sealed class PreferencesWindow : Window {
     private readonly ApplicationSettingsStore _settingsStore;
     private readonly IWorkspacePaths _workspacePaths;
     private readonly Action<ApplicationSettingsSnapshot> _onSaved;
+    private readonly ISquadCliResolutionService _cliResolutionService;
+    private readonly ISquadCliSelectionStore _cliSelectionStore;
+    private readonly string _cliWorkspaceDirectory;
     private readonly TextBox _userNameBox;
     private readonly PasswordBox _apiKeyPasswordBox;
     private readonly TextBox _apiKeyRevealBox;
@@ -36,6 +40,14 @@ internal sealed class PreferencesWindow : Window {
     private readonly PasswordBox _openAiSpeechKeyPasswordBox;
     private readonly TextBox _openAiSpeechKeyRevealBox;
     private readonly TextBlock _statusText;
+    private readonly ComboBox _cliSelectionModeComboBox;
+    private readonly TextBlock _cliDetectedSourceText;
+    private readonly TextBlock _cliInstalledVersionText;
+    private readonly TextBox _cliCustomPathBox;
+    private readonly Button _cliBrowsePathButton;
+    private readonly TextBlock _cliCapabilityStatusText;
+    private readonly TextBlock _cliSelectionStatusText;
+    private readonly Button _cliReprobeButton;
     private readonly PushNotificationService _pushNotificationService;
     private readonly CheckBox _notificationsEnabledCheckBox;
     private readonly TextBox _notificationTopicBox;
@@ -221,6 +233,9 @@ internal sealed class PreferencesWindow : Window {
         ApplicationSettingsStore settingsStore,
         ApplicationSettingsSnapshot currentSettings,
         PushNotificationService pushNotificationService,
+        ISquadCliResolutionService cliResolutionService,
+        ISquadCliSelectionStore cliSelectionStore,
+        string cliWorkspaceDirectory,
         IWorkspacePaths workspacePaths,
         Action<ApplicationSettingsSnapshot> onSaved,
         bool showDevOptions = false,
@@ -234,6 +249,11 @@ internal sealed class PreferencesWindow : Window {
         Action? advanceTourStep = null) {
         _settingsStore    = settingsStore;
         _pushNotificationService = pushNotificationService;
+        _cliResolutionService = cliResolutionService ?? throw new ArgumentNullException(nameof(cliResolutionService));
+        _cliSelectionStore = cliSelectionStore ?? throw new ArgumentNullException(nameof(cliSelectionStore));
+        _cliWorkspaceDirectory = string.IsNullOrWhiteSpace(cliWorkspaceDirectory)
+            ? workspacePaths.ApplicationRoot
+            : cliWorkspaceDirectory;
         _workspacePaths   = workspacePaths;
         _onSaved          = onSaved;
         _startPtt         = startPtt;
@@ -319,6 +339,84 @@ internal sealed class PreferencesWindow : Window {
         _userNameBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         _userNameBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         _userNameBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+
+        _cliSelectionModeComboBox = new ComboBox
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        _cliSelectionModeComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _cliSelectionModeComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        AddCliModeOption("Auto (recommended)", CliSelectionMode.Auto);
+        AddCliModeOption("Workspace local", CliSelectionMode.WorkspaceLocal);
+        AddCliModeOption("Global npm", CliSelectionMode.GlobalNpm);
+        AddCliModeOption("Native system", CliSelectionMode.NativeSystem);
+        AddCliModeOption("Custom path", CliSelectionMode.CustomPath);
+        var persistedMode = _cliSelectionStore.GetSelectionMode(_cliWorkspaceDirectory);
+        _cliSelectionModeComboBox.SelectedItem = _cliSelectionModeComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is CliSelectionMode mode && mode == persistedMode)
+            ?? _cliSelectionModeComboBox.Items[0];
+
+        _cliDetectedSourceText = new TextBlock
+        {
+            Text = "Detecting…",
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        _cliDetectedSourceText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _cliDetectedSourceText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        _cliInstalledVersionText = new TextBlock
+        {
+            Text = "Detecting…",
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        _cliInstalledVersionText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _cliInstalledVersionText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        _cliCustomPathBox = new TextBox
+        {
+            Text = _cliSelectionStore.GetCustomPath(_cliWorkspaceDirectory) ?? string.Empty,
+            Padding = new Thickness(6, 4, 6, 4),
+            MinWidth = 320
+        };
+        _cliCustomPathBox.SetResourceReference(TextBox.BackgroundProperty, "TextBoxBackground");
+        _cliCustomPathBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+        _cliCustomPathBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        _cliCustomPathBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+
+        _cliBrowsePathButton = new Button
+        {
+            Content = "Browse…",
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(12, 4, 12, 4)
+        };
+        _cliBrowsePathButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _cliBrowsePathButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+
+        _cliCapabilityStatusText = new TextBlock
+        {
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        _cliCapabilityStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        ApplyCliCapabilityIndicator(CliCapabilityStatus.Unknown);
+
+        _cliSelectionStatusText = new TextBlock
+        {
+            Margin = new Thickness(0, 6, 0, 0),
+            TextWrapping = TextWrapping.Wrap
+        };
+        _cliSelectionStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _cliSelectionStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+
+        _cliReprobeButton = new Button
+        {
+            Content = "Re-probe CLI",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(12, 4, 12, 4),
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        _cliReprobeButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _cliReprobeButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
 
         _planAgentRoutingPolicyComboBox = new ComboBox {
             Margin = new Thickness(0, 0, 0, 20)
@@ -758,6 +856,10 @@ internal sealed class PreferencesWindow : Window {
 
         // ── Auto-save hooks ───────────────────────────────────────────────
         _userNameBox.LostFocus += (_, _) => SaveUserNameNow();
+        _cliSelectionModeComboBox.SelectionChanged += CliSelectionModeComboBox_SelectionChanged;
+        _cliCustomPathBox.LostFocus += CliCustomPathBox_LostFocus;
+        _cliBrowsePathButton.Click += CliBrowsePathButton_Click;
+        _cliReprobeButton.Click += CliReprobeButton_Click;
         _planAgentRoutingPolicyComboBox.SelectionChanged += (_, _) => SavePlanAgentRoutingPolicyNow();
         _speechRegionBox.LostFocus += (_, _) => SaveSpeechRegionNow();
         _speechLanguageComboBox.SelectionChanged += (_, _) => SaveSpeechLanguageNow();
@@ -912,7 +1014,12 @@ internal sealed class PreferencesWindow : Window {
 
         NavigateTo(Math.Min(currentSettings.Preferences_LastPage, _pages.Length - 1));
         UpdateQrCode();
-        Loaded += async (_, _) => await LoadCopilotModelsIntoComboBoxAsync();
+        UpdateCliCustomPathEnablement();
+        Loaded += async (_, _) =>
+        {
+            await LoadCopilotModelsIntoComboBoxAsync();
+            await RefreshCliSelectionDisplayAsync();
+        };
     }
 
     private void NavigateTo(int index) {
@@ -1149,6 +1256,42 @@ internal sealed class PreferencesWindow : Window {
         routingHelp.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         routingHelp.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         form.Children.Add(routingHelp);
+
+        AddSectionHeader(form, "Squad CLI Selection", topMargin: 12);
+
+        var cliHint = new TextBlock
+        {
+            Text = "Choose which Squad CLI installation this workspace should use.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        cliHint.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        cliHint.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        form.Children.Add(cliHint);
+
+        AddLabel(form, "Selection mode");
+        form.Children.Add(_cliSelectionModeComboBox);
+
+        AddLabel(form, "Detected source");
+        form.Children.Add(_cliDetectedSourceText);
+
+        AddLabel(form, "Installed version");
+        form.Children.Add(_cliInstalledVersionText);
+
+        AddLabel(form, "Agent command support");
+        form.Children.Add(_cliCapabilityStatusText);
+
+        AddLabel(form, "Custom path");
+        var customPathRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal
+        };
+        customPathRow.Children.Add(_cliCustomPathBox);
+        customPathRow.Children.Add(_cliBrowsePathButton);
+        form.Children.Add(customPathRow);
+
+        form.Children.Add(_cliSelectionStatusText);
+        form.Children.Add(_cliReprobeButton);
 
         return WrapInScrollViewer(form);
     }
@@ -2609,6 +2752,182 @@ internal sealed class PreferencesWindow : Window {
 
     private void SaveButton_Click(object sender, RoutedEventArgs e) => Close();
 
+    private async void CliSelectionModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        try
+        {
+            UpdateCliCustomPathEnablement();
+            await SaveCliSelectionFromControlsAsync(refreshProbe: true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Preferences", $"CLI mode selection save failed: {ex.Message}");
+            _cliSelectionStatusText.Text = $"Unable to save CLI selection: {ex.Message}";
+        }
+    }
+
+    private async void CliCustomPathBox_LostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (GetSelectedCliMode() != CliSelectionMode.CustomPath)
+            return;
+
+        try
+        {
+            await SaveCliSelectionFromControlsAsync(refreshProbe: true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Preferences", $"CLI custom path save failed: {ex.Message}");
+            _cliSelectionStatusText.Text = $"Unable to save custom path: {ex.Message}";
+        }
+    }
+
+    private async void CliBrowsePathButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Select Squad CLI executable",
+            Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All files (*.*)|*.*",
+            CheckFileExists = true,
+            CheckPathExists = true
+        };
+
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        _cliCustomPathBox.Text = dialog.FileName;
+        try
+        {
+            await SaveCliSelectionFromControlsAsync(refreshProbe: true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Preferences", $"CLI browse save failed: {ex.Message}");
+            _cliSelectionStatusText.Text = $"Unable to save custom path: {ex.Message}";
+        }
+    }
+
+    private async void CliReprobeButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await RefreshCliSelectionDisplayAsync();
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Preferences", $"CLI re-probe failed: {ex.Message}");
+            _cliSelectionStatusText.Text = $"Re-probe failed: {ex.Message}";
+        }
+    }
+
+    private async Task SaveCliSelectionFromControlsAsync(bool refreshProbe)
+    {
+        var selectedMode = GetSelectedCliMode();
+        await PersistCliSelectionAsync(_cliSelectionStore, _cliWorkspaceDirectory, selectedMode, _cliCustomPathBox.Text)
+            .ConfigureAwait(true);
+
+        if (refreshProbe)
+            await RefreshCliSelectionDisplayAsync().ConfigureAwait(true);
+        else
+            _cliSelectionStatusText.Text = "CLI selection saved.";
+    }
+
+    private async Task RefreshCliSelectionDisplayAsync()
+    {
+        var selectedMode = GetSelectedCliMode();
+        _cliReprobeButton.IsEnabled = false;
+        _cliSelectionStatusText.Text = "Probing Squad CLI…";
+
+        try
+        {
+            var candidate = await _cliResolutionService.ResolveWithModeAsync(selectedMode, _cliWorkspaceDirectory).ConfigureAwait(true);
+            _cliDetectedSourceText.Text = FormatCliInstallSource(candidate.DetectedSource);
+            _cliInstalledVersionText.Text = string.IsNullOrWhiteSpace(candidate.Version)
+                ? "(unknown)"
+                : $"v{candidate.Version}";
+            ApplyCliCapabilityIndicator(candidate.AgentCmdSupport);
+            _cliSelectionStatusText.Text = candidate.IsAvailable
+                ? "CLI selection saved."
+                : string.IsNullOrWhiteSpace(candidate.ProbeError)
+                    ? "CLI probe completed. No CLI candidate is currently available."
+                    : $"CLI probe completed: {candidate.ProbeError}";
+        }
+        finally
+        {
+            _cliReprobeButton.IsEnabled = true;
+        }
+    }
+
+    private void UpdateCliCustomPathEnablement()
+    {
+        var enabled = GetSelectedCliMode() == CliSelectionMode.CustomPath;
+        _cliCustomPathBox.IsEnabled = enabled;
+        _cliBrowsePathButton.IsEnabled = enabled;
+    }
+
+    private CliSelectionMode GetSelectedCliMode()
+    {
+        return (_cliSelectionModeComboBox.SelectedItem as ComboBoxItem)?.Tag is CliSelectionMode mode
+            ? mode
+            : CliSelectionMode.Auto;
+    }
+
+    private static string FormatCliInstallSource(CliInstallSource source) => source switch
+    {
+        CliInstallSource.WorkspaceNpm => "Workspace npm package",
+        CliInstallSource.GlobalNpm => "Global npm package",
+        CliInstallSource.NativeOther => "Native system install",
+        CliInstallSource.Custom => "Custom path",
+        _ => "Unknown",
+    };
+
+    internal static (string Label, string ResourceKey) BuildCapabilityIndicator(CliCapabilityStatus status) => status switch
+    {
+        CliCapabilityStatus.Supported => ("Supported", "SuccessText"),
+        CliCapabilityStatus.NotSupported => ("Not supported", "ErrorText"),
+        _ => ("Unknown", "BodyText"),
+    };
+
+    internal static (CliSelectionMode Mode, string? CustomPath) BuildCliSelectionForSave(
+        CliSelectionMode selectedMode,
+        string? customPathText)
+    {
+        var normalizedCustomPath = string.IsNullOrWhiteSpace(customPathText)
+            ? null
+            : customPathText.Trim();
+        return selectedMode == CliSelectionMode.CustomPath
+            ? (selectedMode, normalizedCustomPath)
+            : (selectedMode, null);
+    }
+
+    internal static Task PersistCliSelectionAsync(
+        ISquadCliSelectionStore selectionStore,
+        string workspaceDirectory,
+        CliSelectionMode selectedMode,
+        string? customPathText)
+    {
+        ArgumentNullException.ThrowIfNull(selectionStore);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceDirectory);
+        var selection = BuildCliSelectionForSave(selectedMode, customPathText);
+        return selectionStore.SaveSelectionAsync(workspaceDirectory, selection.Mode, selection.CustomPath);
+    }
+
+    private void ApplyCliCapabilityIndicator(CliCapabilityStatus status)
+    {
+        var (label, resourceKey) = BuildCapabilityIndicator(status);
+        _cliCapabilityStatusText.Text = label;
+        _cliCapabilityStatusText.SetResourceReference(TextBlock.ForegroundProperty, resourceKey);
+    }
+
+    private void AddCliModeOption(string label, CliSelectionMode mode)
+    {
+        _cliSelectionModeComboBox.Items.Add(new ComboBoxItem
+        {
+            Content = label,
+            Tag = mode
+        });
+    }
+
     // ── Per-setting auto-save helpers ─────────────────────────────────────
 
     private void SaveUserNameNow() {
@@ -3207,6 +3526,9 @@ internal sealed class PreferencesWindow : Window {
         ApplicationSettingsStore settingsStore,
         ApplicationSettingsSnapshot currentSettings,
         PushNotificationService pushNotificationService,
+        ISquadCliResolutionService cliResolutionService,
+        ISquadCliSelectionStore cliSelectionStore,
+        string cliWorkspaceDirectory,
         IWorkspacePaths workspacePaths,
         bool showDevOptions,
         Action<ApplicationSettingsSnapshot> onSaved,
@@ -3218,7 +3540,24 @@ internal sealed class PreferencesWindow : Window {
         Action<WorkHoursSettings>? onWorkHoursSaved = null,
         Func<bool>? tourHasEnterPriority = null,
         Action? advanceTourStep = null) {
-        var window = new PreferencesWindow(settingsStore, currentSettings, pushNotificationService, workspacePaths, onSaved, showDevOptions, startPtt, stopPtt, startGuidedTour, workHoursStore, workHoursWorkspaceDir, onWorkHoursSaved, tourHasEnterPriority, advanceTourStep);
+        var window = new PreferencesWindow(
+            settingsStore,
+            currentSettings,
+            pushNotificationService,
+            cliResolutionService,
+            cliSelectionStore,
+            cliWorkspaceDirectory,
+            workspacePaths,
+            onSaved,
+            showDevOptions,
+            startPtt,
+            stopPtt,
+            startGuidedTour,
+            workHoursStore,
+            workHoursWorkspaceDir,
+            onWorkHoursSaved,
+            tourHasEnterPriority,
+            advanceTourStep);
         if (owner != null)
             window.Owner = owner;
         window.Show();

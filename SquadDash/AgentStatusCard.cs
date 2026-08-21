@@ -52,6 +52,7 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     private string _displayName;
     private string _roleText;
     private string _statusText;
+    private bool _isThrottled;
     private string _bubbleText;
     private string _detailText;
     private Brush _accentBrush;
@@ -306,6 +307,11 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
         }
     }
 
+    public bool IsThrottled {
+        get => _isThrottled;
+        set => SetField(ref _isThrottled, value);
+    }
+
     public string BubbleText {
         get => _bubbleText;
         set {
@@ -378,8 +384,14 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     /// <summary>Fired when the agent's turn ends — causes the spinner to begin a forced wind-down.</summary>
     public event EventHandler? TurnEnded;
 
+    /// <summary>Fired when active work pauses for an external wait such as provider throttling.</summary>
+    public event EventHandler? ActivityPaused;
+
     /// <summary>Call from the UI thread when the agent's turn completes to trigger forced spinner fade-out.</summary>
     public void NotifyTurnEnded() => TurnEnded?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>Stops the activity indication promptly while the agent is waiting rather than working.</summary>
+    public void NotifyActivityPaused() => ActivityPaused?.Invoke(this, EventArgs.Empty);
 
     // ── Theme ─────────────────────────────────────────────────────────────
 

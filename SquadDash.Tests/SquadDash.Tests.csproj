@@ -176,6 +176,8 @@
     <Compile Include="..\SquadDash\ModelProviderProbeService.cs" Link="Source\ModelProviderProbeService.cs" />
     <Compile Include="..\SquadDash\ProviderFailurePresentation.cs" Link="Source\ProviderFailurePresentation.cs" />
     <Compile Include="..\SquadDash\ProviderFailureTranscriptBlockFactory.cs" Link="Source\ProviderFailureTranscriptBlockFactory.cs" />
+    <Compile Include="..\SquadDash\ProviderThrottlePresentation.cs" Link="Source\ProviderThrottlePresentation.cs" />
+    <Compile Include="..\SquadDash\ProviderThrottleTranscriptBlockFactory.cs" Link="Source\ProviderThrottleTranscriptBlockFactory.cs" />
     <Compile Include="..\SquadDash\ProviderFailureContinuationPolicy.cs" Link="Source\ProviderFailureContinuationPolicy.cs" />
     <Compile Include="..\SquadDash\ModelProfile.cs" Link="Source\ModelProfile.cs" />
     <Compile Include="..\SquadDash\ModelProfileCategory.cs" Link="Source\ModelProfileCategory.cs" />

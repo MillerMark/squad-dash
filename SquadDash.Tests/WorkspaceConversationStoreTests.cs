@@ -82,6 +82,12 @@ internal sealed class WorkspaceConversationStoreTests {
                             new TranscriptResponseSegmentRecord("Second streamed response segment.") {
                                 Sequence = 6
                             }
+                        ],
+                        [
+                            new TranscriptHostNoticeRecord(
+                                " Provider reported a rate limit. Throttled; retrying in 30s. ",
+                                5,
+                                startedAt.AddSeconds(30))
                         ])
                 ],
                 RecentSessionIds: [" session-123 ", " session-456 ", "session-123"]));
@@ -117,6 +123,12 @@ internal sealed class WorkspaceConversationStoreTests {
                 Is.EqualTo("{\"taskId\":\"PVINSPCTR-20260806-001\"}"));
             Assert.That(loaded.Turns[0].GetResponseSegments()[1].Text, Is.EqualTo("Second streamed response segment."));
             Assert.That(loaded.Turns[0].GetResponseSegments()[1].Sequence, Is.EqualTo(6));
+            Assert.That(loaded.Turns[0].GetHostNotices(), Has.Count.EqualTo(1));
+            Assert.That(loaded.Turns[0].GetHostNotices()[0].Text,
+                Is.EqualTo("Provider reported a rate limit. Throttled; retrying in 30s."));
+            Assert.That(loaded.Turns[0].GetHostNotices()[0].Sequence, Is.EqualTo(5));
+            Assert.That(loaded.Turns[0].GetHostNotices()[0].OccurredAt,
+                Is.EqualTo(startedAt.AddSeconds(30).ToUniversalTime()));
             Assert.That(loaded.Turns[0].StartedAt, Is.EqualTo(startedAt.ToUniversalTime()));
             Assert.That(loaded.Turns[0].CompletedAt, Is.EqualTo(finishedAt.ToUniversalTime()));
             Assert.That(loaded.Turns[0].Tools, Has.Count.EqualTo(1));

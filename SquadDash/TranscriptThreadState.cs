@@ -83,6 +83,8 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
             ? $"{AgentNameHumanizer.Humanize(RequestedAgentHandle)} (unverified)"
             : Title;
     public DateTimeOffset? LastObservedActivityAt { get; set; }
+    /// <summary>The provider retry deadline while this agent is rate limited.</summary>
+    public DateTimeOffset? ThrottleRetryAt { get; set; }
     public bool IsPlaceholderThread { get; set; }
     public string? Prompt { get; set; }
     public string? LatestResponse { get; set; }

@@ -1258,6 +1258,12 @@ internal sealed class TranscriptConversationManager {
         var responseSegments = turn.ResponseEntries
             .Select(entry => BuildTranscriptResponseSegmentRecord(entry, applicationRoot))
             .ToArray();
+        var hostNotices = turn.HostNotices
+            .Select(notice => new TranscriptHostNoticeRecord(
+                notice.Text,
+                notice.Sequence,
+                notice.OccurredAt.ToUniversalTime()))
+            .ToArray();
 
         return new TranscriptTurnRecord(
             turn.StartedAt.ToUniversalTime(),
@@ -1270,7 +1276,8 @@ internal sealed class TranscriptConversationManager {
             turn.ThinkingBlocks.Count == 0 || turn.ThinkingBlocks.All(block => !block.Expander.IsExpanded),
             tools,
             thoughts,
-            responseSegments) {
+            responseSegments,
+            hostNotices) {
             AgentReports     = turn.AgentReports.Count > 0 ? turn.AgentReports.ToArray() : null,
             IsSystemInjected = turn.IsSystemInjected,
         };

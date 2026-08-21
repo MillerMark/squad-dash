@@ -156,6 +156,7 @@ public sealed class ActivitySpinner : FrameworkElement
             _subscribedCard.ActivityPulsed -= OnActivityPulsed;
             _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
             _subscribedCard.TurnEnded -= OnTurnEnded;
+            _subscribedCard.ActivityPaused -= OnActivityPaused;
             _subscribedCard = null;
         }
         if (e.NewValue is AgentStatusCard card)
@@ -164,6 +165,7 @@ public sealed class ActivitySpinner : FrameworkElement
             card.ActivityPulsed += OnActivityPulsed;
             card.PropertyChanged += OnCardPropertyChanged;
             card.TurnEnded += OnTurnEnded;
+            card.ActivityPaused += OnActivityPaused;
             SyncAccentColor();
         }
     }
@@ -190,6 +192,7 @@ public sealed class ActivitySpinner : FrameworkElement
             _subscribedCard.ActivityPulsed -= OnActivityPulsed;
             _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
             _subscribedCard.TurnEnded -= OnTurnEnded;
+            _subscribedCard.ActivityPaused -= OnActivityPaused;
             _subscribedCard = null;
         }
         AgentStatusCard.ThemeChanged -= OnThemeChanged;
@@ -219,6 +222,8 @@ public sealed class ActivitySpinner : FrameworkElement
     }
 
     private void OnTurnEnded(object? sender, EventArgs e) => BeginForcedFadeOut(3.0);
+
+    private void OnActivityPaused(object? sender, EventArgs e) => BeginForcedFadeOut(0.2);
 
     private void OnActivityPulsed(object? sender, SpinnerActivityKind kind)
     {

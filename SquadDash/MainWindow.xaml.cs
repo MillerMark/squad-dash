@@ -6612,14 +6612,24 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        var observedAt = DateTimeOffset.Now;
+        thread.ThrottleRetryAt = ProviderThrottlePresentation.ResolveRetryAt(
+            evt.RetryAt,
+            evt.RetryDelayMs,
+            observedAt);
         var retryLabel = evt.RetryCount is > 0 ? $"retry {evt.RetryCount}" : "retry";
         var delayLabel = evt.RetryDelayMs is > 0
             ? $" in {TimeSpan.FromMilliseconds(evt.RetryDelayMs.Value):g}"
             : string.Empty;
         var detail = $"Waiting for the provider rate limit to clear before {retryLabel}{delayLabel}; the agent keeps ownership of the task.";
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Throttled", detailText: detail);
+        ProviderThrottleTranscriptBlockFactory.Append(
+            thread,
+            ProviderThrottlePresentation.BuildTranscriptNotice(evt.RetryDelayMs),
+            observedAt,
+            AllocateNarrativeSequence(thread.CurrentTurn!));
         SyncThreadChip(thread);
-        PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Thinking, thread);
+        FindAgentCardForThread(thread)?.NotifyActivityPaused();
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_throttled");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -6636,6 +6646,7 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        thread.ThrottleRetryAt = null;
         _agentThreadRegistry.UpdateAgentThreadLifecycle(
             thread,
             evt,
@@ -21186,6 +21197,7 @@ public partial class MainWindow : Window
 
         if (primaryThread is null)
         {
+            card.IsThrottled = false;
             if (card.IsDynamicAgent)
             {
                 card.StatusText = string.Empty;
@@ -21199,10 +21211,15 @@ public partial class MainWindow : Window
         }
 
         var isCurrentRunThread = _backgroundTaskPresenter.IsThreadCurrentRunForDisplay(primaryThread);
-        card.StatusText = isCurrentRunThread
-            ? _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now)
-                ? _backgroundTaskPresenter.BuildStalledStatusText(primaryThread, now)
-                : AgentThreadRegistry.HumanizeThreadStatus(primaryThread.StatusText) is { Length: > 0 } s ? s : "Running"
+        var isThrottled = isCurrentRunThread &&
+            string.Equals(primaryThread.StatusText, "Throttled", StringComparison.OrdinalIgnoreCase);
+        card.IsThrottled = isThrottled;
+        card.StatusText = isThrottled
+            ? ProviderThrottlePresentation.BuildCardStatus(primaryThread.ThrottleRetryAt, now)
+            : isCurrentRunThread
+                ? _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now)
+                    ? _backgroundTaskPresenter.BuildStalledStatusText(primaryThread, now)
+                    : AgentThreadRegistry.HumanizeThreadStatus(primaryThread.StatusText) is { Length: > 0 } s ? s : "Running"
             : ShouldDisplayTerminalAgentStatus(primaryThread, now)
                 ? BuildAgentCardStatusText(primaryThread, now)
                 : string.Empty;
@@ -39894,12 +39911,14 @@ public partial class MainWindow : Window
     {
         var thoughts = turn.GetThoughts().ToArray();
         var responseSegments = turn.GetResponseSegments().ToArray();
-        if (thoughts.Length == 0 && turn.Tools.Count == 0 && (turn.ToolsSuppressedCount ?? 0) == 0 && responseSegments.Length == 0)
+        var hostNotices = turn.GetHostNotices().ToArray();
+        if (thoughts.Length == 0 && turn.Tools.Count == 0 && (turn.ToolsSuppressedCount ?? 0) == 0 && responseSegments.Length == 0 && hostNotices.Length == 0)
             return true;
 
         if (thoughts.Any(thought => !thought.Sequence.HasValue) ||
             turn.Tools.Any(tool => !tool.ThinkingBlockSequence.HasValue) ||
-            responseSegments.Any(segment => !segment.Sequence.HasValue))
+            responseSegments.Any(segment => !segment.Sequence.HasValue) ||
+            hostNotices.Any(notice => !notice.Sequence.HasValue))
         {
             return false;
         }
@@ -39962,6 +39981,10 @@ public partial class MainWindow : Window
             2,
             (Action)(() => RenderPersistedResponse(view, segment,
                 allowQuickReplies: isLastTurn && segment.Sequence!.Value == lastResponseSequence)))));
+        items.AddRange(hostNotices.Select(notice => (
+            notice.Sequence!.Value,
+            2,
+            (Action)(() => RenderPersistedHostNotice(view, notice)))));
 
         foreach (var item in items.OrderBy(entry => entry.Sequence).ThenBy(entry => entry.SortOrder))
             item.Render();
@@ -40006,6 +40029,22 @@ public partial class MainWindow : Window
             {
                 Sequence = AllocateNarrativeSequence(view)
             }, allowQuickReplies: isLastTurn);
+
+        foreach (var notice in turn.GetHostNotices())
+            RenderPersistedHostNotice(view, notice);
+    }
+
+    private static void RenderPersistedHostNotice(
+        TranscriptTurnView view,
+        TranscriptHostNoticeRecord notice)
+    {
+        var sequence = AllocateNarrativeSequence(view, notice.Sequence);
+        var entry = new TranscriptHostNoticeEntry(
+            sequence,
+            notice.Text,
+            notice.OccurredAt);
+        view.HostNotices.Add(entry);
+        view.NarrativeSection.Blocks.Add(ProviderThrottleTranscriptBlockFactory.Create(entry));
     }
 
     private void FinalizeCurrentTurnResponse() =>
@@ -42437,7 +42476,9 @@ public partial class MainWindow : Window
         if (latestThought is null)
             return null;
 
-        return latestThought.Sequence > Math.Max(GetLatestThinkingBlockSequence(turn), GetLatestResponseSequence(turn))
+        return latestThought.Sequence > Math.Max(
+                GetLatestHostNoticeSequence(turn),
+                Math.Max(GetLatestThinkingBlockSequence(turn), GetLatestResponseSequence(turn)))
             ? latestThought
             : null;
     }
@@ -42448,7 +42489,9 @@ public partial class MainWindow : Window
         if (latestBlock is null)
             return null;
 
-        return latestBlock.Sequence > Math.Max(GetLatestThoughtSequence(turn), GetLatestResponseSequence(turn))
+        return latestBlock.Sequence > Math.Max(
+                GetLatestHostNoticeSequence(turn),
+                Math.Max(GetLatestThoughtSequence(turn), GetLatestResponseSequence(turn)))
             ? latestBlock
             : null;
     }
@@ -42459,7 +42502,9 @@ public partial class MainWindow : Window
         if (latestResponse is null)
             return null;
 
-        return latestResponse.Sequence > Math.Max(GetLatestThoughtSequence(turn), GetLatestThinkingBlockSequence(turn))
+        return latestResponse.Sequence > Math.Max(
+                GetLatestHostNoticeSequence(turn),
+                Math.Max(GetLatestThoughtSequence(turn), GetLatestThinkingBlockSequence(turn)))
             ? latestResponse
             : null;
     }
@@ -42477,6 +42522,11 @@ public partial class MainWindow : Window
     private static int GetLatestResponseSequence(TranscriptTurnView turn)
     {
         return turn.ResponseEntries.LastOrDefault()?.Sequence ?? 0;
+    }
+
+    private static int GetLatestHostNoticeSequence(TranscriptTurnView turn)
+    {
+        return turn.HostNotices.LastOrDefault()?.Sequence ?? 0;
     }
 
     private static int AllocateNarrativeSequence(TranscriptTurnView turn, int? explicitSequence = null)
