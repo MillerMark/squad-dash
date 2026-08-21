@@ -134,8 +134,11 @@ internal sealed class PendingPlanEditorTests
 
             var reloaded = pendingStore.Load(sourceGroup.GroupId);
             Assert.That(reloaded, Is.Not.Null);
+            Assert.That(PlanTopologyNormalizer.TryNormalize(
+                recompute.RecomputedGroup!, out var canonical, out var normalizationError),
+                Is.True, normalizationError);
             Assert.That(GetDependencyTopology(reloaded!.Group),
-                Is.EqualTo(GetDependencyTopology(recompute.RecomputedGroup!)));
+                Is.EqualTo(GetDependencyTopology(canonical!.Group)));
         }
 
         AssertRoundTrip([secondId, firstId]); // add edge

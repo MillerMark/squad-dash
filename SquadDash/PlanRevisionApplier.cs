@@ -82,7 +82,10 @@ internal static class PlanRevisionApplier
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(validated, out var cycleIds))
             return Invalid("The revised plan contains a dependency cycle: " + string.Join(", ", cycleIds ?? []), lockedIds.Count);
 
-        effectiveGroup = Canonicalize(validated);
+        if (!PlanTopologyNormalizer.TryNormalize(validated, out var topology, out var topologyError) || topology is null)
+            return Invalid(topologyError ?? "The revised plan topology is invalid.", lockedIds.Count);
+
+        effectiveGroup = Canonicalize(topology.Group);
         var currentDefinitionRevision = PendingDecomposePlanStore.ComputeRevision(currentGroup);
         var effectiveRevision = PendingDecomposePlanStore.ComputeRevision(effectiveGroup);
         if (string.Equals(currentDefinitionRevision, effectiveRevision, StringComparison.Ordinal))

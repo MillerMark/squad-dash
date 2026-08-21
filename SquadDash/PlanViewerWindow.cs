@@ -1098,6 +1098,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         canvas.MouseMove += OnGraphCanvasMouseMove;
         canvas.MouseLeftButtonUp += OnGraphCanvasMouseLeftButtonUp;
+        if (SquadDashEnvironment.IsDeveloperMode &&
+            _saveDefinitionEdit is not null &&
+            durablePlan is not null &&
+            durablePlan.LifecycleStatus != PlanLifecycleStatus.Staged)
+        {
+            var developerMenu = CreateThemedMenu();
+            var normalizeItem = CreateThemedMenuItem("Normalize this plan…");
+            normalizeItem.Click += (_, _) => NormalizeCurrentPlanFromDeveloperMenu();
+            developerMenu.Items.Add(normalizeItem);
+            canvas.ContextMenu = developerMenu;
+            canvas.ContextMenuOpening += (_, e) =>
+            {
+                // This command belongs to the canvas background, not task cards, approval
+                // controls, validation shields, or other interactive graph elements.
+                if (!ReferenceEquals(canvas.InputHitTest(Mouse.GetPosition(canvas)), canvas))
+                    e.Handled = true;
+            };
+        }
         var scroll = new ScrollViewer
         {
             Content = canvas,
@@ -3895,6 +3913,72 @@ internal sealed class PlanViewerWindow : ChromedWindow
             UIErrorHelper.ShowError("Edit Plan", exception.Message, this);
             return false;
         }
+    }
+
+    private void NormalizeCurrentPlanFromDeveloperMenu()
+    {
+        if (!SquadDashEnvironment.IsDeveloperMode || _plan is null || _saveDefinitionEdit is null)
+            return;
+
+        if (!PlanTopologyNormalizer.TryNormalize(
+                _plan.Group, out var normalization, out var error) || normalization is null)
+        {
+            UIErrorHelper.ShowError(
+                "Normalize Plan",
+                error ?? "The plan topology is invalid. Ask the planning AI to repair it.",
+                this);
+            return;
+        }
+
+        if (!normalization.HasChanges)
+        {
+            MessageBox.Show(
+                this,
+                "This plan is already normalized. No redundant task dependencies or approval-gate endpoints were found.",
+                "Normalize Plan",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var previewLines = normalization.Changes.Select(change =>
+        {
+            var label = change.Kind switch
+            {
+                "task-dependency" => $"Task {change.OwnerId}: remove redundant " +
+                                     (change.RemovedIds.Count == 1 ? "dependency" : "dependencies"),
+                "gate-after" => $"Approval {change.OwnerId}: remove redundant after-task " +
+                                (change.RemovedIds.Count == 1 ? "endpoint" : "endpoints"),
+                "gate-before" => $"Approval {change.OwnerId}: remove redundant before-task " +
+                                 (change.RemovedIds.Count == 1 ? "endpoint" : "endpoints"),
+                _ => $"{change.OwnerId}: remove",
+            };
+            return $"• {label}: " + string.Join(", ", change.RemovedIds);
+        });
+        var message =
+            "SquadDash can normalize this plan without changing task ordering or approval blocking behavior.\n\n" +
+            string.Join("\n", previewLines) +
+            "\n\nSave this normalized revision? The current plan file will be preserved as its .backup file.";
+        if (MessageBox.Show(
+                this,
+                message,
+                "Normalize Plan",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question) != MessageBoxResult.Yes)
+            return;
+
+        if (!ApplyStagedMutation(normalization.Group)) return;
+
+        MessageBox.Show(
+            this,
+            $"Plan normalized. Removed {normalization.RemovedDependencyCount} redundant task " +
+            $"dependenc{(normalization.RemovedDependencyCount == 1 ? "y" : "ies")} and " +
+            $"{normalization.RemovedGateEndpointCount} redundant approval endpoint" +
+            $"{(normalization.RemovedGateEndpointCount == 1 ? "" : "s")}.\n\n" +
+            "The visualization has been refreshed and the previous plan file is available as .backup.",
+            "Normalize Plan",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void UndoStagedEdit()

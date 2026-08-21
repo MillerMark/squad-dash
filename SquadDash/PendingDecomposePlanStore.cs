@@ -21,6 +21,9 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
 
     internal PendingDecomposePlan Save(DecomposedTaskGroup group)
     {
+        if (!PlanTopologyNormalizer.TryNormalize(group, out var normalized, out var error) || normalized is null)
+            throw new InvalidOperationException(error ?? "The plan topology is invalid.");
+        group = normalized.Group;
         Directory.CreateDirectory(_folder);
         var path = Path.Combine(_folder, group.GroupId + ".json");
         var plan = new PendingDecomposePlan(ComputeRevision(group), group, DateTimeOffset.UtcNow);

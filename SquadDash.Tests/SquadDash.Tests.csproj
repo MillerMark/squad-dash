@@ -28,6 +28,7 @@
     <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />
+    <Compile Include="..\SquadDash\PlanTopologyNormalizer.cs" Link="Source\PlanTopologyNormalizer.cs" />
     <Compile Include="..\SquadDash\PlanValidationReadinessEvaluator.cs" Link="Source\PlanValidationReadinessEvaluator.cs" />
     <Compile Include="..\SquadDash\PlanValidationScheduler.cs" Link="Source\PlanValidationScheduler.cs" />
     <Compile Include="..\SquadDash\PlanExecutionBoundaryPolicy.cs" Link="Source\PlanExecutionBoundaryPolicy.cs" />

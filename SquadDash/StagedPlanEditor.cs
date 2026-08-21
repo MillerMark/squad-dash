@@ -108,7 +108,9 @@ internal static class StagedPlanEditor
                     string.Join(", ", cycleIds ?? []);
             return false;
         }
-        normalized = result;
+        if (!PlanTopologyNormalizer.TryNormalize(result, out var topology, out error) || topology is null)
+            return false;
+        normalized = topology.Group;
         return true;
     }
 

@@ -234,6 +234,15 @@ internal static class StagedPlanRevisionApplier
                 Error: $"The materialized task graph contains a dependency cycle involving: {string.Join(", ", cycleIds!)}");
         }
 
+        if (!PlanTopologyNormalizer.TryNormalize(
+                normalized, out var topology, out var topologyError) || topology is null)
+        {
+            return new StagedPlanRevisionResult(
+                StagedPlanRevisionOutcome.Invalid,
+                Error: topologyError ?? "The materialized task graph has invalid topology.");
+        }
+        normalized = topology.Group;
+
         var revision = PendingDecomposePlanStore.ComputeRevision(normalized);
         return string.Equals(revision, current.Revision, StringComparison.Ordinal)
             ? new StagedPlanRevisionResult(StagedPlanRevisionOutcome.NoChanges, normalized, revision)
