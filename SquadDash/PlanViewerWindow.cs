@@ -2857,7 +2857,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                FrameworkElement MakeCheckmarkIcon(bool isComplete)
+                FrameworkElement MakeCheckmarkIcon()
                 {
                     if (Application.Current.FindResource("TaskSucceededGeometry") is not Geometry succeededGeometry)
                     {
@@ -2872,17 +2872,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-
-                    if (isComplete)
-                    {
-                        checkPath.SetResourceReference(Shape.FillProperty, "PriorityLow");
-                    }
-                    else
-                    {
-                        checkPath.Fill = Brushes.Transparent;
-                        checkPath.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
-                        checkPath.StrokeThickness = 30;
-                    }
+                    checkPath.SetResourceReference(Shape.FillProperty, "PriorityLow");
 
                     return new Viewbox
                     {
@@ -2895,7 +2885,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 FrameworkElement CreateStandardVerificationIndicator()
                 {
-                    return MakeCheckmarkIcon(isTaskComplete);
+                    return MakeCheckmarkIcon();
                 }
 
                 verificationIndicatorContent = verificationLevel switch
@@ -2930,10 +2920,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    twoChecks.Children.Add(MakeCheckmarkIcon(isTaskComplete));
+                    twoChecks.Children.Add(MakeCheckmarkIcon());
                     var spacer = new FrameworkElement { Width = 2 * _scaleFactor };
                     twoChecks.Children.Add(spacer);
-                    twoChecks.Children.Add(MakeCheckmarkIcon(isTaskComplete));
+                    twoChecks.Children.Add(MakeCheckmarkIcon());
                     return twoChecks;
                 }
             }
@@ -2996,6 +2986,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
+            verificationIndicator.Opacity = verificationOnly ? 1.0 : (isTaskComplete ? 1.0 : 0.25);
             Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 18);
