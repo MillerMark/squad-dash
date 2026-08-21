@@ -317,7 +317,11 @@ internal sealed class WorkspaceIssueFactoryTests {
         workspace.CreateFile(Path.Combine("node_modules", ".bin", "squad.cmd"));
 
         var service = new SquadInstallationStateService();
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateAvailableCandidate(
+                "node",
+                workspace.GetPath(SquadCliCommands.LocalCliEntryPath)));
 
         // This test only validates the non-simulated path when Squad is fully installed.
         // GetMissingTools() checks PATH for node/npm/npx; skip if those are absent.
@@ -347,7 +351,9 @@ internal sealed class WorkspaceIssueFactoryTests {
         workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
 
         var service = new SquadInstallationStateService();
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateAvailableCandidate(workspace.GetPath("node_modules", ".bin", "squad.cmd")));
 
         Assume.That(state.IsSquadInstalledForActiveDirectory, Is.True);
 
@@ -418,4 +424,19 @@ internal sealed class WorkspaceIssueFactoryTests {
 
         Assert.That(issue is null || issue.Title.Contains("Node.js") || issue.Title.Contains("PowerShell"), Is.True);
     }
+
+    private static ResolvedCliCandidate CreateAvailableCandidate(
+        string executablePath,
+        string? entryScriptPath = null) =>
+        new(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.WorkspaceNpm,
+            RuntimeType: entryScriptPath is null ? CliRuntimeType.NpmShim : CliRuntimeType.NodeScript,
+            ExecutablePath: executablePath,
+            EntryScriptPath: entryScriptPath,
+            Version: "0.10.0",
+            IsAvailable: true,
+            AgentCmdSupport: CliCapabilityStatus.Supported,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
 }

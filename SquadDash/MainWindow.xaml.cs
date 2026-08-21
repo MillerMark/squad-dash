@@ -202,6 +202,7 @@ public partial class MainWindow : Window
     private readonly SquadRoutingDocumentService _routingDocumentService;
     private readonly SquadInstallationStateService _installationStateService;
     private readonly SquadInstallerService _installerService;
+    private readonly ISquadCliResolutionService _cliResolutionService;
     private readonly RunningInstanceRegistry _instanceRegistry;
     private readonly RestartCoordinatorStateStore _restartCoordinatorStateStore;
     private readonly WorkspaceOpenCoordinator _workspaceOpenCoordinator;
@@ -691,7 +692,8 @@ public partial class MainWindow : Window
     private int _watchWaveCount;
     private int _watchAgentCount;
     private string? _watchPhase;
-    private readonly SquadOrchestrationService _squadOrchestrationService = new();
+    private readonly SquadOrchestrationService _squadOrchestrationService;
+    private readonly SquadWatchHealthService _squadWatchHealthService;
     private bool _remoteAccessActive;
     private bool _rcRegeneratingToken;
     private bool _pendingRcRestartAfterReset;
@@ -861,6 +863,12 @@ public partial class MainWindow : Window
         _routingDocumentService = serviceProvider?.GetRequiredService<SquadRoutingDocumentService>() ?? new SquadRoutingDocumentService();
         _installationStateService = serviceProvider?.GetRequiredService<SquadInstallationStateService>() ?? new SquadInstallationStateService();
         _installerService = serviceProvider?.GetRequiredService<SquadInstallerService>() ?? new SquadInstallerService();
+        _cliResolutionService = serviceProvider?.GetService<ISquadCliResolutionService>() ??
+                                new SquadCliResolutionService(
+                                    new SystemProcessRunner(),
+                                    new SystemEnvironmentProvider());
+        _squadOrchestrationService = serviceProvider?.GetService<SquadOrchestrationService>() ?? new SquadOrchestrationService();
+        _squadWatchHealthService = serviceProvider?.GetService<SquadWatchHealthService>() ?? new SquadWatchHealthService();
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
         _restartCoordinatorStateStore = serviceProvider?.GetRequiredService<RestartCoordinatorStateStore>() ?? new RestartCoordinatorStateStore();
         _pastedImageStore = serviceProvider?.GetRequiredService<PastedImageStore>() ?? new PastedImageStore();
@@ -909,13 +917,9 @@ public partial class MainWindow : Window
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
         _noWorkspaceOnStart    = noWorkspaceOnStart;
-        var cliResolutionService = serviceProvider?.GetService<ISquadCliResolutionService>() ??
-                                   new SquadCliResolutionService(
-                                       new SystemProcessRunner(),
-                                       new SystemEnvironmentProvider());
         _squadCliAdapter = new SquadCliAdapter(
             _workspacePaths,
-            cliResolutionService,
+            _cliResolutionService,
             (op, ex) => HandleUiCallbackException(op, ex));
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
@@ -6559,10 +6563,10 @@ public partial class MainWindow : Window
                 thread.AssignedPlanTaskId,
                 thread.RosterIdentityVerified))
         {
-            var reason =
+            var providerWaitReason =
                 $"Required plan agent {agentLabel} could not complete because {failure.Title}. " +
                 "SquadDash could not recover the provider request and paused the plan without discarding repository work.";
-            _planProviderWaitInterruptionReason = reason;
+            _planProviderWaitInterruptionReason = providerWaitReason;
             SquadDashTrace.Write(
                 "UI",
                 $"Required plan agent provider throttling is pausing execution task={thread.AssignedPlanTaskId} " +
@@ -6584,7 +6588,7 @@ public partial class MainWindow : Window
             }
 
             ScheduleDecomposeSystemEntry(
-                reason + " Resume the preserved plan after provider access is available.");
+                providerWaitReason + " Resume the preserved plan after provider access is available.");
             return;
         }
 
@@ -26587,7 +26591,8 @@ public partial class MainWindow : Window
             // Do a direct fresh check so we never falsely enter the failure path on a successful install.
             if (_currentInstallationState?.IsSquadInstalledForActiveDirectory != true && _currentWorkspace is not null)
             {
-                var freshState = await Task.Run(() => _installationStateService.GetState(_currentWorkspace.FolderPath));
+                var resolvedCandidate = await _cliResolutionService.ResolveAsync(_currentWorkspace.FolderPath).ConfigureAwait(true);
+                var freshState = await Task.Run(() => _installationStateService.GetState(_currentWorkspace.FolderPath, resolvedCandidate));
                 if (freshState.IsSquadInstalledForActiveDirectory)
                 {
                     _currentInstallationState = freshState;
@@ -43753,14 +43758,18 @@ public partial class MainWindow : Window
         var startupSimulation = _settingsSnapshot.GetStartupIssueSimulation(workspaceFolder ?? "");
         var refreshVersion = Interlocked.Increment(ref _installationStateRefreshVersion);
 
+        ResolvedCliCandidate? resolvedCandidate = null;
+        if (!string.IsNullOrWhiteSpace(workspaceFolder))
+            resolvedCandidate = await _cliResolutionService.ResolveAsync(workspaceFolder).ConfigureAwait(false);
+
         var result = await Task.Run(() =>
         {
             SquadInstallationState? installationState = null;
             SquadRoutingDocumentAssessment? routingAssessment = null;
 
-            if (!string.IsNullOrWhiteSpace(workspaceFolder))
+            if (!string.IsNullOrWhiteSpace(workspaceFolder) && resolvedCandidate is not null)
             {
-                installationState = _installationStateService.GetState(workspaceFolder);
+                installationState = _installationStateService.GetState(workspaceFolder, resolvedCandidate);
                 if (startupSimulation == DeveloperStartupIssueSimulation.None)
                     routingAssessment = _routingDocumentService.Assess(workspaceFolder);
             }
@@ -44016,14 +44025,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private void IssueDiagnosticsButton_Click(object sender, RoutedEventArgs e)
+    private async void IssueDiagnosticsButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
             if (_currentWorkspace is null)
                 return;
 
-            var state = _currentInstallationState ?? _installationStateService.GetState(_currentWorkspace.FolderPath);
+            var state = _currentInstallationState;
+            if (state is null)
+            {
+                var resolvedCandidate = await _cliResolutionService.ResolveAsync(_currentWorkspace.FolderPath).ConfigureAwait(true);
+                state = _installationStateService.GetState(_currentWorkspace.FolderPath, resolvedCandidate);
+            }
+
             var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
             var window = new WorkspaceInstallDiagnosticsWindow(diagnostics);
             if (CanShowOwnedWindow())
@@ -50473,7 +50488,7 @@ public partial class MainWindow : Window
             _tasksStatusWindow.LocationChanged += (_, _) => OnTasksWindowMoved();
             _tasksStatusWindow.Show();
             _tasksStatusWindow.AttachWatchHealth(
-                new SquadWatchHealthService(),
+                _squadWatchHealthService,
                 () => _currentWorkspace?.FolderPath,
                 expanded => {
                     var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);

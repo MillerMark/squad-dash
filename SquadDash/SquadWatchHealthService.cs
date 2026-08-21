@@ -12,31 +12,62 @@ namespace SquadDash;
 
 internal sealed class SquadWatchHealthService {
     private readonly ISquadCommandRunner _commandRunner;
+    private readonly ISquadCliResolutionService _cliResolutionService;
 
     public SquadWatchHealthService()
-        : this(new WatchHealthCommandRunner()) {
+        : this(
+            new WatchHealthCommandRunner(),
+            new SquadCliResolutionService(new SystemProcessRunner(), new SystemEnvironmentProvider())) {
     }
 
-    internal SquadWatchHealthService(ISquadCommandRunner commandRunner) {
+    internal SquadWatchHealthService(
+        ISquadCommandRunner commandRunner,
+        ISquadCliResolutionService cliResolutionService) {
         _commandRunner = commandRunner ?? throw new ArgumentNullException(nameof(commandRunner));
+        _cliResolutionService = cliResolutionService ?? throw new ArgumentNullException(nameof(cliResolutionService));
     }
 
     public async Task<SquadWatchHealthResult> GetHealthAsync(string activeDirectory) {
+        var candidate = await _cliResolutionService.ResolveAsync(activeDirectory).ConfigureAwait(false);
+        if (!candidate.IsAvailable) {
+            return SquadWatchHealthResult.FromCommandResult(new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                candidate.ProbeError ?? string.Empty,
+                candidate.UpdateInstruction.DisplayMessage ?? "Squad CLI is not available for this workspace."));
+        }
+
         var result = await _commandRunner
-            .RunAsync(SquadCliCommands.WatchHealth, activeDirectory)
+            .RunAsync(candidate, activeDirectory, "Check Squad Watch Health", ["watch", "--health"])
             .ConfigureAwait(false);
 
         return SquadWatchHealthResult.FromCommandResult(result);
     }
 
-    public Task<SquadCommandResult> StartWatchAsync(
+    public async Task<SquadCommandResult> StartWatchAsync(
         string activeDirectory,
         int intervalMinutes,
         bool execute,
         bool verbose,
         string? notifyLevel) {
-        var command = SquadCliCommands.StartWatch(intervalMinutes, execute, verbose, notifyLevel);
-        return Task.Run(() => StartLongRunningWatch(command, activeDirectory));
+        var candidate = await _cliResolutionService.ResolveAsync(activeDirectory).ConfigureAwait(false);
+        if (!candidate.IsAvailable) {
+            return new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                candidate.ProbeError ?? string.Empty,
+                candidate.UpdateInstruction.DisplayMessage ?? "Squad CLI is not available for this workspace.");
+        }
+
+        return await Task.Run(() => StartLongRunningWatch(
+            candidate,
+            activeDirectory,
+            intervalMinutes,
+            execute,
+            verbose,
+            notifyLevel)).ConfigureAwait(false);
     }
 
     public async Task<SquadCommandResult> StopWatchAsync(int processId) {
@@ -80,30 +111,32 @@ internal sealed class SquadWatchHealthService {
     }
 
     private static SquadCommandResult StartLongRunningWatch(
-        SquadCliCommandDefinition command,
-        string activeDirectory) {
+        ResolvedCliCandidate candidate,
+        string activeDirectory,
+        int intervalMinutes,
+        bool execute,
+        bool verbose,
+        string? notifyLevel) {
         try {
-            var localCliPath = Path.Combine(activeDirectory, SquadCliCommands.LocalCliEntryPath);
-            if (!File.Exists(localCliPath)) {
+            if (!candidate.IsAvailable) {
                 return new SquadCommandResult(
                     false,
                     null,
                     string.Empty,
-                    $"Local Squad CLI was not found at {localCliPath}.",
-                    "Local Squad CLI is not installed for this workspace.");
+                    candidate.ProbeError ?? string.Empty,
+                    candidate.UpdateInstruction.DisplayMessage ?? "Squad CLI is not available for this workspace.");
             }
 
+            var commandArgs = BuildWatchArguments(intervalMinutes, execute, verbose, notifyLevel);
+            var startInfo = SquadCliCommands.BuildCommandStartInfo(candidate, activeDirectory, commandArgs);
+
             using var process = new Process {
-                StartInfo = new ProcessStartInfo {
-                    FileName = command.FileName,
-                    Arguments = command.Arguments,
-                    WorkingDirectory = activeDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = false,
-                    RedirectStandardError = false,
-                    CreateNoWindow = true
-                }
+                StartInfo = startInfo
             };
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.RedirectStandardOutput = false;
+            process.StartInfo.RedirectStandardError = false;
+            process.StartInfo.CreateNoWindow = true;
 
             process.StartInfo.Environment["PATH"] = SquadProcessEnvironment.BuildMergedPathEnvironmentValue();
 
@@ -117,7 +150,7 @@ internal sealed class SquadWatchHealthService {
             }
 
             var processId = process.Id;
-            WriteWatchHealthPidFile(activeDirectory, processId, command);
+            WriteWatchHealthPidFile(activeDirectory, processId, commandArgs);
             return new SquadCommandResult(
                 true,
                 0,
@@ -144,15 +177,15 @@ internal sealed class SquadWatchHealthService {
     private static void WriteWatchHealthPidFile(
         string teamRoot,
         int processId,
-        SquadCliCommandDefinition command) {
+        IReadOnlyList<string> commandArgs) {
         var pidPath = GetWatchHealthPidPath(teamRoot);
         var pidInfo = new {
             pid = processId,
             startedAt = DateTimeOffset.UtcNow.ToString("O"),
             user = ProbeCurrentGhUser() ?? "(unknown)",
-            interval = TryParseInterval(command.Arguments) ?? 0,
+            interval = TryParseInterval(commandArgs) ?? 0,
             repo = teamRoot,
-            capabilities = BuildCapabilities(command.Arguments)
+            capabilities = BuildCapabilities(commandArgs)
         };
 
         File.WriteAllText(
@@ -160,23 +193,53 @@ internal sealed class SquadWatchHealthService {
             JsonSerializer.Serialize(pidInfo, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static int? TryParseInterval(string arguments) {
-        var match = Regex.Match(arguments, @"(?:^|\s)--interval\s+(\d+)\b", RegexOptions.IgnoreCase);
-        return match.Success && int.TryParse(match.Groups[1].Value, out var interval)
-            ? interval
-            : null;
+    private static int? TryParseInterval(IReadOnlyList<string> arguments) {
+        for (var index = 0; index < arguments.Count - 1; index++) {
+            if (!string.Equals(arguments[index], "--interval", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (int.TryParse(arguments[index + 1], out var interval))
+                return interval;
+        }
+
+        return null;
     }
 
-    private static string[] BuildCapabilities(string arguments) {
+    private static string[] BuildCapabilities(IReadOnlyList<string> arguments) {
         var capabilities = new List<string>();
-        if (arguments.Contains("--execute", StringComparison.OrdinalIgnoreCase))
+        if (arguments.Any(argument => string.Equals(argument, "--execute", StringComparison.OrdinalIgnoreCase)))
             capabilities.Add("execute");
-        if (arguments.Contains("--verbose", StringComparison.OrdinalIgnoreCase))
+        if (arguments.Any(argument => string.Equals(argument, "--verbose", StringComparison.OrdinalIgnoreCase)))
             capabilities.Add("verbose");
-        var notifyLevelMatch = Regex.Match(arguments, @"(?:^|\s)--notify-level\s+(\S+)\b", RegexOptions.IgnoreCase);
-        if (notifyLevelMatch.Success)
-            capabilities.Add($"notify:{notifyLevelMatch.Groups[1].Value}");
+        for (var index = 0; index < arguments.Count - 1; index++) {
+            if (!string.Equals(arguments[index], "--notify-level", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            capabilities.Add($"notify:{arguments[index + 1]}");
+            break;
+        }
+
         return capabilities.ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildWatchArguments(
+        int intervalMinutes,
+        bool execute,
+        bool verbose,
+        string? notifyLevel) {
+        var interval = Math.Clamp(intervalMinutes, 1, 1440);
+        var commandArgs = new List<string> { "watch", "--interval", interval.ToString() };
+        if (execute)
+            commandArgs.Add("--execute");
+        if (verbose)
+            commandArgs.Add("--verbose");
+        if (!string.IsNullOrWhiteSpace(notifyLevel) &&
+            notifyLevel is "all" or "important" or "none") {
+            commandArgs.Add("--notify-level");
+            commandArgs.Add(notifyLevel);
+        }
+
+        return commandArgs;
     }
 
     private static string? ProbeCurrentGhUser() {
@@ -218,6 +281,18 @@ internal sealed class SquadWatchHealthService {
     private sealed class WatchHealthCommandRunner : ISquadCommandRunner {
         public Task<SquadCommandResult> RunAsync(SquadCliCommandDefinition command, string activeDirectory) {
             return new SquadInstallerServiceProcessRunner().RunAsync(command, activeDirectory);
+        }
+
+        public Task<SquadCommandResult> RunAsync(
+            ResolvedCliCandidate candidate,
+            string activeDirectory,
+            string displayName,
+            IReadOnlyList<string> commandArguments) {
+            return new SquadInstallerServiceProcessRunner().RunAsync(
+                candidate,
+                activeDirectory,
+                displayName,
+                commandArguments);
         }
     }
 }
@@ -323,29 +398,57 @@ internal sealed record SquadWatchHealthResult(
 }
 
 internal sealed class SquadInstallerServiceProcessRunner : ISquadCommandRunner {
-    public async Task<SquadCommandResult> RunAsync(
+    public Task<SquadCommandResult> RunAsync(
         SquadCliCommandDefinition command,
         string activeDirectory) {
+        var startInfo = new System.Diagnostics.ProcessStartInfo {
+            FileName = command.FileName,
+            Arguments = command.Arguments,
+            WorkingDirectory = activeDirectory
+        };
+        return RunStartInfoAsync(startInfo, command.DisplayName);
+    }
+
+    public Task<SquadCommandResult> RunAsync(
+        ResolvedCliCandidate candidate,
+        string activeDirectory,
+        string displayName,
+        IReadOnlyList<string> commandArguments) {
+        if (!candidate.IsAvailable) {
+            return Task.FromResult(new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                candidate.ProbeError ?? string.Empty,
+                candidate.UpdateInstruction.DisplayMessage ?? "Squad CLI is not available."));
+        }
+
+        var startInfo = SquadCliCommands.BuildCommandStartInfo(
+            candidate,
+            activeDirectory,
+            commandArguments);
+        return RunStartInfoAsync(startInfo, displayName);
+    }
+
+    private static async Task<SquadCommandResult> RunStartInfoAsync(
+        System.Diagnostics.ProcessStartInfo startInfo,
+        string displayName) {
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
 
         try {
+            startInfo.UseShellExecute = false;
+            startInfo.RedirectStandardOutput = true;
+            startInfo.RedirectStandardError = true;
+            startInfo.CreateNoWindow = true;
+            startInfo.StandardOutputEncoding = Encoding.UTF8;
+            startInfo.StandardErrorEncoding = Encoding.UTF8;
+            startInfo.Environment["PATH"] = SquadProcessEnvironment.BuildMergedPathEnvironmentValue();
+
             using var process = new System.Diagnostics.Process {
-                StartInfo = new System.Diagnostics.ProcessStartInfo {
-                    FileName = command.FileName,
-                    Arguments = command.Arguments,
-                    WorkingDirectory = activeDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
-                },
+                StartInfo = startInfo,
                 EnableRaisingEvents = true
             };
-
-            process.StartInfo.Environment["PATH"] = SquadProcessEnvironment.BuildMergedPathEnvironmentValue();
 
             var outputClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var errorClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -374,7 +477,7 @@ internal sealed class SquadInstallerServiceProcessRunner : ISquadCommandRunner {
                     null,
                     string.Empty,
                     string.Empty,
-                    $"Failed to start {command.DisplayName}.");
+                    $"Failed to start {displayName}.");
             }
 
             process.BeginOutputReadLine();
@@ -393,8 +496,8 @@ internal sealed class SquadInstallerServiceProcessRunner : ISquadCommandRunner {
 
             var success = process.ExitCode == 0;
             var message = success
-                ? $"{command.DisplayName} completed."
-                : $"{command.DisplayName} failed with exit code {process.ExitCode}.";
+                ? $"{displayName} completed."
+                : $"{displayName} failed with exit code {process.ExitCode}.";
 
             return new SquadCommandResult(
                 success,
@@ -409,7 +512,7 @@ internal sealed class SquadInstallerServiceProcessRunner : ISquadCommandRunner {
                 null,
                 stdout.ToString(),
                 stderr.ToString(),
-                $"Unable to launch {command.DisplayName}: {ex.Message}");
+                $"Unable to launch {displayName}: {ex.Message}");
         }
     }
 }

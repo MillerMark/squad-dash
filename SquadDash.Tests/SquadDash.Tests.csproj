@@ -120,6 +120,8 @@
     <Compile Include="..\SquadDash\ISquadCliResolutionService.cs" Link="Source\ISquadCliResolutionService.cs" />
     <Compile Include="..\SquadDash\ISquadCliSelectionStore.cs" Link="Source\ISquadCliSelectionStore.cs" />
     <Compile Include="..\SquadDash\CliCmdEscaping.cs" Link="Source\CliCmdEscaping.cs" />
+    <Compile Include="..\SquadDash\SystemEnvironmentProvider.cs" Link="Source\SystemEnvironmentProvider.cs" />
+    <Compile Include="..\SquadDash\SystemProcessRunner.cs" Link="Source\SystemProcessRunner.cs" />
     <Compile Include="..\SquadDash\SquadCliResolutionService.cs" Link="Source\SquadCliResolutionService.cs" />
     <Compile Include="..\SquadDash\SquadCliSelectionStore.cs" Link="Source\SquadCliSelectionStore.cs" />
     <Compile Include="..\SquadDash\SquadCliCommands.cs" Link="Source\SquadCliCommands.cs" />

@@ -12,13 +12,25 @@ namespace SquadDash;
 
 internal sealed class SquadInstallerService {
     private readonly ISquadCommandRunner _commandRunner;
+    private readonly ISquadCliResolutionService _cliResolutionService;
 
     public SquadInstallerService()
-        : this(new ProcessSquadCommandRunner()) {
+        : this(
+            new ProcessSquadCommandRunner(),
+            new SquadCliResolutionService(new SystemProcessRunner(), new SystemEnvironmentProvider())) {
     }
 
-    internal SquadInstallerService(ISquadCommandRunner commandRunner) {
+    internal SquadInstallerService(ISquadCommandRunner commandRunner)
+        : this(
+            commandRunner,
+            new SquadCliResolutionService(new SystemProcessRunner(), new SystemEnvironmentProvider())) {
+    }
+
+    internal SquadInstallerService(
+        ISquadCommandRunner commandRunner,
+        ISquadCliResolutionService cliResolutionService) {
         _commandRunner = commandRunner ?? throw new ArgumentNullException(nameof(commandRunner));
+        _cliResolutionService = cliResolutionService ?? throw new ArgumentNullException(nameof(cliResolutionService));
     }
 
     public async Task<SquadCommandResult> InstallAsync(
@@ -26,7 +38,7 @@ internal sealed class SquadInstallerService {
         IProgress<string>? progress = null) {
         progress?.Report("Checking Node.js tooling...");
 
-        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory).ConfigureAwait(false);
+        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory, requireNpm: true).ConfigureAwait(false);
         if (!prerequisites.Success) {
             return new SquadCommandResult(
                 false,
@@ -69,8 +81,30 @@ internal sealed class SquadInstallerService {
                     "Squad is installed and ready to run locally."));
         }
 
+        var resolvedWorkspaceCli = await _cliResolutionService
+            .ResolveWithModeAsync(CliSelectionMode.WorkspaceLocal, activeDirectory)
+            .ConfigureAwait(false);
+        if (!resolvedWorkspaceCli.IsAvailable) {
+            return CombineInstallResults(
+                packageManifestResult,
+                installCliResult,
+                compatibilityResult,
+                new SquadCommandResult(
+                    false,
+                    null,
+                    string.Empty,
+                    resolvedWorkspaceCli.ProbeError ?? string.Empty,
+                    resolvedWorkspaceCli.UpdateInstruction.DisplayMessage ??
+                    "Workspace Squad CLI could not be resolved after installation."));
+        }
+
         progress?.Report("Running Squad bootstrap...");
-        var initResult = await _commandRunner.RunAsync(SquadCliCommands.Init, activeDirectory).ConfigureAwait(false);
+        var initResult = await _commandRunner.RunAsync(
+                resolvedWorkspaceCli,
+                activeDirectory,
+                "Install Squad",
+                ["init"])
+            .ConfigureAwait(false);
 
         if (initResult.Success)
             WriteSquadDashUniverseFiles(activeDirectory);
@@ -83,7 +117,18 @@ internal sealed class SquadInstallerService {
         IProgress<string>? progress = null) {
         progress?.Report("Running Squad doctor...");
 
-        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory).ConfigureAwait(false);
+        var resolvedCandidate = await _cliResolutionService.ResolveAsync(activeDirectory).ConfigureAwait(false);
+        if (!resolvedCandidate.IsAvailable) {
+            return new SquadCommandResult(
+                false,
+                null,
+                string.Empty,
+                resolvedCandidate.ProbeError ?? string.Empty,
+                resolvedCandidate.UpdateInstruction.DisplayMessage ??
+                "Squad CLI is not available for this workspace.");
+        }
+
+        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory, resolvedCandidate).ConfigureAwait(false);
         if (!prerequisites.Success) {
             return new SquadCommandResult(
                 false,
@@ -94,17 +139,32 @@ internal sealed class SquadInstallerService {
                 prerequisites.MissingTools);
         }
 
-        var doctorResult = await _commandRunner.RunAsync(SquadCliCommands.Doctor, activeDirectory).ConfigureAwait(false);
+        var doctorResult = await _commandRunner.RunAsync(
+                resolvedCandidate,
+                activeDirectory,
+                "Run Squad Doctor",
+                ["doctor"])
+            .ConfigureAwait(false);
         if (doctorResult.Success)
             SquadScribeWorkspaceRepairService.Repair(activeDirectory);
 
         return doctorResult;
     }
 
-    private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(string activeDirectory) {
+    private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(
+        string activeDirectory,
+        ResolvedCliCandidate resolvedCandidate) {
+        var requireNpm = resolvedCandidate.DetectedSource is CliInstallSource.WorkspaceNpm or CliInstallSource.GlobalNpm;
+        return await ValidatePrerequisitesAsync(activeDirectory, requireNpm).ConfigureAwait(false);
+    }
+
+    private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(
+        string activeDirectory,
+        bool requireNpm) {
         var missingTools = new List<string>();
 
-        foreach (var toolName in new[] { "node", "npm", "npx" }) {
+        var requiredTools = requireNpm ? new[] { "node", "npm" } : new[] { "node" };
+        foreach (var toolName in requiredTools) {
             var result = await RunWhereAsync(toolName, activeDirectory).ConfigureAwait(false);
             if (!result.Success)
                 missingTools.Add(toolName);
@@ -115,7 +175,7 @@ internal sealed class SquadInstallerService {
 
         return new SquadPrerequisiteCheckResult(
             false,
-            $"Missing required tooling: {string.Join(", ", missingTools)}. Install Node.js so node, npm, and npx are available on PATH.",
+            $"Missing required tooling: {string.Join(", ", missingTools)}. Install Node.js so required tools are available on PATH.",
             missingTools);
     }
 
@@ -510,30 +570,53 @@ internal sealed class SquadInstallerService {
     }
 
     private sealed class ProcessSquadCommandRunner : ISquadCommandRunner {
-        public async Task<SquadCommandResult> RunAsync(
+        public Task<SquadCommandResult> RunAsync(
             SquadCliCommandDefinition command,
             string activeDirectory) {
+            var startInfo = new ProcessStartInfo {
+                FileName = command.FileName,
+                Arguments = command.Arguments,
+                WorkingDirectory = activeDirectory
+            };
+            return RunStartInfoAsync(startInfo, command.DisplayName);
+        }
+
+        public Task<SquadCommandResult> RunAsync(
+            ResolvedCliCandidate candidate,
+            string activeDirectory,
+            string displayName,
+            IReadOnlyList<string> commandArguments) {
+            if (!candidate.IsAvailable) {
+                return Task.FromResult(new SquadCommandResult(
+                    false,
+                    null,
+                    string.Empty,
+                    candidate.ProbeError ?? string.Empty,
+                    candidate.UpdateInstruction.DisplayMessage ?? "Squad CLI is not available."));
+            }
+
+            var startInfo = SquadCliCommands.BuildCommandStartInfo(candidate, activeDirectory, commandArguments);
+            return RunStartInfoAsync(startInfo, displayName);
+        }
+
+        private static async Task<SquadCommandResult> RunStartInfoAsync(ProcessStartInfo startInfo, string displayName) {
             var stdout = new StringBuilder();
             var stderr = new StringBuilder();
 
             try {
+                startInfo.UseShellExecute = false;
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+                startInfo.RedirectStandardInput = true;
+                startInfo.CreateNoWindow = true;
+                startInfo.StandardOutputEncoding = Encoding.UTF8;
+                startInfo.StandardErrorEncoding = Encoding.UTF8;
+                startInfo.Environment["PATH"] = BuildMergedPathEnvironmentValue();
+
                 using var process = new Process {
-                    StartInfo = new ProcessStartInfo {
-                        FileName = command.FileName,
-                        Arguments = command.Arguments,
-                        WorkingDirectory = activeDirectory,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        RedirectStandardInput = true,  // prevent CLI prompts from blocking
-                        CreateNoWindow = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8
-                    },
+                    StartInfo = startInfo,
                     EnableRaisingEvents = true
                 };
-
-                process.StartInfo.Environment["PATH"] = BuildMergedPathEnvironmentValue();
 
                 var outputClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var errorClosed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -562,43 +645,45 @@ internal sealed class SquadInstallerService {
                         null,
                         string.Empty,
                         string.Empty,
-                        $"Failed to start {command.DisplayName}.");
+                        $"Failed to start {displayName}.");
                 }
 
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-                process.StandardInput.Close(); // signal EOF so CLI never waits on interactive prompts
+                process.StandardInput.Close();
 
-                // Cap the total process wait at 3 minutes to prevent an indefinite hang.
                 using var processCts = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(3));
                 try {
                     await process.WaitForExitAsync(processCts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) {
-                    try { process.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                    try {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception ex) {
+                        SquadDashTrace.Write("SquadCli", $"Timed-out process kill failed: {ex.Message}");
+                    }
+
                     return new SquadCommandResult(
                         false,
                         null,
                         stdout.ToString(),
                         stderr.ToString(),
-                        $"{command.DisplayName} timed out after 3 minutes.");
+                        $"{displayName} timed out after 3 minutes.");
                 }
 
-                // Wait for the I/O pipes to drain, but cap at 5 seconds.
-                // On Windows, npm can leave child handles open that prevent
-                // the pipe-closed callbacks from ever firing.
                 using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(5));
-                try
-                {
+                try {
                     await Task.WhenAll(outputClosed.Task, errorClosed.Task)
                         .WaitAsync(cts.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) { /* pipe drain timed out — proceed with output collected so far */ }
+                catch (OperationCanceledException) {
+                }
 
                 var success = process.ExitCode == 0;
                 var message = success
-                    ? $"{command.DisplayName} completed."
-                    : $"{command.DisplayName} failed with exit code {process.ExitCode}.";
+                    ? $"{displayName} completed."
+                    : $"{displayName} failed with exit code {process.ExitCode}.";
 
                 return new SquadCommandResult(
                     success,
@@ -613,7 +698,7 @@ internal sealed class SquadInstallerService {
                     null,
                     stdout.ToString(),
                     stderr.ToString(),
-                    $"Unable to launch {command.DisplayName}: {ex.Message}");
+                    $"Unable to launch {displayName}: {ex.Message}");
             }
         }
 
@@ -651,6 +736,11 @@ internal sealed class SquadInstallerService {
 
 internal interface ISquadCommandRunner {
     Task<SquadCommandResult> RunAsync(SquadCliCommandDefinition command, string activeDirectory);
+    Task<SquadCommandResult> RunAsync(
+        ResolvedCliCandidate candidate,
+        string activeDirectory,
+        string displayName,
+        IReadOnlyList<string> commandArguments);
 }
 
 internal sealed record SquadCommandResult(

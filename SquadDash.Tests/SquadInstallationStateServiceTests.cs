@@ -22,7 +22,12 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath + Path.DirectorySeparatorChar);
+        var state = service.GetState(
+            workspace.RootPath + Path.DirectorySeparatorChar,
+            CreateResolvedCandidate(
+                workspace.RootPath,
+                isAvailable: hasLocalCli,
+                executablePath: workspace.GetPath("node_modules", ".bin", "squad.cmd")));
 
         Assert.Multiple(() => {
             Assert.That(state.ActiveDirectory, Is.EqualTo(workspace.RootPath));
@@ -40,7 +45,13 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(
+                workspace.RootPath,
+                isAvailable: true,
+                executablePath: "node",
+                entryScriptPath: workspace.GetPath("node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js")));
 
         Assert.Multiple(() => {
             Assert.That(state.HasLocalCliCommand, Is.True);
@@ -57,7 +68,9 @@ internal sealed class SquadInstallationStateServiceTests {
         workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
         workspace.CreateFile("package.json", "{}");
 
-        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+        var state = new SquadInstallationStateService().GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: false));
 
         var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
 
@@ -78,7 +91,13 @@ internal sealed class SquadInstallationStateServiceTests {
         workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Team");
         workspace.CreateFile(SquadCliCommands.LocalCliEntryPath, "console.log('squad');");
 
-        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+        var state = new SquadInstallationStateService().GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(
+                workspace.RootPath,
+                isAvailable: true,
+                executablePath: "node",
+                entryScriptPath: workspace.GetPath("node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js")));
 
         var diagnostics = SquadInstallDiagnosticsFormatter.Build(state);
 
@@ -106,7 +125,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: true));
 
         Assert.Multiple(() => {
             Assert.That(state.IsWorkspaceInitialized, Is.True);
@@ -124,7 +145,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: false));
 
         Assert.That(state.HasPackageManifest, Is.True);
         Assert.That(state.IsSquadInstalledForActiveDirectory, Is.False);
@@ -148,7 +171,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: true));
 
         Assert.Multiple(() => {
             Assert.That(state.IsWorkspaceInitialized, Is.True);
@@ -184,7 +209,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
             var service = new SquadInstallationStateService();
 
-            var state = service.GetState(workspace.RootPath);
+            var state = service.GetState(
+                workspace.RootPath,
+                CreateResolvedCandidate(workspace.RootPath, isAvailable: true));
 
             Assert.Multiple(() => {
                 Assert.That(state.IsWorkspaceInitialized, Is.True);
@@ -217,7 +244,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: true));
 
         Assert.Multiple(() => {
             Assert.That(state.IsWorkspaceInitialized, Is.True);
@@ -242,7 +271,9 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: true));
 
         Assert.Multiple(() => {
             Assert.That(state.IsWorkspaceInitialized, Is.True);
@@ -268,12 +299,33 @@ internal sealed class SquadInstallationStateServiceTests {
 
         var service = new SquadInstallationStateService();
 
-        var state = service.GetState(workspace.RootPath);
+        var state = service.GetState(
+            workspace.RootPath,
+            CreateResolvedCandidate(workspace.RootPath, isAvailable: false));
 
         Assert.Multiple(() => {
             Assert.That(state.UsesRemoteTeamRoot, Is.False);
             Assert.That(state.SquadFolderPath, Is.EqualTo(workspace.GetPath(".squad")));
             Assert.That(state.IsWorkspaceInitialized, Is.False);
         });
+    }
+    private static ResolvedCliCandidate CreateResolvedCandidate(
+        string workspaceRoot,
+        bool isAvailable,
+        string? executablePath = null,
+        string? entryScriptPath = null)
+    {
+        var commandPath = executablePath ?? Path.Combine(workspaceRoot, "tools", "squad.cmd");
+        return new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.WorkspaceNpm,
+            RuntimeType: entryScriptPath is null ? CliRuntimeType.NpmShim : CliRuntimeType.NodeScript,
+            ExecutablePath: commandPath,
+            EntryScriptPath: entryScriptPath,
+            Version: "0.10.0",
+            IsAvailable: isAvailable,
+            AgentCmdSupport: CliCapabilityStatus.Supported,
+            ProbeError: isAvailable ? null : "CLI unavailable",
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
     }
 }

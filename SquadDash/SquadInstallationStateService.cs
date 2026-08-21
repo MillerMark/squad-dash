@@ -4,32 +4,31 @@ using System.Text;
 namespace SquadDash;
 
 internal sealed class SquadInstallationStateService {
-    public SquadInstallationState GetState(string activeDirectory) {
+    public SquadInstallationState GetState(string activeDirectory, ResolvedCliCandidate resolvedCandidate) {
+        ArgumentException.ThrowIfNullOrWhiteSpace(activeDirectory);
+        ArgumentNullException.ThrowIfNull(resolvedCandidate);
+
         var normalizedDirectory = Path.GetFullPath(activeDirectory)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var layout = SquadWorkspaceLayoutResolver.Resolve(normalizedDirectory);
         var squadFolderPath = layout?.TeamSquadFolderPath ?? Path.Combine(normalizedDirectory, ".squad");
         var teamFilePath = layout?.TeamFilePath ?? Path.Combine(squadFolderPath, "team.md");
         var packageJsonPath = Path.Combine(normalizedDirectory, "package.json");
-        var localSquadShimPath = Path.Combine(normalizedDirectory, "node_modules", ".bin", "squad.cmd");
-        var localSquadCliEntryPath = ResolveWorkspaceRelativePath(normalizedDirectory, SquadCliCommands.LocalCliEntryPath);
-        var localSquadCommandPath = File.Exists(localSquadShimPath)
-            ? localSquadShimPath
-            : localSquadCliEntryPath;
         var workspaceInitialized = File.Exists(teamFilePath);
         var hasPackageManifest = File.Exists(packageJsonPath);
-        var hasLocalCli = File.Exists(localSquadShimPath) || File.Exists(localSquadCliEntryPath);
+        var resolvedCommandPath = resolvedCandidate.EntryScriptPath ?? resolvedCandidate.ExecutablePath;
+        var hasResolvedCli = resolvedCandidate.IsAvailable && !string.IsNullOrWhiteSpace(resolvedCommandPath);
 
         return new SquadInstallationState(
             normalizedDirectory,
             squadFolderPath,
             teamFilePath,
             packageJsonPath,
-            localSquadCommandPath,
+            resolvedCommandPath ?? string.Empty,
             workspaceInitialized,
             hasPackageManifest,
-            hasLocalCli,
-            workspaceInitialized && hasLocalCli,
+            hasResolvedCli,
+            workspaceInitialized && hasResolvedCli,
             layout?.ProjectSquadFolderPath,
             layout?.TeamSquadFolderPath,
             layout?.IsRemote ?? false,
@@ -39,10 +38,6 @@ internal sealed class SquadInstallationStateService {
             layout?.ResolutionReason);
     }
 
-    private static string ResolveWorkspaceRelativePath(string workspacePath, string relativePath) =>
-        Path.Combine(new[] { workspacePath }
-            .Concat(relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-            .ToArray());
 }
 
 internal sealed record SquadInstallationState(

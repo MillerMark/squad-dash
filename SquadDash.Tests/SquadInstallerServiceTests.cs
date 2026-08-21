@@ -58,7 +58,6 @@ internal sealed class SquadInstallerServiceTests {
             Assert.That(runner.Calls.Select(call => call.DisplayName), Is.EquivalentTo(new[] {
                 "Locate node",
                 "Locate npm",
-                "Locate npx",
                 SquadCliCommands.InstallLocalCli.DisplayName,
                 SquadCliCommands.Init.DisplayName
             }));
@@ -102,7 +101,9 @@ internal sealed class SquadInstallerServiceTests {
         var service = new SquadInstallerService(runner);
 
         var result = await service.InstallAsync(workspace.RootPath);
-        var state = new SquadInstallationStateService().GetState(workspace.RootPath);
+        var state = new SquadInstallationStateService().GetState(
+            workspace.RootPath,
+            CreateNodeScriptCandidate(workspace.RootPath));
 
         Assert.Multiple(() => {
             Assert.That(result.Success, Is.True);
@@ -439,6 +440,19 @@ internal sealed class SquadInstallerServiceTests {
     private static SquadCommandResult Success(string message) =>
         new(true, 0, string.Empty, string.Empty, message);
 
+    private static ResolvedCliCandidate CreateNodeScriptCandidate(string workspaceRoot) =>
+        new(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.WorkspaceNpm,
+            RuntimeType: CliRuntimeType.NodeScript,
+            ExecutablePath: "node",
+            EntryScriptPath: Path.Combine(workspaceRoot, SquadCliCommands.LocalCliEntryPath),
+            Version: "0.10.0",
+            IsAvailable: true,
+            AgentCmdSupport: CliCapabilityStatus.Supported,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
     private sealed class FakeCommandRunner : ISquadCommandRunner {
         private readonly Func<SquadCliCommandDefinition, string, Task<SquadCommandResult>> _handler;
 
@@ -449,6 +463,23 @@ internal sealed class SquadInstallerServiceTests {
         public List<SquadCliCommandDefinition> Calls { get; } = new();
 
         public Task<SquadCommandResult> RunAsync(SquadCliCommandDefinition command, string activeDirectory) {
+            Calls.Add(command);
+            return _handler(command, activeDirectory);
+        }
+
+        public Task<SquadCommandResult> RunAsync(
+            ResolvedCliCandidate candidate,
+            string activeDirectory,
+            string displayName,
+            IReadOnlyList<string> commandArguments) {
+            var command = displayName switch {
+                "Install Squad" => SquadCliCommands.Init,
+                "Run Squad Doctor" => SquadCliCommands.Doctor,
+                _ => new SquadCliCommandDefinition(
+                    candidate.ExecutablePath,
+                    string.Join(' ', commandArguments),
+                    displayName)
+            };
             Calls.Add(command);
             return _handler(command, activeDirectory);
         }
