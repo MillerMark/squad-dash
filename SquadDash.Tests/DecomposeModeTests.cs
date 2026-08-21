@@ -1497,6 +1497,21 @@ internal sealed class DecomposePlanCollectActionTests
         new("rev1", new DecomposedTaskGroup("PLAN-20260802", "Test Plan", branch, "Summary",
             [new DecomposedSubTask("PLAN-20260802-001", "First", [], "high")]));
 
+    [TestCase("collect", true)]
+    [TestCase(" COLLECT ", true)]
+    [TestCase("execute-new-branch", false)]
+    [TestCase("execute-active-branch", false)]
+    [TestCase("add-to-backlog", false)]
+    [TestCase(null, false)]
+    public void DispatchPolicy_OnlyAllowsLocalCollectionWhilePromptIsRunning(
+        string? action,
+        bool expected)
+    {
+        Assert.That(
+            DecomposePlanActionDispatchPolicy.CanApplyWhilePromptRunning(action),
+            Is.EqualTo(expected));
+    }
+
     [Test]
     public void BuildActionDefinitions_IncludesAddToPlansWithCollectAction()
     {

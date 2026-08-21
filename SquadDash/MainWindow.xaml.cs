@@ -10367,7 +10367,8 @@ public partial class MainWindow : Window
                 toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
             button.Click += async (_, _) =>
             {
-                if (_isPromptRunning)
+                if (_isPromptRunning &&
+                    !DecomposePlanActionDispatchPolicy.CanApplyWhilePromptRunning(action.Action))
                 {
                     AppendLine("Wait for the current prompt to finish before applying the task plan.");
                     return;
@@ -11640,6 +11641,10 @@ public partial class MainWindow : Window
     private async Task<bool> ApplyDecomposeDecisionAsync(PendingDecomposePlan plan, string action, string? branchOverride)
     {
         if (_currentWorkspace is null) return false;
+        if (_isPromptRunning &&
+            !DecomposePlanActionDispatchPolicy.CanApplyWhilePromptRunning(action))
+            throw new InvalidOperationException(
+                "Wait for the current prompt to finish before applying the task plan.");
         var currentPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(plan.Group.GroupId);
         if (currentPlan is null || !string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("This task-plan approval is stale. Use the controls on the latest plan response.");
@@ -12410,8 +12415,14 @@ public partial class MainWindow : Window
         {
             try
             {
-                if (_isPromptRunning)
-                    throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
+                if (_isPromptRunning &&
+                    !DecomposePlanActionDispatchPolicy.CanApplyWhilePromptRunning(action.Action))
+                {
+                    UIErrorHelper.ShowWarning(
+                        "Plan Action",
+                        "Wait for the current prompt to finish before applying the task plan.");
+                    return false;
+                }
                 // Use the latest live plan so execution seals the most recent gate revision,
                 // not the revision that was displayed when the viewer was first opened.
                 return await ApplyDecomposeDecisionAsync(latestLivePlan ?? displayedPlan, action.Action, action.Branch);
@@ -53469,10 +53480,15 @@ public partial class MainWindow : Window
                     return;
                 try
                 {
-                    if (_isPromptRunning)
-                        throw new InvalidOperationException("Wait for the current prompt to finish before applying the task plan.");
                     if (!DecomposeDecisionParser.TryParse(action.Prompt, out var decision) || decision is null)
                         throw new InvalidOperationException("This Inbox plan action is malformed and cannot be applied.");
+                    if (_isPromptRunning &&
+                        !DecomposePlanActionDispatchPolicy.CanApplyWhilePromptRunning(decision.Action))
+                    {
+                        ShowSystemTranscriptEntry(
+                            "Wait for the current prompt to finish before applying the task plan.");
+                        return;
+                    }
                     if (_currentWorkspace is null)
                         return;
                     var plan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(decision.GroupId);
