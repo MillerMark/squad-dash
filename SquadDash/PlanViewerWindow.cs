@@ -2957,7 +2957,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             var app = Application.Current;
             verificationIndicator.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-            if (app?.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
+            SolidColorBrush? taskBorderBrush = app?.TryFindResource(borderColorKey) as SolidColorBrush;
+            if (taskBorderBrush is not null)
                 verificationIndicator.BorderBrush = new SolidColorBrush(taskBorderBrush.Color) { Opacity = 0.5 };
             else
                 verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
@@ -2966,9 +2967,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            var verificationGlowColor = app?.TryFindResource("TaskSucceededFill") is SolidColorBrush verificationGlowBrush
-                ? verificationGlowBrush.Color
-                : Color.FromRgb(0x0E, 0x64, 0x2F);
+            var verificationGlowColor = taskBorderBrush?.Color
+                ?? (app?.TryFindResource("TaskSucceededFill") is SolidColorBrush verificationGlowBrush
+                    ? verificationGlowBrush.Color
+                    : Color.FromRgb(0x0E, 0x64, 0x2F));
             verificationIndicator.MouseEnter += (_, _) =>
             {
                 verificationIndicator.Effect = new DropShadowEffect
