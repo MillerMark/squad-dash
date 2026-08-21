@@ -2840,22 +2840,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             canvas.Children.Add(border);
 
             var verificationOnly = PlanTaskExecutionPolicy.IsVerificationOnly(task);
+            if (!verificationOnly)
+            {
             var verificationLevel = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
             var isTaskComplete = borderColorKey == "PriorityLow";
             FrameworkElement verificationIndicatorContent;
-            if (verificationOnly)
-            {
-                var verificationIndicatorText = new TextBlock
-                {
-                    Text = "—",
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    FontWeight = FontWeights.SemiBold,
-                };
-                verificationIndicatorText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                verificationIndicatorContent = verificationIndicatorText;
-            }
-            else
             {
                 FrameworkElement MakeCheckmarkIcon(bool applyCompletionOpacity = true)
                 {
@@ -2932,16 +2921,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             var verificationIndicator = new Border
             {
-                Width = !verificationOnly && verificationLevel == PlanTaskVerificationLevel.Enhanced
+                Width = verificationLevel == PlanTaskVerificationLevel.Enhanced
                     ? 40 * _scaleFactor
                     : 26 * _scaleFactor,
                 Height = 22 * _scaleFactor,
                 CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
                 BorderThickness = new Thickness(0, 1, 1, 1),
                 Background = Brushes.Transparent, // initial; overwritten immediately below
-                ToolTip = ToolTipHelper.MakeThemedToolTip(verificationOnly
-                    ? "This is a verification-only step, so it does not receive another independent verification pass."
-                    : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
                 Child = verificationIndicatorContent,
             };
             var app = Application.Current;
@@ -2952,9 +2940,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
             System.Windows.Automation.AutomationProperties.SetName(
                 verificationIndicator,
-                verificationOnly
-                    ? $"{task.Title ?? task.Id}: verification-only step"
-                    : $"{task.Title ?? task.Id}: {verificationLevel} verification");
+                $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
             var verificationGlowColor = app?.TryFindResource("TaskSucceededFill") is SolidColorBrush verificationGlowBrush
@@ -2974,7 +2960,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 verificationIndicator.Effect = null;
             };
-            if (_saveDefinitionEdit is not null && !verificationOnly)
+            if (_saveDefinitionEdit is not null)
             {
                 var capturedTaskId = task.Id;
                 var capturedVerificationLevel = verificationLevel;
@@ -3012,6 +2998,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
             RegisterTaskDragOverlay(task.Id, verificationIndicator);
+            } // end if (!verificationOnly)
 
             if (hasAgentAvatars)
             {
