@@ -7119,7 +7119,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return new UIElement() as FrameworkElement ?? new Border();
         var path = new Path { Data = geom };
         path.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
-        return new Viewbox { Width = 14, Height = 14, Stretch = Stretch.Uniform, Child = path, Opacity = opacity };
+        return new Viewbox { Width = 16.1, Height = 16.1, Stretch = Stretch.Uniform, Child = path, Opacity = opacity };
     }
 
     private FrameworkElement BuildLightweightInlineIcon(double opacity)
@@ -7157,7 +7157,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             "C2306.625,457.375,2333.625,420.75,2373.875,421.375z");
         var starPath = new Path { Data = starGeometry };
         starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
-        return new Viewbox { Width = 14, Height = 14, Stretch = Stretch.Uniform, Child = starPath, Opacity = opacity };
+        return new Viewbox { Width = 16.8, Height = 16.8, Stretch = Stretch.Uniform, Child = starPath, Opacity = opacity };
     }
 
     private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly, PlanTask? durableTask = null)
