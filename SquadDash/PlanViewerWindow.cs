@@ -2941,7 +2941,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             var verificationIndicator = new Border
             {
-                Width = 26 * _scaleFactor,
+                Width = 32 * _scaleFactor,
                 Height = 22 * _scaleFactor,
                 CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
                 BorderThickness = new Thickness(0, 1, 1, 1),
@@ -3011,7 +3011,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(7.6 * _scaleFactor));
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
