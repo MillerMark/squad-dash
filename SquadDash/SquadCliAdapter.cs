@@ -17,9 +17,11 @@ internal sealed class SquadCliAdapter {
     private string? _squadVersion;
     private string? _lastObservedModel;
     private string? _latestSquadVersion;
+    private ResolvedCliCandidate? _lastResolvedCandidate;
 
     public string? SquadVersion => _squadVersion;
     public string? LatestSquadVersion => _latestSquadVersion;
+    public ResolvedCliCandidate? LastResolvedCandidate => _lastResolvedCandidate;
 
     public string? LastObservedModel {
         get => _lastObservedModel;
@@ -53,7 +55,9 @@ internal sealed class SquadCliAdapter {
 
         try {
             var candidate = await _cliResolutionService.ResolveAsync(workingDirectory).ConfigureAwait(false);
+            _lastResolvedCandidate = candidate;
             _squadVersion = candidate.IsAvailable ? candidate.Version : null;
+            _latestSquadVersion = candidate.UpdateInstruction.TargetVersion;
         }
         catch (Exception ex) {
             SquadDashTrace.Write("SquadCli", $"Version resolve failed: {ex.Message}");
@@ -61,8 +65,11 @@ internal sealed class SquadCliAdapter {
         }
     }
 
-    public async Task CheckForSquadUpdateAsync() {
-        _latestSquadVersion = await TryFetchLatestSquadVersionAsync();
+    public Task CheckForSquadUpdateAsync() {
+        // Target version is now fetched inside ResolveSquadVersionAsync via the resolution
+        // service's ProbeTargetVersionAsync step. This method is retained for API compatibility
+        // but no longer performs a separate npm fetch.
+        return Task.CompletedTask;
     }
 
     public void LaunchPowerShellCommandWindow(WorkspaceIssueAction action) {

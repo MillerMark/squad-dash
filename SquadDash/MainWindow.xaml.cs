@@ -204,6 +204,7 @@ public partial class MainWindow : Window
     private readonly SquadInstallationStateService _installationStateService;
     private readonly SquadInstallerService _installerService;
     private readonly ISquadCliResolutionService _cliResolutionService;
+    private readonly ISquadCliSelectionStore _cliSelectionStore;
     private readonly RunningInstanceRegistry _instanceRegistry;
     private readonly RestartCoordinatorStateStore _restartCoordinatorStateStore;
     private readonly WorkspaceOpenCoordinator _workspaceOpenCoordinator;
@@ -869,6 +870,8 @@ public partial class MainWindow : Window
                                 new SquadCliResolutionService(
                                     new SystemProcessRunner(),
                                     new SystemEnvironmentProvider());
+        _cliSelectionStore = serviceProvider?.GetService<ISquadCliSelectionStore>() ??
+                             new SquadCliSelectionStore(_settingsStore);
         _squadOrchestrationService = serviceProvider?.GetService<SquadOrchestrationService>() ?? new SquadOrchestrationService();
         _squadWatchHealthService = serviceProvider?.GetService<SquadWatchHealthService>() ?? new SquadWatchHealthService();
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
@@ -2176,6 +2179,7 @@ public partial class MainWindow : Window
                     SquadDashTrace.Write(TraceCategory.Startup, $"MainWindow_Loaded: ResolveSquadVersionAsync {resolveVersionSw.ElapsedMilliseconds}ms (async complete).");
                     UpdateStatusTitle();
                     SyncLoopPanel();
+                    UpdateSquadUpdateBadge();
                 }));
             SquadDashTrace.Write(TraceCategory.Startup, "MainWindow_Loaded: ResolveSquadVersionAsync started (non-blocking).");
             _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
@@ -31248,6 +31252,9 @@ public partial class MainWindow : Window
                 _settingsStore,
                 _settingsSnapshot,
                 _pushNotificationService,
+                _cliResolutionService,
+                _cliSelectionStore,
+                _currentWorkspace?.FolderPath ?? _workspacePaths.ApplicationRoot,
                 _workspacePaths,
                 showDevOptions,
                 snapshot =>
@@ -44776,12 +44783,14 @@ public partial class MainWindow : Window
         copyItem.Click += (_, _) => CopySquadSystemInfoToClipboard();
         menu.Items.Add(copyItem);
 
-        var latestVersion = _squadCliAdapter.LatestSquadVersion;
-        if (!string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, _squadCliAdapter.SquadVersion))
+        var candidate = _squadCliAdapter.LastResolvedCandidate;
+        var updateInstruction = candidate?.UpdateInstruction;
+        if (updateInstruction?.CanAutoUpdate == true &&
+            !string.IsNullOrWhiteSpace(updateInstruction.TargetVersion))
         {
             menu.Items.Add(MakeSep());
-            var updateItem = MakeItem($"Update Squad CLI to v{latestVersion}");
-            updateItem.Click += (_, _) => RunSquadCliUpdate(latestVersion);
+            var updateItem = MakeItem($"Update Squad CLI to v{updateInstruction.TargetVersion}");
+            updateItem.Click += (_, _) => RunSquadCliUpdate(updateInstruction);
             menu.Items.Add(updateItem);
         }
 
@@ -44792,12 +44801,12 @@ public partial class MainWindow : Window
     {
         if (SquadUpdateBadge is null)
             return;
-        var latestVersion = _squadCliAdapter.LatestSquadVersion;
-        var installedVersion = _squadCliAdapter.SquadVersion;
-        var hasUpdate = !string.IsNullOrWhiteSpace(latestVersion) && IsNewerSquadVersion(latestVersion, installedVersion);
+        var updateInstruction = _squadCliAdapter.LastResolvedCandidate?.UpdateInstruction;
+        var hasUpdate = updateInstruction?.CanAutoUpdate == true &&
+                        !string.IsNullOrWhiteSpace(updateInstruction.TargetVersion);
         SquadUpdateBadge.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
         if (hasUpdate)
-            SquadUpdateBadge.ToolTip = MakeThemedToolTip($"Squad CLI v{latestVersion} available — click to update");
+            SquadUpdateBadge.ToolTip = MakeThemedToolTip($"Squad CLI v{updateInstruction!.TargetVersion} available — click to update");
         UpdateTitleBarResponsiveLayout();
     }
 
@@ -44832,12 +44841,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RunSquadCliUpdate(string targetVersion)
+    private void RunSquadCliUpdate(CliUpdateInstruction updateInstruction)
     {
+        var command = updateInstruction.UpdateCommand
+            ?? $"npm install @bradygaster/squad-cli@{updateInstruction.TargetVersion}";
         var action = new WorkspaceIssueAction(
             "Update Squad CLI",
             WorkspaceIssueActionKind.LaunchPowerShellCommand,
-            $"npm install @bradygaster/squad-cli@{targetVersion}");
+            command);
         _squadCliAdapter.LaunchPowerShellCommandWindow(action);
     }
 

@@ -43,6 +43,8 @@ internal sealed class PreferencesWindow : Window {
     private readonly ComboBox _cliSelectionModeComboBox;
     private readonly TextBlock _cliDetectedSourceText;
     private readonly TextBlock _cliInstalledVersionText;
+    private readonly TextBlock _cliTargetVersionText;
+    private readonly TextBlock _cliUpdateAvailabilityText;
     private readonly TextBox _cliCustomPathBox;
     private readonly Button _cliBrowsePathButton;
     private readonly TextBlock _cliCapabilityStatusText;
@@ -372,6 +374,22 @@ internal sealed class PreferencesWindow : Window {
         };
         _cliInstalledVersionText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         _cliInstalledVersionText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        _cliTargetVersionText = new TextBlock
+        {
+            Text = "—",
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        _cliTargetVersionText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        _cliTargetVersionText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+
+        _cliUpdateAvailabilityText = new TextBlock
+        {
+            Margin = new Thickness(0, 0, 0, 8),
+            Visibility = Visibility.Collapsed,
+            TextWrapping = TextWrapping.Wrap
+        };
+        _cliUpdateAvailabilityText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         _cliCustomPathBox = new TextBox
         {
@@ -1277,6 +1295,11 @@ internal sealed class PreferencesWindow : Window {
 
         AddLabel(form, "Installed version");
         form.Children.Add(_cliInstalledVersionText);
+
+        AddLabel(form, "Available version");
+        form.Children.Add(_cliTargetVersionText);
+
+        form.Children.Add(_cliUpdateAvailabilityText);
 
         AddLabel(form, "Agent command support");
         form.Children.Add(_cliCapabilityStatusText);
@@ -2845,6 +2868,23 @@ internal sealed class PreferencesWindow : Window {
             _cliInstalledVersionText.Text = string.IsNullOrWhiteSpace(candidate.Version)
                 ? "(unknown)"
                 : $"v{candidate.Version}";
+
+            var updateInstruction = candidate.UpdateInstruction;
+            _cliTargetVersionText.Text = string.IsNullOrWhiteSpace(updateInstruction.TargetVersion)
+                ? "—"
+                : $"v{updateInstruction.TargetVersion}";
+
+            if (updateInstruction.CanAutoUpdate && !string.IsNullOrWhiteSpace(updateInstruction.TargetVersion))
+            {
+                _cliUpdateAvailabilityText.Text = $"✦ Update available: v{updateInstruction.TargetVersion}";
+                _cliUpdateAvailabilityText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                _cliUpdateAvailabilityText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _cliUpdateAvailabilityText.Visibility = Visibility.Collapsed;
+            }
+
             ApplyCliCapabilityIndicator(candidate.AgentCmdSupport);
             _cliSelectionStatusText.Text = candidate.IsAvailable
                 ? "CLI selection saved."
@@ -2872,45 +2912,23 @@ internal sealed class PreferencesWindow : Window {
             : CliSelectionMode.Auto;
     }
 
-    private static string FormatCliInstallSource(CliInstallSource source) => source switch
-    {
-        CliInstallSource.WorkspaceNpm => "Workspace npm package",
-        CliInstallSource.GlobalNpm => "Global npm package",
-        CliInstallSource.NativeOther => "Native system install",
-        CliInstallSource.Custom => "Custom path",
-        _ => "Unknown",
-    };
+    private static string FormatCliInstallSource(CliInstallSource source) =>
+        CliPreferencesLogic.FormatCliInstallSource(source);
 
-    internal static (string Label, string ResourceKey) BuildCapabilityIndicator(CliCapabilityStatus status) => status switch
-    {
-        CliCapabilityStatus.Supported => ("Supported", "SuccessText"),
-        CliCapabilityStatus.NotSupported => ("Not supported", "ErrorText"),
-        _ => ("Unknown", "BodyText"),
-    };
+    internal static (string Label, string ResourceKey) BuildCapabilityIndicator(CliCapabilityStatus status) =>
+        CliPreferencesLogic.BuildCapabilityIndicator(status);
 
     internal static (CliSelectionMode Mode, string? CustomPath) BuildCliSelectionForSave(
         CliSelectionMode selectedMode,
-        string? customPathText)
-    {
-        var normalizedCustomPath = string.IsNullOrWhiteSpace(customPathText)
-            ? null
-            : customPathText.Trim();
-        return selectedMode == CliSelectionMode.CustomPath
-            ? (selectedMode, normalizedCustomPath)
-            : (selectedMode, null);
-    }
+        string? customPathText) =>
+        CliPreferencesLogic.BuildCliSelectionForSave(selectedMode, customPathText);
 
     internal static Task PersistCliSelectionAsync(
         ISquadCliSelectionStore selectionStore,
         string workspaceDirectory,
         CliSelectionMode selectedMode,
-        string? customPathText)
-    {
-        ArgumentNullException.ThrowIfNull(selectionStore);
-        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceDirectory);
-        var selection = BuildCliSelectionForSave(selectedMode, customPathText);
-        return selectionStore.SaveSelectionAsync(workspaceDirectory, selection.Mode, selection.CustomPath);
-    }
+        string? customPathText) =>
+        CliPreferencesLogic.PersistCliSelectionAsync(selectionStore, workspaceDirectory, selectedMode, customPathText);
 
     private void ApplyCliCapabilityIndicator(CliCapabilityStatus status)
     {
