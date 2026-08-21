@@ -2872,7 +2872,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    checkPath.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                    checkPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
 
                     return new Viewbox
                     {
@@ -2908,9 +2908,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         VerticalAlignment = VerticalAlignment.Center,
                         Opacity = isTaskComplete ? 1.0 : 0.35,
                     };
-                    indicator.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
+                    indicator.SetResourceReference(Shape.StrokeProperty, "TaskSucceededFill");
                     if (isTaskComplete)
-                        indicator.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                        indicator.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
                     return indicator;
                 }
 
@@ -2957,9 +2957,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
-            var verificationGlowColor = app?.TryFindResource("PriorityLow") is SolidColorBrush verificationGlowBrush
+            var verificationGlowColor = app?.TryFindResource("TaskSucceededFill") is SolidColorBrush verificationGlowBrush
                 ? verificationGlowBrush.Color
-                : Color.FromRgb(0x50, 0xBA, 0x55);
+                : Color.FromRgb(0x0E, 0x64, 0x2F);
             verificationIndicator.MouseEnter += (_, _) =>
             {
                 verificationIndicator.Effect = new DropShadowEffect
