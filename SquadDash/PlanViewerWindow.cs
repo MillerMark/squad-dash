@@ -2884,7 +2884,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     PlanTaskVerificationLevel.Enhanced => CreateEnhancedVerificationIndicator(),
                     _ => CreateStandardVerificationIndicator(),
                 };
-                verificationIndicatorContent.Margin = new Thickness(10 * _scaleFactor, 0, 0, 0);
+                verificationIndicatorContent.Margin = new Thickness(12 * _scaleFactor, 0, 0, 0);
 
                 FrameworkElement CreateLightweightVerificationIndicator()
                 {
