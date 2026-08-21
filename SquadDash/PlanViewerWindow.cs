@@ -2857,7 +2857,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                FrameworkElement MakeCheckmarkIcon()
+                FrameworkElement MakeCheckmarkIcon(bool applyCompletionOpacity = true)
                 {
                     if (Application.Current.FindResource("TaskSucceededGeometry") is not Geometry succeededGeometry)
                     {
@@ -2880,6 +2880,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Height = 10 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Child = checkPath,
+                        Opacity = applyCompletionOpacity ? (isTaskComplete ? 1.0 : 0.25) : 1.0,
                     };
                 }
 
@@ -2905,6 +2906,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Fill = Brushes.Transparent,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
+                        Opacity = isTaskComplete ? 1.0 : 0.25,
                     };
                     indicator.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
                     if (isTaskComplete)
@@ -2919,11 +2921,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
+                        Opacity = isTaskComplete ? 1.0 : 0.25,
                     };
-                    twoChecks.Children.Add(MakeCheckmarkIcon());
+                    twoChecks.Children.Add(MakeCheckmarkIcon(applyCompletionOpacity: false));
                     var spacer = new FrameworkElement { Width = 2 * _scaleFactor };
                     twoChecks.Children.Add(spacer);
-                    twoChecks.Children.Add(MakeCheckmarkIcon());
+                    twoChecks.Children.Add(MakeCheckmarkIcon(applyCompletionOpacity: false));
                     return twoChecks;
                 }
             }
@@ -2941,8 +2944,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     : $"{char.ToUpperInvariant(verificationLevel[0]) + verificationLevel[1..]} verification"),
                 Child = verificationIndicatorContent,
             };
+            var app = Application.Current;
             verificationIndicator.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-            if (Application.Current.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
+            if (app?.TryFindResource(borderColorKey) is SolidColorBrush taskBorderBrush)
                 verificationIndicator.BorderBrush = new SolidColorBrush(taskBorderBrush.Color) { Opacity = 0.5 };
             else
                 verificationIndicator.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
@@ -2953,6 +2957,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     : $"{task.Title ?? task.Id}: {verificationLevel} verification");
             verificationIndicator.Tag = $"verification:{task.Id}";
             WireSelectionClick(verificationIndicator);
+            var verificationGlowColor = app?.TryFindResource("PriorityLow") is SolidColorBrush verificationGlowBrush
+                ? verificationGlowBrush.Color
+                : Color.FromRgb(0x50, 0xBA, 0x55);
+            verificationIndicator.MouseEnter += (_, _) =>
+            {
+                verificationIndicator.Effect = new DropShadowEffect
+                {
+                    Color = verificationGlowColor,
+                    BlurRadius = 8 * _scaleFactor,
+                    ShadowDepth = 0,
+                    Opacity = 0.8,
+                };
+            };
+            verificationIndicator.MouseLeave += (_, _) =>
+            {
+                verificationIndicator.Effect = null;
+            };
             if (_saveDefinitionEdit is not null && !verificationOnly)
             {
                 var capturedTaskId = task.Id;
@@ -2986,7 +3007,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
-            verificationIndicator.Opacity = verificationOnly ? 1.0 : (isTaskComplete ? 1.0 : 0.25);
             Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 18);
