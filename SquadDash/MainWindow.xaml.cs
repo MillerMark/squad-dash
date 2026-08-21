@@ -43781,13 +43781,16 @@ public partial class MainWindow : Window
                 WorkspaceIssueFactory.CreateStartupIssue(installationState, startupSimulation));
         }).ConfigureAwait(true);
 
-        if (refreshVersion != Interlocked.Read(ref _installationStateRefreshVersion))
-            return;
+        await Dispatcher.InvokeAsync(() =>
+        {
+            if (refreshVersion != Interlocked.Read(ref _installationStateRefreshVersion))
+                return;
 
-        if (!string.Equals(_currentWorkspace?.FolderPath, result.WorkspaceFolder, StringComparison.OrdinalIgnoreCase))
-            return;
+            if (!string.Equals(_currentWorkspace?.FolderPath, result.WorkspaceFolder, StringComparison.OrdinalIgnoreCase))
+                return;
 
-        ApplyInstallationStateRefresh(result);
+            ApplyInstallationStateRefresh(result);
+        });
     }
 
     private void ApplyInstallationStateRefresh(InstallationStateRefreshResult result)
