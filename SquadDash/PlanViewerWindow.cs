@@ -2933,6 +2933,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Width = 13 * _scaleFactor,
                         Height = 13 * _scaleFactor,
                         Stretch = Stretch.Uniform,
+                        Margin = new Thickness(-0.65 * _scaleFactor, -0.52 * _scaleFactor, 0, 0),
                         Child = starPath,
                         Opacity = isTaskComplete ? 1.0 : 0.50,
                     };
