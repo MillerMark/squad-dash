@@ -2884,7 +2884,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     PlanTaskVerificationLevel.Enhanced => CreateEnhancedVerificationIndicator(),
                     _ => CreateStandardVerificationIndicator(),
                 };
-                verificationIndicatorContent.Margin = new Thickness(13 * _scaleFactor, 0, 0, 0);
+                verificationIndicatorContent.Margin = verificationLevel switch
+                {
+                    PlanTaskVerificationLevel.Lightweight or PlanTaskVerificationLevel.Enhanced => new Thickness(13 * _scaleFactor, 0, 0, 0),
+                    _ => new Thickness(14 * _scaleFactor, 0, 0, 0),
+                };
 
                 FrameworkElement CreateLightweightVerificationIndicator()
                 {
@@ -2931,8 +2935,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
                     return new Viewbox
                     {
-                        Width = 13 * _scaleFactor,
-                        Height = 13 * _scaleFactor,
+                        Width = 14.3 * _scaleFactor,
+                        Height = 14.3 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Margin = new Thickness(-1.30 * _scaleFactor, -0.52 * _scaleFactor, 0, 0),
                         Child = starPath,
