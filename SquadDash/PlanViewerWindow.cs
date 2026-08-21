@@ -3011,7 +3011,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 verificationIndicator.ContextMenu = verMenu;
             }
-            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(1.6 * _scaleFactor));
+            Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(7.6 * _scaleFactor));
             Canvas.SetTop(verificationIndicator, position.Y);
             Panel.SetZIndex(verificationIndicator, 18);
             canvas.Children.Add(verificationIndicator);
