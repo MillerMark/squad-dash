@@ -2869,7 +2869,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Height = 12 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Child = checkPath,
-                        Opacity = applyCompletionOpacity ? (isTaskComplete ? 1.0 : 0.35) : 1.0,
+                        Opacity = applyCompletionOpacity ? (isTaskComplete ? 1.0 : 0.50) : 1.0,
                     };
                 }
 
@@ -2895,7 +2895,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Fill = Brushes.Transparent,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Opacity = isTaskComplete ? 1.0 : 0.35,
+                        Opacity = isTaskComplete ? 1.0 : 0.50,
                     };
                     indicator.SetResourceReference(Shape.StrokeProperty, "TaskSucceededFill");
                     if (isTaskComplete)
@@ -2934,7 +2934,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         Height = 13 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Child = starPath,
-                        Opacity = isTaskComplete ? 1.0 : 0.35,
+                        Opacity = isTaskComplete ? 1.0 : 0.50,
                     };
                 }
             }
