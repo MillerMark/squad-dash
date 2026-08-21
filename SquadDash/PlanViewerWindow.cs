@@ -2930,8 +2930,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
                     return new Viewbox
                     {
-                        Width = 10 * _scaleFactor,
-                        Height = 10 * _scaleFactor,
+                        Width = 13 * _scaleFactor,
+                        Height = 13 * _scaleFactor,
                         Stretch = Stretch.Uniform,
                         Child = starPath,
                         Opacity = isTaskComplete ? 1.0 : 0.35,
