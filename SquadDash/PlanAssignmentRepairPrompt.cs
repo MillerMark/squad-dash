@@ -20,7 +20,9 @@ internal static class PlanAssignmentRepairPrompt
 
             Required primary assignments: {{handles}}
 
-            Correct the delegation now. Launch the missing required primary assignment using the exact host-scoped envelope and complete charter supplied below. A prompt that merely says "you are" that agent is not sufficient. The assigned worker may inspect and validate preserved work, complete missing work, and create or adopt the single task commit. Wait for the worker, perform coordinator wrap-up, then return exactly one DECOMPOSE_STEP_RESULT_JSON for group {{groupId}}, task {{taskId}}, revision {{revision}}. Include the supplied `executionAttemptId` and one `agentExecutions` entry with only `requestedAgent` and `actualPrimaryAgent`, both set to the assigned roster handle. Do not report tool-call IDs or child lineage; SquadDash validates that host-owned evidence directly.
+            Correct the delegation now. This repair turn has not attempted the required delegation yet. Failures shown in earlier transcript turns belong to earlier work and do not count as a tool failure in this turn. Do not infer a current durable failure from them and do not skip the required call.
+
+            Launch the missing required primary assignment using the exact host-scoped envelope and complete charter supplied below. A prompt that merely says "you are" that agent is not sufficient. If the repository work is already committed, launch the worker in validation/adoption mode: it must inspect and verify the preserved work without repeating completed implementation. Wait for the worker, perform coordinator wrap-up, then return exactly one DECOMPOSE_STEP_RESULT_JSON for group {{groupId}}, task {{taskId}}, revision {{revision}}. Include the supplied `executionAttemptId` and one `agentExecutions` entry with only `requestedAgent` and `actualPrimaryAgent`, both set to the assigned roster handle. Do not report tool-call IDs or child lineage; SquadDash validates that host-owned evidence directly. Never claim an actual primary agent unless the current host-scoped delegation call completed.
 
             {{routingContext}}
             """;

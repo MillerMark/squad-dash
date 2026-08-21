@@ -88,6 +88,9 @@ internal sealed class PlanExecutionAttemptTests
                 Assert.That(context, Does.Contain("Treat every worker-reported commit SHA as untrusted"));
                 Assert.That(context, Does.Contain("git rev-parse --verify"));
                 Assert.That(context, Does.Contain("ask that same worker"));
+                Assert.That(context, Does.Contain("starts with no launch failures"));
+                Assert.That(context, Does.Contain("do not waive the assignment"));
+                Assert.That(context, Does.Contain("Do not claim an `actualPrimaryAgent`"));
             });
         }
         finally

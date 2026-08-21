@@ -396,7 +396,9 @@ internal static class DecomposePlanningInstructions
         builder.AppendLine();
         builder.AppendLine($"Task [{stepId}] has {assignments.Count} host-authorized primary assignment(s).");
         builder.AppendLine($"Execution attempt: `{executionAttempt.AttemptId}`.");
+        builder.AppendLine("This execution attempt starts with no launch failures. Do not carry a delegation, provider, quota, or runtime failure forward from an earlier attempt or transcript turn. Only a tool result produced in this turn with this exact execution-attempt identity can fail this attempt.");
         builder.AppendLine("Launch exactly the assigned worker and wait for its result. Do not launch an additional coordinator-owned primary worker.");
+        builder.AppendLine("Existing commits or completed repository work do not waive the assignment. Launch the assigned worker in validation/adoption mode so it inspects and verifies preserved work without repeating completed implementation.");
         builder.AppendLine("Copy the host-owned Git branch lease from this turn into the assigned worker prompt verbatim. Explicitly tell the worker that SquadDash already prepared the branch and that the worker must not create or switch branches.");
         builder.AppendLine("Use the host-provided `delegate_roster_agent` tool with the exact assigned `agent_handle`; it preserves native monitoring and waits for the roster agent result.");
         builder.AppendLine("Do not use the generic `task` tool for an assigned roster agent. SquadDash reserves it for temporary workers and will reject a roster-like or assignment-bearing generic launch.");
@@ -467,6 +469,7 @@ internal static class DecomposePlanningInstructions
         builder.AppendLine("Treat every worker-reported commit SHA as untrusted handoff data. Immediately resolve it with `git rev-parse --verify \"<reported-sha>^{commit}\"`. If Git rejects it, ask that same worker to run `git rev-parse --short HEAD` and return the exact output; verify the correction before writing DECOMPOSE_STEP_RESULT_JSON.");
         builder.AppendLine($"Its DECOMPOSE_STEP_RESULT_JSON must include `executionAttemptId`: `{executionAttempt.AttemptId}`.");
         builder.AppendLine("It must also include `agentExecutions`, one object per assignment, with only `requestedAgent` and `actualPrimaryAgent` set to the assigned roster handle.");
+        builder.AppendLine("Do not claim an `actualPrimaryAgent` merely because that agent was intended or appeared in an older transcript. Report it only after the current host-scoped delegation call completes; SquadDash validates that evidence independently.");
         builder.AppendLine("Do not report tool-call IDs or child lineage. Those values are host-internal evidence that SquadDash correlates and validates directly.");
         builder.AppendLine("The task is incomplete if any required assigned worker is missing, substituted, or unresolved.");
         return builder.ToString().TrimEnd();

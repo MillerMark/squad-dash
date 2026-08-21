@@ -272,6 +272,7 @@
     <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
     <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
+    <Compile Include="..\SquadDash\QueueRecoveryHoldState.cs" Link="Source\QueueRecoveryHoldState.cs" />
     <Compile Include="..\SquadDash\InterruptedPromptFreshnessContext.cs" Link="Source\InterruptedPromptFreshnessContext.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryDispatchPolicy.cs" Link="Source\DecomposeRecoveryDispatchPolicy.cs" />
     <Compile Include="..\SquadDash\IWorkspacePaths.cs" Link="Source\IWorkspacePaths.cs" />

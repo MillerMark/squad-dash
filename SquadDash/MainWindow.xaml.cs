@@ -453,6 +453,7 @@ public partial class MainWindow : Window
     private bool _isPromptRunning;
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
+    private QueueRecoveryHoldState? _queueRecoveryHold;
     private bool _planQueueDrainPauseAnnounced;
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _pendingPromptSuppressTranscript;
@@ -2656,7 +2657,7 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (_isPromptRunning || IsNativeLoopRunning || _queueManuallyPaused || HasPendingDirectQuickReplyAgentFollowUp())
+                if (_isPromptRunning || IsNativeLoopRunning || IsQueueDispatchHeld || HasPendingDirectQuickReplyAgentFollowUp())
                 {
                     OnQueueTabClicked(null);
                     if (_queueManuallyPaused)
@@ -2687,7 +2688,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_isPromptRunning || IsNativeLoopRunning || _queueManuallyPaused || HasPendingDirectQuickReplyAgentFollowUp())
+            if (_isPromptRunning || IsNativeLoopRunning || IsQueueDispatchHeld || HasPendingDirectQuickReplyAgentFollowUp())
             {
                 if (IsNativeLoopRunning && _loopFollowUpTcs == null)
                 {
@@ -2760,7 +2761,11 @@ public partial class MainWindow : Window
                     ? PlanRepairReplayPolicy.BuildQueueDescription(text)
                     : null,
         };
-        if (isSystemInjected && !forceAtTail && _activeTabId is null && !_queueManuallyPaused) {
+        var isPlanRepair = string.Equals(
+            sourceTag,
+            PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+            StringComparison.Ordinal);
+        if (isSystemInjected && !forceAtTail && !isPlanRepair && _activeTabId is null && !IsQueueDispatchHeld) {
             _promptQueue.EnqueueItemAtFront(item);
             _promptQueue.RenumberSequentially();
         }
@@ -3078,7 +3083,7 @@ public partial class MainWindow : Window
     private PromptQueueItem? GetAutoDispatchCandidate()
         => _promptQueue.GetAutoDispatchCandidate(
             _activeTabId,
-            _queueManuallyPaused,
+            IsQueueDispatchHeld,
             TourDummyTag,
             TourTypeTag);
 
@@ -3790,6 +3795,7 @@ public partial class MainWindow : Window
         _queuePreEditDraftSelectionStart = 0;
         _queuePreEditDraftSelectionLength = 0;
         _queueManuallyPaused = false;
+        _queueRecoveryHold = null;
         _queuePausePending = false;
         _rightmostTabHoldNotificationFired = false;
         _loopQueued = false;
@@ -3809,7 +3815,7 @@ public partial class MainWindow : Window
         SyncQueuePanel();
         SquadDashTrace.Write(
             "Queue",
-            $"Queue hydration completed: count={_promptQueue.Count} paused={_queueManuallyPaused} held={IsRightmostQueueTabActive()} activeTabIndex={GetActiveQueueTabIndex()?.ToString() ?? "null"} loopQueued={_loopQueued}");
+            $"Queue hydration completed: count={_promptQueue.Count} manualPause={_queueManuallyPaused} recoveryHold={_queueRecoveryHold?.PlanId ?? "none"} held={IsRightmostQueueTabActive()} activeTabIndex={GetActiveQueueTabIndex()?.ToString() ?? "null"} loopQueued={_loopQueued}");
     }
 
     private void SyncQueuePanel()
@@ -3828,7 +3834,7 @@ public partial class MainWindow : Window
             _queuePreEditDraft = null;
             ApplyPromptEditorLockState();
         }
-        QueueTabBorder.Visibility = (items.Count > 0 || _queueManuallyPaused) ? Visibility.Visible : Visibility.Collapsed;
+        QueueTabBorder.Visibility = (items.Count > 0 || IsQueueDispatchHeld) ? Visibility.Visible : Visibility.Collapsed;
         QueueTabStrip.Children.Clear();
 
         if (items.Count > 0)
@@ -3920,15 +3926,16 @@ public partial class MainWindow : Window
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
-        if (!paused)
+        if (!paused && _queueRecoveryHold is null)
             _queueStopPauseState.RecordQueueResumed();
-        EditPauseQueueDrainMenuItem.Visibility  = paused ? Visibility.Collapsed : Visibility.Visible;
-        EditResumeQueueDrainMenuItem.Visibility = paused ? Visibility.Visible   : Visibility.Collapsed;
+        var dispatchHeld = IsQueueDispatchHeld;
+        EditPauseQueueDrainMenuItem.Visibility  = dispatchHeld ? Visibility.Collapsed : Visibility.Visible;
+        EditResumeQueueDrainMenuItem.Visibility = dispatchHeld ? Visibility.Visible   : Visibility.Collapsed;
         // When pausing with no queued items the border is normally Collapsed;
         // make it visible so the play ▶ button and status label are shown.
-        if (paused && _promptQueue.Items.Count == 0)
+        if (dispatchHeld && _promptQueue.Items.Count == 0)
             QueueTabBorder.Visibility = Visibility.Visible;
-        else if (!paused && _promptQueue.Items.Count == 0)
+        else if (!dispatchHeld && _promptQueue.Items.Count == 0)
             QueueTabBorder.Visibility = Visibility.Collapsed;
         if (paused && _isPromptRunning)
         {
@@ -3948,12 +3955,12 @@ public partial class MainWindow : Window
             _queuePausePending = false;
             var qrbSuffix = _queuePausedNotificationFired ? " (AI waiting for your response)" : string.Empty;
 
-            QueuePlayPauseButton.ToolTip = MakeThemedToolTip(paused ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.");
+            QueuePlayPauseButton.ToolTip = MakeThemedToolTip(dispatchHeld ? "Click to resume automatic prompt queue processing." : "Click to pause automatic prompt queue processing.");
             // Icon shows what clicking will DO (inverted from current state):
             //   Running → pause icon ⏸ (click will pause)
             //   Paused  → play icon  ▶ (click will resume)
-            QueuePlayIcon.Visibility  = paused ? Visibility.Visible   : Visibility.Collapsed;
-            QueuePauseIcon.Visibility = paused ? Visibility.Collapsed : Visibility.Visible;
+            QueuePlayIcon.Visibility  = dispatchHeld ? Visibility.Visible   : Visibility.Collapsed;
+            QueuePauseIcon.Visibility = dispatchHeld ? Visibility.Collapsed : Visibility.Visible;
 
             // High-contrast styling: black/yellow when paused, default when running.
             if (paused)
@@ -3961,6 +3968,14 @@ public partial class MainWindow : Window
                 QueueStatusLabel.Text = $"Queue is paused{qrbSuffix}";
                 QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
                 QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
+            }
+            else if (_queueRecoveryHold is not null)
+            {
+                QueueStatusLabel.Text = "Queue is held for plan recovery";
+                QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
+                QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
+                QueuePlayPauseButton.ToolTip = MakeThemedToolTip(
+                    "Click to release the recovery hold and drain queued prompts. The interrupted plan remains preserved.");
             }
             else if (IsRightmostQueueTabActive())
             {
@@ -4065,6 +4080,13 @@ public partial class MainWindow : Window
             else
                 _ = DrainQueueIfNeededAsync();
         }
+        else if (_queueRecoveryHold is not null)
+        {
+            // A system recovery hold is not a user pause. Play is still an explicit human
+            // override that may release queued prompts without changing the preserved plan.
+            ClearQueueRecoveryHold("user-play");
+            _ = DrainQueueIfNeededAsync();
+        }
         else
         {
             // Case 1 or 2: Pause (or schedule pause if a turn is active).
@@ -4077,6 +4099,58 @@ public partial class MainWindow : Window
     }
 
     private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
+
+    private bool IsQueueDispatchHeld => _queueManuallyPaused || _queueRecoveryHold is not null;
+
+    private void SetQueueRecoveryHoldForRequiredPlan(
+        TranscriptThreadState thread,
+        string reason)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var planId = execution?.DecomposeGroupId ?? _activeDecomposeGroupId;
+        if (string.IsNullOrWhiteSpace(planId))
+            return;
+
+        _queueRecoveryHold = new QueueRecoveryHoldState(
+            planId,
+            thread.AssignedPlanTaskId ?? execution?.PlanExecutionAttempt?.TaskId,
+            execution?.PlanExecutionAttempt?.AttemptId,
+            reason,
+            DateTimeOffset.UtcNow);
+        _conversationManager.PersistConversationState(
+            _conversationManager.ConversationState with { QueueRecoveryHold = _queueRecoveryHold });
+        SquadDashTrace.Write(
+            "Queue",
+            $"System recovery hold set plan={_queueRecoveryHold.PlanId} task={_queueRecoveryHold.TaskId ?? "none"} attempt={_queueRecoveryHold.AttemptId ?? "none"}; manualPause={_queueManuallyPaused}.");
+        SyncQueuePanel();
+    }
+
+    private bool ClearQueueRecoveryHoldForPlan(
+        string planId,
+        string? taskId,
+        string reason)
+    {
+        if (_queueRecoveryHold is null || !_queueRecoveryHold.Matches(planId, taskId))
+            return false;
+
+        ClearQueueRecoveryHold(reason);
+        return true;
+    }
+
+    private void ClearQueueRecoveryHold(string reason)
+    {
+        if (_queueRecoveryHold is null)
+            return;
+
+        var released = _queueRecoveryHold;
+        _queueRecoveryHold = null;
+        _conversationManager.PersistConversationState(
+            _conversationManager.ConversationState with { QueueRecoveryHold = null });
+        SquadDashTrace.Write(
+            "Queue",
+            $"System recovery hold cleared reason={reason} plan={released.PlanId} task={released.TaskId ?? "none"}; manualPausePreserved={_queueManuallyPaused}.");
+        SyncQueuePanel();
+    }
 
     private void ShowQueuePausedCallout()
     {
@@ -5034,7 +5108,7 @@ public partial class MainWindow : Window
             queuePausedAwaitingInput: _queuePausedNotificationFired,
             queueCount: _promptQueue.Count,
             activeTabId: _activeTabId,
-            queueManuallyPaused: _queueManuallyPaused,
+            queueManuallyPaused: IsQueueDispatchHeld,
             isRightmostTab: IsRightmostQueueTabActive());
         RunButton.IsEnabled = !IsActiveQueueItemLocked();
     }
@@ -6574,6 +6648,7 @@ public partial class MainWindow : Window
 
             SuppressLoopResume("required-plan-agent-provider-wait");
             DiscardObsoletePlanQueueItems("required-plan-agent-provider-wait");
+            SetQueueRecoveryHoldForRequiredPlan(thread, providerWaitReason);
             if (IsLoopRunning)
             {
                 if (_activeLoopMode == LoopMode.NativeAgents)
@@ -6612,8 +6687,7 @@ public partial class MainWindow : Window
 
         SuppressLoopResume("required-plan-agent-provider-failure");
         DiscardObsoletePlanQueueItems("required-plan-agent-provider-failure");
-        if (_promptQueue.Count > 0)
-            SetQueuePaused(true);
+        SetQueueRecoveryHoldForRequiredPlan(thread, reason);
 
         // Register the descriptive system interruption before aborting the loop. This
         // keeps provider failures out of the ordinary user-abort path and sends only one
@@ -9145,6 +9219,12 @@ public partial class MainWindow : Window
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId,
             featureGroups: _featureGroupStore?.Load(), hostAssignsExactPlanTask: true);
+        var resumedTaskId = _conversationManager.ConversationState.ActiveLoopExecution?
+            .PlanExecutionAttempt?.TaskId
+            ?? _CodeHealthGroupRunner?.CurrentStepId;
+        // StartAsync schedules the first plan turn. Do not race that turn by draining the
+        // ordinary prompt queue here; the normal turn-completion path will resume draining.
+        ClearQueueRecoveryHoldForPlan(groupId, resumedTaskId, "plan-started");
         return true;
     }
 
@@ -11172,7 +11252,10 @@ public partial class MainWindow : Window
         if (string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal)) return;
         var continuation = _promptQueue.Items
             .Select((candidate, index) => (candidate, index))
-            .FirstOrDefault(pair => IsHostQueueItem(pair.candidate));
+            .FirstOrDefault(pair => string.Equals(
+                pair.candidate.SourceTag,
+                PlanContinuationQueueTag,
+                StringComparison.Ordinal));
         if (continuation.candidate is null) return;
         var currentIndex = _promptQueue.Items
             .Select((candidate, index) => (candidate, index))
@@ -11203,14 +11286,6 @@ public partial class MainWindow : Window
             DisplayLabel = presentation.Label,
             ReadOnlyDisplayText = presentation.Description,
         });
-        var continuation = _promptQueue.Items.Last(item =>
-            string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal));
-        var queuedLoopIndex = _promptQueue.Items
-            .Select((item, index) => (item, index))
-            .FirstOrDefault(pair => string.Equals(
-                pair.item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal));
-        if (queuedLoopIndex.item is not null)
-            _promptQueue.Reorder(continuation.Id, queuedLoopIndex.index);
         SyncQueuePanel();
     }
 
@@ -11229,6 +11304,12 @@ public partial class MainWindow : Window
                 $"This is a locked filtered-loop job containing {job.TaskCount} task(s).\n\n" +
                 "SquadDash will start it after the active loop finishes. Its task snapshot cannot be edited or sent manually.",
         });
+        var continuation = _promptQueue.Items.FirstOrDefault(item => string.Equals(
+            item.SourceTag,
+            PlanContinuationQueueTag,
+            StringComparison.Ordinal));
+        if (continuation is not null)
+            _promptQueue.Reorder(continuation.Id, _promptQueue.Count - 1);
         SyncQueuePanel();
         AppendLoopOutputLine(
             $"⏳ {job.DisplayLabel} queued behind the running loop.",
@@ -12679,6 +12760,7 @@ public partial class MainWindow : Window
                 $"Task {currentTaskId} assigns {assignments.Count} primary agents. " +
                 "Concurrent primary writers are disabled until SquadDash can provision isolated worktrees.");
         PlanExecutionAttemptState? attempt = null;
+        var createdNewExecutionAttempt = false;
         if (assignments is { Count: 1 })
         {
             attempt = execution.PlanExecutionAttempt;
@@ -12698,6 +12780,7 @@ public partial class MainWindow : Window
                     _currentWorkspace.SquadFolderPath,
                     assignments,
                     roster);
+                createdNewExecutionAttempt = true;
             }
         }
         else if (policy != PlanAgentRoutingPolicy.Off &&
@@ -12715,6 +12798,7 @@ public partial class MainWindow : Window
                     currentTaskId!,
                     _CodeHealthGroupRunner.CurrentRevision ?? string.Empty,
                     _currentWorkspace.FolderPath);
+                createdNewExecutionAttempt = true;
             }
         }
 
@@ -12753,6 +12837,15 @@ public partial class MainWindow : Window
                     AcquiredAt = DateTimeOffset.UtcNow,
                 },
             });
+        if (createdNewExecutionAttempt && attempt is not null)
+        {
+            var assignmentLabel = assignments is { Count: 1 }
+                ? $"assigned agent {assignments[0].AgentHandle}"
+                : "one generic primary worker";
+            ScheduleDecomposeSystemEntry(
+                $"Plan execution attempt {attempt.AttemptId} started for {currentTaskId} with {assignmentLabel}. " +
+                "Failures from earlier attempt IDs are historical and do not apply to this attempt.");
+        }
         var routingContext = policy == PlanAgentRoutingPolicy.Off
             ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
               "Use at most one write-capable primary worker for this task; do not run concurrent writers in the active worktree."
@@ -18256,11 +18349,9 @@ public partial class MainWindow : Window
         DiscardObsoletePlanQueueItems(
             "host-recovery-action",
             includeRecoveryAssessments: _pendingPlanRecoveryAssessment is null);
-        if (_queueManuallyPaused || _queuePausePending)
-        {
-            SquadDashTrace.Write("Queue", "Explicit recovery action resumed the paused prompt queue.");
-            SetQueuePaused(false);
-        }
+        // Do not clear a user pause here. A matching system recovery hold is released only
+        // after branch/worktree preflight succeeds and the plan actually starts (or the
+        // preserved step is durably accepted).
         ResetQueuePausedState();
         _loopFollowUpTcs?.TrySetResult(true);
     }
@@ -19444,6 +19535,8 @@ public partial class MainWindow : Window
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
             RefreshPlanProjectionBestEffort(updated, "verified-commit-range-adopted");
             acceptedPlan = updated;
+            if (ClearQueueRecoveryHoldForPlan(storedPlan.PlanId, taskId, "step-accepted"))
+                _ = DrainQueueIfNeededAsync();
         }
         catch { throw; }
 
@@ -35272,6 +35365,23 @@ public partial class MainWindow : Window
         var savedEntries = _conversationManager.ConversationState.QueuedPromptEntries;
         var savedLegacy = _conversationManager.ConversationState.QueuedPrompts;
         var savedQueuePaused = _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath).QueuePaused == true;
+        var savedRecoveryHold = QueueRecoveryHoldState.Normalize(
+            _conversationManager.ConversationState.QueueRecoveryHold);
+        if (savedRecoveryHold is not null)
+        {
+            var heldPlan = _planStore?.Load(savedRecoveryHold.PlanId);
+            if (_planStore is not null &&
+                (heldPlan is null || PlanLifecycleStatus.IsTerminal(heldPlan.LifecycleStatus)))
+            {
+                SquadDashTrace.Write(
+                    "Queue",
+                    $"Discarded stale recovery hold plan={savedRecoveryHold.PlanId} because its durable plan is unavailable or terminal.");
+                savedRecoveryHold = null;
+                _conversationManager.ConversationState =
+                    _conversationManager.ConversationState with { QueueRecoveryHold = null };
+            }
+        }
+        _queueRecoveryHold = savedRecoveryHold;
         // Always sync _queueManuallyPaused to savedQueuePaused BEFORE SyncQueuePanel() so the
         // call to SetQueuePaused(_queueManuallyPaused) inside SyncQueuePanel() persists the
         // correct value to the settings store.  Using a conditional "set-only-when-true" would
@@ -35348,18 +35458,20 @@ public partial class MainWindow : Window
                 // OnQueueTabClicked → SyncQueuePanel renders "Queue is draining (active tab pausing
                 // dispatch)". If the queue was ALSO manually paused at shutdown, re-apply the pause
                 // styling at a lower priority so it wins over the tab-derived label.
-                if (savedQueuePaused)
-                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                if (savedQueuePaused || _queueRecoveryHold is not null)
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
             else
             {
-                if (savedQueuePaused)
+                if (savedQueuePaused || _queueRecoveryHold is not null)
                 {
-                    SquadDashTrace.Write("Queue", $"Restore: skipping drain — queue was paused at shutdown");
+                    SquadDashTrace.Write(
+                        "Queue",
+                        $"Restore: skipping drain — manualPause={savedQueuePaused} recoveryHold={_queueRecoveryHold?.PlanId ?? "none"}");
                     // Re-apply the paused styling at ContextIdle so it wins over any Background-priority
                     // tab-selection work (e.g. OnQueueTabClicked) that fires between now and idle.
-                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
                 }
                 else
@@ -35416,17 +35528,19 @@ public partial class MainWindow : Window
                 // item's tab so the user must explicitly Send or switch away before it dispatches.
                 OnQueueTabClicked(_promptQueue.Items[0].Id);
                 // Re-apply manual pause label after tab-derived "Queue is draining" label fires.
-                if (savedQueuePaused)
-                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                if (savedQueuePaused || _queueRecoveryHold is not null)
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
             else
             {
                 // Auto-dispatch restored queue items once the UI is fully initialised.
-                if (savedQueuePaused)
+                if (savedQueuePaused || _queueRecoveryHold is not null)
                 {
-                    SquadDashTrace.Write("Queue", $"Restore: skipping drain — queue was paused at shutdown");
-                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(true),
+                    SquadDashTrace.Write(
+                        "Queue",
+                        $"Restore: skipping drain — manualPause={savedQueuePaused} recoveryHold={_queueRecoveryHold?.PlanId ?? "none"}");
+                    _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
                 }
                 else
@@ -44806,9 +44920,9 @@ public partial class MainWindow : Window
             bool hasExecutableQueueItem = _promptQueue.Items.Any(item => !IsEmptyQueueItem(item));
             bool queueBlocking = ShutdownProtectionPolicy.HasQueueWorkThatCanStart(
                 hasExecutableQueueItem,
-                _queueManuallyPaused,
+                IsQueueDispatchHeld,
                 IsRightmostQueueTabActive());
-            bool backgroundWorkBlocking = (_isPromptRunning || !_queueManuallyPaused) &&
+            bool backgroundWorkBlocking = (_isPromptRunning || !IsQueueDispatchHeld) &&
                                           _backgroundTaskPresenter.HasRestartBlockingBackgroundWork();
             bool isBusy = _isPromptRunning ||
                           IsNativeLoopRunning ||
@@ -49071,7 +49185,7 @@ public partial class MainWindow : Window
             _bridgeStallShowing = false;
 
             ForceAbortStalledAgentButton.Visibility = Visibility.Collapsed;
-            if (_promptQueue.Items.Count == 0 && !_queueManuallyPaused)
+            if (_promptQueue.Items.Count == 0 && !IsQueueDispatchHeld)
                 QueueTabBorder.Visibility = Visibility.Collapsed;
             else
                 SetQueuePaused(_queueManuallyPaused);
@@ -53390,7 +53504,7 @@ public partial class MainWindow : Window
 
             if (action.RouteMode == "start_named_agent" && !string.IsNullOrWhiteSpace(action.TargetAgent))
             {
-                if (!_isPromptRunning && !IsNativeLoopRunning && !_queueManuallyPaused && !HasPendingDirectQuickReplyAgentFollowUp())
+                if (!_isPromptRunning && !IsNativeLoopRunning && !IsQueueDispatchHeld && !HasPendingDirectQuickReplyAgentFollowUp())
                 {
                     var targetAgent = action.TargetAgent.Trim().TrimStart('@');
                     var selectedOption = string.IsNullOrWhiteSpace(action.Label)
@@ -54332,7 +54446,7 @@ public partial class MainWindow : Window
         if (IsLoopRunning || _loopController.IsRunning || _loopQueued)
             return true;
 
-        if (_promptQueue.Count > 0 && !_queueManuallyPaused)
+        if (_promptQueue.Count > 0 && !IsQueueDispatchHeld)
             return true;
 
         if (_backgroundTaskPresenter.HasBackgroundTasks())

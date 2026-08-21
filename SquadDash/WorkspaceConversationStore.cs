@@ -476,6 +476,7 @@ internal sealed class WorkspaceConversationStore {
                 : state.ForceStoppedPromptHeadCommit.Trim(),
             QueuedPromptEntries      = state.QueuedPromptEntries is { Count: > 0 } qe ? qe : null,
             QueueRightmostHeld       = state.QueueRightmostHeld == true ? true : null,
+            QueueRecoveryHold        = QueueRecoveryHoldState.Normalize(state.QueueRecoveryHold),
             QueueLastChangedAt       = state.QueueLastChangedAt?.ToUniversalTime(),
             QueueActiveTabIndex      = state.QueueActiveTabIndex,
             QueueDayCounter          = state.QueueDayCounter,
@@ -840,6 +841,11 @@ internal sealed record WorkspaceConversationState(
     public IReadOnlyList<QueuedPromptEntry>? QueuedPromptEntries { get; init; }
     /// <summary>When true, the queue was shut down with the rightmost (first-to-dispatch) tab held for editing. Restore that hold on next launch.</summary>
     public bool? QueueRightmostHeld { get; init; }
+    /// <summary>
+    /// Host-owned plan-recovery hold. Unlike the user's queue pause preference, this hold is
+    /// scoped to a plan/task and is released only by a matching successful recovery action.
+    /// </summary>
+    public QueueRecoveryHoldState? QueueRecoveryHold { get; init; }
     /// <summary>UTC timestamp for the last persisted queue-state change, including enqueue, dequeue, hold, and restored-tab state changes.</summary>
     public DateTimeOffset? QueueLastChangedAt { get; init; }
     /// <summary>Zero-based index of the active queued-tab at last shutdown. Null when the main draft tab was active.</summary>
