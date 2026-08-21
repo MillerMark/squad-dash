@@ -388,6 +388,11 @@ const bridge = new SquadBridgeService({
             status: "throttled"
         });
     },
+    onSubagentResumed(sessionId, subagent) {
+        emitSubagentLifecycle("subagent_resumed", sessionId, subagent, {
+            status: "running"
+        });
+    },
     onSubagentMessageDelta(sessionId, subagent) {
         emit({
             type: "subagent_message_delta",

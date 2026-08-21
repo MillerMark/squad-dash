@@ -347,9 +347,17 @@ test("provider throttling distinguishes transient rate limits from terminal quot
     const transientWithoutRetryAfter = analyzeProviderThrottle(
         new Error("HTTP 429: provider rate limit exceeded"));
     assert.deepEqual(
-        [0, 1, 2, 3].map(completedRetries =>
+        [0, 1, 2, 3, 4].map(completedRetries =>
             computeProviderThrottleDelayMs(transientWithoutRetryAfter, completedRetries, 0)),
-        [30_000, 60_000, 90_000, 120_000]);
+        [30_000, 60_000, 90_000, 120_000, 120_000]);
+    assert.equal(
+        computeProviderThrottleDelayMs({ ...transient, retryAfterMs: 0 }, 0, 0),
+        30_000,
+        "a zero provider retry delay must not cause another immediate burst");
+    assert.equal(
+        computeProviderThrottleDelayMs({ ...transient, retryAfterMs: 10 * 60_000 }, 0, 0),
+        120_000,
+        "one cooldown must remain capped at two minutes");
     assert.deepEqual(terminal, {
         retryable: false,
         classification: "terminal-quota"
@@ -504,14 +512,18 @@ test("named roster tool resets its throttle streak after meaningful resumed work
     assert.equal(completed[0].agent.retryCount, 2, "lifetime retry telemetry remains cumulative");
 });
 
-test("named roster tool allows four consecutive throttle cooldowns", async () => {
+test("named roster tool keeps the same session through more than four consecutive throttle cooldowns", async () => {
     const configs = [];
     const throttled = [];
+    const resumed = [];
     let sessionNumber = 0;
     let namedAttempts = 0;
     const service = new SquadBridgeService({
         onSubagentThrottled(_sessionId, agent) {
             throttled.push(agent);
+        },
+        onSubagentResumed(_sessionId, agent) {
+            resumed.push(agent);
         }
     });
     service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
@@ -529,9 +541,9 @@ test("named roster tool allows four consecutive throttle cooldowns", async () =>
                         return { content: "Coordinator done" };
 
                     namedAttempts++;
-                    if (namedAttempts <= 4)
+                    if (namedAttempts <= 6)
                         throw new Error("HTTP 429 rate limit exceeded; retry after 1 ms");
-                    return { content: "Rory completed after four cooldowns" };
+                    return { content: "Rory completed after six cooldowns" };
                 }
             };
         }
@@ -547,13 +559,15 @@ test("named roster tool allows four consecutive throttle cooldowns", async () =>
         prompt: "Inspect the repository and produce the implementation plan."
     }, {
         sessionId: "session-1",
-        toolCallId: "tool-rory-four-cooldowns",
+        toolCallId: "tool-rory-six-cooldowns",
         toolName: "delegate_roster_agent",
         arguments: {}
     });
 
-    assert.equal(report, "Rory completed after four cooldowns");
-    assert.deepEqual(throttled.map(event => event.retryCount), [1, 2, 3, 4]);
+    assert.equal(report, "Rory completed after six cooldowns");
+    assert.equal(configs.length, 2, "all cooldowns must retain the original named-agent session");
+    assert.deepEqual(throttled.map(event => event.retryCount), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(resumed.map(event => event.retryCount), [1, 2, 3, 4, 5, 6]);
 });
 
 test("staged plan revision request correlation accepts marked and unmarked routing envelopes", () => {

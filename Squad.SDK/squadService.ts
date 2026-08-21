@@ -9,8 +9,6 @@ const SessionIdleTimeoutMs = 60 * 60 * 1000;
 const CopilotAuthenticationLogLookbackMs = 2 * 60 * 1000;
 const CopilotAuthenticationLogReadLimit = 256 * 1024;
 const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
-const NamedAgentThrottleMaxConsecutiveRetries = 4;
-const NamedAgentThrottleMaxConsecutiveDelayMs = 8 * 60 * 1000;
 const NamedAgentThrottleBaseDelayMs = 30 * 1000;
 const NamedAgentThrottleMaxSingleDelayMs = 120 * 1000;
 const NamedAgentThrottleContinuationPrompt = [
@@ -338,6 +336,7 @@ export type SquadBridgeHandlers = {
     onSubagentCompleted?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentFailed?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentThrottled?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
+    onSubagentResumed?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentMessageDelta?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
     onSubagentThinkingDelta?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
     onSubagentMessage?: (sessionId: string, subagent: SubagentTranscriptInfo) => void;
@@ -1999,10 +1998,12 @@ export function computeProviderThrottleDelayMs(
     randomValue = Math.random()
 ): number {
     const boundedRandom = Math.max(0, Math.min(1, randomValue));
-    if (analysis.retryAfterMs !== undefined) {
-        const minimumDelay = Math.max(0, analysis.retryAfterMs);
+    if (analysis.retryAfterMs !== undefined && analysis.retryAfterMs > 0) {
+        const minimumDelay = Math.min(NamedAgentThrottleMaxSingleDelayMs, analysis.retryAfterMs);
         const jitterCeiling = Math.min(1_000, Math.floor(minimumDelay * 0.1));
-        return minimumDelay + Math.floor(jitterCeiling * boundedRandom);
+        return Math.min(
+            NamedAgentThrottleMaxSingleDelayMs,
+            minimumDelay + Math.floor(jitterCeiling * boundedRandom));
     }
 
     const steppedDelay = Math.min(
@@ -3099,17 +3100,10 @@ export class SquadBridgeService {
                         consecutiveRetryDelayMs = 0;
                     }
 
-                    if (consecutiveRetryCount >= NamedAgentThrottleMaxConsecutiveRetries)
-                        throw error;
-
                     const retryDelayMs = computeProviderThrottleDelayMs(throttle, consecutiveRetryCount);
-                    const remainingDelayBudgetMs = NamedAgentThrottleMaxConsecutiveDelayMs - consecutiveRetryDelayMs;
-                    if (remainingDelayBudgetMs <= 0 ||
-                        (throttle.retryAfterMs !== undefined && retryDelayMs > remainingDelayBudgetMs)) {
-                        throw error;
-                    }
-
-                    const boundedRetryDelayMs = Math.min(retryDelayMs, remainingDelayBudgetMs);
+                    const boundedRetryDelayMs = Math.min(
+                        NamedAgentThrottleMaxSingleDelayMs,
+                        retryDelayMs);
                     retryCount++;
                     consecutiveRetryCount++;
                     totalRetryDelayMs += boundedRetryDelayMs;
@@ -3145,6 +3139,15 @@ export class SquadBridgeService {
                     if (!continued)
                         throw new Error("Named-agent throttling recovery was cancelled.");
 
+                    this.bridgeHandlers.onSubagentResumed?.(invocation.sessionId, {
+                        ...lifecycle,
+                        totalToolCalls,
+                        totalTokens,
+                        durationMs: Date.now() - startedAt,
+                        retryCount: consecutiveRetryCount,
+                        retryDelayMs: boundedRetryDelayMs,
+                        totalRetryDelayMs
+                    });
                     attemptPrompt = NamedAgentThrottleContinuationPrompt;
                 }
             }
