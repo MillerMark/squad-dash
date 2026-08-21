@@ -2857,19 +2857,45 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
-                FrameworkElement CreateStandardVerificationIndicator()
+                FrameworkElement MakeCheckmarkIcon(bool isComplete)
                 {
-                    var checkGlyph = new TextBlock
+                    if (Application.Current.FindResource("TaskSucceededGeometry") is not Geometry succeededGeometry)
                     {
-                        Text = "✔",
+                        throw new ResourceReferenceKeyNotFoundException(
+                            "TaskSucceededGeometry",
+                            "TaskSucceededGeometry");
+                    }
+
+                    var checkPath = new Path
+                    {
+                        Data = succeededGeometry,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    checkGlyph.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    checkGlyph.SetResourceReference(
-                        TextBlock.ForegroundProperty,
-                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
-                    return checkGlyph;
+
+                    if (isComplete)
+                    {
+                        checkPath.SetResourceReference(Shape.FillProperty, "PriorityLow");
+                    }
+                    else
+                    {
+                        checkPath.Fill = Brushes.Transparent;
+                        checkPath.SetResourceReference(Shape.StrokeProperty, "PriorityLow");
+                        checkPath.StrokeThickness = 30;
+                    }
+
+                    return new Viewbox
+                    {
+                        Width = 10 * _scaleFactor,
+                        Height = 10 * _scaleFactor,
+                        Stretch = Stretch.Uniform,
+                        Child = checkPath,
+                    };
+                }
+
+                FrameworkElement CreateStandardVerificationIndicator()
+                {
+                    return MakeCheckmarkIcon(isTaskComplete);
                 }
 
                 verificationIndicatorContent = verificationLevel switch
@@ -2898,34 +2924,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 FrameworkElement CreateEnhancedVerificationIndicator()
                 {
-                    var glyph1 = new TextBlock
-                    {
-                        Text = "✔",
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-                    glyph1.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    glyph1.SetResourceReference(
-                        TextBlock.ForegroundProperty,
-                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
-
-                    var glyph2 = new TextBlock
-                    {
-                        Text = "✔",
-                        VerticalAlignment = VerticalAlignment.Center,
-                    };
-                    glyph2.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    glyph2.SetResourceReference(
-                        TextBlock.ForegroundProperty,
-                        isTaskComplete ? "DiffAddedSummary" : "SubtleText");
-
                     var twoChecks = new StackPanel
                     {
                         Orientation = Orientation.Horizontal,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    twoChecks.Children.Add(glyph1);
-                    twoChecks.Children.Add(glyph2);
+                    twoChecks.Children.Add(MakeCheckmarkIcon(isTaskComplete));
+                    var spacer = new FrameworkElement { Width = 2 * _scaleFactor };
+                    twoChecks.Children.Add(spacer);
+                    twoChecks.Children.Add(MakeCheckmarkIcon(isTaskComplete));
                     return twoChecks;
                 }
             }
