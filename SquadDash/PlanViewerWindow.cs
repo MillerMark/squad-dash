@@ -7326,11 +7326,46 @@ internal sealed class PlanViewerWindow : ChromedWindow
         else
         {
             AddSectionHeader("Assigned To");
-            var whoPara = new Paragraph(new Run("Fact Checker (Verity Cross) — a non-mutating independent review agent."));
-            whoPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            whoPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            whoPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(whoPara);
+
+            bool isLightweightLevel = verificationLevel == PlanTaskVerificationLevel.Lightweight;
+            string reviewerHandle;
+            string reviewerDisplayName;
+            string reviewerRole;
+
+            if (isLightweightLevel)
+            {
+                var primaryAssignment = durableTask?.AgentAssignments?.FirstOrDefault();
+                reviewerHandle = primaryAssignment?.AgentHandle ?? "coordinator";
+                reviewerDisplayName = HumanizeAgentHandle(reviewerHandle);
+                reviewerRole = primaryAssignment?.Role ?? "Implementing agent";
+            }
+            else
+            {
+                reviewerHandle = VerityCrossHandle;
+                reviewerDisplayName = "Verity Cross";
+                reviewerRole = "Fact Checker — independent review agent";
+            }
+
+            if (_resolveAgentAvatar is not null)
+            {
+                var avatarInfo = _resolveAgentAvatar(reviewerHandle);
+                var chipSize = 40.0 * _scaleFactor;
+                var chip = CreateAgentAvatarChip(avatarInfo, chipSize, reviewerHandle);
+                chip.HorizontalAlignment = HorizontalAlignment.Left;
+                _detailDocument.Blocks.Add(new BlockUIContainer(chip) { Margin = new Thickness(0, 4, 0, 4) });
+            }
+
+            var namePara = new Paragraph(new Run(reviewerDisplayName) { FontWeight = FontWeights.SemiBold });
+            namePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            namePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            namePara.Margin = new Thickness(0, 0, 0, 2);
+            _detailDocument.Blocks.Add(namePara);
+
+            var rolePara = new Paragraph(new Run(reviewerRole));
+            rolePara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            rolePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+            rolePara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(rolePara);
 
             AddSectionHeader("Instructions Sent to Verifier");
 
@@ -8167,6 +8202,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _ when PlanTaskStatus.IsVerifying(status) => "Verifying",
         _ => status ?? "Unknown",
     };
+
+    private static string HumanizeAgentHandle(string handle)
+    {
+        var parts = handle.Split('-');
+        return string.Join(" ", parts.Select(p =>
+            p.Length > 0 ? char.ToUpperInvariant(p[0]) + p[1..] : p));
+    }
 
     private void WireSelectionClick(FrameworkElement element)
     {
