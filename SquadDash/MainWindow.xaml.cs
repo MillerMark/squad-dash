@@ -7177,6 +7177,9 @@ public partial class MainWindow : Window
         var pausedAfterStep = _pausePlanAfterCurrentStepRequested;
         var abortedByUser = _planAbortRequestedByUser;
         var providerWaitReason = _planProviderWaitInterruptionReason;
+        var unacceptedStopReason = _restartPending
+            ? "An application restart began before SquadDash could accept the current task result."
+            : "Plan execution stopped before the current task was accepted.";
         var interruptionResult = PlanInterruptionPersistenceResult.NotNeeded;
         if (!resumeDecision.PreserveExecution && stoppedPlanId is not null)
         {
@@ -7187,7 +7190,7 @@ public partial class MainWindow : Window
                     ? "Paused by user after the previous task was accepted."
                     : abortedByUser
                         ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
-                    : "Plan execution stopped before the current task was accepted."),
+                    : unacceptedStopReason),
                 stoppedIteration,
                 preferDurableTaskId: true);
             interruptedTaskId = interruptionResult.Plan?.InterruptionData?.InterruptedTaskId
@@ -7228,7 +7231,9 @@ public partial class MainWindow : Window
                         ? $"Plan {newlyInterruptedPlan.PlanId} is preserved at {interruptedTaskId ?? "the current task"} after provider recovery was exhausted. Resume it after provider access is available."
                     : abortedByUser
                         ? $"Plan work was aborted at {interruptedTaskId ?? "the current task"}. Assess the preserved work before continuing."
-                    : $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
+                    : _restartPending
+                        ? $"Plan {newlyInterruptedPlan.PlanId} was interrupted by an application restart before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed."
+                        : $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
                 newlyInterruptedPlan.PlanId,
                 newlyInterruptedPlan.Revision,
                 interruptedTaskId);
@@ -7239,7 +7244,7 @@ public partial class MainWindow : Window
                     interruptedTaskId,
                     providerWaitReason ?? (abortedByUser
                         ? "Current plan work was aborted by the user. Repository work was preserved for assessment."
-                        : "Plan execution stopped before the current task was accepted."));
+                        : unacceptedStopReason));
         }
         else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
@@ -13083,18 +13088,31 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null || _activeDecomposeGroupId is null || _CodeHealthGroupRunner is null)
             return;
 
+        var groupId = _activeDecomposeGroupId;
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var taskId = _CodeHealthGroupRunner.CurrentStepId ?? "unknown task";
+        var revision = _CodeHealthGroupRunner.CurrentRevision ?? string.Empty;
+        var hasTerminalResult = PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            activeExecution,
+            groupId,
+            revision,
+            taskId,
+            _capturedDecomposeStepResult);
+        if (_loopController.StopState != LoopStopState.None && !hasTerminalResult)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Skipping plan finalization after stop was requested plan={groupId} task={taskId}; no matching terminal result was captured.");
+            return;
+        }
         if (_loopController.StopState != LoopStopState.None)
         {
             SquadDashTrace.Write(
                 "Loop",
-                $"Skipping plan finalization after stop was requested plan={_activeDecomposeGroupId} task={_CodeHealthGroupRunner.CurrentStepId ?? "(none)"}.");
-            return;
+                $"Finalizing captured terminal result before honoring stop plan={groupId} task={taskId}.");
         }
 
-        var groupId = _activeDecomposeGroupId;
-
         // Candidate task work is verified before it can become accepted plan progress.
-        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         if (activeExecution is not null &&
             (activeExecution.ActiveVerificationTaskId is not null || activeExecution.ActiveValidationId is not null))
         {
@@ -13145,8 +13163,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        var taskId = _CodeHealthGroupRunner.CurrentStepId ?? "unknown task";
-        var revision = _CodeHealthGroupRunner.CurrentRevision ?? string.Empty;
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
         if (activeExecution is null)
@@ -13330,16 +13346,18 @@ public partial class MainWindow : Window
             result = PlanProofCapabilityPolicy.AttachHostRecordedEvidence(
                 persistedTask, result, taskCommitEvidence);
 
-        // The persisted pending result has been consumed — clear it regardless of outcome.
-        if (activeExecution.PendingRepairResult is not null)
-        {
-            _conversationManager.UpdateActiveLoopExecutionState(
-                activeExecution with { PendingRepairResult = null });
-            activeExecution = _conversationManager.ConversationState.ActiveLoopExecution!;
-        }
-
         if (error is not null || result is null)
         {
+            // This envelope was examined and rejected. Clear it before selecting a bounded
+            // repair action so a malformed result cannot replay forever. Valid results remain
+            // durable until canonical plan progress has been committed below.
+            if (activeExecution.PendingRepairResult is not null)
+            {
+                _conversationManager.UpdateActiveLoopExecutionState(
+                    activeExecution with { PendingRepairResult = null });
+                activeExecution = _conversationManager.ConversationState.ActiveLoopExecution!;
+            }
+
             var recoveryAction = PlanExecutionRecoveryPolicy.Resolve(
                 executionAttempt,
                 routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
@@ -13653,15 +13671,6 @@ public partial class MainWindow : Window
         }
 
         accept_without_independent_verification:
-
-        if (activeExecution is not null && executionAttempt is not null)
-            _conversationManager.UpdateActiveLoopExecutionState(
-                activeExecution with {
-                    PlanExecutionAttempt = executionAttempt with {
-                        Status = result.Status == "complete" ? "accepted" : "blocked"
-                    }
-                });
-
         if (result.Status is "partial" or "failed")
         {
             var canonical = _planStore?.Load(groupId);
@@ -13683,6 +13692,14 @@ public partial class MainWindow : Window
                 }
                 RefreshPlanProjectionBestEffort(recorded, "step-blocked");
             }
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with
+                {
+                    PlanExecutionAttempt = executionAttempt is null
+                        ? null
+                        : executionAttempt with { Status = "blocked" },
+                    PendingRepairResult = null,
+                });
             LoadTasksPanel();
             StopAndOfferDecomposeRecovery(groupId, taskId, revision, result.Summary, taskCommitEvidence);
             return;
@@ -13699,6 +13716,14 @@ public partial class MainWindow : Window
                 taskCommitEvidence);
             return;
         }
+        _conversationManager.UpdateActiveLoopExecutionState(
+            activeExecution with
+            {
+                PlanExecutionAttempt = executionAttempt is null
+                    ? null
+                    : executionAttempt with { Status = "accepted" },
+                PendingRepairResult = null,
+            });
         LoadTasksPanel();
         if (_pausePlanAfterCurrentStepRequested)
         {

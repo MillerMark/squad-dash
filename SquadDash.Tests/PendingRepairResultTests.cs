@@ -118,6 +118,70 @@ internal sealed class PendingRepairResultTests
     }
 
     [Test]
+    public void StopAfterMatchingCapturedResult_StillFinalizesCurrentIteration()
+    {
+        var execution = CreateExecution();
+        var result = CreateValidResult(attemptId: "attempt-1");
+
+        Assert.That(PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            execution, "group-1", "rev-abc", "task-1", result), Is.True);
+    }
+
+    [Test]
+    public void RestartAfterDurablyCapturedResult_StillFinalizesWithoutRedispatch()
+    {
+        var result = CreateValidResult(attemptId: "attempt-1");
+        var execution = CreateExecution(pendingResult: CreatePending(result: result));
+        var reloaded = JsonSerializer.Deserialize<ActiveLoopExecutionState>(
+            JsonSerializer.Serialize(execution));
+
+        Assert.That(PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            reloaded, "group-1", "rev-abc", "task-1", capturedResult: null), Is.True);
+    }
+
+    [TestCase("other-group", "rev-abc", "task-1", "attempt-1")]
+    [TestCase("group-1", "other-revision", "task-1", "attempt-1")]
+    [TestCase("group-1", "rev-abc", "other-task", "attempt-1")]
+    [TestCase("group-1", "rev-abc", "task-1", "other-attempt")]
+    public void StopWithMismatchedResult_DoesNotFinalize(
+        string groupId,
+        string revision,
+        string taskId,
+        string attemptId)
+    {
+        var execution = CreateExecution();
+        var result = CreateValidResult(
+            groupId: groupId,
+            taskId: taskId,
+            revision: revision,
+            attemptId: attemptId);
+
+        Assert.That(PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            execution, "group-1", "rev-abc", "task-1", result), Is.False);
+    }
+
+    [Test]
+    public void StopWithMalformedPersistedResult_DoesNotFinalize()
+    {
+        var execution = CreateExecution(pendingResult: new PendingRepairResult(
+            "group-1", "rev-abc", "task-1", "attempt-1", "{ malformed", null));
+
+        Assert.That(PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            execution, "group-1", "rev-abc", "task-1", capturedResult: null), Is.False);
+    }
+
+    [Test]
+    public void StopWithoutDurableExecutionOwnership_DoesNotFinalize()
+    {
+        Assert.That(PlanRepairReplayPolicy.HasMatchingTerminalResult(
+            null,
+            "group-1",
+            "rev-abc",
+            "task-1",
+            CreateValidResult(attemptId: "attempt-1")), Is.False);
+    }
+
+    [Test]
     public void RestartRepairBeforeRuntimeLoopReclaim_UsesDurableEnvelopeForCapture()
     {
         var execution = CreateExecution();

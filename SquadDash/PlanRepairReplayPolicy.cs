@@ -108,6 +108,60 @@ internal static class PlanRepairReplayPolicy
                string.Equals(pending.TaskId, taskId, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A stop request means "finish this iteration, then stop". Once the coordinator has
+    /// returned a valid terminal result for the active task, host finalization must still run;
+    /// otherwise a simultaneous stop/restart can discard a successful handoff. Identity is
+    /// checked here before any stop is allowed to bypass the normal finalization path. The
+    /// finalizer still performs all proof, assignment, branch, and Git validation.
+    /// </summary>
+    internal static bool HasMatchingTerminalResult(
+        ActiveLoopExecutionState? execution,
+        string planId,
+        string revision,
+        string taskId,
+        DecomposeStepResult? capturedResult)
+    {
+        if (execution is null ||
+            !string.Equals(execution.DecomposeGroupId, planId, StringComparison.Ordinal) ||
+            !string.Equals(execution.DecomposeRevision, revision, StringComparison.Ordinal) ||
+            execution.ActiveVerificationTaskId is not null ||
+            execution.ActiveValidationId is not null)
+            return false;
+
+        var attempt = execution.PlanExecutionAttempt;
+        if (attempt is not null &&
+            (!string.Equals(attempt.PlanId, planId, StringComparison.Ordinal) ||
+             !string.Equals(attempt.Revision, revision, StringComparison.Ordinal) ||
+             !string.Equals(attempt.TaskId, taskId, StringComparison.Ordinal)))
+            return false;
+
+        var result = capturedResult;
+        if (result is null && execution.PendingRepairResult is { ResultJson: { } resultJson } pending &&
+            pending.Matches(planId, revision, execution.PlanExecutionAttempt?.AttemptId) &&
+            string.Equals(pending.TaskId, taskId, StringComparison.Ordinal))
+        {
+            try
+            {
+                result = System.Text.Json.JsonSerializer.Deserialize<DecomposeStepResult>(resultJson);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return false;
+            }
+        }
+
+        if (result is null || result.Status is not ("complete" or "partial" or "failed"))
+            return false;
+
+        var attemptId = execution?.PlanExecutionAttempt?.AttemptId;
+        return string.Equals(result.GroupId, planId, StringComparison.Ordinal) &&
+               string.Equals(result.Revision, revision, StringComparison.Ordinal) &&
+               string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
+               (attemptId is null ||
+                string.Equals(result.ExecutionAttemptId, attemptId, StringComparison.Ordinal));
+    }
+
     internal static bool ShouldPersistTaskRepairResponse(ActiveLoopExecutionState? execution) =>
         execution?.RecoveryTaskId is not null &&
         execution.ActiveVerificationTaskId is null &&
