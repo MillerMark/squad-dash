@@ -99,6 +99,27 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void EmptyApprovalOctagon_OffersApprovalActionBeforeDeveloperNormalization()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var methodStart = source.IndexOf("private FrameworkElement CreateApprovalStop(", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("private static ContextMenu CreateThemedMenu()", methodStart, StringComparison.Ordinal);
+
+        Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(methodEnd, Is.GreaterThan(methodStart));
+        var method = source[methodStart..methodEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("if (toggle is not null && stop is not null)")
+                .And.Contain(": \"Require human approval here\""),
+                "An editable empty octagon must expose the inverse of the removal action.");
+            Assert.That(method, Does.Contain("AppendDeveloperNormalizeMenuItem(approvalMenu)"),
+                "Normalization should be appended to the approval menu instead of replacing it.");
+        });
+    }
+
+    [Test]
     public void HumanApprovalContextMenus_UseTheLowContrastThemedSeparator()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
