@@ -2905,25 +2905,30 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 FrameworkElement CreateEnhancedVerificationIndicator()
                 {
-                    var twoChecks = new StackPanel
+                    // 5-pointed star in a 10×10 viewbox, centered at (5,5)
+                    var starGeometry = Geometry.Parse(
+                        "M 5,0.5 L 6.06,3.54 L 9.28,3.61 L 6.71,5.56 L 7.65,8.64 " +
+                        "L 5,6.8 L 2.35,8.64 L 3.29,5.56 L 0.72,3.61 L 3.94,3.54 Z");
+                    var starPath = new Path
                     {
-                        Orientation = Orientation.Horizontal,
+                        Data = starGeometry,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                    return new Viewbox
+                    {
+                        Width = 10 * _scaleFactor,
+                        Height = 10 * _scaleFactor,
+                        Stretch = Stretch.Uniform,
+                        Child = starPath,
                         Opacity = isTaskComplete ? 1.0 : 0.35,
                     };
-                    twoChecks.Children.Add(MakeCheckmarkIcon(applyCompletionOpacity: false));
-                    var spacer = new FrameworkElement { Width = 2 * _scaleFactor };
-                    twoChecks.Children.Add(spacer);
-                    twoChecks.Children.Add(MakeCheckmarkIcon(applyCompletionOpacity: false));
-                    return twoChecks;
                 }
             }
             var verificationIndicator = new Border
             {
-                Width = verificationLevel == PlanTaskVerificationLevel.Enhanced
-                    ? 40 * _scaleFactor
-                    : 26 * _scaleFactor,
+                Width = 26 * _scaleFactor,
                 Height = 22 * _scaleFactor,
                 CornerRadius = new CornerRadius(0, 11 * _scaleFactor, 11 * _scaleFactor, 0),
                 BorderThickness = new Thickness(0, 1, 1, 1),
