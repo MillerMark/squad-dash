@@ -10628,7 +10628,7 @@ public partial class MainWindow : Window
                     var latest = _planStore?.Load(result.GroupId);
                     if (!InterruptedStepResultRecoveryPolicy.CanRouteToCommitReview(latest, result))
                         return;
-                    await AdoptVerifiedCommitRangeAsync(latest!, explicitStepAcceptance: false);
+                    await AcceptInterruptedStepAfterReviewAsync(latest!);
                 }
                 catch (Exception ex)
                 {
@@ -10694,7 +10694,7 @@ public partial class MainWindow : Window
         if (decision.Action is "accept-step-complete" or "review-completed-work")
         {
             return durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-                   await AdoptVerifiedCommitRangeAsync(durablePlan, explicitStepAcceptance: true);
+                   await AcceptInterruptedStepAfterReviewAsync(durablePlan);
         }
         if (decision.Action == "replan-failed-task")
         {
@@ -12166,10 +12166,9 @@ public partial class MainWindow : Window
                 ? interruptedRecoveryAction?.Kind switch
                 {
                     PlanRecoveryPrimaryActionKind.AcceptStep or
+                    PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
                     PlanRecoveryPrimaryActionKind.ApproveAmendment =>
-                        planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: true),
-                    PlanRecoveryPrimaryActionKind.ReviewCompletedWork =>
-                        planToAccept => AdoptVerifiedCommitRangeAsync(planToAccept, explicitStepAcceptance: false),
+                        planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept),
                     PlanRecoveryPrimaryActionKind.ResumeVerification when !hasRecoveryAssessment =>
                         AssessInterruptedPlanFromDurableAsync,
                     PlanRecoveryPrimaryActionKind.RetryVerification or
@@ -12188,7 +12187,7 @@ public partial class MainWindow : Window
             interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
                 ? current => _ = QueuePlanRecoveryCorrectionAsync(
                     PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
-                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork
+                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep
                     ? current => _ = RetryDecomposeTaskAsync(
                         PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
                 : hasRecoveryAssessment
@@ -12379,7 +12378,13 @@ public partial class MainWindow : Window
                 string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
                 string.Equals(activity.GateId, gateId, StringComparison.Ordinal),
             initializeRepository: InitializeRepositoryForPlanAsync,
-            onOpenCommits: commits => _ = OpenEvidenceViewerAsync(commits),
+            onOpenCommits: commits =>
+            {
+                if (commits.Count > 0)
+                    _ = OpenEvidenceViewerAsync(commits);
+                else
+                    _ = OpenInterruptedTaskReviewAsync(groupId, durablePlan?.Revision ?? displayedPlan.Revision);
+            },
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
             saveDefinitionEdit: saveDefinitionEdit,
@@ -17689,7 +17694,7 @@ public partial class MainWindow : Window
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
-                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                    return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             AddAsyncAction(
                 $"Continue Working on {assessmentStepLabel}",
@@ -17783,7 +17788,7 @@ public partial class MainWindow : Window
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!;
-                    return await AdoptVerifiedCommitRangeAsync(latest, explicitStepAcceptance: true);
+                    return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             var addressButton = AddAction(
                 "✎ Address Unchecked Items…",
@@ -17817,19 +17822,23 @@ public partial class MainWindow : Window
 
         if (durablePlan is not null &&
             primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
-                PlanRecoveryPrimaryActionKind.ReviewCompletedWork or
+                PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
                 PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
+            if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+            {
+                AddNavigationLink(
+                    $"Review repository changes for {stepLabel}",
+                    "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+                    () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            }
             AddAsyncResultAction(
                 primaryRecoveryAction.Label,
                 primaryRecoveryAction.Hint,
                 async () =>
                 {
                     var latest = _planStore?.Load(durablePlan.PlanId) ?? durablePlan;
-                    return await AdoptVerifiedCommitRangeAsync(
-                        latest,
-                        explicitStepAcceptance: primaryRecoveryAction.Kind !=
-                            PlanRecoveryPrimaryActionKind.ReviewCompletedWork);
+                    return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
             {
@@ -17838,7 +17847,7 @@ public partial class MainWindow : Window
                     $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch.",
                     async () => await QueuePlanRecoveryCorrectionAsync(plan, taskId));
             }
-            else if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork)
+            else if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
             {
                 AddAsyncAction(
                     $"Continue Working on {stepLabel}",
@@ -17887,6 +17896,20 @@ public partial class MainWindow : Window
             panel,
             recoveryTag));
         ScrollToEndIfAtBottom(CoordinatorThread);
+
+        void AddNavigationLink(string label, string hint, Action action)
+        {
+            var paragraph = CreateTranscriptParagraph(bottomMargin: 10);
+            var link = new Hyperlink(new Run(label))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(hint),
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            link.Click += (_, _) => action();
+            paragraph.Inlines.Add(link);
+            blocks.Add(paragraph);
+        }
 
         Button AddAction(
             string label,
@@ -18118,7 +18141,7 @@ public partial class MainWindow : Window
             switch (action.Kind)
             {
                 case PlanRecoveryPrimaryActionKind.AcceptStep:
-                case PlanRecoveryPrimaryActionKind.ReviewCompletedWork:
+                case PlanRecoveryPrimaryActionKind.AcceptUnattributedStep:
                 case PlanRecoveryPrimaryActionKind.ApproveAmendment:
                     // Acceptance is a human decision. Open the evidence-bearing surface instead
                     // of silently accepting work from the Plans panel's compact resume control.
@@ -19243,15 +19266,12 @@ public partial class MainWindow : Window
         }
     }
 
-    // ── Recovery action: Adopt verified commit range ─────────────────────────
+    // ── Recovery action: Accept reviewed repository work ─────────────────────
 
-    private async Task<bool> AdoptVerifiedCommitRangeAsync(
-        Plan displayedPlan,
-        bool explicitStepAcceptance = false)
+    private async Task<bool> AcceptInterruptedStepAfterReviewAsync(Plan displayedPlan)
     {
         if (_currentWorkspace is null || _planStore is null) return false;
         var workspace = _currentWorkspace.FolderPath;
-        var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         var storedPlan = _planStore.Load(displayedPlan.PlanId);
         if (storedPlan is null ||
             storedPlan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
@@ -19302,53 +19322,28 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var currentGroup = PendingDecomposePlanAdapter.FromPlan(storedPlan).Group with
-        {
-            HostRevision = storedPlan.Revision,
-        };
-
-        var history = (await RunGitAsync(workspace, "rev-list HEAD"))
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var recordedEvidence = storedPlan.InterruptionData?.TaskCommitEvidence is { } evidence &&
-                               string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
-                               !string.IsNullOrWhiteSpace(evidence.BaselineCommit) &&
-                               !string.IsNullOrWhiteSpace(evidence.Commit)
-            ? evidence
-            : null;
-        var baselineCommit = recordedEvidence?.BaselineCommit ?? storedPlan.InterruptionData?.LastCommit;
-        if (string.IsNullOrWhiteSpace(baselineCommit))
-        {
-            baselineCommit = RecoveryCommitValidator.FindNewestRecordedCommit(
-                history,
-                storedPlan.Tasks
-                    .Where(task => task.Status == PlanTaskStatus.Complete)
-                    .Select(task => task.Commit));
-        }
-        else
-        {
-            baselineCommit = RecoveryCommitValidator.FindNewestRecordedCommit(
-                history,
-                [baselineCommit]);
-        }
-        if (string.IsNullOrWhiteSpace(baselineCommit))
-        {
-            MessageBox.Show(this,
-                "SquadDash could not find a reachable commit for the last accepted task. The range cannot be proven.",
-                "Baseline Unknown", MessageBoxButton.OK, MessageBoxImage.Error);
-            return false;
-        }
-
-        IReadOnlyList<RecoveryCommitRangeEntry> candidates;
-        var rangeEnd = recordedEvidence?.Commit ?? "HEAD";
+        InterruptedTaskReviewRange reviewRange;
         try
         {
-            if (recordedEvidence is not null)
-            {
-                await RunGitAsync(workspace,
-                    $"merge-base --is-ancestor \"{baselineCommit}\" \"{rangeEnd}\"");
-                await RunGitAsync(workspace,
-                    $"merge-base --is-ancestor \"{rangeEnd}\" HEAD");
-            }
+            reviewRange = await ResolveInterruptedTaskReviewRangeAsync(storedPlan, taskId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                $"SquadDash could not reconstruct the reviewed repository range: {ex.Message}",
+                "Review Range Unavailable", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        var baselineCommit = reviewRange.BaselineCommit;
+
+        IReadOnlyList<RecoveryCommitRangeEntry> candidates;
+        var rangeEnd = reviewRange.TerminalCommit;
+        try
+        {
+            await RunGitAsync(workspace,
+                $"merge-base --is-ancestor \"{baselineCommit}\" \"{rangeEnd}\"");
+            await RunGitAsync(workspace,
+                $"merge-base --is-ancestor \"{rangeEnd}\" HEAD");
             var log = await RunGitAsync(
                 workspace,
                 $"log --reverse --format=%H%x09%s \"{baselineCommit}..{rangeEnd}\"");
@@ -19368,23 +19363,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        var selectsRecordedEvidenceWithoutPrompt =
-            !PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance) &&
-            recordedEvidence is not null;
-        var selected = selectsRecordedEvidenceWithoutPrompt
-            ? RecoveryCommitValidator.FindRecordedCandidate(candidates, recordedEvidence!.Commit)
-            : VerifiedCommitRangeDialog.Show(
-                this, taskId, baselineCommit, candidates, hostRecordedRange: recordedEvidence is not null);
-        if (selected is null)
-        {
-            if (selectsRecordedEvidenceWithoutPrompt)
-            {
-                MessageBox.Show(this,
-                    $"The recorded commit '{recordedEvidence!.Commit}' no longer identifies exactly one commit in the reviewed range. Reopen the plan or review the commit range manually.",
-                    "Recorded Commit Unavailable", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-            return false;
-        }
+        var selected = candidates[^1];
         var selectedIndex = candidates.ToList().FindIndex(entry =>
             RecoveryCommitValidator.CommitIdentifiersMatch(entry.Commit, selected.Commit));
         if (selectedIndex < 0)
@@ -19395,10 +19374,11 @@ public partial class MainWindow : Window
             return false;
         }
         var selectedRange = candidates.Take(selectedIndex + 1).ToArray();
-        if (selectedRange.Length > 50)
+        var maximumReviewCommits = reviewRange.HasExactTaskAttribution ? 50 : 250;
+        if (selectedRange.Length > maximumReviewCommits)
         {
             MessageBox.Show(this,
-                $"The selected range contains {selectedRange.Length} commits. Split or replan the task before adoption.",
+                $"The reviewed range contains {selectedRange.Length} commits. Split or replan the task before acceptance.",
                 "Range Too Large", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
@@ -19422,10 +19402,20 @@ public partial class MainWindow : Window
         var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
         var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" };
         if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
-        if (!RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths))
+        var containsNonHostChanges = changedPaths.Any(path =>
+            !path.StartsWith(".squad/", StringComparison.OrdinalIgnoreCase) &&
+            (tasksRelativePath is null || !string.Equals(
+                path.Replace('\\', '/'),
+                tasksRelativePath,
+                StringComparison.OrdinalIgnoreCase)));
+        if (reviewRange.HasExactTaskAttribution
+                ? !RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths)
+                : !containsNonHostChanges)
         {
             MessageBox.Show(this,
-                "The selected range has no task changes or contains SquadDash-owned state. It cannot be adopted.",
+                reviewRange.HasExactTaskAttribution
+                    ? "The recorded range has no task changes or contains SquadDash-owned state. It cannot be adopted."
+                    : "The reviewed range contains no non-host repository changes, so it cannot establish completed task work.",
                 "Suspicious Commit Range", MessageBoxButton.OK, MessageBoxImage.Warning);
             return false;
         }
@@ -19437,52 +19427,16 @@ public partial class MainWindow : Window
         if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(storedPlan))
             await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
 
-        var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(storedPlan.Tasks, taskId);
-        var commitLines = string.Join("\n", selectedRange.Select(entry =>
-            $"  • {entry.Commit[..7]} {entry.Subject}"));
-        var changedFileLines = string.Join("\n", changedPaths.Select(path => $"  • {path}"));
-        var warning = downstream.Count == 0
-            ? string.Empty
-            : "\n\nAlready-completed dependent tasks: " + string.Join(", ", downstream);
-        var combinedApprovalText = combinedApprovalGate is null
-            ? string.Empty
-            : combinedAmendmentGate is not null
-                ? " and approve the human checkpoint that requested this amendment"
-                : " and approve its human-observation checkpoint";
-        var humanQuestion = combinedHumanReviewGate is null
-            ? null
-            : PlanProofCapabilityPolicy.ResolveHumanQuestion(combinedHumanReviewGate);
-        var humanQuestionText = string.IsNullOrWhiteSpace(humanQuestion)
-            ? string.Empty
-            : $"\n\nHuman checkpoint:\n{humanQuestion}";
-        if (PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(explicitStepAcceptance))
-        {
-            var confirmation = MessageBox.Show(
-                this,
-                $"Accept {selectedRange.Length} commit{(selectedRange.Length == 1 ? string.Empty : "s")} " +
-                $"as the completed result for {taskId}{combinedApprovalText} and continue the plan?\n\n" +
-                $"Commits after {baselineCommit[..7]}:\n{commitLines}\n\n" +
-                $"Changed files:\n{changedFileLines}{warning}{humanQuestionText}\n\n" +
-                "SquadDash verified the branch, revision, ancestry, range, changed paths, clean worktree, and plan projection. " +
-                "No additional AI review will run. Confirm that this preserved work satisfies the task.",
-                combinedHumanReviewGate is not null
-                    ? $"{stepLabel} Is Complete?"
-                    : combinedAmendmentGate is not null
-                        ? "Approve Amendment and Continue"
-                        : "Accept Commit and Continue",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question,
-                MessageBoxResult.No);
-            if (confirmation != MessageBoxResult.Yes) return false;
-        }
-
         var terminalCommit = selected.Commit[..7];
         var firstCommit = selectedRange[0].Commit[..7];
         var rangeLabel = selectedRange.Length == 1
             ? terminalCommit
             : $"{firstCommit}..{terminalCommit}";
-        var summary = $"Human accepted commit range {rangeLabel} ({selectedRange.Length} commit" +
-                      (selectedRange.Length == 1 ? ")." : "s).");
+        var summary = reviewRange.HasExactTaskAttribution
+            ? $"Human accepted host-recorded commit range {rangeLabel} ({selectedRange.Length} commit" +
+              (selectedRange.Length == 1 ? ")." : "s).")
+            : $"Human marked the step complete after reviewing repository changes through {terminalCommit}; " +
+              "individual commit attribution remains uncertain.";
         var syntheticResult = new DecomposeStepResult(
             GroupId: storedPlan.PlanId,
             TaskId: taskId,
@@ -19493,12 +19447,17 @@ public partial class MainWindow : Window
             RemainingWork: [],
             Verification: new DecomposeStepVerification(
                 "passed",
-                "human acceptance with host-controlled commit-range validation",
-                $"The human reviewer accepted the task after SquadDash validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."));
+                reviewRange.HasExactTaskAttribution
+                    ? "human acceptance with host-controlled commit-range validation"
+                    : "explicit human completion after repository-difference review",
+                $"The human reviewer accepted the task after SquadDash validated ancestry, {selectedRange.Length} commits, and {changedPaths.Length} changed paths."))
+        {
+            Commits = reviewRange.Commits,
+        };
 
-        // Consume the recovery surface only after all validation and any user confirmation have
-        // succeeded. A rejected or stale action remains in place instead of disappearing and
-        // being regenerated as an apparently endless prompt loop.
+        // Consume the recovery surface only after validation succeeds. A rejected or stale
+        // action remains in place instead of disappearing and being regenerated as an apparently
+        // endless prompt loop. The completion button itself is the explicit user decision.
         PrepareForHostRecoveryAction();
 
         Plan? acceptedPlan = null;
@@ -53473,6 +53432,18 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (string.Equals(
+                    action.RouteMode,
+                    DecomposePlanInbox.RecoveryEvidenceRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!DecomposeRecoveryDecisionParser.TryParse(action.Prompt, out var evidenceDecision) ||
+                    evidenceDecision is null)
+                    throw new InvalidOperationException("This completed-work review link is malformed.");
+                await OpenInterruptedTaskReviewAsync(evidenceDecision.GroupId, evidenceDecision.Revision);
+                return;
+            }
+
             if (string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
             {
                 var actionKey = message.Id + "\u001f" + action.Label;
@@ -56675,6 +56646,149 @@ public partial class MainWindow : Window
         {
             UIErrorHelper.ShowWarning("Open Evidence", $"SquadDash could not load this evidence.\n\n{ex.Message}");
         }
+    }
+
+    private sealed record InterruptedTaskReviewRange(
+        string TaskId,
+        string BaselineCommit,
+        string TerminalCommit,
+        IReadOnlyList<PlanEvidenceCommit> Commits,
+        bool HasExactTaskAttribution);
+
+    private async Task OpenInterruptedTaskReviewAsync(string planId, string expectedRevision)
+    {
+        var plan = _planStore?.Load(planId);
+        if (plan is null || !string.Equals(plan.Revision, expectedRevision, StringComparison.Ordinal))
+        {
+            UIErrorHelper.ShowWarning(
+                "Review Repository Changes",
+                "This recovery request is stale because the plan changed. Reopen the current plan state.");
+            return;
+        }
+
+        var taskId = plan.InterruptionData?.InterruptedTaskId;
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted || string.IsNullOrWhiteSpace(taskId))
+        {
+            UIErrorHelper.ShowWarning(
+                "Review Repository Changes",
+                "This plan is no longer waiting for an interrupted-step decision.");
+            return;
+        }
+
+        try
+        {
+            var review = await ResolveInterruptedTaskReviewRangeAsync(plan, taskId);
+            await OpenEvidenceViewerAsync(review.Commits);
+        }
+        catch (Exception ex)
+        {
+            UIErrorHelper.ShowWarning(
+                "Review Repository Changes",
+                $"SquadDash could not build the repository review.\n\n{ex.Message}");
+        }
+    }
+
+    private async Task<InterruptedTaskReviewRange> ResolveInterruptedTaskReviewRangeAsync(
+        Plan plan,
+        string taskId)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("The workspace is unavailable.");
+
+        var workspace = _currentWorkspace.FolderPath;
+        var exact = plan.InterruptionData?.TaskCommitEvidence is { } evidence &&
+                    string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+                    !string.IsNullOrWhiteSpace(evidence.BaselineCommit) &&
+                    !string.IsNullOrWhiteSpace(evidence.Commit)
+            ? evidence
+            : null;
+        string baseline;
+        string terminal;
+        if (exact is not null)
+        {
+            baseline = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{exact.BaselineCommit}^{{commit}}\"")).Trim();
+            terminal = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{exact.Commit}^{{commit}}\"")).Trim();
+        }
+        else
+        {
+            var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            var history = (await RunGitAsync(workspace, $"rev-list \"{head}\""))
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            baseline = RecoveryCommitValidator.FindNewestRecordedCommit(
+                history,
+                plan.Tasks
+                    .Where(task => task.Status == PlanTaskStatus.Complete)
+                    .Select(task => task.Commit))
+                ?? throw new InvalidOperationException(
+                    "SquadDash does not have a reliable accepted-task commit from before this step.");
+
+            terminal = head;
+            var capturedResults = InterruptedPlanEvidenceResolver.FindTaskResults(
+                _conversationManager.ConversationState.Turns,
+                plan.PlanId,
+                plan.Revision,
+                taskId);
+            foreach (var result in capturedResults)
+            {
+                try
+                {
+                    var resolved = (await RunGitAsync(
+                        workspace,
+                        $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
+                    await RunGitAsync(
+                        workspace,
+                        $"merge-base --is-ancestor \"{baseline}\" \"{resolved}\"");
+                    await RunGitAsync(
+                        workspace,
+                        $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
+                    terminal = resolved;
+                    break;
+                }
+                catch
+                {
+                    // Try the next captured result. A later envelope repair may have recorded
+                    // an unrelated HEAD, while an earlier handoff still identifies the range.
+                }
+            }
+        }
+
+        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{terminal}\"");
+        var commitIds = (await RunGitAsync(
+                workspace,
+                $"rev-list --reverse \"{baseline}..{terminal}\""))
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (commitIds.Length == 0)
+            throw new InvalidOperationException("There are no repository commits to review for this interrupted step.");
+
+        var recordedByCommit = (exact?.Commits ?? [])
+            .Where(commit => !string.IsNullOrWhiteSpace(commit.Commit))
+            .ToDictionary(commit => commit.Commit, StringComparer.OrdinalIgnoreCase);
+        var commits = commitIds.Select(commit =>
+        {
+            var recorded = recordedByCommit.FirstOrDefault(pair =>
+                RecoveryCommitValidator.CommitIdentifiersMatch(pair.Key, commit)).Value;
+            if (recorded is not null) return recorded with { Commit = commit };
+            return exact is not null
+                ? new PlanEvidenceCommit(
+                    commit,
+                    PlanRecoveryCommitRelation.Task,
+                    "Commit in the exact host-recorded task range.")
+                : new PlanEvidenceCommit(
+                    commit,
+                    PlanRecoveryCommitRelation.Unknown,
+                    "This commit is between the last accepted step and the captured completion checkpoint; exact task attribution was not recorded.");
+        }).ToArray();
+
+        return new InterruptedTaskReviewRange(
+            taskId,
+            baseline,
+            terminal,
+            commits,
+            exact is not null);
     }
 
     private async Task<bool> IsCommitOnRemoteAsync(string sha)

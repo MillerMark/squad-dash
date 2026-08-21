@@ -726,6 +726,38 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Margin      = new Thickness(0, 0, 0, 8),
             };
             var safeResume = PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
+            if (onAdoptVerifiedCommitRange is not null && !safeResume && _onOpenCommits is not null)
+            {
+                var interruptedTask = durablePlan.Tasks.FirstOrDefault(task => string.Equals(
+                    task.TaskId,
+                    durablePlan.InterruptionData?.InterruptedTaskId,
+                    StringComparison.Ordinal));
+                if (interruptedTask is not null)
+                {
+                    var evidence = PlanRecoveryPresentationBuilder.ResolveTaskEvidence(
+                        durablePlan,
+                        interruptedTask);
+                    var linkText = new TextBlock
+                    {
+                        Margin = new Thickness(0, 5, 14, 12),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        FontSize = quickReplyFontSize,
+                    };
+                    var reviewLink = new Hyperlink(new Run(
+                        $"Review repository changes for {PlanRecoveryPresentationBuilder.FormatStepLabel(
+                            interruptedTask.DisplayStepLabel,
+                            interruptedTask.Title ?? interruptedTask.Description)}"))
+                    {
+                        Cursor = Cursors.Hand,
+                        ToolTip = ToolTipHelper.MakeThemedToolTip(
+                            "Open the multi-commit differences viewer. Reviewing does not change plan state."),
+                    };
+                    reviewLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                    reviewLink.Click += (_, _) => _onOpenCommits(evidence);
+                    linkText.Inlines.Add(reviewLink);
+                    header.Children.Add(linkText);
+                }
+            }
             // Safe continuation owns the recovery choice. A ready validation is simply the next
             // scheduler boundary and must not create a duplicate "Resume Validation" action.
             if (onAdoptVerifiedCommitRange is not null && !safeResume)

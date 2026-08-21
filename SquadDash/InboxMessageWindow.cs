@@ -27,6 +27,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly WrapPanel _attachmentsPanel;
+    private readonly WrapPanel _navigationActionsPanel;
     private readonly WrapPanel _actionsPanel;
     private readonly Grid _rootGrid;
     private readonly ContentControl _preflightRecoveryHost;
@@ -179,16 +180,29 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Grid.SetRow(actionRegion, 2);
         root.Children.Add(actionRegion);
 
+        _navigationActionsPanel = new WrapPanel
+        {
+            Margin      = new Thickness(12, 4, 12, 4),
+            Orientation = Orientation.Horizontal,
+            Visibility  = message.Actions.Any(IsNavigationAction)
+                ? Visibility.Visible
+                : Visibility.Collapsed,
+        };
+        actionRegion.Children.Add(_navigationActionsPanel);
+
         _actionsPanel = new WrapPanel
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
-            Visibility  = message.Actions is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed,
+            Visibility  = message.Actions.Any(action => !IsNavigationAction(action))
+                ? Visibility.Visible
+                : Visibility.Collapsed,
         };
         actionRegion.Children.Add(_actionsPanel);
 
         foreach (var action in message.Actions)
-            _actionsPanel.Children.Add(BuildActionButton(action, message, _bodyFontSize, onActionClicked));
+            (IsNavigationAction(action) ? _navigationActionsPanel : _actionsPanel)
+                .Children.Add(BuildActionButton(action, message, _bodyFontSize, onActionClicked));
 
         _preflightRecoveryHost = new ContentControl
         {
@@ -551,6 +565,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         if (_bodyViewer.Document is not null)
             RebuildDocument();
         ApplyInteractiveFontSize(_actionsPanel, _attachmentsPanel, _bodyFontSize);
+        foreach (var linkText in _navigationActionsPanel.Children.OfType<TextBlock>())
+            linkText.FontSize = _bodyFontSize;
 
         _onFontSizeChanged?.Invoke(_bodyFontSize);
     }
@@ -603,12 +619,37 @@ internal sealed class InboxMessageWindow : ChromedWindow
         }
     }
 
-    private static Button BuildActionButton(
+    private static FrameworkElement BuildActionButton(
         InboxAction action,
         InboxMessage msg,
         double fontSize,
         Action<InboxAction, InboxMessage> onActionClicked)
     {
+        if (string.Equals(
+                action.RouteMode,
+                DecomposePlanInbox.RecoveryEvidenceRouteMode,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var link = new Hyperlink(new Run(action.Label))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    string.IsNullOrWhiteSpace(action.Hint)
+                        ? "Review repository changes"
+                        : action.Hint),
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            link.Click += (_, _) => onActionClicked(action, msg);
+            var text = new TextBlock
+            {
+                Margin = new Thickness(0, 5, 14, 8),
+                FontSize = fontSize,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            text.Inlines.Add(link);
+            return text;
+        }
+
         var isDraft = string.Equals(action.RouteMode, "draft", StringComparison.OrdinalIgnoreCase);
         var btn = new Button
         {
@@ -649,6 +690,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         return btn;
     }
+
+    private static bool IsNavigationAction(InboxAction action) =>
+        string.Equals(
+            action.RouteMode,
+            DecomposePlanInbox.RecoveryEvidenceRouteMode,
+            StringComparison.OrdinalIgnoreCase);
 
     private static string GetPriorityLabel(string emoji) => emoji switch {
         "🔴" => "High Priority",
@@ -1110,11 +1157,16 @@ internal sealed class InboxMessageWindow : ChromedWindow
         InboxPlanLinkPresenter.Attach(doc, updatedMessage, _openDecomposePlan);
         _bodyViewer.Document = doc;
 
-        // Replace action buttons
+        // Keep navigation links on their own row above the decision buttons.
+        _navigationActionsPanel.Children.Clear();
         _actionsPanel.Children.Clear();
         foreach (var action in updatedMessage.Actions)
-            _actionsPanel.Children.Add(BuildActionButton(action, updatedMessage, _bodyFontSize, onActionClicked));
-        _actionsPanel.Visibility = updatedMessage.Actions is { Count: > 0 }
+            (IsNavigationAction(action) ? _navigationActionsPanel : _actionsPanel)
+                .Children.Add(BuildActionButton(action, updatedMessage, _bodyFontSize, onActionClicked));
+        _navigationActionsPanel.Visibility = updatedMessage.Actions.Any(IsNavigationAction)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        _actionsPanel.Visibility = updatedMessage.Actions.Any(action => !IsNavigationAction(action))
             ? Visibility.Visible
             : Visibility.Collapsed;
 

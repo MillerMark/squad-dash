@@ -15,6 +15,7 @@ internal static class DecomposePlanInbox
     internal const string AttachmentType = "decompose-plan";
     internal const string ActionRouteMode = "decompose";
     internal const string RecoveryRouteMode = "decompose-recovery";
+    internal const string RecoveryEvidenceRouteMode = "decompose-recovery-evidence";
 
     private static readonly JsonSerializerOptions SnapshotOptions = new()
     {
@@ -162,6 +163,15 @@ internal static class DecomposePlanInbox
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             taskIndex >= 0 ? (taskIndex + 1).ToString() : null,
             taskTitle);
+        InboxAction BuildEvidenceLink() => new()
+        {
+            Label = $"Review repository changes for {stepLabel}",
+            RouteMode = RecoveryEvidenceRouteMode,
+            Prompt = DecomposeRecoveryDecisionParser.Marker + "\n" + JsonSerializer.Serialize(
+                new DecomposeRecoveryDecision(plan.Group.GroupId, plan.Revision, "review-completed-work"),
+                DecisionOptions),
+            Hint = "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+        };
         var primary = durablePlan is not null
             ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId)
             : hasCommitEvidence
@@ -175,12 +185,14 @@ internal static class DecomposePlanInbox
                         : $"Accept the host-recorded commit shown in this message, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
                     "accept-step-complete")
                 : new PlanRecoveryPrimaryActionPresentation(
-                    PlanRecoveryPrimaryActionKind.ContinueWorking,
-                    $"Continue Working on {stepLabel}",
-                    $"Keep {stepLabel} incomplete and continue from the preserved repository state. No preliminary AI assessment runs.",
-                    "continue-working");
+                    PlanRecoveryPrimaryActionKind.AcceptUnattributedStep,
+                    $"{stepLabel} Is Complete & Continue",
+                    $"After reviewing repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain.",
+                    "accept-step-complete");
 
         var actions = new List<InboxAction>();
+        if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+            actions.Add(BuildEvidenceLink());
         actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
         if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
         {
@@ -189,7 +201,7 @@ internal static class DecomposePlanInbox
                 "request-corrections",
                 $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch."));
         }
-        else if (primary.Kind == PlanRecoveryPrimaryActionKind.ReviewCompletedWork)
+        else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
         {
             actions.Add(BuildAction(
                 $"Continue Working on {stepLabel}",
@@ -221,7 +233,7 @@ internal static class DecomposePlanInbox
                 : $"\nReview the commit if needed, then accept {stepLabel}, continue working on it, or revise the remaining plan.\n";
         }
         else
-            body += $"\nSquadDash does not have exact task-owned commit evidence to accept automatically. {stepLabel} remains incomplete.\n";
+            body += $"\nSquadDash does not have exact task-owned commit attribution. Review the repository changes, then explicitly mark {stepLabel} complete or continue working.\n";
 
         body += "\nChoose a recovery action below.";
 

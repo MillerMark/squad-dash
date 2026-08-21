@@ -40,16 +40,6 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void ExplicitStepAcceptance_DoesNotPromptForTheSameDecisionAgain()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(true), Is.False);
-            Assert.That(PlanRecoveryPresentationBuilder.ShouldPromptForCommitReview(false), Is.True);
-        });
-    }
-
-    [Test]
     public void ResolveTaskEvidence_UsesRecoveryCommitsForActiveIncompleteStep()
     {
         var task = new PlanTask(
@@ -359,7 +349,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void RecoveryAction_WithoutHostRecordedCandidateOffersCommitRangeReview()
+    public void RecoveryAction_WithoutHostRecordedCandidateOffersExplicitHumanCompletion()
     {
         var task = new PlanTask(
             "PLAN-007", "Review me", "Work", [], "high",
@@ -371,10 +361,11 @@ internal sealed class PlanRecoveryPresentationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ReviewCompletedWork));
-            Assert.That(action.Label, Is.EqualTo("Review Completed Work for Step 7…"));
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptUnattributedStep));
+            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete & Continue"));
             Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
-            Assert.That(action.Hint, Does.Contain("host-validated commit range"));
+            Assert.That(action.Hint, Does.Contain("reviewing the repository changes"));
+            Assert.That(action.Hint, Does.Contain("attribution remains marked as uncertain"));
         });
     }
 

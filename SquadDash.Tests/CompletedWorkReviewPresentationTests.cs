@@ -244,26 +244,38 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithoutEvidence_OmitsReviewAction()
+    public void BuildRecoveryMessage_WithoutEvidence_UsesNavigationLinkNotLegacyReviewAction()
     {
         var pending = MakePending();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow);
 
-        Assert.That(message.Actions.Select(a => a.Label),
-            Has.No.Member("Review Completed Work"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Actions.Select(a => a.Label),
+                Has.No.Member("Review Completed Work"));
+            Assert.That(message.Actions[0].Label, Is.EqualTo("Review repository changes for Step 1"));
+            Assert.That(message.Actions[0].RouteMode,
+                Is.EqualTo(DecomposePlanInbox.RecoveryEvidenceRouteMode));
+        });
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithoutEvidence_ContinuesWithoutAssessmentAndOffersReplan()
+    public void BuildRecoveryMessage_WithoutEvidence_OffersReviewLinkCompletionContinueAndReplan()
     {
         var pending = MakePending();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(2));
+        Assert.That(message.Actions, Has.Count.EqualTo(4));
         Assert.That(message.Actions.Select(a => a.Label),
-            Is.EqualTo(new[] { "Continue Working on Step 1", "✎ Revise Remaining Plan…" }));
+            Is.EqualTo(new[]
+            {
+                "Review repository changes for Step 1",
+                "Step 1 Is Complete & Continue",
+                "Continue Working on Step 1",
+                "✎ Revise Remaining Plan…",
+            }));
     }
 
     [Test]

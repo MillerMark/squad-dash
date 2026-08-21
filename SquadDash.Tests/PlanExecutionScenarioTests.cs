@@ -407,6 +407,8 @@ internal sealed class PlanExecutionScenarioTests
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
         {
+            "Review repository changes for PLAN-20260728-003",
+            "PLAN-20260728-003 Is Complete & Continue",
             "Continue Working on PLAN-20260728-003",
             "✎ Revise Remaining Plan…",
         }));
@@ -421,10 +423,14 @@ internal sealed class PlanExecutionScenarioTests
             "The AI exceeded the context window.",
             DateTimeOffset.Parse("2026-07-28T10:00:00Z"));
 
-        var expectedRouteMode = DecomposePlanInbox.RecoveryRouteMode;
-
-        Assert.That(
-            message.Actions.All(a => a.RouteMode == expectedRouteMode), Is.True,
-            "Every action in the recovery message must use DecomposePlanInbox.RecoveryRouteMode so they route correctly.");
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Actions[0].RouteMode,
+                Is.EqualTo(DecomposePlanInbox.RecoveryEvidenceRouteMode));
+            Assert.That(message.Actions.Skip(1).All(a =>
+                    a.RouteMode == DecomposePlanInbox.RecoveryRouteMode),
+                Is.True,
+                "Decision actions must retain the recovery route while evidence navigation remains non-mutating.");
+        });
     }
 }

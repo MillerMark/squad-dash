@@ -27,7 +27,7 @@ internal sealed record PlanHumanReviewAnalysisItem(
 internal enum PlanRecoveryPrimaryActionKind
 {
     AcceptStep,
-    ReviewCompletedWork,
+    AcceptUnattributedStep,
     ApproveAmendment,
     ResumeVerification,
     RetryVerification,
@@ -103,9 +103,11 @@ internal static class PlanRecoveryActionPresentationBuilder
         }
 
         return new PlanRecoveryPrimaryActionPresentation(
-            PlanRecoveryPrimaryActionKind.ReviewCompletedWork,
-            $"Review Completed Work for {stepLabel}…",
-            $"Inspect the host-validated commit range since the task baseline, then accept {stepLabel} or leave it incomplete.",
+            PlanRecoveryPrimaryActionKind.AcceptUnattributedStep,
+            plan.IsPaused ? $"{stepLabel} Is Complete" : $"{stepLabel} Is Complete & Continue",
+            plan.IsPaused
+                ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain."
+                : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain.",
             "accept-step-complete");
     }
 }
@@ -174,9 +176,6 @@ internal static class PlanRecoveryPresentationBuilder
             ? $"Step {stepNumber}"
             : label;
     }
-
-    internal static bool ShouldPromptForCommitReview(bool explicitStepAcceptance) =>
-        !explicitStepAcceptance;
 
     internal static IReadOnlyList<PlanEvidenceCommit> ResolveTaskEvidence(Plan plan, PlanTask task)
     {

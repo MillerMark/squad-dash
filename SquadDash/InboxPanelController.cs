@@ -693,8 +693,33 @@ internal sealed class InboxPanelController
         _viewerBorder.Visibility = Visibility.Visible;
     }
 
-    private Button BuildActionButton(InboxAction action, InboxMessage msg)
+    private FrameworkElement BuildActionButton(InboxAction action, InboxMessage msg)
     {
+        if (string.Equals(
+                action.RouteMode,
+                DecomposePlanInbox.RecoveryEvidenceRouteMode,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var link = new Hyperlink(new Run(action.Label))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    string.IsNullOrWhiteSpace(action.Hint)
+                        ? "Review repository changes"
+                        : action.Hint),
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            link.Click += (_, _) => _onActionClicked(action, msg);
+            var text = new TextBlock
+            {
+                Margin = new Thickness(0, 5, 14, 8),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            text.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            text.Inlines.Add(link);
+            return text;
+        }
+
         var btn = new Button
         {
             Content         = action.Label,
