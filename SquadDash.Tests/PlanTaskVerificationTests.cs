@@ -302,8 +302,10 @@ internal sealed class PlanTaskVerificationTests
         {
             Assert.That(prompt, Does.Contain("Host-selected verification level: `enhanced`"));
             Assert.That(prompt, Does.Contain("coordinator must not reinterpret it"));
-            Assert.That(prompt, Does.Contain("counter-hypotheses and negative cases"));
-            Assert.That(prompt, Does.Contain("test sensitivity"));
+            Assert.That(prompt, Does.Contain("enhanced independent review"));
+            Assert.That(prompt, Does.Contain("plausible alternative explanations and negative cases"));
+            Assert.That(prompt, Does.Contain("whether the tests would fail when the behavior is broken"));
+            Assert.That(prompt, Does.Not.Contain("cross-examination"));
         });
     }
 

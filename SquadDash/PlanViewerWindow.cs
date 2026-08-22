@@ -7370,10 +7370,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             string instructions = verificationLevel switch
             {
                 PlanTaskVerificationLevel.Enhanced =>
-                    "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, " +
-                    "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
-                    "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
-                    "broken while the reported tests still pass.",
+                    PlanTaskVerificationInstructions.EnhancedIndependentReview,
                 _ =>
                     "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
                     "production wiring, and tests.",

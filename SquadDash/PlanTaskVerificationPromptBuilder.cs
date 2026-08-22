@@ -144,10 +144,7 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine($"Host-selected verification level: `{level}`. This level is authoritative; the coordinator must not reinterpret it.");
         if (level == PlanTaskVerificationLevel.Enhanced)
         {
-            builder.AppendLine(
-                "Perform enhanced cross-examination. Derive the highest-risk target vectors from the approved step, actual diff, " +
-                "production paths, and tests. Challenge the candidate with counter-hypotheses and negative cases; inspect integration " +
-                "boundaries and test sensitivity; and identify behavior that could remain broken while the reported tests still pass.");
+            builder.AppendLine(PlanTaskVerificationInstructions.EnhancedIndependentReview);
         }
         else
         {
