@@ -9102,7 +9102,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             sibling => sibling.TaskId,
             sibling => CaptureTaskDragOverlays(sibling.TaskId),
             StringComparer.Ordinal);
-        var columnSlotTops = sameColumnCards.Select(entry => entry.Top).ToArray();
+        // Use natural slot tops (not nudged visual Canvas.Top values) so sibling
+        // animation targets and nudge baselines are relative to clean slot geometry.
+        // If a task had a prior nudge, its visual top is offset; using that offset as the
+        // swap target would bake that prior nudge into the displaced sibling's position,
+        // causing a jump when the rebuild snaps the sibling back to its natural Y.
+        var columnSlotTops = preDragColumnOrder
+            .Select(id => _naturalTaskSlotTops.TryGetValue(id, out var naturalY) ? naturalY : 0.0)
+            .ToArray();
 
         _taskCardDragState = new TaskCardDragState
         {
@@ -9265,36 +9272,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 continue;
             ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
         }
+
+        // Snapshot committedTop before any persistence. For staged plans,
+        // PersistCommittedTaskCardReorder calls ApplyStagedMutation which synchronously
+        // rebuilds the canvas, repositioning all elements. Reading Canvas.GetTop after
+        // that rebuild would return the rebuilt position, not where the user released.
+        var committedTop = Canvas.GetTop(dragState.Element);
+        if (double.IsNaN(committedTop))
+            committedTop = dragState.OriginalTop;
+
         var reorderOccurred = dragState.CurrentColumnOrder.Count > 0 &&
             !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal);
+
         if (reorderOccurred)
         {
-            _lastCommittedColumnOrder = new CommittedColumnReorder(
-                dragState.ColumnIdentifier,
-                dragState.CurrentColumnOrder.ToArray());
-            PersistCommittedTaskCardReorder();
-
-            // Clear nudges for every task that moved to a different slot index.
-            // Each nudge encodes a pixel offset relative to a specific slot's natural Y;
-            // after a swap that slot is occupied by a different task, so the old nudge
-            // would apply an arbitrary shift in the new position.
+            // Clear stale nudges for displaced siblings before any rebuild fires.
+            // Each nudge is a pixel offset relative to a specific natural slot Y;
+            // after a swap that slot belongs to a different task, so the old nudge
+            // would shift the sibling in its new position.
             for (var i = 0; i < dragState.CurrentColumnOrder.Count; i++)
             {
                 var siblingId = dragState.CurrentColumnOrder[i];
-                if (siblingId == dragState.TaskId) continue; // dragged task's nudge is handled below
+                if (siblingId == dragState.TaskId) continue;
                 var oldIndex = dragState.PreDragColumnOrder.ToList().IndexOf(siblingId);
                 if (oldIndex != i)
                     _taskNudges.Remove(siblingId);
             }
         }
 
-        var committedTop = Canvas.GetTop(dragState.Element);
-        if (!double.IsNaN(committedTop))
+        // Compute and store the dragged task's nudge before persistence so that
+        // staged-plan rebuilds (which happen synchronously inside PersistCommittedTaskCardReorder)
+        // use the correct final nudge dictionary. ColumnSlotTops now holds natural slot Ys
+        // (not nudged visual positions), so this baseline is consistent with the rebuild.
         {
-            // When a reorder occurred the plan data model has been updated but _naturalTaskSlotTops
-            // may not yet reflect the new layout (durable-plan path skips a synchronous rebuild).
-            // Use ColumnSlotTops[newIndex] — the pre-drag Y of the task's new slot — as the nudge
-            // baseline so the offset is relative to the slot the task actually landed in.
             double? nudgeBaseTop = null;
             if (reorderOccurred)
             {
@@ -9316,10 +9326,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     _taskNudges.Remove(dragState.TaskId);
                 else
                     _taskNudges[dragState.TaskId] = nudgeLineHeights;
-
-                _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
             }
         }
+
+        // Persist the reorder after nudges are finalised. For staged plans this
+        // triggers a synchronous rebuild via ApplyStagedMutation — nudges are correct.
+        if (reorderOccurred)
+        {
+            _lastCommittedColumnOrder = new CommittedColumnReorder(
+                dragState.ColumnIdentifier,
+                dragState.CurrentColumnOrder.ToArray());
+            PersistCommittedTaskCardReorder();
+        }
+
+        // Save nudge state and trigger a rebuild for durable plans (staged plans
+        // already rebuilt inside PersistCommittedTaskCardReorder above).
+        _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;
         _suppressTaskCardCancelOnLostCapture = true;
