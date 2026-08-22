@@ -7367,8 +7367,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             rolePara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(rolePara);
 
-            AddSectionHeader("Instructions Sent to Verifier");
-
             string instructions = verificationLevel switch
             {
                 PlanTaskVerificationLevel.Enhanced =>
@@ -7383,10 +7381,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             if (verificationLevel == PlanTaskVerificationLevel.Lightweight)
             {
-                var instrPara1 = new Paragraph();
-                instrPara1.Inlines.Add(new Run("Lightweight Verification") { FontWeight = FontWeights.Bold });
-                instrPara1.Inlines.Add(new Run(
-                    "\nThe implementing agent completes the task's required checks and returns supporting evidence. " +
+                AddSectionHeader("Lightweight Verification");
+
+                var instrPara1 = new Paragraph(new Run(
+                    "The implementing agent completes the task's required checks and returns supporting evidence. " +
                     "SquadDash validates the result, evidence, commit scope, and changed files before accepting it."));
                 instrPara1.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
                 instrPara1.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
@@ -7406,6 +7404,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else
             {
+                AddSectionHeader("Instructions Sent to Verifier");
                 var instrPara = new Paragraph(new Run(instructions));
                 instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
                 instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
