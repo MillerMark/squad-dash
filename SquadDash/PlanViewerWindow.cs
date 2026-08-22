@@ -9273,6 +9273,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 dragState.ColumnIdentifier,
                 dragState.CurrentColumnOrder.ToArray());
             PersistCommittedTaskCardReorder();
+
+            // Clear nudges for every task that moved to a different slot index.
+            // Each nudge encodes a pixel offset relative to a specific slot's natural Y;
+            // after a swap that slot is occupied by a different task, so the old nudge
+            // would apply an arbitrary shift in the new position.
+            for (var i = 0; i < dragState.CurrentColumnOrder.Count; i++)
+            {
+                var siblingId = dragState.CurrentColumnOrder[i];
+                if (siblingId == dragState.TaskId) continue; // dragged task's nudge is handled below
+                var oldIndex = dragState.PreDragColumnOrder.ToList().IndexOf(siblingId);
+                if (oldIndex != i)
+                    _taskNudges.Remove(siblingId);
+            }
         }
 
         var committedTop = Canvas.GetTop(dragState.Element);
