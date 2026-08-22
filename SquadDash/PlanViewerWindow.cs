@@ -9265,8 +9265,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 continue;
             ApplyTaskCardTopAndConnectors(sibling.TaskId, dragState.ColumnX, displacedTop);
         }
-        if (dragState.CurrentColumnOrder.Count > 0 &&
-            !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal))
+        var reorderOccurred = dragState.CurrentColumnOrder.Count > 0 &&
+            !dragState.CurrentColumnOrder.SequenceEqual(dragState.PreDragColumnOrder, StringComparer.Ordinal);
+        if (reorderOccurred)
         {
             _lastCommittedColumnOrder = new CommittedColumnReorder(
                 dragState.ColumnIdentifier,
@@ -9275,20 +9276,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         var committedTop = Canvas.GetTop(dragState.Element);
-        if (!double.IsNaN(committedTop) &&
-            _naturalTaskSlotTops.TryGetValue(dragState.TaskId, out var naturalTop))
+        if (!double.IsNaN(committedTop))
         {
-            var fontSizeBody = _scaleFactor * 12.0;
-            var nudgeLineHeights = (committedTop - naturalTop) / fontSizeBody;
-            if (Math.Abs(nudgeLineHeights) < 0.05)
-                nudgeLineHeights = 0.0;
+            // When a reorder occurred the plan data model has been updated but _naturalTaskSlotTops
+            // may not yet reflect the new layout (durable-plan path skips a synchronous rebuild).
+            // Use ColumnSlotTops[newIndex] — the pre-drag Y of the task's new slot — as the nudge
+            // baseline so the offset is relative to the slot the task actually landed in.
+            double? nudgeBaseTop = null;
+            if (reorderOccurred)
+            {
+                var newIndex = dragState.CurrentColumnOrder.IndexOf(dragState.TaskId);
+                if (newIndex >= 0 && newIndex < dragState.ColumnSlotTops.Count)
+                    nudgeBaseTop = dragState.ColumnSlotTops[newIndex];
+            }
+            if (nudgeBaseTop is null && _naturalTaskSlotTops.TryGetValue(dragState.TaskId, out var naturalTop))
+                nudgeBaseTop = naturalTop;
 
-            if (nudgeLineHeights == 0.0)
-                _taskNudges.Remove(dragState.TaskId);
-            else
-                _taskNudges[dragState.TaskId] = nudgeLineHeights;
+            if (nudgeBaseTop.HasValue)
+            {
+                var fontSizeBody = _scaleFactor * 12.0;
+                var nudgeLineHeights = (committedTop - nudgeBaseTop.Value) / fontSizeBody;
+                if (Math.Abs(nudgeLineHeights) < 0.05)
+                    nudgeLineHeights = 0.0;
 
-            _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
+                if (nudgeLineHeights == 0.0)
+                    _taskNudges.Remove(dragState.TaskId);
+                else
+                    _taskNudges[dragState.TaskId] = nudgeLineHeights;
+
+                _saveLayoutNudges?.Invoke(new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal));
+            }
         }
         RestoreTaskCardDragGlow(dragState);
         _taskCardDragState = null;
