@@ -1109,7 +1109,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var scroll = new ScrollViewer
         {
             Content = canvas,
-            Margin  = new Thickness(22, 0, 0, 0),
+            Margin  = new Thickness(22, 0, 6, 0),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
         };
@@ -7376,19 +7376,42 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "actual diff, production paths, and tests. Challenge the candidate with counter-hypotheses and negative " +
                     "cases; inspect integration boundaries and test sensitivity; and identify behavior that could remain " +
                     "broken while the reported tests still pass.",
-                PlanTaskVerificationLevel.Lightweight =>
-                    "Perform a lightweight review: validate the task-owned claims against the actual diff, production " +
-                    "wiring, and tests. (Note: lightweight verification may be upgraded to standard if critical files " +
-                    "or security-sensitive paths were changed.)",
                 _ =>
                     "Perform the standard independent review: validate the task-owned claims against the actual diff, " +
                     "production wiring, and tests.",
             };
-            var instrPara = new Paragraph(new Run(instructions));
-            instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            instrPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(instrPara);
+
+            if (verificationLevel == PlanTaskVerificationLevel.Lightweight)
+            {
+                var instrPara1 = new Paragraph();
+                instrPara1.Inlines.Add(new Run("Lightweight Verification") { FontWeight = FontWeights.Bold });
+                instrPara1.Inlines.Add(new Run(
+                    "\nThe implementing agent completes the task's required checks and returns supporting evidence. " +
+                    "SquadDash validates the result, evidence, commit scope, and changed files before accepting it."));
+                instrPara1.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                instrPara1.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                instrPara1.Margin = new Thickness(0, 0, 0, 6);
+                _detailDocument.Blocks.Add(instrPara1);
+
+                var instrPara2 = new Paragraph();
+                instrPara2.Inlines.Add(new Run(
+                    "If the task or changed files trigger a higher-risk rule, SquadDash automatically upgrades it " +
+                    "to a Standard independent review by "));
+                instrPara2.Inlines.Add(new Run("Verity Cross") { FontWeight = FontWeights.Bold });
+                instrPara2.Inlines.Add(new Run("."));
+                instrPara2.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                instrPara2.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                instrPara2.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(instrPara2);
+            }
+            else
+            {
+                var instrPara = new Paragraph(new Run(instructions));
+                instrPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                instrPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                instrPara.Margin = new Thickness(0, 0, 0, 12);
+                _detailDocument.Blocks.Add(instrPara);
+            }
 
             AddSectionHeader("Possible Outcomes");
             var verdictList = new System.Windows.Documents.List();
