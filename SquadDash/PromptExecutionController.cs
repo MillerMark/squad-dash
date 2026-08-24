@@ -970,6 +970,9 @@ internal sealed class PromptExecutionController {
         if (string.Equals(trimmed, "/help", StringComparison.OrdinalIgnoreCase))
             return HandleLocalHelpCommand(prompt, addToHistory, clearPromptBox);
 
+        if (string.Equals(trimmed, "/cast", StringComparison.OrdinalIgnoreCase))
+            return HandleLocalCastCommand(prompt, addToHistory, clearPromptBox);
+
         if (string.Equals(trimmed, "/hire", StringComparison.OrdinalIgnoreCase))
             return HandleLocalHireCommand(prompt, addToHistory, clearPromptBox);
 
@@ -1090,13 +1093,24 @@ internal sealed class PromptExecutionController {
             });
     }
 
-    private bool HandleLocalHireCommand(string prompt, bool addToHistory, bool clearPromptBox) {
-        SquadDashTrace.Write("UI", "Local command intercepted prompt=/hire");
+    private bool HandleLocalCastCommand(string prompt, bool addToHistory, bool clearPromptBox) {
+        SquadDashTrace.Write("UI", "Local command intercepted prompt=/cast");
+        return HandleLocalCastCommandCore(prompt, addToHistory, clearPromptBox, invokedViaHireAlias: false);
+    }
 
+    private bool HandleLocalHireCommand(string prompt, bool addToHistory, bool clearPromptBox) {
+        SquadDashTrace.Write("UI", "Local command intercepted prompt=/hire (alias of /cast)");
+        return HandleLocalCastCommandCore(prompt, addToHistory, clearPromptBox, invokedViaHireAlias: true);
+    }
+
+    private bool HandleLocalCastCommandCore(string prompt, bool addToHistory, bool clearPromptBox, bool invokedViaHireAlias) {
         if (addToHistory)
             _conversationManager.AddPromptToHistory(prompt);
 
         MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
+        if (invokedViaHireAlias)
+            _transcriptSink.AppendLine("💡 `/hire` is an alias — use `/cast` going forward.", null);
+
         var submission = _showCastAgentWindow();
         if (submission is null) {
             if (!_getIsClosing() && _promptBoxState.IsPromptTextBoxEnabled)
@@ -1286,8 +1300,9 @@ internal sealed class PromptExecutionController {
                 _transcriptSink.AppendLine("- `/deactivate <name>` — Remove an agent from the active roster without deleting them", null);
                 _transcriptSink.AppendLine("- `/doctor` — Run Squad Doctor diagnostics", null);
                 _transcriptSink.AppendLine("- `/dropTasks` — Hide the live tasks popup", null);
+                _transcriptSink.AppendLine("- `/cast` — Open the visual cast-agent workflow", null);
                 _transcriptSink.AppendLine("- `/help` — Show this command reference", null);
-                _transcriptSink.AppendLine("- `/hire` — Open the visual cast-agent workflow", null);
+                _transcriptSink.AppendLine("- `/hire` — Legacy alias for `/cast` (deprecated)", null);
                 _transcriptSink.AppendLine("- `/model` — Show the active AI model", null);
                 _transcriptSink.AppendLine("- `/plan <description>` — Propose a decomposed plan for the given feature or task", null);
                 _transcriptSink.AppendLine("- `/queue-sim` — Alias for `/test-queue` with the default scenario", null);

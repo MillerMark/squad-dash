@@ -214,6 +214,7 @@ internal static class LocalPromptSubmissionPolicy {
         "/activate",
         "/agents",
         "/approval",
+        "/cast",
         "/deactivate",
         "/doctor",
         "/dropTasks",
@@ -233,15 +234,16 @@ internal static class LocalPromptSubmissionPolicy {
     /// When one of these is submitted while the coordinator is running or a native loop
     /// is active, it must be executed immediately rather than added to the prompt queue.
     /// <para>
-    /// <c>/hire</c> belongs here because the Hire UI opens immediately; if the user
-    /// completes a hire while the coordinator is busy, <c>PromptExecutionController</c>
-    /// calls its <c>enqueuePrompt</c> callback to add the resulting hire prompt to the
+    /// <c>/cast</c> belongs here because the cast-agent UI opens immediately; if the user
+    /// completes a cast while the coordinator is busy, <c>PromptExecutionController</c>
+    /// calls its <c>enqueuePrompt</c> callback to add the resulting cast prompt to the
     /// back of the queue automatically.
     /// </para>
     /// </summary>
     private static readonly HashSet<string> ImmediateLocalCommands = new(StringComparer.OrdinalIgnoreCase) {
         "/agents",
         "/approval",
+        "/cast",
         "/doctor",
         "/dropTasks",
         "/health",

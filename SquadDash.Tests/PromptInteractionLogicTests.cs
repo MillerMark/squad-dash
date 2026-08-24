@@ -589,6 +589,7 @@ internal sealed class PromptInteractionLogicTests {
 
     [TestCase("/agents")]
     [TestCase("/approval")]
+    [TestCase("/cast")]
     [TestCase("/doctor")]
     [TestCase("/dropTasks")]
     [TestCase("/health")]
@@ -623,6 +624,7 @@ internal sealed class PromptInteractionLogicTests {
 
     [TestCase("/activate")]
     [TestCase("/deactivate")]
+    [TestCase("/cast")]
     [TestCase("/health")]
     [TestCase("/retire")]
     public void CanSubmitWhilePromptRunning_ReturnsTrueForBusySafeCommands(string command) {
@@ -1085,6 +1087,7 @@ internal sealed class SlashCommandParameterPolicyTests {
     [TestCase("/model")]
     [TestCase("/trace")]
     [TestCase("/doctor")]
+    [TestCase("/cast")]
     [TestCase("/hire")]
     [TestCase("/sessions")]
     public void RequiresParameter_ReturnsFalseForCommandsWithNoArgument(string command) {

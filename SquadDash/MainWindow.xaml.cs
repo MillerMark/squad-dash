@@ -2679,12 +2679,12 @@ public partial class MainWindow : Window
 
             SquadDashTrace.Write("UI", "Prompt sent: SendButton click");
 
-            // Local-only slash commands(e.g. /trace, /hire) must execute immediately
+            // Local-only slash commands(e.g. /trace, /cast, /hire alias) must execute immediately
             // regardless of whether the coordinator is busy or items are queued.
             // PromptExecutionController.TryHandleLocalCommand never touches the AI, so
-            // there is no risk of a concurrent AI call.  For /hire specifically, if the
-            // user completes a hire while a prompt is running, the PEC's enqueuePrompt
-            // callback adds the resulting hire prompt to the back of the queue.
+            // there is no risk of a concurrent AI call. For /cast specifically, if the
+            // user completes a cast while a prompt is running, the PEC's enqueuePrompt
+            // callback adds the resulting cast prompt to the back of the queue.
             if (LocalPromptSubmissionPolicy.IsImmediateLocalCommand(prompt))
             {
                 AutoActivateCoordinatorTranscriptOnPromptSubmit();
@@ -20970,7 +20970,7 @@ public partial class MainWindow : Window
 
     private static readonly string[] SlashCommands = [
         "/activate", "/agents", "/approval", "/clear", "/deactivate", "/doctor", "/dropTasks",
-        "/health", "/help", "/hire", "/maintenance", "/model", "/plan", "/queue-sim", "/resume", "/retire",
+        "/cast", "/health", "/help", "/hire", "/maintenance", "/model", "/plan", "/queue-sim", "/resume", "/retire",
         "/session", "/sessions", "/status", "/tasks", "/test-queue", "/trace", "/version"
     ];
 
