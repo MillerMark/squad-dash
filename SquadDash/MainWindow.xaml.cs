@@ -44838,32 +44838,96 @@ public partial class MainWindow : Window
     private void TitlebarGrid_SizeChanged(object sender, SizeChangedEventArgs e) =>
         UpdateTitleBarResponsiveLayout();
 
+    // Cached ActualWidths of each hideable info-panel control, measured while visible.
+    // Updated every time a control is visible and has a real layout width.
+    private double _cachedSdVersionWidth;
+    private double _cachedSquadVersionWidth;
+    private double _cachedWorkspaceTitleWidth;
+
     private void UpdateTitleBarResponsiveLayout()
     {
         if (TitlebarGrid is null)
             return;
 
-        double w = ActualWidth;
-
-        // Priority 6 — drop first: SquadDash version + Squad version panel
-        bool showVersions = w >= 900;
-        SquadDashVersionTextBlock.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
-        SquadVersionPanel.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
-
-        // Priority 5 — drop second: workspace folder name
-        WorkspaceTitleText.Visibility = w >= 700 ? Visibility.Visible : Visibility.Collapsed;
-
-        // Priority 4 — drop third: search panel (only when no search is active)
-        if (w < 550)
+        // Refresh cached widths from controls that are currently visible and measured.
+        // Never called between Visibility changes (no UpdateLayout()), so this reflects
+        // the layout pass that preceded this SizeChanged call.
+        if (SquadDashVersionTextBlock.Visibility == Visibility.Visible &&
+            SquadDashVersionTextBlock.ActualWidth > 0)
         {
-            bool searchActive = _search.IsSearchActive;
-            if (!searchActive)
-                SearchStackPanel.Visibility = Visibility.Collapsed;
+            var m = SquadDashVersionTextBlock.Margin;
+            _cachedSdVersionWidth = SquadDashVersionTextBlock.ActualWidth + m.Left + m.Right;
+        }
+        if (SquadVersionPanel.Visibility == Visibility.Visible &&
+            SquadVersionPanel.ActualWidth > 0)
+        {
+            var m = SquadVersionPanel.Margin;
+            _cachedSquadVersionWidth = SquadVersionPanel.ActualWidth + m.Left + m.Right;
+        }
+        if (WorkspaceTitleText.Visibility == Visibility.Visible &&
+            WorkspaceTitleText.ActualWidth > 0)
+        {
+            var m = WorkspaceTitleText.Margin;
+            _cachedWorkspaceTitleWidth = WorkspaceTitleText.ActualWidth + m.Left + m.Right;
+        }
+
+        // Fallback estimates for first call before any layout pass has occurred.
+        double sdVersionW    = _cachedSdVersionWidth    > 0 ? _cachedSdVersionWidth    : 85;
+        double squadVersionW = _cachedSquadVersionWidth > 0 ? _cachedSquadVersionWidth : 75;
+        double workspaceTitleW = _cachedWorkspaceTitleWidth > 0 ? _cachedWorkspaceTitleWidth : 180;
+
+        // Space available between the menu bar (left) and the caption buttons (right, 114px).
+        // The *-column search area sits here; so does the right-anchored info panel.
+        double menuW = MainMenu?.ActualWidth ?? 130;
+        const double captionW = 114;   // 3 × 38px caption buttons
+        const double searchMinW = 145; // SearchBox.MinWidth=135 + padding
+        const double gap = 12;         // breathing room between search right-edge and info left-edge
+
+        double available = ActualWidth - menuW - captionW;
+
+        // Determine how many info items can coexist with the search box.
+        // Greedy: hide highest-priority items first until the remaining info
+        // fits alongside the minimum-width search box.
+        double infoNeeded = sdVersionW + squadVersionW + workspaceTitleW;
+        double budgetForInfo = available - searchMinW - gap;
+
+        bool showSdVersion, showSquadVersion, showWorkspace;
+        if (budgetForInfo >= infoNeeded)
+        {
+            showSdVersion = showSquadVersion = showWorkspace = true;
+        }
+        else if (budgetForInfo >= squadVersionW + workspaceTitleW)
+        {
+            // Hiding SquadDash version is enough
+            showSdVersion = false;
+            showSquadVersion = showWorkspace = true;
+        }
+        else if (budgetForInfo >= workspaceTitleW)
+        {
+            // Hide both version labels
+            showSdVersion = showSquadVersion = false;
+            showWorkspace = true;
         }
         else
         {
-            SearchStackPanel.Visibility = Visibility.Visible;
+            // Hide everything in the info panel
+            showSdVersion = showSquadVersion = showWorkspace = false;
         }
+
+        SquadDashVersionTextBlock.Visibility = showSdVersion    ? Visibility.Visible : Visibility.Collapsed;
+        SquadVersionPanel.Visibility         = showSquadVersion ? Visibility.Visible : Visibility.Collapsed;
+        WorkspaceTitleText.Visibility        = showWorkspace    ? Visibility.Visible : Visibility.Collapsed;
+
+        // Hide search only if there's not enough room for even the minimum-width search box,
+        // unless the user is actively searching (never hide an active search).
+        double infoActual = (showSdVersion ? sdVersionW : 0)
+                          + (showSquadVersion ? squadVersionW : 0)
+                          + (showWorkspace ? workspaceTitleW : 0);
+        bool showSearch = (available - infoActual - gap) >= searchMinW;
+        if (!showSearch && _search.IsSearchActive)
+            showSearch = true;
+
+        SearchStackPanel.Visibility = showSearch ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RunSquadCliUpdate(CliUpdateInstruction updateInstruction)
