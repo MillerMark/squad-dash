@@ -1715,7 +1715,7 @@ public partial class MainWindow : Window
             showLiveTraceWindow: () => ShowTraceWindow(),
             showScreenshotHealthWindow: () => ShowScreenshotHealthWindow(),
             runDoctor: () => RunDoctorButton_Click(null!, null!),
-            showHireAgentWindow: () => ShowHireAgentWindow(),
+            showCastAgentWindow: () => ShowCastAgentWindow(),
             enqueuePrompt: (text, isSystemInjected) => EnqueuePrompt(text, isSystemInjected),
             showScreenshotOverlay: () => ShowScreenshotOverlay(),
             triggerCodeHealthCycle: () => {
@@ -45985,19 +45985,19 @@ public partial class MainWindow : Window
         var tasksMdPath       = Path.Combine(squadRoot, "tasks.md");
 
         // 1. Hire New Agent — topmost item
-        var hireMenuItem = new MenuItem
+        var castMenuItem = new MenuItem
         {
             Header = "👤 _Hire New Agent",
             Style = (Style)FindResource("ThemedMenuItemStyle")
         };
-        hireMenuItem.Click += (_, _) =>
+        castMenuItem.Click += (_, _) =>
         {
-            var submission = ShowHireAgentWindow();
+            var submission = ShowCastAgentWindow();
             if (submission is null)
                 return;
             EnqueuePrompt(submission.PromptText, isSystemInjected: false);
         };
-        WorkspaceMenuItem.Items.Add(hireMenuItem);
+        WorkspaceMenuItem.Items.Add(castMenuItem);
 
         WorkspaceMenuItem.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
 
@@ -49470,7 +49470,7 @@ public partial class MainWindow : Window
         window.Show();
     }
 
-    private HireAgentWindow.HireAgentSubmission? ShowHireAgentWindow()
+    private CastAgentWindow.CastAgentSubmission? ShowCastAgentWindow()
     {
         if (_currentWorkspace is null || !CanShowOwnedWindow())
             return null;
@@ -49480,13 +49480,13 @@ public partial class MainWindow : Window
             .Select(card => card.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray();
-        var universes = HireAgentWindow.LoadCatalog(
+        var universes = CastAgentWindow.LoadCatalog(
             _currentWorkspace.FolderPath,
             _settingsSnapshot,
             _workspacePaths.AgentImageAssetsDirectory,
             existingNames);
-        var activeUniverse = HireAgentWindow.ResolveActiveUniverseName(_currentWorkspace.FolderPath);
-        var submission = HireAgentWindow.Show(
+        var activeUniverse = CastAgentWindow.ResolveActiveUniverseName(_currentWorkspace.FolderPath);
+        var submission = CastAgentWindow.Show(
             this,
             universes,
             activeUniverse,
@@ -49503,7 +49503,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(submission.ImagePath))
         {
-            foreach (var candidate in HireAgentWindow.BuildImageKeyCandidates(submission.AgentName))
+            foreach (var candidate in CastAgentWindow.BuildImageKeyCandidates(submission.AgentName))
             {
                 _settingsManager.Replace(_settingsStore.SaveAgentImagePath(
                     _currentWorkspace.FolderPath,
@@ -56807,7 +56807,7 @@ public partial class MainWindow : Window
         if (_currentWorkspace is not null &&
             _settingsSnapshot.AgentImagePathsByWorkspace.TryGetValue(_currentWorkspace.FolderPath, out var workspaceImages))
         {
-            foreach (var candidate in HireAgentWindow.BuildImageKeyCandidates(card.Name).Prepend(card.AccentStorageKey))
+            foreach (var candidate in CastAgentWindow.BuildImageKeyCandidates(card.Name).Prepend(card.AccentStorageKey))
             {
                 if (workspaceImages.TryGetValue(candidate, out var userImagePath) &&
                     !string.IsNullOrWhiteSpace(userImagePath) &&

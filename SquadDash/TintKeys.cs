@@ -88,7 +88,7 @@ internal static class TintKeys
         "CheckBoxBorder",
         "AlertBorder",
         "BadgeBorder",
-        "HireAgentImageBorder",
+        "CastAgentImageBorder",
         "ThreadBadgeBorder",
         "ToastBorder",
         "ChipBorder",

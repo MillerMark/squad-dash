@@ -197,7 +197,7 @@ internal sealed class PromptExecutionController {
     private readonly Action                     _showLiveTraceWindow;
     private readonly Action                     _showScreenshotHealthWindow;
     private readonly Action                     _runDoctor;
-    private readonly Func<HireAgentWindow.HireAgentSubmission?> _showHireAgentWindow;
+    private readonly Func<CastAgentWindow.CastAgentSubmission?> _showCastAgentWindow;
     private readonly Action<string, bool>       _enqueuePrompt;
     private readonly Action                     _showScreenshotOverlay;
     private readonly Action                     _triggerCodeHealthCycle;
@@ -401,7 +401,7 @@ internal sealed class PromptExecutionController {
         Action showLiveTraceWindow,
         Action showScreenshotHealthWindow,
         Action runDoctor,
-        Func<HireAgentWindow.HireAgentSubmission?> showHireAgentWindow,
+        Func<CastAgentWindow.CastAgentSubmission?> showCastAgentWindow,
         Action<string, bool> enqueuePrompt,
         Action showScreenshotOverlay,
         Action triggerCodeHealthCycle,
@@ -459,7 +459,7 @@ internal sealed class PromptExecutionController {
         _showLiveTraceWindow                   = showLiveTraceWindow;
         _showScreenshotHealthWindow            = showScreenshotHealthWindow;
         _runDoctor                             = runDoctor;
-        _showHireAgentWindow                   = showHireAgentWindow;
+        _showCastAgentWindow                   = showCastAgentWindow;
         _enqueuePrompt                         = enqueuePrompt;
         _showScreenshotOverlay                 = showScreenshotOverlay;
         _triggerCodeHealthCycle               = triggerCodeHealthCycle;
@@ -1097,7 +1097,7 @@ internal sealed class PromptExecutionController {
             _conversationManager.AddPromptToHistory(prompt);
 
         MaybeClearPromptAfterLocalCommand(prompt, clearPromptBox);
-        var submission = _showHireAgentWindow();
+        var submission = _showCastAgentWindow();
         if (submission is null) {
             if (!_getIsClosing() && _promptBoxState.IsPromptTextBoxEnabled)
                 _promptBoxState.FocusPromptTextBox();

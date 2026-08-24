@@ -207,7 +207,7 @@
     <Compile Include="..\SquadDash\AgentImagePathResolver.cs" Link="Source\AgentImagePathResolver.cs" />
     <Compile Include="..\SquadDash\AgentImageCustomizationMigration.cs" Link="Source\AgentImageCustomizationMigration.cs" />
     <Compile Include="..\SquadDash\BulletedTextBox.cs" Link="Source\BulletedTextBox.cs" />
-    <Compile Include="..\SquadDash\HireAgentWindow.cs" Link="Source\HireAgentWindow.cs" />
+    <Compile Include="..\SquadDash\CastAgentWindow.cs" Link="Source\CastAgentWindow.cs" />
     <Compile Include="..\SquadDash\PlanningSpecialistInstructions.cs" Link="Source\PlanningSpecialistInstructions.cs" />
     <Compile Include="..\SquadDash\ISpeechRecognitionService.cs" Link="Source\ISpeechRecognitionService.cs" />
     <Compile Include="..\SquadDash\SpeechRecognitionService.cs" Link="Source\SpeechRecognitionService.cs" />

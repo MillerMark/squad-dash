@@ -107,7 +107,7 @@
     <SolidColorBrush x:Key="AlertBorder" Color="#5A4820"/>
     <SolidColorBrush x:Key="PlanPreflightWarningBorder" Color="#C28A2C"/>
     <SolidColorBrush x:Key="BadgeBorder" Color="#5A4830"/>
-    <SolidColorBrush x:Key="HireAgentImageBorder" Color="#3A342C"/>
+    <SolidColorBrush x:Key="CastAgentImageBorder" Color="#3A342C"/>
     <SolidColorBrush x:Key="ThreadBadgeBorder" Color="#52422C"/>
     <SolidColorBrush x:Key="PopupBorder" Color="#4A4440"/>
     <SolidColorBrush x:Key="ToastBorder" Color="#5A4A20"/>
