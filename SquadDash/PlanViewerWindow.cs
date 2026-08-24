@@ -1295,7 +1295,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _scaleFactor,
             measuredRailVisualHeight);
         var stageHeaderReserve = 36 * _scaleFactor;
-        var graphTop = Math.Max(stageHeaderReserve, 12 * _scaleFactor + validationRailHeight);
+        // When there is no validation rail the milestone octagons sit at
+        //   globalBandTop − octagonSize − 4px  =  (graphTop − octagonSize) − octagonSize − 4px
+        //   =  graphTop − 2*octagonSize − 4px  =  graphTop − 36px  (at scale 1)
+        // which coincides exactly with the stage-title Y, leaving the octagon clipped.
+        // Add one extra octagonSize worth of headroom so the octagon clears the title.
+        const double octagonHeadroom = 16; // matches octagonSize base (scaled below)
+        var graphTop = Math.Max(stageHeaderReserve + octagonHeadroom * _scaleFactor,
+                                12 * _scaleFactor + validationRailHeight);
         var validationRailRight = 0.0;
         var _deferredShieldHovers = new List<(StackPanel Row, IReadOnlyList<string> AfterTaskIds, IReadOnlyList<string> BeforeTaskIds)>();
         var approvalControlsByAnchor = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
