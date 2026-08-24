@@ -40,6 +40,7 @@ internal static class TintKeys
     {
         // Surfaces
         "AppSurface",
+        "PlanStageCanvasBackground",
         "ChromeSurface",
         "PanelSurface",
         "RosterPanelSurface",

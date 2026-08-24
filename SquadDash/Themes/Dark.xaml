@@ -12,8 +12,8 @@
     <SolidColorBrush x:Key="SidebarPanelBorder" Color="#3C3529"/>
     <SolidColorBrush x:Key="WorkspaceSurface" Color="#222018"/>
     <SolidColorBrush x:Key="CardSurface" Color="#2E2920"/>
-    <!-- AppSurface (#1A1714) blended 25% toward ImageEditorSurround (#0E0C0A) — warm-tint-preserving recessed graph canvas. -->
-    <SolidColorBrush x:Key="PlanStageCanvasBackground" Color="#171412"/>
+    <!-- AppSurface (#1A1714) blended 25% toward ImageEditorSurround, then desaturated to 1/3 saturation for a subtle recessed graph canvas. Participates in tint rotation via TintKeys.All. -->
+    <SolidColorBrush x:Key="PlanStageCanvasBackground" Color="#151413"/>
     <SolidColorBrush x:Key="InboxBodySurface" Color="#0F0D0B"/>
     <SolidColorBrush x:Key="HoverSurface" Color="#524A47"/>
     <SolidColorBrush x:Key="TranscriptLinkHoverSurface" Color="#252220"/>
