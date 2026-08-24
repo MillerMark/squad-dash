@@ -160,6 +160,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
     private SelectedElementIdentity? _selectedElement;
     private (Border border, Thickness original)? _selectionBorderState;
+    private TextBlock? _selectedStageTitleBlock; // stage title whose Foreground was overridden on selection
     private FrameworkElement? _selectionGlowElement;
     private TaskCardDragState? _taskCardDragState;
     private CommittedColumnReorder? _lastCommittedColumnOrder;
@@ -5909,6 +5910,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Panel.SetZIndex(glow, Panel.GetZIndex(target) - 1);
             _graphCanvas.Children.Add(glow);
             _selectionGlowElement = glow;
+
+            // Stage selection: boost the title to pure polarity for maximum contrast
+            // against the selection glow behind it.
+            if (_selectedElement.Kind == "stage" && target is TextBlock stageTb)
+            {
+                var isLight = Application.Current.Resources["AppSurface"] is SolidColorBrush sb
+                    && (sb.Color.R + sb.Color.G + sb.Color.B) / 3 > 128;
+                stageTb.Foreground = isLight ? Brushes.White : Brushes.Black;
+                _selectedStageTitleBlock = stageTb;
+            }
         }
     }
 
@@ -5919,6 +5930,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             border.BorderThickness = original;
             _selectionBorderState = null;
+        }
+        if (_selectedStageTitleBlock is not null)
+        {
+            _selectedStageTitleBlock.SetResourceReference(TextBlock.ForegroundProperty, "TitleText");
+            _selectedStageTitleBlock = null;
         }
         if (_selectionGlowElement is not null && _graphCanvas is not null)
         {
