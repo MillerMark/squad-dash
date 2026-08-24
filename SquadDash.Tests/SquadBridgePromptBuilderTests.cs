@@ -34,7 +34,7 @@ internal sealed class SquadBridgePromptBuilderTests {
     }
 
     [Test]
-    public void Build_AddsCustomUniverseHiringContextForHiringPrompts() {
+    public void Build_AddsCustomUniverseCastingContextForCastPrompts() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/universes/squaddash.md", "# SquadDash Universe");
 
@@ -51,7 +51,7 @@ internal sealed class SquadBridgePromptBuilderTests {
     }
 
     [Test]
-    public void Build_DoesNotAddCustomUniverseHiringContextForNormalPrompts() {
+    public void Build_DoesNotAddCustomUniverseCastingContextForNormalPrompts() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/universes/squaddash.md", "# SquadDash Universe");
 
@@ -67,12 +67,12 @@ internal sealed class SquadBridgePromptBuilderTests {
     }
 
     [Test]
-    public void Build_DoesNotAddCustomUniverseHiringContextForHireAgentWindowUiPrompt() {
+    public void Build_DoesNotAddCustomUniverseCastingContextForCastAgentWindowUiPrompt() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/universes/squaddash.md", "# SquadDash Universe");
 
         var built = new SquadBridgePromptBuilder().Build(
-            "Hey, in the Hire a new agent window there's a black border around the inner panel under the light theme.",
+            "Hey, in the Cast a new agent window there's a black border around the inner panel under the light theme.",
             "Quick replies enabled.",
             null,
             null,
@@ -84,7 +84,7 @@ internal sealed class SquadBridgePromptBuilderTests {
     }
 
     [Test]
-    public void Build_AddsCustomUniverseHiringContextForCanWeGetAnotherAgentPrompt() {
+    public void Build_AddsCustomUniverseCastingContextForCanWeGetAnotherAgentPrompt() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/universes/squaddash.md", "# SquadDash Universe");
 

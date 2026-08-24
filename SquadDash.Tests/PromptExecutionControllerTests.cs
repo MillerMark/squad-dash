@@ -446,8 +446,9 @@ internal sealed class PromptExecutionControllerTests {
         });
     }
 
-    [Test]
-    public void TryHandleLocalCommand_HireAlias_IsHandledShowsCastAgentWindowAndEmitsDeprecationHint() {
+    [TestCase("/hire")]
+    [TestCase(" /HIRE ")]
+    public void TryHandleLocalCommand_HireAlias_IsHandledShowsCastAgentWindowAndEmitsDeprecationHint(string command) {
         var transcriptLines = new List<string>();
         var showCastAgentWindowCallCount = 0;
         const string expectedHint = "💡 `/hire` is an alias — use `/cast` going forward.";
@@ -459,7 +460,7 @@ internal sealed class PromptExecutionControllerTests {
             },
             transcriptLines: transcriptLines);
 
-        var handled = controller.TryHandleLocalCommand("/hire", addToHistory: false, clearPromptBox: false);
+        var handled = controller.TryHandleLocalCommand(command, addToHistory: false, clearPromptBox: false);
 
         Assert.Multiple(() => {
             Assert.That(handled, Is.True);
