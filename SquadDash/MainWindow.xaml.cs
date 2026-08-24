@@ -44835,34 +44835,87 @@ public partial class MainWindow : Window
         UpdateTitleBarResponsiveLayout();
     }
 
+    private bool _isUpdatingTitleBarOverflow;
+
     private void TitlebarGrid_SizeChanged(object sender, SizeChangedEventArgs e) =>
-        UpdateTitleBarResponsiveLayout();
+        UpdateTitleBarOverflow();
 
-    private void UpdateTitleBarResponsiveLayout()
+    private void TitleBarInfoPanel_SizeChanged(object sender, SizeChangedEventArgs e) =>
+        UpdateTitleBarOverflow();
+
+    private void UpdateTitleBarResponsiveLayout() =>
+        UpdateTitleBarOverflow();
+
+    private void UpdateTitleBarOverflow()
     {
-        if (TitlebarGrid is null)
+        if (_isUpdatingTitleBarOverflow)
             return;
-
-        double w = ActualWidth;
-
-        // Priority 6 — drop first: SquadDash version + Squad version panel
-        bool showVersions = w >= 900;
-        SquadDashVersionTextBlock.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
-        SquadVersionPanel.Visibility = showVersions ? Visibility.Visible : Visibility.Collapsed;
-
-        // Priority 5 — drop second: workspace folder name
-        WorkspaceTitleText.Visibility = w >= 700 ? Visibility.Visible : Visibility.Collapsed;
-
-        // Priority 4 — drop third: search panel (only when no search is active)
-        if (w < 550)
+        if (TitlebarGrid is null ||
+            MainMenu is null ||
+            SearchStackPanel is null ||
+            TitleBarInfoPanel is null ||
+            SquadDashVersionTextBlock is null ||
+            SquadVersionPanel is null ||
+            WorkspaceTitleText is null)
         {
-            bool searchActive = _search.IsSearchActive;
-            if (!searchActive)
-                SearchStackPanel.Visibility = Visibility.Collapsed;
+            return;
         }
-        else
+
+        _isUpdatingTitleBarOverflow = true;
+        try
         {
-            SearchStackPanel.Visibility = Visibility.Visible;
+            const double captionButtonsWidth = 114d;
+            const double spacingPadding = 16d;
+            const double fallbackSearchMinWidth = 135d;
+
+            double searchMinWidth = Math.Max(
+                Math.Max(SearchStackPanel.MinWidth, SearchBox?.MinWidth ?? 0d),
+                fallbackSearchMinWidth);
+            double widthBeforeInfo = Math.Max(0d, TitlebarGrid.ActualWidth - MainMenu.ActualWidth - captionButtonsWidth);
+            bool showSearch = widthBeforeInfo >= searchMinWidth + spacingPadding;
+            SearchStackPanel.Visibility = showSearch ? Visibility.Visible : Visibility.Collapsed;
+
+            double availableForInfo = Math.Max(
+                0d,
+                widthBeforeInfo - (showSearch ? searchMinWidth + spacingPadding : spacingPadding));
+
+            FrameworkElement[] hideOrder =
+            {
+                SquadDashVersionTextBlock,
+                SquadVersionPanel,
+                WorkspaceTitleText
+            };
+
+            foreach (FrameworkElement element in hideOrder)
+            {
+                if (TitleBarInfoPanel.ActualWidth <= availableForInfo)
+                    break;
+                if (element.Visibility != Visibility.Visible)
+                    continue;
+
+                element.Visibility = Visibility.Collapsed;
+                TitleBarInfoPanel.UpdateLayout();
+            }
+
+            for (int i = hideOrder.Length - 1; i >= 0; i--)
+            {
+                FrameworkElement element = hideOrder[i];
+                if (element.Visibility == Visibility.Visible)
+                    continue;
+
+                element.Visibility = Visibility.Visible;
+                TitleBarInfoPanel.UpdateLayout();
+                if (TitleBarInfoPanel.ActualWidth > availableForInfo)
+                {
+                    element.Visibility = Visibility.Collapsed;
+                    TitleBarInfoPanel.UpdateLayout();
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _isUpdatingTitleBarOverflow = false;
         }
     }
 
