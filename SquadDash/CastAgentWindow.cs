@@ -126,7 +126,7 @@ internal sealed class CastAgentWindow : Window {
         _persistAgentImage = persistAgentImage;
         _roleIconAssetsDirectory = roleIconAssetsDirectory;
 
-        Title = "Hire a New Agent";
+        Title = "Cast a New Agent";
         Width = 1240;
         Height = 860;
         MinWidth = 1080;
@@ -238,7 +238,7 @@ internal sealed class CastAgentWindow : Window {
         buttonRow.Children.Add(cancelButton);
 
         _castButton = new Button {
-            Content = "Hire Agent",
+            Content = "Cast Agent",
             Width = 140,
             Height = 36,
             IsDefault = true
@@ -1014,7 +1014,7 @@ internal sealed class CastAgentWindow : Window {
             var replace = MessageBox.Show(
                 this,
                 "Replace current agent?",
-                "Hire Agent",
+                "Cast Agent",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
             _hasManualReplaceableChanges = false;
@@ -1163,12 +1163,12 @@ internal sealed class CastAgentWindow : Window {
         var role = GetRoleText();
         var name = _nameBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(role)) {
-            MessageBox.Show(this, "Enter a role for the new agent.", "Hire Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Enter a role for the new agent.", "Cast Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         if (string.IsNullOrWhiteSpace(name)) {
-            MessageBox.Show(this, "Select an available agent or enter a name.", "Hire Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "Select an available agent or enter a name.", "Cast Agent", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -1203,14 +1203,14 @@ internal sealed class CastAgentWindow : Window {
 
     private string BuildCoordinatorPrompt(string universeName, string name, string role) {
         var builder = new StringBuilder();
-        builder.AppendLine("Hire a new team member for this workspace.");
+        builder.AppendLine("Cast a new team member for this workspace.");
         builder.AppendLine();
         builder.AppendLine($"Preferred universe: {universeName}");
         builder.AppendLine($"Preferred name: {name}");
         builder.AppendLine($"Role: {role}");
         builder.AppendLine();
-        builder.AppendLine("If `Preferred universe` names an allowlisted universe, honor that explicit universe choice for this hire even if it differs from the workspace's most recently used universe.");
-        builder.AppendLine("Do not block this hire because the SquadDash Universe has a separate capacity limit when the selected universe is different.");
+        builder.AppendLine("If `Preferred universe` names an allowlisted universe, honor that explicit universe choice for this cast even if it differs from the workspace's most recently used universe.");
+        builder.AppendLine("Do not block this cast because the SquadDash Universe has a separate capacity limit when the selected universe is different.");
         builder.AppendLine();
 
         AppendBulletSection(builder, "Best For", _bestForBox.GetBulletItems());
@@ -1238,7 +1238,7 @@ internal sealed class CastAgentWindow : Window {
             builder.AppendLine();
         }
 
-        builder.AppendLine("Use Squad's standard add-member workflow so the new hire is created correctly.");
+        builder.AppendLine("Use Squad's standard add-member workflow so the new cast member is created correctly.");
         builder.AppendLine("Generate or refine a high-quality charter.md and history.md for the new agent.");
         builder.AppendLine("Update .squad/team.md, .squad/routing.md, and .squad/casting/registry.json.");
         builder.AppendLine("Prefer role-based collaboration references over hard-coded teammate names.");

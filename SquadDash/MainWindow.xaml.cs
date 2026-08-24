@@ -45984,10 +45984,10 @@ public partial class MainWindow : Window
         var maintenanceMdPath = Path.Combine(squadRoot, "code-health.md");
         var tasksMdPath       = Path.Combine(squadRoot, "tasks.md");
 
-        // 1. Hire New Agent — topmost item
+        // 1. Cast New Agent — topmost item
         var castMenuItem = new MenuItem
         {
-            Header = "👤 _Hire New Agent",
+            Header = "👤 _Cast New Agent",
             Style = (Style)FindResource("ThemedMenuItemStyle")
         };
         castMenuItem.Click += (_, _) =>

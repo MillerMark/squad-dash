@@ -1287,7 +1287,7 @@ internal sealed class PromptExecutionController {
                 _transcriptSink.AppendLine("- `/doctor` — Run Squad Doctor diagnostics", null);
                 _transcriptSink.AppendLine("- `/dropTasks` — Hide the live tasks popup", null);
                 _transcriptSink.AppendLine("- `/help` — Show this command reference", null);
-                _transcriptSink.AppendLine("- `/hire` — Open the visual hire-agent workflow", null);
+                _transcriptSink.AppendLine("- `/hire` — Open the visual cast-agent workflow", null);
                 _transcriptSink.AppendLine("- `/model` — Show the active AI model", null);
                 _transcriptSink.AppendLine("- `/plan <description>` — Propose a decomposed plan for the given feature or task", null);
                 _transcriptSink.AppendLine("- `/queue-sim` — Alias for `/test-queue` with the default scenario", null);
