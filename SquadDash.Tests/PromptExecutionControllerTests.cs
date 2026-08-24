@@ -1,3 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Media;
+using System.Windows.Threading;
+
 namespace SquadDash.Tests;
 
 [TestFixture]
@@ -416,6 +423,52 @@ internal sealed class PromptExecutionControllerTests {
         });
     }
 
+    // ── PromptExecutionController local-command behavior ─────────────────────
+
+    [Test]
+    public void TryHandleLocalCommand_Cast_IsHandledAndShowsCastAgentWindow() {
+        var transcriptLines = new List<string>();
+        var showCastAgentWindowCallCount = 0;
+
+        var controller = BuildPromptExecutionControllerForLocalCommandTests(
+            showCastAgentWindow: () => {
+                showCastAgentWindowCallCount++;
+                return null;
+            },
+            transcriptLines: transcriptLines);
+
+        var handled = controller.TryHandleLocalCommand("/cast", addToHistory: false, clearPromptBox: false);
+
+        Assert.Multiple(() => {
+            Assert.That(handled, Is.True);
+            Assert.That(showCastAgentWindowCallCount, Is.EqualTo(1));
+            Assert.That(transcriptLines, Has.Count.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public void TryHandleLocalCommand_HireAlias_IsHandledShowsCastAgentWindowAndEmitsDeprecationHint() {
+        var transcriptLines = new List<string>();
+        var showCastAgentWindowCallCount = 0;
+        const string expectedHint = "💡 `/hire` is an alias — use `/cast` going forward.";
+
+        var controller = BuildPromptExecutionControllerForLocalCommandTests(
+            showCastAgentWindow: () => {
+                showCastAgentWindowCallCount++;
+                return null;
+            },
+            transcriptLines: transcriptLines);
+
+        var handled = controller.TryHandleLocalCommand("/hire", addToHistory: false, clearPromptBox: false);
+
+        Assert.Multiple(() => {
+            Assert.That(handled, Is.True);
+            Assert.That(showCastAgentWindowCallCount, Is.EqualTo(1));
+            Assert.That(transcriptLines, Has.One.EqualTo(expectedHint));
+            Assert.That(transcriptLines.Any(line => line.Contains("/hire", StringComparison.Ordinal)), Is.True);
+        });
+    }
+
     // ── LocalPromptSubmissionPolicy.CanSubmitWhilePromptRunning ──────────────
     // This method is tested independently of ShouldRetainPromptAfterLocalSubmit.
 
@@ -546,5 +599,208 @@ internal sealed class PromptExecutionControllerTests {
         if (bodyStart >= 0) historyText = visiblePrompt[bodyStart..];
 
         Assert.That(historyText, Is.EqualTo(visiblePrompt));
+    }
+
+    private static PromptExecutionController BuildPromptExecutionControllerForLocalCommandTests(
+        Func<CastAgentWindow.CastAgentSubmission?> showCastAgentWindow,
+        List<string> transcriptLines) {
+        IWorkspaceContext workspaceContext = new StubWorkspaceContext();
+        IPromptBoxState promptBoxState = new StubPromptBoxState();
+
+        var coordinatorThread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
+
+        ITranscriptRenderSink transcriptSink = new TranscriptPanelController(
+            beginTranscriptTurn: _ => null!,
+            finalizeCurrentTurnResponse: () => { },
+            appendLine: (text, _) => transcriptLines.Add(text),
+            selectTranscriptThread: _ => { },
+            getCoordinatorThread: () => coordinatorThread,
+            getLastQuickReplyEntry: () => null,
+            clearLastQuickReplyEntry: () => { },
+            renderResponseEntry: _ => { },
+            ensureThreadFooterAtEnd: _ => { },
+            scrollToEndIfAtBottom: () => { },
+            getToolEntries: () => [],
+            renderToolEntry: _ => { },
+            updateToolSpinnerState: () => { });
+
+        IAgentRosterView agentRosterView = new AgentRosterController(
+            getAgents: () => [],
+            getCurrentSessionState: () => null);
+
+        var conversationManager = MakeConversationManager(coordinatorThread);
+        var backgroundTaskPresenter = MakeBackgroundTaskPresenter();
+        var squadCliAdapter = new SquadCliAdapter(new FakeWorkspacePaths(), new StubResolutionService());
+
+        return new PromptExecutionController(
+            runPromptAsync: (_, _, _, _) => Task.CompletedTask,
+            runNamedAgentDelegationAsync: (_, _, _, _, _) => Task.CompletedTask,
+            runNamedAgentDirectAsync: (_, _, _, _, _, _) => Task.CompletedTask,
+            workspaceContext: workspaceContext,
+            promptBoxState: promptBoxState,
+            transcriptSink: transcriptSink,
+            agentRosterView: agentRosterView,
+            conversationManager: conversationManager,
+            backgroundTaskPresenter: backgroundTaskPresenter,
+            squadCliAdapter: squadCliAdapter,
+            getIsPromptRunning: () => false,
+            setIsPromptRunning: _ => { },
+            getIsClosing: () => false,
+            getRestartPending: () => false,
+            close: () => { },
+            getPendingRoutingRepairRecheck: () => false,
+            setPendingRoutingRepairRecheck: _ => { },
+            getPendingSupplementalInstruction: () => null,
+            clearPendingSupplementalInstruction: () => { },
+            getPendingQuickReplyRoutingInstruction: () => null,
+            getPendingQuickReplyRouteMode: () => null,
+            updateInteractiveControlState: () => { },
+            updateLeadAgent: (_, _, _) => { },
+            updateSessionState: _ => { },
+            refreshAgentCards: () => { },
+            refreshSidebar: () => { },
+            setInstallStatus: _ => { },
+            canShowOwnedWindow: () => false,
+            showTextWindow: (_, _) => { },
+            clearSessionView: () => { },
+            showTasksStatusWindow: () => { },
+            hideTasksStatusWindow: () => { },
+            showApprovalWindow: () => { },
+            showLiveTraceWindow: () => { },
+            showScreenshotHealthWindow: () => { },
+            runDoctor: () => { },
+            showCastAgentWindow: showCastAgentWindow,
+            enqueuePrompt: (_, _) => { },
+            showScreenshotOverlay: () => { },
+            triggerCodeHealthCycle: () => { },
+            showRuntimeIssue: _ => new WorkspaceIssuePresentation("test", "test"),
+            clearRuntimeIssue: () => { },
+            waitForRoutingRepairSettleAsync: () => Task.CompletedTask,
+            maybePublishRoutingIssue: (_, _) => { },
+            promptHealthTimer: new DispatcherTimer(),
+            waitForBridgeUiEventsAppliedAsync: () => Task.CompletedTask,
+            getModelObservedThisSession: () => false,
+            workspacePaths: new FakeWorkspacePaths());
+    }
+
+    private static TranscriptConversationManager MakeConversationManager(TranscriptThreadState coordinatorThread) {
+        return new TranscriptConversationManager(
+            getWorkspace: () => null,
+            getPromptText: () => string.Empty,
+            setPromptText: (_, _, _, _) => { },
+            getPromptCaretState: () => (0, 0, 0),
+            isClosing: () => false,
+            renderPersistedTurn: (_, _, _) => { },
+            coordinatorThread: () => coordinatorThread,
+            selectedThread: () => null,
+            maybePublishRoutingIssue: _ => { },
+            syncAgentCardsWithThreads: () => { },
+            dispatcher: Dispatcher.CurrentDispatcher,
+            scrollOutputToEnd: _ => { },
+            agentThreadRegistry: MakeRegistry(),
+            getToolEntries: () => new Dictionary<string, ToolTranscriptEntry>(),
+            getCurrentTurn: () => null,
+            setCurrentTurnNull: () => { },
+            beginBulkDocumentLoad: _ => { },
+            endBulkDocumentLoad: _ => { },
+            prependTurnsBatch: (_, _) => { },
+            getScrollableHeight: () => 0d,
+            getVerticalOffset: () => 0d,
+            scrollToAbsoluteOffset: _ => { },
+            updateScrollLayout: () => { });
+    }
+
+    private static BackgroundTaskPresenter MakeBackgroundTaskPresenter() {
+        return new BackgroundTaskPresenter(
+            agentThreadRegistry: MakeRegistry(),
+            appendLine: (_, _) => { },
+            syncAgentCards: () => { },
+            isPromptRunning: () => false,
+            currentTurn: () => null,
+            themeBrush: _ => Brushes.Transparent,
+            tryPostToUi: (action, _) => action(),
+            isClosing: () => false,
+            updateLeadAgent: (_, _, _) => { },
+            updateSessionState: _ => { },
+            persistAgentThreadSnapshot: _ => { },
+            currentTurnSnapshot: () => new CurrentTurnStatusSnapshot(false, false, false),
+            agentActiveDisplayLinger: TimeSpan.FromSeconds(30),
+            dynamicAgentHistoryRetention: TimeSpan.FromDays(7));
+    }
+
+    private static AgentThreadRegistry MakeRegistry() =>
+        new(
+            beginTranscriptTurn: (_, _) => { },
+            finalizeCurrentTurnResponse: _ => { },
+            collapseCurrentTurnThinking: _ => { },
+            renderToolEntry: _ => { },
+            updateToolSpinnerState: () => { },
+            syncActiveToolName: () => { },
+            syncThreadChip: _ => { },
+            syncTaskToolTranscriptLink: _ => { },
+            appendText: (_, _) => { },
+            syncAgentCards: () => { },
+            syncAgentCardsWithThreads: () => { },
+            getKnownTeamAgentDescriptors: () => Array.Empty<TeamAgentDescriptor>(),
+            updateTranscriptThreadBadge: () => { },
+            isThreadActiveForDisplay: _ => false,
+            observeBackgroundAgentActivity: (_, _) => { },
+            renderConversationHistory: (_, _) => Task.CompletedTask,
+            resolveBackgroundAgentDisplayLabel: _ => string.Empty,
+            buildAgentLabel: _ => string.Empty);
+
+    private sealed class StubResolutionService : ISquadCliResolutionService {
+        private static readonly ResolvedCliCandidate Candidate = new(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.Unknown,
+            RuntimeType: CliRuntimeType.NativeExecutable,
+            ExecutablePath: "squad",
+            EntryScriptPath: null,
+            Version: null,
+            IsAvailable: false,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
+        public Task<ResolvedCliCandidate> ResolveAsync(string workspaceDir) => Task.FromResult(Candidate);
+        public Task<ResolvedCliCandidate> ResolveWithModeAsync(CliSelectionMode mode, string workspaceDir) => Task.FromResult(Candidate);
+        public Task<ResolvedCliCandidate> ProbeVersionAsync(ResolvedCliCandidate candidate) => Task.FromResult(candidate);
+    }
+
+    private sealed class FakeWorkspacePaths : IWorkspacePaths {
+        public string ApplicationRoot => @"C:\fake\app";
+        public string SquadSdkDirectory => Path.Combine(ApplicationRoot, "Squad.SDK");
+        public string RunRootDirectory => Path.Combine(ApplicationRoot, "Run");
+        public string AgentImageAssetsDirectory => Path.Combine(ApplicationRoot, "Assets", "Agents");
+        public string RoleIconAssetsDirectory => Path.Combine(ApplicationRoot, "Assets", "Roles");
+        public string ScreenshotsDirectory => Path.Combine(ApplicationRoot, "docs", "screenshots");
+    }
+
+    private sealed class StubWorkspaceContext : IWorkspaceContext {
+        public SessionWorkspace? GetCurrentWorkspace() => null;
+
+        public ApplicationSettingsSnapshot GetSettingsSnapshot() =>
+            new(
+                LastOpenedFolder: null,
+                RecentFolders: Array.Empty<string>(),
+                AgentAccentColorsByWorkspace: new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase),
+                WindowPlacementByWorkspace: new Dictionary<string, WorkspaceWindowPlacement>(StringComparer.OrdinalIgnoreCase),
+                PromptFontSize: 14,
+                AgentImagePathsByWorkspace: new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase),
+                IgnoredRoutingIssueFingerprintsByWorkspace: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private sealed class StubPromptBoxState : IPromptBoxState {
+        public void ClearPromptTextBox() { }
+        public void FocusPromptTextBox() { }
+        public bool IsPromptTextBoxEnabled => true;
+        public int QueueCount => 0;
+        public string PromptBoxText => string.Empty;
+        public void SetPromptBoxText(string text) { }
+        public void EnqueueSimItem(PromptQueueItem item) { }
     }
 }
