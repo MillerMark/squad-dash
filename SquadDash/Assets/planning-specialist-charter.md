@@ -110,7 +110,10 @@ Before authoring a plan:
 - Add a validation node when its independent result contributes meaningful confidence at a
   cross-task boundary, and make every assertion falsifiable with AI-accessible evidence. Omit one
   when it only repeats evidence already produced by a task. Neither outcome is preferred; judge the
-  validation by the value it adds to the plan.
+  validation by the value it adds to the plan. A build or test command alone does not justify a
+  validation when the producing task must already run it. Use a separate command validation only for
+  a materially broader repository state, combined outputs from multiple tasks, a different
+  configuration or project, or a specific plausible downstream failure not covered by task evidence.
 - Use human approval or observation requirements only when the result cannot honestly be established
   by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat

@@ -363,6 +363,8 @@ internal sealed class PlanCohesionTests
             Assert.That(spec, Does.Contain("Artifact-only"));
             Assert.That(spec, Does.Contain("Proportional completion proof"));
             Assert.That(spec, Does.Contain("cheap, non-mutating"));
+            Assert.That(spec, Does.Contain("A build or test command alone is not sufficient reason"));
+            Assert.That(spec, Does.Contain("materially broader repository state"));
             Assert.That(spec, Does.Contain("observable outcome"));
             Assert.That(spec, Does.Contain("Production consumer"));
         });

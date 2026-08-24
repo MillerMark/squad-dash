@@ -227,7 +227,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   protects downstream work from a plausible integration failure, or establishes a contract not
   already proven by task evidence. Omit one when it would merely repeat a task's build, tests, or
   verification and would not affect the decision to continue. Exercise judgment; neither presence
-  nor absence is preferred.
+  nor absence is preferred. A build or test command alone is not sufficient reason for a validation
+  node when the producing task is already required to run it. Add a separate command validation only
+  when it evaluates a materially broader repository state, combines outputs from multiple tasks,
+  checks a different configuration or project, or protects downstream work from a specific plausible
+  failure not covered by task evidence.
 - `validations[].validationId`: exactly `{groupId}-VAL-NNN`.
 - `validations[].title`: concise user-facing contractual outcome, normally 2–5 words. It is always
   rendered below the validation shield, including in narrow stage columns, so do not repeat the
