@@ -1116,7 +1116,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _graphScroll = scroll;
         scroll.SetResourceReference(ScrollViewer.StyleProperty,      "RosterScrollViewerStyle");
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
-        canvas.SetResourceReference(Canvas.BackgroundProperty, "CardSurface");
+        canvas.SetResourceReference(Canvas.BackgroundProperty, "PlanStageCanvasBackground");
         scroll.PreviewMouseWheel += OnGraphScrollPreviewMouseWheel;
 
         var splitGrid = new Grid();
