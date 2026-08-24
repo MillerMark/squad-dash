@@ -1294,13 +1294,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             validationAnchors.Values.Select(PresenterAnchor).ToArray(),
             _scaleFactor,
             measuredRailVisualHeight);
+        const double baseOctagonSize = 16;
         var stageHeaderReserve = 36 * _scaleFactor;
-        // When there is no validation rail the milestone octagons sit at
-        //   globalBandTop − octagonSize − 4px  =  (graphTop − octagonSize) − octagonSize − 4px
-        //   =  graphTop − 2*octagonSize − 4px  =  graphTop − 36px  (at scale 1)
-        // which coincides exactly with the stage-title Y, leaving the octagon clipped.
-        // Add one extra octagonSize worth of headroom so the octagon clears the title.
-        const double octagonHeadroom = 16; // matches octagonSize base (scaled below)
+        // Keep the whole graph low enough that the canvas does not clip the upper half of
+        // the milestone octagon when there is no validation rail. The previous 16px reserve
+        // put the control too close to the canvas edge, so add half an octagon of clearance.
+        const double octagonHeadroom = baseOctagonSize * 1.5;
         var graphTop = Math.Max(stageHeaderReserve + octagonHeadroom * _scaleFactor,
                                 12 * _scaleFactor + validationRailHeight);
         var validationRailRight = 0.0;
@@ -1409,7 +1408,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
 
             Canvas.SetLeft(headerElement, x);
-            Canvas.SetTop(headerElement, graphTop - 36 * _scaleFactor);
+            // Keep stage titles near the canvas ceiling, independent of the extra clearance
+            // reserved below for milestone controls.
+            Canvas.SetTop(headerElement, baseOctagonSize * 0.25 * _scaleFactor);
             canvas.Children.Add(headerElement);
 
             var nextY = graphTop;
@@ -1558,7 +1559,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // octagon control height above and below so the band visually connects to the stop.
         // Use the avatar top (position.Y - avatarChipSize) as the visual ceiling so the band
         // extends up to cover the agent avatar area.
-        var octagonSize = 16 * _scaleFactor;
+        var octagonSize = baseOctagonSize * _scaleFactor;
         var globalBandTop = columns.SelectMany(col => col).Min(task =>
         {
             var hasAvatars = _resolveAgentAvatar is not null &&
