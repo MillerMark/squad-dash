@@ -41,6 +41,9 @@ internal static class NativeMethods {
     }
 
     [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
     private static extern nint MonitorFromWindow(nint hwnd, uint dwFlags);
 
     [DllImport("user32.dll")]
@@ -422,6 +425,15 @@ internal static class NativeMethods {
         var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
         mmi.ptMaxPosition = new POINT { x = bounds.X, y = bounds.Y };
         mmi.ptMaxSize     = new POINT { x = bounds.Width, y = bounds.Height };
+
+        // Enforce minimum width (700 logical px) in physical pixels so that
+        // WindowChrome's native resize grip cannot shrink the window below it.
+        uint dpi = GetDpiForWindow(hwnd);
+        if (dpi == 0) dpi = 96;
+        int minWidthPx = (int)Math.Round(700.0 * dpi / 96.0);
+        if (mmi.ptMinTrackSize.x < minWidthPx)
+            mmi.ptMinTrackSize.x = minWidthPx;
+
         Marshal.StructureToPtr(mmi, lParam, false);
         handled = true;
         return nint.Zero;
