@@ -104,6 +104,7 @@ internal static class TintKeys
         // Text
         "ImportantText",
         "LabelText",
+        "TitleText",
         "BodyText",
         "CodeText",
         "SubtleText",
