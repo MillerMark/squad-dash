@@ -3715,7 +3715,6 @@
                 Orientation="Horizontal"
                 Margin="0,0,114,0"
                 Panel.ZIndex="50"
-                SizeChanged="TitleBarInfoPanel_SizeChanged"
                 shell:WindowChrome.IsHitTestVisibleInChrome="True">
 
         <!-- Font scale preview — shown while Ctrl-scrolling, hidden after commit -->
