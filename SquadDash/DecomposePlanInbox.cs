@@ -228,7 +228,7 @@ internal static class DecomposePlanInbox
             body += $"Commits: `{shortCommit}`\n";
             var tests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
             if (tests is not null) body += tests + "\n";
-            body += isAmendment
+            body += primary.Kind == PlanRecoveryPrimaryActionKind.ApproveAmendment
                 ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"
                 : $"\nReview the commit if needed, then accept {stepLabel}, continue working on it, or revise the remaining plan.\n";
         }

@@ -223,6 +223,31 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void TasklessAcceptedWorkTransition_HasNoPauseOrEndRecoveryTarget()
+    {
+        var completed = new PlanTask(
+            "P-1", "Accepted amendment", "Description", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef1");
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [completed], [],
+            new PlanProgress(1, 1), new PlanTimestamps(System.DateTimeOffset.UtcNow),
+            InterruptionData: new PlanInterruptionData(
+                PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                    "Preserved work for P-1 was adopted as abcdef1."),
+                PlanRecoveryState.PendingRecovery,
+                0,
+                LastCompletedTaskId: completed.TaskId,
+                LastCommit: "abcdef1"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryResumePolicy.IsSafelyResumable(plan), Is.False);
+            Assert.That(PlanRecoveryControlPolicy.HasActionableInterruption(plan), Is.False);
+        });
+    }
+
+    [Test]
     public void WaitingForCleanWorktree_IsSafelyResumableWithoutTaskFailure()
     {
         var task = new PlanTask(

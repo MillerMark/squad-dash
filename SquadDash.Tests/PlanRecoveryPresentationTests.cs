@@ -324,6 +324,65 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void RecoveryAction_AmendmentForHumanProofGate_AcceptsTaskWithoutApprovingChecklist()
+    {
+        const string commit = "abcdef1234567890";
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-AMD-001", "attempt-1", "baseline", commit, "Added fixture.",
+            new DecomposeStepVerification("passed", "dotnet test", "12 tests passed"));
+        var task = new PlanTask(
+            "PLAN-AMD-001", "Add review fixture", "Work", [], "high",
+            PlanTaskStatus.Executing,
+            AmendmentGateId: "GATE-HUMAN",
+            DisplayStepLabel: "5A");
+        var gate = new PlanApprovalGate(
+            "GATE-HUMAN", "Perform the live checks.", [task.TaskId], [],
+            PlanGateStatus.Pending,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "live-check", "live-ui-observation", "Observe the simulated flow."),
+            ]);
+        var plan = TestPlan(evidence) with { Tasks = [task], ApprovalGates = [gate] };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(plan, task),
+                Is.False);
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
+            Assert.That(action.Label, Is.EqualTo("5A Is Complete & Continue"));
+            Assert.That(action.Hint, Does.Not.Contain("approve its checkpoint"));
+        });
+    }
+
+    [Test]
+    public void RecoveryAction_AmendmentForOrdinaryGate_OffersCombinedApproval()
+    {
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-AMD-001", "attempt-1", "baseline", "abcdef1234567890", "Amended.", null);
+        var task = new PlanTask(
+            "PLAN-AMD-001", "Amendment", "Work", [], "high", PlanTaskStatus.Executing,
+            AmendmentGateId: "GATE-PLAIN");
+        var gate = new PlanApprovalGate(
+            "GATE-PLAIN", "Approve the amendment.", [task.TaskId], [], PlanGateStatus.Pending);
+        var plan = TestPlan(evidence) with { Tasks = [task], ApprovalGates = [gate] };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(plan, task),
+                Is.True);
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.ApproveAmendment));
+            Assert.That(action.Label, Is.EqualTo("Approve Amendment & Continue"));
+        });
+    }
+
+    [Test]
     public void RecoveryAction_WhenHumanExplicitlyPaused_OmitsRedundantStayPausedSuffix()
     {
         const string commit = "abcdef1234567890";
@@ -490,6 +549,12 @@ internal sealed class PlanRecoveryPresentationTests
             [
                 new PlanTask("PLAN-001", "Amendment", "Amendment", [], "high",
                     PlanTaskStatus.Executing, AmendmentGateId: "PLAN-GATE-001"),
+            ],
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "PLAN-GATE-001", "Approve amendment", ["PLAN-001"], [],
+                    PlanGateStatus.Pending),
             ],
         };
 

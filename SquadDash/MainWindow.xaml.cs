@@ -12367,7 +12367,8 @@ public partial class MainWindow : Window
                 : null;
         var interruptedPrimaryActionLabel = interruptedRecoveryAction?.Label;
         var interruptedPrimaryActionHint = interruptedRecoveryAction?.Hint;
-        Action<Plan>? onEndPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted
+        Action<Plan>? onEndPlan = durablePlan is not null &&
+                                  PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)
             ? EndInterruptedPlan
             : null;
         Action<Plan>? onContinueInterruptedTask =
@@ -20094,6 +20095,7 @@ public partial class MainWindow : Window
             ? null
             : storedPlan.ApprovalGates.FirstOrDefault(gate =>
                 string.Equals(gate.GateId, pendingTask.AmendmentGateId, StringComparison.Ordinal) &&
+                PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(storedPlan, pendingTask) &&
                 gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
                 gate.AfterTaskIds.Contains(pendingTask.TaskId, StringComparer.Ordinal) &&
                 gate.BeforeTaskIds.All(id => storedPlan.Tasks.Any(task =>
@@ -20267,7 +20269,7 @@ public partial class MainWindow : Window
                     updated,
                     combinedApprovalGate.GateId,
                     combinedAmendmentGate is not null
-                        ? "Approved while accepting the reviewed amendment commit."
+                        ? PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote
                         : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
                     resolvedBy);
             }

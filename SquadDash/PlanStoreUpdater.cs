@@ -1603,6 +1603,8 @@ internal static class PlanStoreUpdater
         plan = RepairContradictoryRecoveryAcceptance(plan);
         plan = RepairLostPlanRevisionReopen(plan);
         plan = RepairInterruptedMissingTaskIdentity(plan);
+        plan = RepairLegacyImplicitHumanProofApproval(plan);
+        plan = RepairTasklessAcceptedWorkBoundary(plan);
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1659,6 +1661,74 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    private static Plan RepairLegacyImplicitHumanProofApproval(Plan plan)
+    {
+        var affectedGateIds = plan.ApprovalGates
+            .Where(gate => PlanAmendmentGateAcceptancePolicy.IsLegacyImplicitHumanProofApproval(plan, gate))
+            .Select(gate => gate.GateId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (affectedGateIds.Count == 0) return plan;
+
+        return plan with
+        {
+            ApprovalGates = plan.ApprovalGates.Select(gate =>
+                affectedGateIds.Contains(gate.GateId)
+                    ? gate with
+                    {
+                        Status = PlanGateStatus.Pending,
+                        RequestedAt = null,
+                        NotifiedAt = null,
+                        ResolvedAt = null,
+                        ResolutionNote = null,
+                        ResolvedBy = null,
+                        ProofEvidence = null,
+                    }
+                    : gate).ToArray(),
+        };
+    }
+
+    private static Plan RepairTasklessAcceptedWorkBoundary(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
+            plan.Progress.ExecutingTaskId is not null ||
+            !string.IsNullOrWhiteSpace(plan.InterruptionData?.InterruptedTaskId) ||
+            plan.InterruptionData?.Reason.StartsWith(
+                PlanRecoveryResumePolicy.AcceptedWorkContinuationReasonPrefix,
+                StringComparison.Ordinal) != true)
+            return plan;
+
+        var readyGateIds = ApprovalGateReadinessEvaluator.EvaluateGates(plan)
+            .Where(state => state.IsReady && plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, state.GateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Pending))
+            .Select(state => state.GateId)
+            .ToArray();
+        if (readyGateIds.Length > 0)
+            return ApplyFullStopAtGates(plan, readyGateIds);
+
+        if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            return plan with
+            {
+                LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+                InterruptionData = null,
+            };
+
+        if (PlanValidationReadinessEvaluator.SelectNextReady(plan) is not null)
+            return plan with
+            {
+                LifecycleStatus = PlanLifecycleStatus.Executing,
+                InterruptionData = null,
+            };
+
+        var allTasksComplete = plan.Tasks.Count > 0 && plan.Tasks.All(task =>
+            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
+        var allGatesApproved = plan.ApprovalGates.All(gate => gate.Status == PlanGateStatus.Approved);
+        return allTasksComplete && allGatesApproved &&
+               PlanValidationReadinessEvaluator.AllRequiredPassed(plan)
+            ? ApplyCompleted(plan with { InterruptionData = null })
+            : plan;
     }
 
     private static Plan RepairInterruptedMissingTaskIdentity(Plan plan)

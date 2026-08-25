@@ -552,7 +552,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "Resume this executing plan because it currently has no active runner.",
                     () => onResumePlan(durablePlan));
             }
-            else if ((durablePlan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or PlanLifecycleStatus.Interrupted) &&
+            else if (PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan) &&
                      !PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan) &&
                      onPausePlan is not null)
             {
@@ -1106,7 +1106,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(resumeButton);
             }
-            if (onEndPlan is not null)
+            if (onEndPlan is not null &&
+                PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan))
             {
                 var capturedPlan   = durablePlan;
                 var capturedAction = onEndPlan;

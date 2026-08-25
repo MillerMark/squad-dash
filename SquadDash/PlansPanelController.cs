@@ -660,7 +660,7 @@ internal sealed class PlansPanelController
                 resumeItem.Click += (_, _) => _resumePlan(plan);
                 menu.Items.Add(resumeItem);
             }
-            if (_endPlan is not null)
+            if (_endPlan is not null && PlanRecoveryControlPolicy.HasActionableInterruption(plan))
             {
                 var endItem = new MenuItem { Header = "End Plan" };
                 endItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");

@@ -1446,6 +1446,89 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void RepairInconsistentState_ReopensHumanProofGateImplicitlyApprovedWithAmendment()
+    {
+        var amendment = new PlanTask(
+            "P-AMD-001", "Add simulation", "Work", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef1", AmendmentGateId: "P-HUMAN");
+        var requirement = new PlanTaskProofRequirement(
+            "live-check", "live-ui-observation", "Observe the simulated flow.");
+        var now = DateTimeOffset.UtcNow;
+        var gate = new PlanApprovalGate(
+            "P-HUMAN", "Perform the live checks.", [amendment.TaskId], [],
+            PlanGateStatus.Approved,
+            RequestedAt: now.AddSeconds(-1),
+            ResolvedAt: now,
+            ResolutionNote: PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote,
+            NotifiedAt: now.AddSeconds(-1),
+            ResolvedBy: "Reviewer",
+            ProofRequirements: [requirement],
+            ProofEvidence:
+            [
+                new PlanTaskProofEvidence(
+                    requirement.RequirementId, requirement.ProofType,
+                    "Reviewer confirmed without seeing the checklist.", ["false-evidence"]),
+            ]);
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [amendment], [gate],
+            new PlanProgress(1, 1), new PlanTimestamps(now),
+            InterruptionData: new PlanInterruptionData(
+                PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                    "Preserved amendment work was adopted."),
+                PlanRecoveryState.PendingRecovery,
+                0,
+                LastCompletedTaskId: amendment.TaskId,
+                LastCommit: amendment.Commit));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+        var repairedGate = repaired.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+            Assert.That(repaired.InterruptionData, Is.Null);
+            Assert.That(repairedGate.Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(repairedGate.RequestedAt, Is.Not.Null);
+            Assert.That(repairedGate.ResolvedAt, Is.Null);
+            Assert.That(repairedGate.ResolutionNote, Is.Null);
+            Assert.That(repairedGate.ResolvedBy, Is.Null);
+            Assert.That(repairedGate.ProofEvidence, Is.Null);
+        });
+    }
+
+    [Test]
+    public void RepairInconsistentState_CompletesTasklessAcceptedWorkAfterRealGateApproval()
+    {
+        var task = new PlanTask(
+            "P-1", "Complete", "Work", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef1");
+        var gate = new PlanApprovalGate(
+            "P-GATE", "Approved by the reviewer.", [task.TaskId], [], PlanGateStatus.Approved,
+            ResolvedAt: DateTimeOffset.UtcNow,
+            ResolutionNote: "Reviewer completed the explicit checklist.");
+        var plan = new Plan(
+            "P", "rev", PlanSource.Manual, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [gate],
+            new PlanProgress(1, 1), new PlanTimestamps(DateTimeOffset.UtcNow),
+            InterruptionData: new PlanInterruptionData(
+                PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason("Accepted P-1."),
+                PlanRecoveryState.PendingRecovery,
+                0,
+                LastCompletedTaskId: task.TaskId,
+                LastCommit: task.Commit));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+            Assert.That(repaired.InterruptionData, Is.Null);
+            Assert.That(repaired.Timestamps.CompletedAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
     public void RepairInconsistentState_WithdrawsAiRecoveryAcceptanceThatContradictsVerification()
     {
         var accepted = new PlanTask(

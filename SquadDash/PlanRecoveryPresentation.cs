@@ -41,6 +41,35 @@ internal sealed record PlanRecoveryPrimaryActionPresentation(
     string ProtocolAction);
 
 /// <summary>
+/// Distinguishes an ordinary amendment checkpoint, which the user can explicitly approve while
+/// accepting its reviewed commit, from a human-proof checkpoint whose observations must remain
+/// visible and unchecked until the reviewer actually performs them.
+/// </summary>
+internal static class PlanAmendmentGateAcceptancePolicy
+{
+    internal const string CombinedApprovalNote =
+        "Approved while accepting the reviewed amendment commit.";
+
+    internal static bool CanCombineWithTaskAcceptance(Plan plan, PlanTask task)
+    {
+        if (string.IsNullOrWhiteSpace(task.AmendmentGateId)) return false;
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, task.AmendmentGateId, StringComparison.Ordinal));
+        return gate is not null &&
+               gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+               gate.ProofRequirements is not { Count: > 0 };
+    }
+
+    internal static bool IsLegacyImplicitHumanProofApproval(Plan plan, PlanApprovalGate gate) =>
+        gate.Status == PlanGateStatus.Approved &&
+        gate.ProofRequirements is { Count: > 0 } &&
+        string.Equals(gate.ResolutionNote, CombinedApprovalNote, StringComparison.Ordinal) &&
+        plan.Tasks.Any(task =>
+            task.Status == PlanTaskStatus.Complete &&
+            string.Equals(task.AmendmentGateId, gate.GateId, StringComparison.Ordinal));
+}
+
+/// <summary>
 /// One recovery decision model shared by the transcript, Inbox, and Plan Viewer. Evidence is
 /// investigated through links on the recovery surface; an action never opens a second copy of
 /// the same evidence. The separate, explicitly requested assessment action is advisory only.
@@ -64,7 +93,8 @@ internal static class PlanRecoveryActionPresentationBuilder
 
         if (hasExactTaskEvidence)
         {
-            if (!string.IsNullOrWhiteSpace(task?.AmendmentGateId))
+            if (task is not null &&
+                PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(plan, task))
             {
                 return new PlanRecoveryPrimaryActionPresentation(
                     PlanRecoveryPrimaryActionKind.ApproveAmendment,
@@ -377,9 +407,12 @@ internal static class PlanRecoveryPresentationBuilder
         if (evidence is not null &&
             string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal))
         {
-            var isAmendment = plan.Tasks.Any(task =>
+            var amendmentTask = plan.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
                 !string.IsNullOrWhiteSpace(task.AmendmentGateId));
+            var isAmendment = amendmentTask is not null;
+            var combinesAmendmentGate = amendmentTask is not null &&
+                PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(plan, amendmentTask);
             return new PlanRecoveryPresentation(
                 isAmendment
                     ? "Amendment Stopped After Producing Committed Work"
@@ -388,8 +421,10 @@ internal static class PlanRecoveryPresentationBuilder
                     ? "SquadDash captured a host-validated amendment commit before execution stopped."
                     : "SquadDash captured a host-validated commit from this task before execution stopped.",
                 evidence,
-                isAmendment
+                combinesAmendmentGate
                     ? "Use the commit link above to investigate. Approve the amendment if it satisfies the requested change."
+                    : isAmendment
+                        ? "Review the commit if needed, then accept the amendment task; its human-proof checkpoint will open separately."
                     : "Review the commit if needed, then accept the step, continue working on it, or revise the remaining plan.",
                 "Retry Task Anyway…",
                 RetryIsWarning: true);

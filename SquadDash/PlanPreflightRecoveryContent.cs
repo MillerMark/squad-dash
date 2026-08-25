@@ -247,3 +247,15 @@ internal static class PlanRecoveryResumePolicy
          IsAmendmentPreflightPause(plan) ||
          IsAcceptedWorkContinuation(plan));
 }
+
+/// <summary>
+/// Keeps recovery controls tied to a real recovery target. A taskless interrupted lifecycle is a
+/// transition that should be repaired, not an invitation to pause or destructively end the plan.
+/// </summary>
+internal static class PlanRecoveryControlPolicy
+{
+    internal static bool HasActionableInterruption(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+        (!string.IsNullOrWhiteSpace(plan.InterruptionData?.InterruptedTaskId) ||
+         PlanRecoveryResumePolicy.IsSafelyResumable(plan));
+}

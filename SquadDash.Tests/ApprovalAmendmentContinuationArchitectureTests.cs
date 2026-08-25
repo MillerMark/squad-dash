@@ -57,6 +57,48 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
     }
 
     [Test]
+    public void RecoveryAcceptance_LeavesHumanProofAmendmentGateForExplicitReview()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var start = source.IndexOf(
+            "private async Task<bool> AcceptInterruptedStepAfterReviewAsync(",
+            StringComparison.Ordinal);
+        var end = source.IndexOf(
+            "private async Task<bool> AcceptAwaitingReviewStepAsync(",
+            start,
+            StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        var handler = source[start..end];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler, Does.Contain(
+                "PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(storedPlan, pendingTask)"));
+            Assert.That(handler, Does.Contain("HasReadyPendingApprovalGate(acceptedPlan!)"));
+            Assert.That(handler, Does.Contain("ProcessPlanApprovalsAfterStepAsync("));
+        });
+    }
+
+    [Test]
+    public void PlanViewer_DoesNotOfferPauseWhileAlreadyWaitingForApproval()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var pauseCondition = source.IndexOf(
+            "else if (PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan) &&",
+            StringComparison.Ordinal);
+        var editHistory = source.IndexOf("if (_editHistory is not null)", pauseCondition, StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pauseCondition, Is.GreaterThanOrEqualTo(0));
+            Assert.That(editHistory, Is.GreaterThan(pauseCondition));
+            Assert.That(source[pauseCondition..editHistory],
+                Does.Not.Contain("PlanLifecycleStatus.AwaitingApproval"));
+        });
+    }
+
+    [Test]
     public void RestartedTerminalRepair_IsReclaimedBeforeNewWorkPreflight()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
