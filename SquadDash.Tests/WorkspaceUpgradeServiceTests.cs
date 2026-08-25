@@ -4,6 +4,40 @@ namespace SquadDash.Tests;
 internal sealed class WorkspaceUpgradeServiceTests
 {
     [Test]
+    public void VersionPolicy_PendingTargetWinsOverOlderActiveCli()
+    {
+        var version = WorkspaceUpgradeVersionPolicy.ResolveDisplayVersion(
+            isPending: true,
+            recordedPendingVersion: "0.12.0",
+            activeCliVersion: "0.10.0");
+
+        Assert.That(version, Is.EqualTo("0.12.0"));
+    }
+
+    [Test]
+    public void VersionPolicy_SimulationUsesLatestAvailableVersion()
+    {
+        var version = WorkspaceUpgradeVersionPolicy.ResolveSimulationVersion(
+            latestAvailableVersion: "0.12.0",
+            activeCliVersion: "0.10.0");
+
+        Assert.That(version, Is.EqualTo("0.12.0"));
+    }
+
+    [TestCase("0.12.0", "0.12.0", true)]
+    [TestCase("v0.12.0", "0.12.0", true)]
+    [TestCase("0.12.0", "0.10.0", false)]
+    public void VersionPolicy_RequiresActiveCliToMatchWorkspaceTarget(
+        string target,
+        string active,
+        bool expected)
+    {
+        Assert.That(
+            WorkspaceUpgradeVersionPolicy.MatchesActiveCandidate(target, active),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
     public async Task DryRunAsync_WhenCandidateUnavailable_FailsWithoutSpawningCommand()
     {
         var runner = new RecordingCommandRunner();

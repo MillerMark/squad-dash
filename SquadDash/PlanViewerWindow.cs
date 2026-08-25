@@ -78,6 +78,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Dictionary<string, PlanTaskCorrectionActivityState> _taskCorrectionStates =
         new(StringComparer.Ordinal);
     private readonly HashSet<string> _activeApprovalChangeGateIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _dismissedApprovalChangeGateIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _taskSpinnersById =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, ActivitySpinner> _validationSpinnersById =
@@ -392,7 +393,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (activity.IsActive)
                         _activeApprovalChangeGateIds.Add(activity.GateId);
                     else
+                    {
                         _activeApprovalChangeGateIds.Remove(activity.GateId);
+                        _dismissedApprovalChangeGateIds.Remove(activity.GateId);
+                    }
                     if (_plan is not null && _durablePlan is not null)
                         RebuildPreservingScroll(_plan, _durablePlan);
                 }
@@ -663,9 +667,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null && reviewAttention is not null)
         {
-            if (IsApprovalChangeActive(reviewAttention.Gate))
+            var reviewChangeActive = IsApprovalChangeActive(reviewAttention.Gate);
+            if (reviewChangeActive &&
+                !_dismissedApprovalChangeGateIds.Contains(reviewAttention.Gate.GateId))
             {
                 var workingCard = new StackPanel();
+                var workingHeader = new Grid();
+                workingHeader.ColumnDefinitions.Add(new ColumnDefinition
+                    { Width = new GridLength(1, GridUnitType.Star) });
+                workingHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var workingTitle = new TextBlock
                 {
                     Text = "Addressing Review Items…",
@@ -674,7 +684,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 workingTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                 workingTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
-                workingCard.Children.Add(workingTitle);
+                workingHeader.Children.Add(workingTitle);
+
+                var dismissWorkingCard = new Button
+                {
+                    Content = "×",
+                    Width = 22,
+                    Height = 22,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Hide this status panel. The correction will continue."),
+                };
+                dismissWorkingCard.SetResourceReference(Button.StyleProperty, "PanelCloseButtonStyle");
+                dismissWorkingCard.SetResourceReference(Button.FontSizeProperty, "FontSizeNormal");
+                Grid.SetColumn(dismissWorkingCard, 1);
+                dismissWorkingCard.Click += (_, _) =>
+                {
+                    _dismissedApprovalChangeGateIds.Add(reviewAttention.Gate.GateId);
+                    if (_plan is not null && _durablePlan is not null)
+                        RebuildPreservingScroll(_plan, _durablePlan);
+                };
+                workingHeader.Children.Add(dismissWorkingCard);
+                workingCard.Children.Add(workingHeader);
 
                 var workingSummary = new TextBlock
                 {
@@ -696,7 +727,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 workingBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
                 header.Children.Add(workingBorder);
             }
-            else
+            else if (!reviewChangeActive)
             {
             var reviewCard = new StackPanel();
             var reviewTitle = new TextBlock
@@ -2618,7 +2649,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         PlanTaskActivityState.Assessing =>
                             "The Squad coordinator is assessing existing repository work before the interrupted plan continues.",
                         PlanTaskActivityState.Reworking =>
-                            "The step is receiving its one bounded automatic correction.",
+                            "The step is receiving requested correction work.",
                         _ => "This step is actively receiving work from one or more agents.",
                     }),
                 };

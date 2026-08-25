@@ -84,6 +84,12 @@ create a commit and do not receive a redundant independent Verity Cross review. 
 the approved task is genuinely non-mutating. If the
 step may repair failures or otherwise change the repository, use `executionMode: "implementation"`.
 
+Treat help and capability discovery as read-only work. Never prescribe a mutating subcommand followed
+by `--help` inside the active workspace: some CLIs dispatch the subcommand before examining the help
+flag. Inspect top-level help, installed source, or official documentation instead, or probe only in an
+isolated disposable copy. In particular, never run `squad upgrade --help` in an active workspace;
+Squad CLI 0.10 interprets it as a real workspace upgrade.
+
 Bad final steps: "Update documentation", "Run the test suite", "Clean up".
 Good final step: "Verify that clicking 'Export' in the Reports panel produces a downloadable CSV
 containing all filtered rows, by running `dotnet test --filter ReportExportIntegration` and

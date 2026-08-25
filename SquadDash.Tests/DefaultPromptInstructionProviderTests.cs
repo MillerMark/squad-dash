@@ -55,6 +55,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("Array-valued fields in a patch replace"));
         Assert.That(instruction, Does.Contain("rejects a stale `baseRevision`"));
         Assert.That(instruction, Does.Contain("`PLAN_REVISION_JSON` for a staged proposal"));
+        Assert.That(instruction, Does.Contain("never run `squad upgrade --help`"));
     }
 
     [Test]

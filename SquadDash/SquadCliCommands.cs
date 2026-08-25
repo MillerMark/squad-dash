@@ -44,9 +44,9 @@ internal static class SquadCliCommands {
     public static SquadCliCommandDefinition DiscoverSquads { get; } =
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
 
-    // Verified from local installed CLI help output (v0.10.0):
-    // `node node_modules\@bradygaster\squad-cli\dist\cli-entry.js upgrade --help`
-    // shows no non-destructive workspace upgrade preview flag.
+    // Verified by inspecting the installed v0.10.0 command router and upgrade implementation.
+    // Never execute `upgrade --help` in an active workspace: v0.10.0 dispatches `upgrade`
+    // before examining the trailing help flag and performs a real workspace upgrade.
     public const bool WorkspaceUpgradeDryRunSupported = false;
     public const string WorkspaceUpgradeDryRunUnsupportedMessage =
         "Workspace upgrade dry-run is not supported by the installed Squad CLI version. Use Apply Workspace Update to proceed directly.";

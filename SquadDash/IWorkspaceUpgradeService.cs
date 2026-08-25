@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -7,6 +8,38 @@ internal interface IWorkspaceUpgradeService
 {
     Task<WorkspaceUpgradeDryRunResult> DryRunAsync(ResolvedCliCandidate candidate, string workspaceDir);
     Task<WorkspaceUpgradeResult> UpgradeAsync(ResolvedCliCandidate candidate, string workspaceDir);
+}
+
+internal static class WorkspaceUpgradeVersionPolicy
+{
+    internal static string? ResolveDisplayVersion(
+        bool isPending,
+        string? recordedPendingVersion,
+        string? activeCliVersion)
+    {
+        if (isPending && !string.IsNullOrWhiteSpace(recordedPendingVersion))
+            return recordedPendingVersion.Trim();
+        return string.IsNullOrWhiteSpace(activeCliVersion) ? null : activeCliVersion.Trim();
+    }
+
+    internal static string ResolveSimulationVersion(
+        string? latestAvailableVersion,
+        string? activeCliVersion) =>
+        !string.IsNullOrWhiteSpace(latestAvailableVersion)
+            ? latestAvailableVersion.Trim()
+            : !string.IsNullOrWhiteSpace(activeCliVersion)
+                ? activeCliVersion.Trim()
+                : "simulated-v1.0";
+
+    internal static bool MatchesActiveCandidate(string? targetVersion, string? candidateVersion)
+    {
+        if (string.IsNullOrWhiteSpace(targetVersion) || string.IsNullOrWhiteSpace(candidateVersion))
+            return false;
+        return string.Equals(
+            targetVersion.Trim().TrimStart('v', 'V'),
+            candidateVersion.Trim().TrimStart('v', 'V'),
+            StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal sealed record WorkspaceUpgradeDryRunResult(

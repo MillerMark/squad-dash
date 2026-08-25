@@ -27,7 +27,8 @@ internal sealed record PlanReviewActivityResponse(
 internal sealed record PendingPlanReviewCorrectionContext(
     string QueueItemId,
     string PlanId,
-    string GateId);
+    string GateId,
+    string TaskId);
 
 /// <summary>
 /// Tracks the editable bounded-correction prompt for an interrupted plan task. This is separate
@@ -84,6 +85,33 @@ internal static class PlanReviewCorrectionActivityPolicy
         return reviewCorrection is null
             ? null
             : (reviewCorrection.PlanId, reviewCorrection.GateId);
+    }
+}
+
+internal static class PlanReviewCorrectionTaskActivityPolicy
+{
+    internal static PlanTaskCorrectionActivityState Resolve(
+        PendingPlanReviewCorrectionContext? context,
+        string planId,
+        string taskId,
+        bool isPromptRunning,
+        string? dispatchedItemId,
+        string? dispatchedSourceTag)
+    {
+        if (context is null ||
+            !string.Equals(context.PlanId, planId, StringComparison.Ordinal) ||
+            !string.Equals(context.TaskId, taskId, StringComparison.Ordinal))
+            return PlanTaskCorrectionActivityState.None;
+
+        var isMatchingDispatch = isPromptRunning &&
+            (string.Equals(dispatchedItemId, context.QueueItemId, StringComparison.Ordinal) ||
+             string.Equals(
+                 dispatchedSourceTag,
+                 "plan-review-correction-draft",
+                 StringComparison.Ordinal));
+        return isMatchingDispatch
+            ? PlanTaskCorrectionActivityState.Running
+            : PlanTaskCorrectionActivityState.Drafting;
     }
 }
 

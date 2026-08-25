@@ -10936,8 +10936,10 @@ public partial class MainWindow : Window
             _pendingPlanReviewCorrectionContext = new PendingPlanReviewCorrectionContext(
                 queueItemId,
                 plan.PlanId,
-                activityGateId);
+                activityGateId,
+                taskId);
             SyncGateChangeActivity(isPromptRunning: false);
+            SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         }
     }
 
@@ -12511,13 +12513,24 @@ public partial class MainWindow : Window
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
             resolveTaskCorrectionActivity: taskId =>
-                PlanTaskCorrectionActivityPolicy.Resolve(
+            {
+                var taskCorrection = PlanTaskCorrectionActivityPolicy.Resolve(
                     _pendingPlanTaskCorrectionContext,
                     groupId,
                     taskId,
                     _isPromptRunning,
                     _pec.CurrentDispatchedItem?.Id,
-                    _pec.CurrentDispatchedItem?.SourceTag),
+                    _pec.CurrentDispatchedItem?.SourceTag);
+                return taskCorrection != PlanTaskCorrectionActivityState.None
+                    ? taskCorrection
+                    : PlanReviewCorrectionTaskActivityPolicy.Resolve(
+                        _pendingPlanReviewCorrectionContext,
+                        groupId,
+                        taskId,
+                        _isPromptRunning,
+                        _pec.CurrentDispatchedItem?.Id,
+                        _pec.CurrentDispatchedItem?.SourceTag);
+            },
             isApprovalChangeActivityActive: gateId =>
                 _activeGateChangeActivity is { } activity &&
                 string.Equals(activity.PlanId, groupId, StringComparison.Ordinal) &&
@@ -13104,7 +13117,8 @@ public partial class MainWindow : Window
                 planExecutionContext = PlanExecutionContextBuilder.Build(durablePlan, durableTask) +
                     $"\n\nGenerated plan projection: `{projectionPath}`. The context above is authoritative for this turn; " +
                     "the projection is an inspectable plan-only reference and tasks.md is not an execution source. " +
-                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report the terminal commit; SquadDash records the full commit range.";
+                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report the terminal commit; SquadDash records the full commit range. " +
+                    "Capability discovery must be non-mutating: never run a mutating subcommand followed by `--help` in the active workspace. Inspect top-level help, installed source, or official documentation, or use an isolated disposable copy. Specifically, never run `squad upgrade --help`; Squad CLI 0.10 executes the upgrade instead of showing subcommand help.";
             }
         }
 
@@ -15372,19 +15386,30 @@ public partial class MainWindow : Window
 
     private void SyncPlanTaskCorrectionActivity(bool isPromptRunning)
     {
-        var context = _pendingPlanTaskCorrectionContext;
+        var taskContext = _pendingPlanTaskCorrectionContext;
+        var reviewContext = _pendingPlanReviewCorrectionContext;
         var dispatchedItem = _pec.CurrentDispatchedItem;
-        var next = context is null
-            ? ((string PlanId, string TaskId, PlanTaskCorrectionActivityState State)?)null
-            : (context.PlanId,
-               context.TaskId,
+        (string PlanId, string TaskId, PlanTaskCorrectionActivityState State)? next = taskContext is not null
+            ? (taskContext.PlanId,
+               taskContext.TaskId,
                PlanTaskCorrectionActivityPolicy.Resolve(
-                   context,
-                   context.PlanId,
-                   context.TaskId,
+                   taskContext,
+                   taskContext.PlanId,
+                   taskContext.TaskId,
                    isPromptRunning,
                    dispatchedItem?.Id,
-                   dispatchedItem?.SourceTag));
+                   dispatchedItem?.SourceTag))
+            : reviewContext is not null
+                ? (reviewContext.PlanId,
+                   reviewContext.TaskId,
+                   PlanReviewCorrectionTaskActivityPolicy.Resolve(
+                       reviewContext,
+                       reviewContext.PlanId,
+                       reviewContext.TaskId,
+                       isPromptRunning,
+                       dispatchedItem?.Id,
+                       dispatchedItem?.SourceTag))
+                : null;
         if (_publishedPlanTaskCorrectionActivity == next)
             return;
 
@@ -16877,6 +16902,7 @@ public partial class MainWindow : Window
 
         _pendingPlanReviewCorrectionContext = null;
         SyncGateChangeActivity(isPromptRunning: false);
+        SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         if (!restoreCard || !_approvalTranscriptCards.TryGetValue(context.PlanId, out var cards))
             return;
 
@@ -30610,9 +30636,9 @@ public partial class MainWindow : Window
             if (_currentWorkspace is null)
                 throw new InvalidOperationException("Open a workspace before simulating a workspace upgrade state.");
 
-            var recordedCliVersion = !string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion)
-                ? _squadCliAdapter.SquadVersion!
-                : "simulated-v1.0";
+            var recordedCliVersion = WorkspaceUpgradeVersionPolicy.ResolveSimulationVersion(
+                _squadCliAdapter.LatestSquadVersion,
+                _squadCliAdapter.SquadVersion);
             await _workspacePendingUpgradeStore
                 .SavePendingAsync(_currentWorkspace.FolderPath, recordedCliVersion)
                 .ConfigureAwait(true);
@@ -30637,9 +30663,9 @@ public partial class MainWindow : Window
             if (_currentWorkspace is null)
                 throw new InvalidOperationException("Open a workspace before simulating a workspace upgrade state.");
 
-            var recordedCliVersion = !string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion)
-                ? _squadCliAdapter.SquadVersion!
-                : "simulated-v1.0";
+            var recordedCliVersion = WorkspaceUpgradeVersionPolicy.ResolveSimulationVersion(
+                _squadCliAdapter.LatestSquadVersion,
+                _squadCliAdapter.SquadVersion);
             await _workspacePendingUpgradeStore
                 .SavePendingAsync(_currentWorkspace.FolderPath, recordedCliVersion)
                 .ConfigureAwait(true);
@@ -45419,12 +45445,10 @@ public partial class MainWindow : Window
 
     private string? GetWorkspaceUpgradeVersionForMenu()
     {
-        if (!string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion))
-            return _squadCliAdapter.SquadVersion;
-
-        return string.IsNullOrWhiteSpace(_workspacePendingUpgradeState.RecordedCliVersion)
-            ? null
-            : _workspacePendingUpgradeState.RecordedCliVersion;
+        return WorkspaceUpgradeVersionPolicy.ResolveDisplayVersion(
+            _workspacePendingUpgradeState.IsPending,
+            _workspacePendingUpgradeState.RecordedCliVersion,
+            _squadCliAdapter.SquadVersion);
     }
 
     private async Task OpenWorkspaceUpgradeSummaryAsync()
@@ -45455,6 +45479,20 @@ public partial class MainWindow : Window
             MessageBox.Show(
                 "Squad CLI could not be resolved for this workspace.",
                 "Workspace Upgrade",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var targetWorkspaceVersion = GetWorkspaceUpgradeVersionForMenu();
+        if (!WorkspaceUpgradeVersionPolicy.MatchesActiveCandidate(
+                targetWorkspaceVersion,
+                candidate.Version))
+        {
+            MessageBox.Show(
+                $"Workspace files are waiting for Squad v{targetWorkspaceVersion}, but the active CLI is " +
+                $"v{candidate.Version ?? "unknown"}. Update and re-resolve the Squad CLI before upgrading workspace files.",
+                "Workspace Upgrade Version Mismatch",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;

@@ -38,7 +38,7 @@ internal sealed class PlanReviewActivityResponseTests
     public void ActivityPolicy_UsesReviewCorrectionGateWhenCorrectionPromptRuns()
     {
         var correction = new PendingPlanReviewCorrectionContext(
-            "queue-1", "PLAN-1", "GATE-REVIEW");
+            "queue-1", "PLAN-1", "GATE-REVIEW", "TASK-1");
 
         var target = PlanReviewCorrectionActivityPolicy.Resolve(null, correction);
 
@@ -49,7 +49,7 @@ internal sealed class PlanReviewActivityResponseTests
     public void ActivityPolicy_PrefersExplicitGateResponseContext()
     {
         var correction = new PendingPlanReviewCorrectionContext(
-            "queue-1", "PLAN-1", "GATE-REVIEW");
+            "queue-1", "PLAN-1", "GATE-REVIEW", "TASK-1");
 
         var target = PlanReviewCorrectionActivityPolicy.Resolve(
             ("PLAN-1", "GATE-RESPONSE"), correction);
@@ -61,7 +61,7 @@ internal sealed class PlanReviewActivityResponseTests
     public void ActivityPolicy_ClaimsReviewCorrectionWhileEditablePromptIsDrafted()
     {
         var correction = new PendingPlanReviewCorrectionContext(
-            "queue-1", "PLAN-1", "GATE-REVIEW");
+            "queue-1", "PLAN-1", "GATE-REVIEW", "TASK-1");
 
         var target = PlanReviewCorrectionActivityPolicy.ResolveActive(
             null, correction, isPromptRunning: false);
@@ -85,6 +85,26 @@ internal sealed class PlanReviewActivityResponseTests
                     gateResponse, null, isPromptRunning: true),
                 Is.EqualTo(gateResponse));
         });
+    }
+
+    [TestCase(false, PlanTaskCorrectionActivityState.Drafting)]
+    [TestCase(true, PlanTaskCorrectionActivityState.Running)]
+    public void ReviewCorrectionTaskActivity_DrivesReviewedTaskSpinner(
+        bool isPromptRunning,
+        PlanTaskCorrectionActivityState expected)
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1", "PLAN-1", "GATE-REVIEW", "TASK-1");
+
+        var state = PlanReviewCorrectionTaskActivityPolicy.Resolve(
+            correction,
+            "PLAN-1",
+            "TASK-1",
+            isPromptRunning,
+            dispatchedItemId: "queue-1",
+            dispatchedSourceTag: "plan-review-correction-draft");
+
+        Assert.That(state, Is.EqualTo(expected));
     }
 
     [Test]
