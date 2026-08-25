@@ -1004,7 +1004,7 @@ internal sealed class PlanStoreUpdaterTests
         {
             Assert.That(updated, Is.Not.SameAs(plan));
             Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-001").Status,
-                Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
+                Is.EqualTo(PlanTaskStatus.Complete));
             Assert.That(updated.Tasks.Single(task => task.AmendmentGateId == "GROUP-001-G01").DependsOn,
                 Is.EqualTo(new[] { "GROUP-001-001" }));
         });
@@ -1048,10 +1048,54 @@ internal sealed class PlanStoreUpdaterTests
                 reviewed.TaskId, amendment.TaskId, unrelatedComplete.TaskId,
             }));
             Assert.That(amendment.DependsOn, Is.EqualTo(new[] { reviewed.TaskId }));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == reviewed.TaskId).Status,
+                Is.EqualTo(PlanTaskStatus.Complete));
             Assert.That(updated.ApprovalGates.Single().BeforeTaskIds, Is.Empty);
             Assert.That(updated.ApprovalGates.Single().AfterTaskIds, Does.Contain(amendment.TaskId));
             Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(updated),
                 Is.EqualTo(amendment.TaskId));
+        });
+
+        var amendmentComplete = updated with
+        {
+            Tasks = updated.Tasks.Select(task => task.TaskId == amendment.TaskId
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+        };
+        Assert.That(
+            ApprovalGateReadinessEvaluator.EvaluateGates(amendmentComplete).Single().IsReady,
+            Is.True,
+            "The same human gate should re-open after Step 5A completes.");
+    }
+
+    [Test]
+    public void RepairInconsistentState_CompletesReviewedTaskBehindPendingAmendment()
+    {
+        var reviewed = new PlanTask(
+            "TASK-REVIEW", "Reviewed work", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                "abc1234", "Implementation finished.", [], null, DateTimeOffset.UtcNow));
+        var amendment = new PlanTask(
+            "PLAN-AMD-001", "Add fixture", "Work", [reviewed.TaskId], "high",
+            PlanTaskStatus.Pending, AmendmentGateId: "GATE-HUMAN");
+        var gate = new PlanApprovalGate(
+            "GATE-HUMAN", "Verify", [reviewed.TaskId, amendment.TaskId], [],
+            PlanGateStatus.Pending);
+        var plan = new Plan(
+            "PLAN", "rev", PlanSource.Manual, PlanLifecycleStatus.Executing,
+            "Plan", "feature/plan", "Summary", [reviewed, amendment], [gate],
+            new PlanProgress(0, 2), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == reviewed.TaskId).Status,
+                Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == reviewed.TaskId).Commit,
+                Is.EqualTo("abc1234"));
+            Assert.That(repaired.Progress.CompletedCount, Is.EqualTo(1));
         });
     }
 

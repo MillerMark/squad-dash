@@ -1401,6 +1401,50 @@ internal sealed class CodeHealthGroupRunnerTests
     }
 
     [Test]
+    public void TrackFirstEligibleStep_AmendmentBehindHumanReviewTask_TracksAmendment()
+    {
+        var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), _tasksFile);
+        var canonical = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan("canonical-revision", MakeLinearGroup()),
+            DateTimeOffset.UtcNow);
+        const string gateId = "PROJ-20240101-HUMAN-PROOF";
+        var reviewedTask = canonical.Tasks[0] with
+        {
+            Status = PlanTaskStatus.HumanReviewRequired,
+        };
+        var amendment = new PlanTask(
+            "PROJ-20240101-AMD-001",
+            "Add simulation fixture",
+            "Make the human proof reproducible.",
+            [reviewedTask.TaskId],
+            "high",
+            PlanTaskStatus.Pending,
+            AmendmentGateId: gateId);
+        var plan = canonical with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = [reviewedTask, amendment, .. canonical.Tasks.Skip(1)],
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    gateId,
+                    "Verify the amended work.",
+                    [reviewedTask.TaskId, amendment.TaskId],
+                    [],
+                    PlanGateStatus.Pending),
+            ],
+        };
+
+        var state = runner.TrackFirstEligibleStep(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state, Is.EqualTo(DecomposeGroupExecutionState.Eligible));
+            Assert.That(runner.CurrentStepId, Is.EqualTo(amendment.TaskId));
+        });
+    }
+
+    [Test]
     public void TryRestoreVerificationStep_BindsExactVerificationPendingTask()
     {
         var runner = new CodeHealthGroupRunner(new DecomposedTasksWriter(), _tasksFile);

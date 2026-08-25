@@ -538,6 +538,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 AddPrimaryButton("Pause", "Pause safely after the currently accepted step; no new step will start.",
                     () => onPausePlan(durablePlan));
             }
+            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onResumePlan is not null)
+            {
+                AddPrimaryButton(
+                    "Resume",
+                    "Resume this executing plan because it currently has no active runner.",
+                    () => onResumePlan(durablePlan));
+            }
             else if ((durablePlan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or PlanLifecycleStatus.Interrupted) &&
                      onPausePlan is not null)
             {

@@ -1,0 +1,66 @@
+using System;
+using System.IO;
+using NUnit.Framework;
+
+namespace SquadDash.Tests;
+
+[TestFixture]
+internal sealed class ApprovalAmendmentContinuationArchitectureTests
+{
+    [Test]
+    public void AmendmentHandler_QueuesContinuationWhileItsPromptOwnsCoordinator()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var start = source.IndexOf(
+            "private async Task<bool> ApplyGateAmendmentResponseAsync(",
+            StringComparison.Ordinal);
+        var end = source.IndexOf(
+            "private void SaveDecomposeRecoveryInboxReminder(",
+            start,
+            StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        var handler = source[start..end];
+        var busyCheck = handler.IndexOf(
+            "if (_isPromptRunning || IsLoopRunning || _queueDrainActive)",
+            StringComparison.Ordinal);
+        var queueContinuation = handler.IndexOf(
+            "ScheduleApprovalResumeWhenIdle(result.UpdatedPlan.PlanId);",
+            StringComparison.Ordinal);
+        var immediateStart = handler.IndexOf(
+            "await StartBackloggedDecomposeGroupAsync(",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(busyCheck, Is.GreaterThanOrEqualTo(0));
+            Assert.That(queueContinuation, Is.GreaterThan(busyCheck));
+            Assert.That(immediateStart, Is.GreaterThan(queueContinuation),
+                "The handler must queue 5A before trying an immediate start.");
+        });
+    }
+
+    [Test]
+    public void PlanViewer_UsesRecoveryPanelResumeForRecoverableAmendment()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.That(source, Does.Contain(
+            "durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onResumePlan is not null"));
+        Assert.That(source, Does.Contain("\"Resume this executing plan because it currently has no active runner.\""));
+        Assert.That(source, Does.Not.Contain("amendmentPending ? \"Resume Amendment\" : \"Resume\""));
+        Assert.That(source, Does.Contain("safeResume ? \"Resume Plan\" : \"Resume Plan Anyway…\""));
+    }
+
+    private static string FindRepoFile(params string[] pathParts)
+    {
+        var current = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine([current.FullName, .. pathParts]);
+            if (File.Exists(candidate)) return candidate;
+            current = current.Parent;
+        }
+        throw new FileNotFoundException($"Could not find repository file '{Path.Combine(pathParts)}'.");
+    }
+}

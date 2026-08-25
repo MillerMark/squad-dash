@@ -168,7 +168,9 @@ internal sealed class CodeHealthGroupRunner
             .ToHashSet(StringComparer.Ordinal);
         var eligible = plan.Tasks
             .Where(task => task.Status is PlanTaskStatus.Pending or PlanTaskStatus.Executing or PlanTaskStatus.Reworking)
-            .Where(task => task.DependsOn.All(completedIds.Contains))
+            .Where(task => task.DependsOn.All(dependencyId =>
+                ApprovalGateReadinessEvaluator.IsDependencySatisfiedForExecution(
+                    plan, task, dependencyId, completedIds)))
             .ToArray();
 
         _currentStepId = eligible

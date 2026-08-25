@@ -12284,8 +12284,15 @@ public partial class MainWindow : Window
             : null;
         var isSafelyResumable = durablePlan is not null &&
                                 PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
-        Action<Plan>? onResumePlan = durablePlan is not null &&
-                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+        var executingWithoutRunner = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                                     (!IsLoopRunning || !string.Equals(
+                                         _activeDecomposeGroupId,
+                                         durablePlan.PlanId,
+                                         StringComparison.Ordinal));
+        var canResumePlan = durablePlan is not null &&
+                            !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
+                            (durablePlan.IsPaused || isSafelyResumable || executingWithoutRunner);
+        Action<Plan>? onResumePlan = canResumePlan
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
@@ -12293,12 +12300,20 @@ public partial class MainWindow : Window
                   if (!ReferenceEquals(resumed, current))
                       PublishPlanProgress(resumed);
                   if (resumed.LifecycleStatus == PlanLifecycleStatus.Approved ||
-                      PlanRecoveryResumePolicy.IsSafelyResumable(resumed))
-                      _ = StartOrResumeDurablePlanAsync(resumed);
+                      PlanRecoveryResumePolicy.IsSafelyResumable(resumed) ||
+                      (resumed.LifecycleStatus == PlanLifecycleStatus.Executing && executingWithoutRunner))
+                  {
+                      if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                          ScheduleApprovalResumeWhenIdle(resumed.PlanId);
+                      else
+                          _ = StartOrResumeDurablePlanAsync(resumed);
+                  }
               }
             : null;
         Action<Plan>? onPausePlan = durablePlan is not null &&
-                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
+                                    !executingWithoutRunner &&
+                                    !isSafelyResumable
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
@@ -17159,6 +17174,11 @@ public partial class MainWindow : Window
         {
             HostRevision = result.UpdatedPlan.Revision,
         };
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+        {
+            ScheduleApprovalResumeWhenIdle(result.UpdatedPlan.PlanId);
+            return true;
+        }
         try
         {
             await StartBackloggedDecomposeGroupAsync(group with { HostRevision = plan.Revision });
@@ -17255,7 +17275,7 @@ public partial class MainWindow : Window
             $"Approved plan continuation queued for the next idle coordinator slot plan={planId} " +
             $"promptRunning={_isPromptRunning} loopRunning={IsLoopRunning} queueDrain={_queueDrainActive}.");
         ScheduleDecomposeSystemEntry(
-            $"Approval acquired for plan {planId}. Continuation is waiting for the current turn to finish.");
+            $"Plan {planId} has runnable work. Continuation is waiting for the current turn to finish.");
     }
 
     private void StartApprovalResumeRetryTimer(string planId)
@@ -17328,7 +17348,7 @@ public partial class MainWindow : Window
 
             StopApprovalResumeRetry();
             ScheduleDecomposeSystemEntry(
-                $"Repository changes finished. Plan {planId} resuming automatically after approval.");
+                $"Plan {planId} is resuming automatically in the available coordinator slot.");
         }
         catch (PlanPreflightBlockedException blocked)
         {
@@ -17448,6 +17468,11 @@ public partial class MainWindow : Window
         {
             HostRevision = result.UpdatedPlan.Revision,
         };
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+        {
+            ScheduleApprovalResumeWhenIdle(result.UpdatedPlan.PlanId);
+            return true;
+        }
         try
         {
             await StartBackloggedDecomposeGroupAsync(group with { HostRevision = result.UpdatedPlan.Revision });

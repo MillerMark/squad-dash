@@ -1104,21 +1104,29 @@ internal static class PlanStoreUpdater
                 .Min(entry => entry.index)
             : indexedTasks.Where(entry => reviewedSet.Contains(entry.task.TaskId))
                 .Max(entry => entry.index) + 1;
+        var now = DateTimeOffset.UtcNow;
         var updatedTasks = existing.Tasks
-            .Select(task => beforeIds.Contains(task.TaskId)
-                ? task with
+            .Select(task =>
+            {
+                if (beforeIds.Contains(task.TaskId))
                 {
-                    DependsOn = task.DependsOn
-                        .Where(id => !reviewedSet.Contains(id))
-                        .Append(amendmentId)
-                        .Distinct(StringComparer.Ordinal)
-                        .ToArray(),
+                    return task with
+                    {
+                        DependsOn = task.DependsOn
+                            .Where(id => !reviewedSet.Contains(id))
+                            .Append(amendmentId)
+                            .Distinct(StringComparer.Ordinal)
+                            .ToArray(),
+                    };
                 }
-                : task)
+                return reviewedSet.Contains(task.TaskId) &&
+                       task.Status == PlanTaskStatus.HumanReviewRequired
+                    ? CompleteImplementationBeforeMovedGate(task, now)
+                    : task;
+            })
             .ToList();
         updatedTasks.Insert(insertionIndex, amendment);
         updatedTasks = AssignMutableDisplayStepLabels(existing.Tasks, updatedTasks).ToList();
-        var now = DateTimeOffset.UtcNow;
         var updatedGate = gate with
         {
             AfterTaskIds = gate.AfterTaskIds.Append(amendmentId).Distinct(StringComparer.Ordinal).ToArray(),
@@ -1185,6 +1193,18 @@ internal static class PlanStoreUpdater
                 .ToArray(),
         };
     }
+
+    private static PlanTask CompleteImplementationBeforeMovedGate(
+        PlanTask task,
+        DateTimeOffset completedAt) =>
+        task with
+        {
+            Status = PlanTaskStatus.Complete,
+            Commit = task.Commit ?? task.Handoff?.Commit,
+            CompletedAt = task.CompletedAt ?? task.Handoff?.SubmittedAt ?? completedAt,
+            CompletionSummary = task.CompletionSummary ?? task.Handoff?.Summary ??
+                "Implementation completed before its human-review gate moved to an amendment.",
+        };
 
     /// <summary>
     /// Preserves labels that have entered execution history and freely renumbers the pending
@@ -1578,6 +1598,7 @@ internal static class PlanStoreUpdater
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
         plan = RepairLegacyAmendmentTopology(plan);
+        plan = RepairLegacyAmendmentReviewFrontier(plan);
         plan = RepairLegacyAmendmentDisplayLabels(plan);
         plan = RepairContradictoryRecoveryAcceptance(plan);
         plan = RepairLostPlanRevisionReopen(plan);
@@ -2195,6 +2216,47 @@ internal static class PlanStoreUpdater
                     evidence.Artifacts)).ToArray(),
             };
         }).ToList();
+    }
+
+    /// <summary>
+    /// Repairs amendments created while the reviewed implementation task remained labelled as
+    /// human-review-required. The unresolved gate now belongs to the amendment frontier, while
+    /// the implementation result behind it is complete and remains part of the gate evidence.
+    /// </summary>
+    private static Plan RepairLegacyAmendmentReviewFrontier(Plan plan)
+    {
+        var amendmentGateIds = plan.Tasks
+            .Where(task => !string.IsNullOrWhiteSpace(task.AmendmentGateId))
+            .Select(task => task.AmendmentGateId!)
+            .ToHashSet(StringComparer.Ordinal);
+        if (amendmentGateIds.Count == 0) return plan;
+
+        var reviewedIds = plan.ApprovalGates
+            .Where(gate => amendmentGateIds.Contains(gate.GateId) &&
+                           gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval)
+            .SelectMany(gate => gate.AfterTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        var changed = false;
+        var tasks = plan.Tasks.Select(task =>
+        {
+            if (!reviewedIds.Contains(task.TaskId) ||
+                task.Status != PlanTaskStatus.HumanReviewRequired ||
+                !string.IsNullOrWhiteSpace(task.AmendmentGateId))
+                return task;
+            changed = true;
+            return CompleteImplementationBeforeMovedGate(task, now);
+        }).ToArray();
+        if (!changed) return plan;
+
+        return plan with
+        {
+            Tasks = tasks,
+            Progress = new PlanProgress(
+                tasks.Count(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded),
+                tasks.Count(task => task.Status != PlanTaskStatus.Superseded),
+                plan.Progress.ExecutingTaskId),
+        };
     }
 
     private static IReadOnlyList<PlanExecutionAnomaly>? MergeExecutionAnomalies(

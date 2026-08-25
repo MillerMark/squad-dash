@@ -40,7 +40,12 @@ internal static class ApprovalGateReadinessEvaluator
             if (gate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped)
                 continue;
 
-            var isReady = gate.AfterTaskIds.All(id => terminalIds.Contains(id));
+            var isHumanProofGate = gate.ProofRequirements is { Count: > 0 };
+            var isReady = gate.AfterTaskIds.All(id =>
+                terminalIds.Contains(id) ||
+                isHumanProofGate && plan.Tasks.Any(task =>
+                    string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                    task.Status == PlanTaskStatus.HumanReviewRequired));
             var frontier = ComputeDownstreamFrontier(plan, gate);
             results.Add(new GateReadinessState(gate.GateId, isReady, frontier));
         }
@@ -106,8 +111,7 @@ internal static class ApprovalGateReadinessEvaluator
             if (blockedIds.Contains(task.TaskId))
                 continue;
             if (task.DependsOn.All(id =>
-                    completedIds.Contains(id) ||
-                    IsAwaitingHumanReviewDependencyForAmendment(plan, task, id)))
+                    IsDependencySatisfiedForExecution(plan, task, id, completedIds)))
                 return task.TaskId;
         }
         return null;
@@ -254,6 +258,14 @@ internal static class ApprovalGateReadinessEvaluator
             .Where(t => t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
             .Select(t => t.TaskId)
             .ToHashSet(StringComparer.Ordinal);
+
+    internal static bool IsDependencySatisfiedForExecution(
+        Plan plan,
+        PlanTask task,
+        string dependencyId,
+        IReadOnlySet<string> completedIds) =>
+        completedIds.Contains(dependencyId) ||
+        IsAwaitingHumanReviewDependencyForAmendment(plan, task, dependencyId);
 
     private static bool IsAwaitingHumanReviewDependencyForAmendment(
         Plan plan,

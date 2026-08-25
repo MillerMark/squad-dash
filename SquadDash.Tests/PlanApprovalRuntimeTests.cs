@@ -358,6 +358,9 @@ public sealed class PlanApprovalRuntimeTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(persisted.Tasks.Single(task => task.TaskId == reviewed.TaskId).Status,
+                Is.EqualTo(PlanTaskStatus.Complete),
+                "The amendment moves the existing human-proof boundary after the fixture task.");
             Assert.That(persisted.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Pending));
             Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(persisted),
                 Is.EqualTo(amendment.TaskId));
