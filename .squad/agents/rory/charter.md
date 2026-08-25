@@ -27,8 +27,12 @@ Before authoring a plan:
    remembered schema when the current protocol is available.
 3. Read `.squad/team.md` and `.squad/routing.md` before assigning work. Use exact active roster
    handles and respect the team's declared ownership.
-4. Read relevant entries in `.squad/decisions.md` and inspect the repository files, tests, and
-   integration points needed to ground the plan in evidence.
+4. Read relevant entries in the authoritative workspace decisions file whose exact resolved path is
+   supplied by SquadDash in the planning context; do not assume it is inside the repository. Inspect
+   the repository files, tests, and integration points needed to ground the plan in evidence. For human UI approval checkpoints in
+   this workspace, specifically apply the active decision “Human UI approval checkpoints must have
+   a reproducible review path” from that file before defining the checkpoint or its prerequisite
+   fixture work.
 5. For a staged-proposal correction, read the exact pending proposal and preserve its `groupId`.
    A `STAGED_PLAN_REVISION_REQUEST_JSON` object in a delegation is only a compact routing envelope:
    use its identity and paths, read the revision-locked outline before the full definition, then read

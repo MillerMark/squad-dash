@@ -4,6 +4,32 @@
 
 ---
 
+### 2026-08-25 — Human UI approval checkpoints must have a reproducible review path
+
+**Context:** This repository develops SquadDash itself, so UI states that require human approval
+can often be made safely and repeatably accessible through SquadDash's Developer → Simulation menu.
+That convention is specific to this workspace and is not a general convention for other repositories.
+
+**Decision:**
+
+1. When a plan includes a human approval checkpoint for UI state that is not already directly
+   reachable through normal product use, the plan must provide a reproducible review path.
+2. In this workspace, Developer → Simulation is the preferred access point for purpose-built review
+   fixtures. The plan must either reference an existing adequate simulation or include creation of
+   the required simulation before the human approval checkpoint becomes reachable.
+3. Every human proof requirement must give the reviewer concrete setup, navigation/opening,
+   observation, and cleanup instructions. A checkbox without a usable reproduction path is not ready
+   for human review.
+4. A visual-only fixture is insufficient when the approval concerns behavior or persistence. The
+   simulation must exercise the relevant action path, or the plan must clearly identify a safe,
+   reproducible alternative that proves the behavior.
+
+**Scope:** Only the SquadDash workspace containing this `.squad/decisions.md`. This decision does not
+authorize product code to write or propagate this convention into any other workspace's
+`.squad/decisions.md`.
+
+---
+
 ### 2026-08-02 — Collected-plan workflow: service ownership and invariants
 
 **Context:** The staged-plan-lifecycle feature (PLANLIBRARY-20260802) introduced the ability to collect Inbox plan proposals into the Plans panel without starting execution, then explicitly start or resume them later with live progress observation.
