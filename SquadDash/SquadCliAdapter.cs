@@ -72,8 +72,8 @@ internal sealed class SquadCliAdapter {
         return Task.CompletedTask;
     }
 
-    public void LaunchPowerShellCommandWindow(WorkspaceIssueAction action) {
-        Process.Start(CreatePowerShellCommandStartInfo(_workspacePaths.ApplicationRoot, action));
+    public Process? LaunchPowerShellCommandWindow(WorkspaceIssueAction action) {
+        return Process.Start(CreatePowerShellCommandStartInfo(_workspacePaths.ApplicationRoot, action));
     }
 
     internal static ProcessStartInfo CreatePowerShellCommandStartInfo(

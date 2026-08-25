@@ -582,8 +582,12 @@ public partial class MainWindow : Window
     private string? _currentSessionState;
     // _clearConfirmationPending, _universeSelectionPending moved to PromptExecutionController
     private readonly SquadCliAdapter _squadCliAdapter;
+    private readonly IWorkspaceUpgradeService _workspaceUpgradeService;
+    private readonly IWorkspacePendingUpgradeStore _workspacePendingUpgradeStore;
     private readonly IWorkspacePaths _workspacePaths;
     private readonly ScreenshotRefreshOptions _screenshotRefreshOptions;
+    private WorkspacePendingUpgradeState _workspacePendingUpgradeState = WorkspacePendingUpgradeState.None;
+    private Window? _workspaceUpgradeSummaryWindow;
     private string? _lastHandledRestartRequestId;
     private TranscriptThreadState? _coordinatorThread;
     private TranscriptThreadState? _selectedTranscriptThread;
@@ -926,6 +930,13 @@ public partial class MainWindow : Window
             _workspacePaths,
             _cliResolutionService,
             (op, ex) => HandleUiCallbackException(op, ex));
+        _workspaceUpgradeService = serviceProvider?.GetService<IWorkspaceUpgradeService>() ??
+            new WorkspaceUpgradeService(
+                new SquadInstallerServiceProcessRunner(),
+                _installerService,
+                _cliResolutionService);
+        _workspacePendingUpgradeStore = serviceProvider?.GetService<IWorkspacePendingUpgradeStore>() ??
+            new WorkspacePendingUpgradeStore(_settingsStore);
         _workspaceOpenCoordinator = new WorkspaceOpenCoordinator(_instanceRegistry);
         _pushNotificationService = new PushNotificationService(_settingsStore);
         SoundNotifications = new SoundNotificationService(_settingsStore, () => BuildTtsProvider(_settingsSnapshot));
@@ -2180,6 +2191,7 @@ public partial class MainWindow : Window
                     UpdateStatusTitle();
                     SyncLoopPanel();
                     UpdateSquadUpdateBadge();
+                    _ = RefreshWorkspaceUpgradeStateAsync();
                 }));
             SquadDashTrace.Write(TraceCategory.Startup, "MainWindow_Loaded: ResolveSquadVersionAsync started (non-blocking).");
             _ = _squadCliAdapter.CheckForSquadUpdateAsync().ContinueWith(_ => Dispatcher.Invoke(UpdateSquadUpdateBadge));
@@ -2581,6 +2593,8 @@ public partial class MainWindow : Window
         UpdateInteractiveControlState();
         SyncNoWorkspaceHintOverlay();
         UpdateRunningInstanceRegistration();
+        _workspacePendingUpgradeState = WorkspacePendingUpgradeState.None;
+        UpdateSquadUpdateBadge();
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: complete (no workspace) {initWsSw.ElapsedMilliseconds}ms total.");
     }
 
@@ -36032,6 +36046,7 @@ public partial class MainWindow : Window
         _conversationManager.ResetHistoryNavigation();
         UpdateWindowTitle();
         UpdateStatusTitle();
+        _ = RefreshWorkspaceUpgradeStateAsync();
         UpdateLeadAgent("Ready", string.Empty, string.Empty);
         UpdateSessionState("Ready");
         RefreshSidebar();
@@ -44871,12 +44886,21 @@ public partial class MainWindow : Window
             menu.Items.Add(updateItem);
         }
 
+        var workspaceUpgradeVersion = GetWorkspaceUpgradeVersionForMenu();
+        if (ShouldShowWorkspaceUpgradeEntryPoint() && !string.IsNullOrWhiteSpace(workspaceUpgradeVersion))
+        {
+            menu.Items.Add(MakeSep());
+            var workspaceUpgradeItem = MakeItem($"Upgrade workspace files to Squad v{workspaceUpgradeVersion}");
+            workspaceUpgradeItem.Click += async (_, _) => await OpenWorkspaceUpgradeSummaryAsync();
+            menu.Items.Add(workspaceUpgradeItem);
+        }
+
         menu.IsOpen = true;
     }
 
     private void UpdateSquadUpdateBadge()
     {
-        if (SquadUpdateBadge is null)
+        if (SquadUpdateBadge is null || WorkspaceUpgradePendingBadge is null)
             return;
         var updateInstruction = _squadCliAdapter.LastResolvedCandidate?.UpdateInstruction;
         var hasUpdate = updateInstruction?.CanAutoUpdate == true &&
@@ -44884,6 +44908,16 @@ public partial class MainWindow : Window
         SquadUpdateBadge.Visibility = hasUpdate ? Visibility.Visible : Visibility.Collapsed;
         if (hasUpdate)
             SquadUpdateBadge.ToolTip = MakeThemedToolTip($"Squad CLI v{updateInstruction!.TargetVersion} available — click to update");
+
+        var hasWorkspaceUpgrade = ShouldShowWorkspaceUpgradeEntryPoint();
+        WorkspaceUpgradePendingBadge.Visibility = hasWorkspaceUpgrade ? Visibility.Visible : Visibility.Collapsed;
+        if (hasWorkspaceUpgrade)
+        {
+            var workspaceVersion = GetWorkspaceUpgradeVersionForMenu();
+            var tooltipSuffix = string.IsNullOrWhiteSpace(workspaceVersion) ? string.Empty : $" to v{workspaceVersion}";
+            WorkspaceUpgradePendingBadge.ToolTip = MakeThemedToolTip($"Workspace files pending upgrade{tooltipSuffix} — click to review");
+        }
+
         UpdateTitleBarResponsiveLayout();
     }
 
@@ -44986,11 +45020,184 @@ public partial class MainWindow : Window
     {
         var command = updateInstruction.UpdateCommand
             ?? $"npm install @bradygaster/squad-cli@{updateInstruction.TargetVersion}";
+        var previousVersion = _squadCliAdapter.SquadVersion;
+        var workspaceFolder = _currentWorkspace?.FolderPath;
         var action = new WorkspaceIssueAction(
             "Update Squad CLI",
             WorkspaceIssueActionKind.LaunchPowerShellCommand,
             command);
-        _squadCliAdapter.LaunchPowerShellCommandWindow(action);
+        var updateProcess = _squadCliAdapter.LaunchPowerShellCommandWindow(action);
+        if (updateProcess is null)
+            return;
+
+        try
+        {
+            updateProcess.EnableRaisingEvents = true;
+            updateProcess.Exited += (_, _) =>
+            {
+                _ = Dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        await _squadCliAdapter.ResolveSquadVersionAsync(workspaceFolder).ConfigureAwait(true);
+                        UpdateStatusTitle();
+
+                        var currentVersion = _squadCliAdapter.SquadVersion;
+                        if (!string.IsNullOrWhiteSpace(workspaceFolder) &&
+                            !string.IsNullOrWhiteSpace(currentVersion) &&
+                            IsNewerSquadVersion(currentVersion, previousVersion))
+                        {
+                            await _workspacePendingUpgradeStore.SavePendingAsync(workspaceFolder, currentVersion).ConfigureAwait(true);
+                        }
+
+                        await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleUiCallbackException(nameof(RunSquadCliUpdate), ex);
+                    }
+                });
+            };
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(RunSquadCliUpdate), ex);
+        }
+    }
+
+    private async Task RefreshWorkspaceUpgradeStateAsync()
+    {
+        if (_currentWorkspace is null)
+        {
+            _workspacePendingUpgradeState = WorkspacePendingUpgradeState.None;
+            UpdateSquadUpdateBadge();
+            return;
+        }
+
+        try
+        {
+            _workspacePendingUpgradeState = await _workspacePendingUpgradeStore
+                .GetAsync(_currentWorkspace.FolderPath)
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(TraceCategory.General, $"Workspace pending-upgrade load failed: {ex.Message}");
+            _workspacePendingUpgradeState = WorkspacePendingUpgradeState.None;
+        }
+
+        UpdateSquadUpdateBadge();
+    }
+
+    private bool ShouldShowWorkspaceUpgradeEntryPoint()
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        if (_workspacePendingUpgradeState.IsPending)
+            return true;
+
+        var installedVersion = _squadCliAdapter.SquadVersion;
+        var recordedVersion = _workspacePendingUpgradeState.RecordedCliVersion;
+        return !string.IsNullOrWhiteSpace(installedVersion) &&
+               !string.IsNullOrWhiteSpace(recordedVersion) &&
+               IsNewerSquadVersion(installedVersion, recordedVersion);
+    }
+
+    private string? GetWorkspaceUpgradeVersionForMenu()
+    {
+        if (!string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion))
+            return _squadCliAdapter.SquadVersion;
+
+        return string.IsNullOrWhiteSpace(_workspacePendingUpgradeState.RecordedCliVersion)
+            ? null
+            : _workspacePendingUpgradeState.RecordedCliVersion;
+    }
+
+    private async Task OpenWorkspaceUpgradeSummaryAsync()
+    {
+        if (_currentWorkspace is null)
+            return;
+
+        if (_workspaceUpgradeSummaryWindow is not null)
+        {
+            if (_workspaceUpgradeSummaryWindow.WindowState == WindowState.Minimized)
+                _workspaceUpgradeSummaryWindow.WindowState = WindowState.Normal;
+            _workspaceUpgradeSummaryWindow.Activate();
+            _workspaceUpgradeSummaryWindow.Focus();
+            return;
+        }
+
+        var candidate = _squadCliAdapter.LastResolvedCandidate;
+        if (candidate is null || !candidate.IsAvailable)
+        {
+            await _squadCliAdapter.ResolveSquadVersionAsync(_currentWorkspace.FolderPath).ConfigureAwait(true);
+            candidate = _squadCliAdapter.LastResolvedCandidate;
+            UpdateStatusTitle();
+            UpdateSquadUpdateBadge();
+        }
+
+        if (candidate is null || !candidate.IsAvailable)
+        {
+            MessageBox.Show(
+                "Squad CLI could not be resolved for this workspace.",
+                "Workspace Upgrade",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var panel = new WorkspaceUpgradeSummaryPanel
+        {
+            CurrentState = WorkspaceUpgradeSummaryPanelState.Running,
+            ErrorMessage = string.Empty,
+            DryRunResult = WorkspaceUpgradeDryRunResult.Empty
+        };
+
+        var window = new Window
+        {
+            Title = "Workspace Upgrade Summary",
+            Width = 860,
+            Height = 680,
+            MinWidth = 680,
+            MinHeight = 500,
+            Content = panel
+        };
+        window.SetResourceReference(Window.BackgroundProperty, "PanelSurface");
+        window.SetResourceReference(Window.ForegroundProperty, "BodyText");
+        if (CanShowOwnedWindow())
+            window.Owner = this;
+        WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+        _workspaceUpgradeSummaryWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_workspaceUpgradeSummaryWindow, window))
+                _workspaceUpgradeSummaryWindow = null;
+        };
+        window.Show();
+
+        try
+        {
+            var dryRun = await _workspaceUpgradeService
+                .DryRunAsync(candidate, _currentWorkspace.FolderPath)
+                .ConfigureAwait(true);
+            panel.DryRunResult = dryRun;
+            if (dryRun.Success)
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Idle;
+                panel.ErrorMessage = string.Empty;
+            }
+            else
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+                panel.ErrorMessage = dryRun.ErrorMessage ?? "Workspace upgrade dry-run failed.";
+            }
+        }
+        catch (Exception ex)
+        {
+            panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+            panel.ErrorMessage = ex.Message;
+        }
     }
 
     /// <summary>

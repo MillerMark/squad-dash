@@ -61,6 +61,8 @@ namespace SquadDash {
                 new SquadInstallerServiceProcessRunner(),
                 provider.GetRequiredService<SquadInstallerService>(),
                 provider.GetRequiredService<ISquadCliResolutionService>()));
+            services.AddSingleton<IWorkspacePendingUpgradeStore>(provider => new WorkspacePendingUpgradeStore(
+                provider.GetRequiredService<ApplicationSettingsStore>()));
             services.AddSingleton<IProcessRunner, SystemProcessRunner>();
             services.AddSingleton<IEnvironmentProvider, SystemEnvironmentProvider>();
             services.AddSingleton<ISquadCliResolutionService, SquadCliResolutionService>();

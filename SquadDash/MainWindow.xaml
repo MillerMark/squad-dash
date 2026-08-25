@@ -3769,6 +3769,15 @@
                        MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
                        Text="↑" />
+            <TextBlock x:Name="WorkspaceUpgradePendingBadge"
+                       Margin="5,0,0,0"
+                       FontSize="{DynamicResource FontSizeBody}"
+                       Cursor="Hand"
+                       Visibility="Collapsed"
+                       Foreground="{DynamicResource AlertBodyText}"
+                       MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
+                       shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                       Text="W↑" />
         </StackPanel>
 
         <!-- Workspace title (click to reveal in Explorer) -->
