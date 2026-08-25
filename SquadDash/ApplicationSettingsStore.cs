@@ -506,6 +506,30 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public WorkspacePendingUpgradeState GetWorkspacePendingUpgrade(string workspaceFolder) {
+        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var current = Load();
+        return current.WorkspacePendingUpgradeByWorkspace.TryGetValue(normalizedWorkspace, out var state)
+            ? state
+            : WorkspacePendingUpgradeState.None;
+    }
+
+    public ApplicationSettingsSnapshot SaveWorkspacePendingUpgrade(
+        string workspaceFolder,
+        WorkspacePendingUpgradeState state) {
+        using var mutex = AcquireMutex();
+
+        var normalizedWorkspace = NormalizeFolder(workspaceFolder);
+        var current = LoadCore();
+        var pendingByWorkspace = current.WorkspacePendingUpgradeByWorkspace
+            .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
+        pendingByWorkspace[normalizedWorkspace] = state;
+
+        var updated = current with { WorkspacePendingUpgradeByWorkspace = pendingByWorkspace };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveLastUsedModel(string model) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1280,6 +1304,13 @@ internal sealed record ApplicationSettingsSnapshot(
     public IReadOnlyDictionary<string, CliWorkspaceSelection> CliSelectionByWorkspace { get; init; } =
         new Dictionary<string, CliWorkspaceSelection>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Per-workspace pending workspace-upgrade state.
+    /// Keyed by normalised workspace folder path.
+    /// </summary>
+    public IReadOnlyDictionary<string, WorkspacePendingUpgradeState> WorkspacePendingUpgradeByWorkspace { get; init; } =
+        new Dictionary<string, WorkspacePendingUpgradeState>(StringComparer.OrdinalIgnoreCase);
+
     public string? UserName { get; init; }
     public string? SpeechRegion { get; init; }
     public SpeechProvider SpeechProvider { get; init; } = SpeechProvider.Azure;
@@ -1921,6 +1952,18 @@ internal sealed record ApplicationSettingsSnapshot(
             }
         }
 
+        var normalizedWorkspacePendingUpgrades = new Dictionary<string, WorkspacePendingUpgradeState>(StringComparer.OrdinalIgnoreCase);
+        if (WorkspacePendingUpgradeByWorkspace is not null) {
+            foreach (var entry in WorkspacePendingUpgradeByWorkspace) {
+                if (string.IsNullOrWhiteSpace(entry.Key))
+                    continue;
+
+                var normalizedWorkspace = Path.GetFullPath(entry.Key)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                normalizedWorkspacePendingUpgrades[normalizedWorkspace] = entry.Value.Normalize();
+            }
+        }
+
         return new ApplicationSettingsSnapshot(
             lastOpenedFolder,
             normalizedFolders,
@@ -2035,6 +2078,7 @@ internal sealed record ApplicationSettingsSnapshot(
             BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
             HomeBranchByWorkspace = normalizedHomeBranches,
             CliSelectionByWorkspace = normalizedCliSelections,
+            WorkspacePendingUpgradeByWorkspace = normalizedWorkspacePendingUpgrades,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),
             LastGuidedTourEditorTourName = LastGuidedTourEditorTourName,
             LastGuidedTourEditorStepIndex = Math.Max(0, LastGuidedTourEditorStepIndex),
@@ -2085,6 +2129,20 @@ internal enum DeveloperRuntimeIssueSimulation {
 internal sealed record CliWorkspaceSelection(
     CliSelectionMode Mode,
     string? CustomPath);
+
+internal sealed record WorkspacePendingUpgradeState(
+    bool IsPending,
+    string? RecordedCliVersion,
+    DateTimeOffset? ResolvedAt) {
+    public static WorkspacePendingUpgradeState None { get; } = new(false, null, null);
+
+    public WorkspacePendingUpgradeState Normalize() {
+        return new WorkspacePendingUpgradeState(
+            IsPending,
+            string.IsNullOrWhiteSpace(RecordedCliVersion) ? null : RecordedCliVersion.Trim(),
+            ResolvedAt?.ToUniversalTime());
+    }
+}
 
 internal sealed record WorkspaceWindowPlacement(
     double Left,
