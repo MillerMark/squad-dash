@@ -893,6 +893,8 @@
                                    Click="SimulateBridgeDisposed_Click" />
                         <MenuItem Header="Simulate _Workspace Upgrade Panel"
                                   Click="SimulateWorkspaceUpgradePanel_Click" />
+                        <MenuItem Header="Simulate Workspace Upgrade _Button Flow"
+                                  Click="SimulateWorkspaceUpgradeButtonFlow_Click" />
                          <MenuItem Header="Workspace _Upgrade State"
                                    ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                             <MenuItem Header="Mark Current Workspace _Pending Upgrade"

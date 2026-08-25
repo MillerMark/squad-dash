@@ -12284,24 +12284,22 @@ public partial class MainWindow : Window
             : null;
         var isSafelyResumable = durablePlan is not null &&
                                 PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
-        var executingWithoutRunner = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Executing &&
-                                     (!IsLoopRunning || !string.Equals(
-                                         _activeDecomposeGroupId,
-                                         durablePlan.PlanId,
-                                         StringComparison.Ordinal));
-        var canResumePlan = durablePlan is not null &&
-                            !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
-                            (durablePlan.IsPaused || isSafelyResumable || executingWithoutRunner);
-        Action<Plan>? onResumePlan = canResumePlan
+        Action<Plan>? onResumePlan = durablePlan is not null &&
+                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
                   var resumed = current.IsPaused ? PlanStoreUpdater.ApplyResume(current) : current;
                   if (!ReferenceEquals(resumed, current))
                       PublishPlanProgress(resumed);
+                  var executingWithoutRunner = resumed.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                                               (!IsLoopRunning || !string.Equals(
+                                                   _activeDecomposeGroupId,
+                                                   resumed.PlanId,
+                                                   StringComparison.Ordinal));
                   if (resumed.LifecycleStatus == PlanLifecycleStatus.Approved ||
                       PlanRecoveryResumePolicy.IsSafelyResumable(resumed) ||
-                      (resumed.LifecycleStatus == PlanLifecycleStatus.Executing && executingWithoutRunner))
+                      executingWithoutRunner)
                   {
                       if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                           ScheduleApprovalResumeWhenIdle(resumed.PlanId);
@@ -12311,9 +12309,7 @@ public partial class MainWindow : Window
               }
             : null;
         Action<Plan>? onPausePlan = durablePlan is not null &&
-                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
-                                    !executingWithoutRunner &&
-                                    !isSafelyResumable
+                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
@@ -12536,6 +12532,11 @@ public partial class MainWindow : Window
                 _loopRoundExecutionIdentity?.PlanId,
                 _loopRoundExecutionIdentity?.TaskId,
                 taskId),
+            isPlanRunnerActive: current =>
+                IsLoopRunning && string.Equals(
+                    _activeDecomposeGroupId,
+                    current.PlanId,
+                    StringComparison.Ordinal),
             isRecoveryAssessmentActive: taskId =>
                 string.Equals(_pendingPlanRecoveryAssessment?.Plan.Group.GroupId, groupId, StringComparison.Ordinal) &&
                 string.Equals(_pendingPlanRecoveryAssessment?.TaskId, taskId, StringComparison.Ordinal),
@@ -30845,6 +30846,107 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SimulateWorkspaceUpgradeButtonFlow_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+            {
+                MessageBox.Show(
+                    "Open a workspace before running the button-flow simulation.",
+                    "Workspace Upgrade Simulation",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var workspacePath = _currentWorkspace.FolderPath;
+            var beforeSha = GetGitShortSha(workspacePath);
+            var fakeService = new SimulatedButtonFlowUpgradeService();
+            var fakeDryRun = fakeService.BuildRepresentativeDryRunResult();
+            var simulationVersion = WorkspaceUpgradeVersionPolicy.ResolveSimulationVersion(
+                _squadCliAdapter.LatestSquadVersion,
+                _squadCliAdapter.SquadVersion);
+
+            var panel = new WorkspaceUpgradeSummaryPanel
+            {
+                DryRunResult = fakeDryRun,
+                CurrentState = WorkspaceUpgradeSummaryPanelState.Idle,
+                ErrorMessage = string.Empty
+            };
+            panel.SetApplyAvailability(true);
+
+            var window = new Window
+            {
+                Title = $"Simulate Workspace Upgrade Button Flow — HEAD: {beforeSha}",
+                Width = 860,
+                Height = 680,
+                MinWidth = 680,
+                MinHeight = 500,
+                Content = panel
+            };
+            window.SetResourceReference(Window.BackgroundProperty, "PanelSurface");
+            window.SetResourceReference(Window.ForegroundProperty, "BodyText");
+            if (CanShowOwnedWindow())
+                window.Owner = this;
+            WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+
+            panel.ReviewChangesRequested = () =>
+            {
+                AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
+                return Task.CompletedTask;
+            };
+
+            panel.ApplyWorkspaceUpdateRequested = async () =>
+            {
+                panel.SetApplyAvailability(true);
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Running;
+                panel.ErrorMessage = string.Empty;
+                panel.SetPartiallyAppliedFiles([]);
+
+                await Task.Delay(600).ConfigureAwait(true);
+
+                var fakeResult = await fakeService
+                    .UpgradeAsync(null!, workspacePath)
+                    .ConfigureAwait(true);
+
+                panel.DryRunResult = new WorkspaceUpgradeDryRunResult(
+                    fakeResult.SafeAdditionsOrRefreshes,
+                    fakeResult.TrackedLocalChangesAtRisk,
+                    fakeResult.GeneratedFilesAtRisk);
+
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Succeeded;
+                panel.ErrorMessage = string.Empty;
+                panel.SetPartiallyAppliedFiles([]);
+
+                var afterSha = GetGitShortSha(workspacePath);
+                window.Title =
+                    $"Simulate Workspace Upgrade Button Flow — HEAD before: {beforeSha} | after: {afterSha}";
+
+                await _workspacePendingUpgradeStore.SaveResolvedAsync(workspacePath).ConfigureAwait(true);
+                await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+                AppendLine("✅ [Simulation] Workspace update applied. Opening git changes for review.");
+                await HandleCheckGitDiffAsync().ConfigureAwait(true);
+            };
+
+            panel.LaterRequested = async () =>
+            {
+                await _workspacePendingUpgradeStore
+                    .SavePendingAsync(workspacePath, simulationVersion)
+                    .ConfigureAwait(true);
+                await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+                AppendLine($"⏳ [Simulation] Workspace upgrade deferred (target Squad v{simulationVersion}).");
+                window.Close();
+            };
+
+            window.Show();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateWorkspaceUpgradeButtonFlow_Click), ex);
+        }
+    }
+
     private async void SimulateWorkspaceUpgradePending_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -45942,6 +46044,57 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static string GetGitShortSha(string workingDirectory)
+    {
+        try
+        {
+            using var proc = new System.Diagnostics.Process();
+            proc.StartInfo = new System.Diagnostics.ProcessStartInfo("git", "rev-parse --short HEAD")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                WorkingDirectory       = workingDirectory
+            };
+            proc.Start();
+            var sha = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(3000);
+            return string.IsNullOrWhiteSpace(sha) ? "unknown" : sha;
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    private sealed class SimulatedButtonFlowUpgradeService : IWorkspaceUpgradeService
+    {
+        private static readonly IReadOnlyList<string> SafeFiles = [
+            ".squad/team.md",
+            ".squad/routing.md"
+        ];
+        private static readonly IReadOnlyList<string> TrackedAtRisk = [
+            ".squad/agents/lyra-morn/charter.md"
+        ];
+
+        internal WorkspaceUpgradeDryRunResult BuildRepresentativeDryRunResult() =>
+            new(SafeFiles, TrackedAtRisk, []);
+
+        public Task<WorkspaceUpgradeDryRunResult> DryRunAsync(
+            ResolvedCliCandidate candidate, string workspaceDir) =>
+            Task.FromResult(BuildRepresentativeDryRunResult());
+
+        public Task<WorkspaceUpgradeResult> UpgradeAsync(
+            ResolvedCliCandidate candidate, string workspaceDir) =>
+            Task.FromResult(new WorkspaceUpgradeResult(
+                Success: true,
+                IsPartial: false,
+                ErrorMessage: null,
+                SafeAdditionsOrRefreshes: SafeFiles,
+                TrackedLocalChangesAtRisk: TrackedAtRisk,
+                GeneratedFilesAtRisk: []));
     }
 
     /// <summary>
