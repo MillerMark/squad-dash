@@ -22,6 +22,10 @@ internal sealed record ModelProviderProbeResult(
     string ProviderEndpointRoot,
     string? ParentModel = null,
     string? Owner = null,
+    string? CliCategory = null,
+    decimal? InputPricePerMillionTokens = null,
+    decimal? OutputPricePerMillionTokens = null,
+    string? ReleaseStatus = null,
     bool? CatalogSupportsToolCalling = null,
     string? CatalogNotes = null,
     ModelProbeCheckStatus ChatStatus = ModelProbeCheckStatus.NotRun,
@@ -41,6 +45,10 @@ internal sealed record ModelProviderProbeResult(
     public string ToolStatusText => StatusText(ToolStatus);
     public string ChatStatusDisplay => StatusDisplay(ChatStatus);
     public string ToolStatusDisplay => StatusDisplay(ToolStatus);
+    public string CategoryDisplay => TextOrNotReported(CliCategory);
+    public string InputPriceDisplay => PriceOrNotReported(InputPricePerMillionTokens);
+    public string OutputPriceDisplay => PriceOrNotReported(OutputPricePerMillionTokens);
+    public string ReleaseStatusDisplay => TextOrNotReported(ReleaseStatus);
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes) ||
                             !string.IsNullOrWhiteSpace(DiagnosticNotes);
     public string NoteSummary => BuildNoteSummary(ChatStatus, ToolStatus, Notes, CanLoadLocally, IsLoadedLocally);
@@ -146,6 +154,14 @@ internal sealed record ModelProviderProbeResult(
         return string.Equals(trimmed, "Loading...", StringComparison.Ordinal) ||
                string.Equals(trimmed, "Probing...", StringComparison.Ordinal);
     }
+
+    private static string TextOrNotReported(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "Not reported" : value.Trim();
+
+    private static string PriceOrNotReported(decimal? value) =>
+        value.HasValue
+            ? value.Value.ToString("0.####", CultureInfo.InvariantCulture)
+            : "Not reported";
 
     public ModelProviderProbeResult WithoutStaleNotLoadedNotes() {
         if (string.IsNullOrWhiteSpace(Notes) &&

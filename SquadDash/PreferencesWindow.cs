@@ -16,6 +16,7 @@ using System.Threading;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Globalization;
 using Microsoft.Win32;
 using Microsoft.CognitiveServices.Speech;
 
@@ -27,6 +28,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly Action<ApplicationSettingsSnapshot> _onSaved;
     private readonly ISquadCliResolutionService _cliResolutionService;
     private readonly ISquadCliSelectionStore _cliSelectionStore;
+    private readonly ICliModelCatalogService _cliModelCatalogService;
     private readonly string _cliWorkspaceDirectory;
     private readonly TextBox _userNameBox;
     private readonly PasswordBox _apiKeyPasswordBox;
@@ -70,6 +72,11 @@ internal sealed class PreferencesWindow : Window {
     private readonly TextBlock _copilotModelStatusText;
     private readonly StackPanel _githubCopilotModelPanel;
     private readonly StackPanel _customModelProviderPanel;
+    private readonly TextBlock _modelCategoryValueText;
+    private readonly TextBlock _modelInputPriceValueText;
+    private readonly TextBlock _modelOutputPriceValueText;
+    private readonly TextBlock _modelReleaseStatusValueText;
+    private readonly ComboBox _reasoningEffortComboBox;
     private readonly TextBox _byokProviderUrlBox;
     private readonly TextBox _byokModelBox;
     private readonly ComboBox _byokProviderTypeComboBox;
@@ -91,7 +98,9 @@ internal sealed class PreferencesWindow : Window {
     private readonly StackPanel _categoryAssignmentsPanel;
     private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _suppressProfileSave;
+    private bool _suppressReasoningEffortSave;
     private string? _currentlyEditedProfileId;
+    private int _metadataRefreshVersion;
     private readonly Stack<(List<ModelProfile> Profiles, Dictionary<string, string> Assignments)> _undoStack = new();
     private bool _profilesDirty;
     private TextBlock _assignmentCalloutText = null!;
@@ -155,6 +164,7 @@ internal sealed class PreferencesWindow : Window {
         "gpt-4.1",
         "gemini-3-pro-preview"
     };
+    private const string NotReportedMetadataText = "Not reported";
 
     /// <summary>
     /// Display labels for all navigation leaf pages. These are the strings to pass to
@@ -237,6 +247,7 @@ internal sealed class PreferencesWindow : Window {
         PushNotificationService pushNotificationService,
         ISquadCliResolutionService cliResolutionService,
         ISquadCliSelectionStore cliSelectionStore,
+        ICliModelCatalogService cliModelCatalogService,
         string cliWorkspaceDirectory,
         IWorkspacePaths workspacePaths,
         Action<ApplicationSettingsSnapshot> onSaved,
@@ -253,6 +264,7 @@ internal sealed class PreferencesWindow : Window {
         _pushNotificationService = pushNotificationService;
         _cliResolutionService = cliResolutionService ?? throw new ArgumentNullException(nameof(cliResolutionService));
         _cliSelectionStore = cliSelectionStore ?? throw new ArgumentNullException(nameof(cliSelectionStore));
+        _cliModelCatalogService = cliModelCatalogService ?? throw new ArgumentNullException(nameof(cliModelCatalogService));
         _cliWorkspaceDirectory = string.IsNullOrWhiteSpace(cliWorkspaceDirectory)
             ? workspacePaths.ApplicationRoot
             : cliWorkspaceDirectory;
@@ -676,6 +688,17 @@ internal sealed class PreferencesWindow : Window {
         _customModelProviderPanel = new StackPanel {
             Visibility = useCustomModelProvider ? Visibility.Visible : Visibility.Collapsed
         };
+        _modelCategoryValueText = CreateMetadataValueTextBlock();
+        _modelInputPriceValueText = CreateMetadataValueTextBlock();
+        _modelOutputPriceValueText = CreateMetadataValueTextBlock();
+        _modelReleaseStatusValueText = CreateMetadataValueTextBlock();
+        _reasoningEffortComboBox = new ComboBox {
+            Height = 30,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        _reasoningEffortComboBox.SetResourceReference(StyleProperty, "ThemedComboBoxStyle");
+        _reasoningEffortComboBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        PopulateReasoningEffortOptions(supportedReasoningEfforts: null, selectedReasoningEffort: null);
 
         _byokProviderUrlBox = new TextBox {
             Text = currentSettings.ByokProviderUrl ?? string.Empty,
@@ -902,19 +925,38 @@ internal sealed class PreferencesWindow : Window {
         _tunnelTokenPasswordBox.LostFocus     += (_, _) => SaveTunnelNow();
         _tunnelTokenRevealBox.LostFocus       += (_, _) => SaveTunnelNow();
 
-        _githubCopilotProviderRadio.Checked   += (_, _) => SaveModelSettingsNow();
-        _customModelProviderRadio.Checked     += (_, _) => SaveModelSettingsNow();
-        _copilotModelComboBox.SelectionChanged += (_, _) => SaveModelSettingsNow();
-        _copilotModelComboBox.LostFocus        += (_, _) => SaveModelSettingsNow();
+        _githubCopilotProviderRadio.Checked   += (_, _) => {
+            SaveModelSettingsNow();
+            QueueSelectedModelMetadataRefresh();
+        };
+        _customModelProviderRadio.Checked     += (_, _) => {
+            SaveModelSettingsNow();
+            QueueSelectedModelMetadataRefresh();
+        };
+        _copilotModelComboBox.SelectionChanged += (_, _) => {
+            SaveModelSettingsNow();
+            QueueSelectedModelMetadataRefresh();
+        };
+        _copilotModelComboBox.LostFocus        += (_, _) => {
+            SaveModelSettingsNow();
+            QueueSelectedModelMetadataRefresh();
+        };
 
         _byokProviderUrlBox.LostFocus         += (_, _) => SaveByokNow();
-        _byokModelBox.LostFocus               += (_, _) => SaveByokNow();
+        _byokModelBox.LostFocus               += (_, _) => {
+            SaveByokNow();
+            QueueSelectedModelMetadataRefresh();
+        };
         _byokApiKeyPasswordBox.LostFocus      += (_, _) => SaveByokNow();
         _byokApiKeyRevealBox.LostFocus        += (_, _) => SaveByokNow();
-        _byokProviderTypeComboBox.SelectionChanged += (_, _) => SaveByokNow();
+        _byokProviderTypeComboBox.SelectionChanged += (_, _) => {
+            SaveByokNow();
+            QueueSelectedModelMetadataRefresh();
+        };
         _byokWireApiComboBox.SelectionChanged += (_, _) => SaveByokNow();
         _byokOfflineModeCheckBox.Checked      += (_, _) => SaveByokNow();
         _byokOfflineModeCheckBox.Unchecked    += (_, _) => SaveByokNow();
+        _reasoningEffortComboBox.SelectionChanged += (_, _) => SaveReasoningEffortNow();
 
         _cleanupPromptBox.LostFocus += (_, _) => SaveCleanupPromptNow();
 
@@ -1037,6 +1079,7 @@ internal sealed class PreferencesWindow : Window {
         {
             await LoadCopilotModelsIntoComboBoxAsync();
             await RefreshCliSelectionDisplayAsync();
+            QueueSelectedModelMetadataRefresh();
         };
     }
 
@@ -1744,11 +1787,19 @@ internal sealed class PreferencesWindow : Window {
 
         form.Children.Add(_customModelProviderPanel);
 
+        AddSectionHeader(form, "Model Metadata", topMargin: 12);
+        AddMetadataRow(form, "Category:", _modelCategoryValueText);
+        AddMetadataRow(form, "Input Price (per 1M tokens):", _modelInputPriceValueText);
+        AddMetadataRow(form, "Output Price (per 1M tokens):", _modelOutputPriceValueText);
+        AddMetadataRow(form, "Release Status:", _modelReleaseStatusValueText);
+        AddLabel(form, "Reasoning Effort:");
+        form.Children.Add(_reasoningEffortComboBox);
+
         _githubCopilotProviderRadio.Checked += (_, _) => UpdateModelProviderSectionVisibility();
         _customModelProviderRadio.Checked += (_, _) => UpdateModelProviderSectionVisibility();
 
         // ── Category assignments ──
-        AddSectionHeader(form, "Category Assignments", topMargin: 16);
+        AddSectionHeader(form, "Assignments", topMargin: 16);
 
         var assignHint = new TextBlock {
             Text = "Assign this profile to agent categories. Each category uses at most one profile.",
@@ -1822,6 +1873,133 @@ internal sealed class PreferencesWindow : Window {
         _copilotModelComboBox.SelectedItem = normalizedModel;
         _copilotModelComboBox.Text = normalizedModel;
     }
+
+    private static TextBlock CreateMetadataValueTextBlock() {
+        var text = new TextBlock {
+            Text = NotReportedMetadataText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        text.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        return text;
+    }
+
+    private static void AddMetadataRow(Panel parent, string label, TextBlock valueBlock) {
+        AddLabel(parent, label);
+        parent.Children.Add(valueBlock);
+    }
+
+    private void QueueSelectedModelMetadataRefresh() => _ = RefreshSelectedModelMetadataAsync();
+
+    private async Task RefreshSelectedModelMetadataAsync() {
+        var refreshVersion = Interlocked.Increment(ref _metadataRefreshVersion);
+        var modelId = ReadSelectedModelIdForMetadata();
+        if (string.IsNullOrWhiteSpace(modelId)) {
+            if (refreshVersion == _metadataRefreshVersion)
+                ApplyModelMetadataToControls(null);
+            return;
+        }
+
+        CliModelMetadata? metadata = null;
+        try {
+            metadata = await _cliModelCatalogService.GetModelMetadataAsync(
+                modelId,
+                ResolveSelectedAiProviderType(),
+                CancellationToken.None);
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Preferences", $"Failed to read model metadata for '{modelId}': {ex.Message}");
+        }
+
+        if (refreshVersion != _metadataRefreshVersion)
+            return;
+
+        ApplyModelMetadataToControls(metadata);
+    }
+
+    private void ApplyModelMetadataToControls(CliModelMetadata? metadata) {
+        _modelCategoryValueText.Text = FormatMetadataText(metadata?.CliCategory);
+        _modelInputPriceValueText.Text = FormatPriceText(metadata?.InputPricePerMillionTokens);
+        _modelOutputPriceValueText.Text = FormatPriceText(metadata?.OutputPricePerMillionTokens);
+        _modelReleaseStatusValueText.Text = FormatMetadataText(metadata?.ReleaseStatus);
+        var selectedEffort = GetSelectedProfile()?.ReasoningEffort;
+        PopulateReasoningEffortOptions(metadata?.SupportedReasoningEfforts, selectedEffort);
+    }
+
+    private void PopulateReasoningEffortOptions(
+        IReadOnlyList<string>? supportedReasoningEfforts,
+        string? selectedReasoningEffort) {
+        _suppressReasoningEffortSave = true;
+        try {
+            _reasoningEffortComboBox.Items.Clear();
+            _reasoningEffortComboBox.Items.Add(new ComboBoxItem {
+                Content = "Auto/Default",
+                Tag = null
+            });
+
+            var efforts = supportedReasoningEfforts is null
+                ? Array.Empty<string>()
+                : supportedReasoningEfforts
+                    .Where(effort => !string.IsNullOrWhiteSpace(effort))
+                    .Select(effort => effort.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(effort => effort, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            foreach (var effort in efforts) {
+                _reasoningEffortComboBox.Items.Add(new ComboBoxItem {
+                    Content = effort,
+                    Tag = effort
+                });
+            }
+
+            var normalizedSelected = string.IsNullOrWhiteSpace(selectedReasoningEffort)
+                ? null
+                : selectedReasoningEffort.Trim();
+            var selectedItem = _reasoningEffortComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Tag as string, normalizedSelected, StringComparison.OrdinalIgnoreCase))
+                ?? _reasoningEffortComboBox.Items
+                    .OfType<ComboBoxItem>()
+                    .FirstOrDefault(item => item.Tag is null);
+            _reasoningEffortComboBox.SelectedItem = selectedItem;
+        }
+        finally {
+            _suppressReasoningEffortSave = false;
+        }
+    }
+
+    private string? ReadSelectedModelIdForMetadata() {
+        if (_githubCopilotProviderRadio.IsChecked == true)
+            return ReadCopilotDefaultModelInput();
+
+        var byokModel = _byokModelBox.Text.Trim();
+        return string.IsNullOrWhiteSpace(byokModel) ? null : byokModel;
+    }
+
+    private AiProviderType ResolveSelectedAiProviderType() {
+        if (_githubCopilotProviderRadio.IsChecked == true)
+            return AiProviderType.Copilot;
+
+        var providerType = (_byokProviderTypeComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        return ResolveAiProviderType(providerType);
+    }
+
+    private static AiProviderType ResolveAiProviderType(string? providerType) {
+        if (string.Equals(providerType, "copilot", StringComparison.OrdinalIgnoreCase))
+            return AiProviderType.Copilot;
+        if (providerType is "openai" or "azure" or "anthropic")
+            return AiProviderType.Byok;
+        return AiProviderType.Custom;
+    }
+
+    private static string FormatMetadataText(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? NotReportedMetadataText : value.Trim();
+
+    private static string FormatPriceText(decimal? price) =>
+        price.HasValue
+            ? $"{price.Value.ToString("0.####", CultureInfo.InvariantCulture)} USD"
+            : NotReportedMetadataText;
 
     private async Task<IReadOnlyList<string>> FetchCopilotModelIdsAsync() {
         var sdkDirectory = _workspacePaths.SquadSdkDirectory;
@@ -2537,12 +2715,14 @@ internal sealed class PreferencesWindow : Window {
             var models = await probeService.DiscoverModelsAsync(
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim());
+            var aiProviderType = ResolveSelectedAiProviderType();
+            var enrichedModels = await EnrichProbeResultsWithCliMetadataAsync(models, aiProviderType);
             _byokProviderUrlBox.Text = url;
             var providerWarning = await BuildModelProbeProviderWarningAsync(
                 probeService,
                 url,
-                models);
-            var canLoadFoundryModels = LooksLikeLocalFoundryProvider(url, models);
+                enrichedModels);
+            var canLoadFoundryModels = LooksLikeLocalFoundryProvider(url, enrichedModels);
             var localStatus = canLoadFoundryModels
                 ? await BuildModelProbeLocalStatusAsync(probeService)
                 : null;
@@ -2551,7 +2731,7 @@ internal sealed class PreferencesWindow : Window {
                 probeService,
                 url,
                 string.IsNullOrWhiteSpace(apiKey) ? null : apiKey.Trim(),
-                models,
+                enrichedModels,
                 providerWarning,
                 _byokModelBox.Text,
                 canLoadFoundryModels,
@@ -2563,9 +2743,11 @@ internal sealed class PreferencesWindow : Window {
                 !string.IsNullOrWhiteSpace(probeWindow.SelectedModelId)) {
                 _byokModelBox.Text = probeWindow.SelectedModelId;
                 _byokTestStatusText.Text = $"Selected {probeWindow.SelectedModelId}.";
+                SaveByokNow();
+                QueueSelectedModelMetadataRefresh();
             }
             else {
-                _byokTestStatusText.Text = $"{models.Count} model(s) discovered.";
+                _byokTestStatusText.Text = $"{enrichedModels.Count} model(s) discovered.";
             }
         }
         catch (Exception ex) {
@@ -2579,6 +2761,37 @@ internal sealed class PreferencesWindow : Window {
             if (clickedButton is not null)
                 clickedButton.IsEnabled = true;
         }
+    }
+
+    private async Task<IReadOnlyList<ModelProviderProbeResult>> EnrichProbeResultsWithCliMetadataAsync(
+        IReadOnlyList<ModelProviderProbeResult> models,
+        AiProviderType providerType) {
+        if (models.Count == 0)
+            return models;
+
+        var enriched = new ModelProviderProbeResult[models.Count];
+        for (var i = 0; i < models.Count; i++) {
+            var model = models[i];
+            CliModelMetadata? metadata = null;
+            try {
+                metadata = await _cliModelCatalogService.GetModelMetadataAsync(
+                    model.ModelId,
+                    providerType,
+                    CancellationToken.None);
+            }
+            catch (Exception ex) {
+                SquadDashTrace.Write("Preferences", $"Probe metadata lookup failed for '{model.ModelId}': {ex.Message}");
+            }
+
+            enriched[i] = model with {
+                CliCategory = metadata?.CliCategory,
+                InputPricePerMillionTokens = metadata?.InputPricePerMillionTokens,
+                OutputPricePerMillionTokens = metadata?.OutputPricePerMillionTokens,
+                ReleaseStatus = metadata?.ReleaseStatus
+            };
+        }
+
+        return enriched;
     }
 
     private static async Task<ModelProviderLocalStatus> BuildModelProbeLocalStatusAsync(
@@ -3020,6 +3233,17 @@ internal sealed class PreferencesWindow : Window {
         _profilesDirty = true;
     }
 
+    private void SaveReasoningEffortNow() {
+        if (_suppressProfileSave || _suppressReasoningEffortSave) return;
+        var profile = GetSelectedProfile();
+        if (profile is null) return;
+        var updated = ReadSelectedProfileFromControls();
+        var idx = _profiles.FindIndex(p => string.Equals(p.Id, profile.Id, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+            _profiles[idx] = updated;
+        _profilesDirty = true;
+    }
+
     // ── Profile management ───────────────────────────────────────────
 
     private void RefreshProfileListBox() {
@@ -3126,6 +3350,8 @@ internal sealed class PreferencesWindow : Window {
         finally {
             _suppressProfileSave = false;
         }
+
+        QueueSelectedModelMetadataRefresh();
     }
 
     private void UpdateProfileButtons() {
@@ -3266,7 +3492,8 @@ internal sealed class PreferencesWindow : Window {
             Model = model,
             ApiKey = apiKey,
             OfflineMode = offlineMode,
-            WireApi = wireApi
+            WireApi = wireApi,
+            ReasoningEffort = ReadReasoningEffortInput()
         };
     }
 
@@ -3316,7 +3543,8 @@ internal sealed class PreferencesWindow : Window {
             Model = model,
             ApiKey = apiKey,
             OfflineMode = offlineMode,
-            WireApi = wireApi
+            WireApi = wireApi,
+            ReasoningEffort = ReadReasoningEffortInput()
         };
 
         var idx = _profiles.FindIndex(p => string.Equals(p.Id, _currentlyEditedProfileId, StringComparison.OrdinalIgnoreCase));
@@ -3326,6 +3554,11 @@ internal sealed class PreferencesWindow : Window {
 
     private string? ReadWireApiInput() =>
         (_byokWireApiComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+
+    private string? ReadReasoningEffortInput() {
+        var selectedTag = (_reasoningEffortComboBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        return string.IsNullOrWhiteSpace(selectedTag) ? null : selectedTag.Trim();
+    }
 
     private void SelectWireApi(string? wireApi) {
         var normalized = wireApi?.Trim().ToLowerInvariant();
@@ -3546,6 +3779,7 @@ internal sealed class PreferencesWindow : Window {
         PushNotificationService pushNotificationService,
         ISquadCliResolutionService cliResolutionService,
         ISquadCliSelectionStore cliSelectionStore,
+        ICliModelCatalogService cliModelCatalogService,
         string cliWorkspaceDirectory,
         IWorkspacePaths workspacePaths,
         bool showDevOptions,
@@ -3564,6 +3798,7 @@ internal sealed class PreferencesWindow : Window {
             pushNotificationService,
             cliResolutionService,
             cliSelectionStore,
+            cliModelCatalogService,
             cliWorkspaceDirectory,
             workspacePaths,
             onSaved,

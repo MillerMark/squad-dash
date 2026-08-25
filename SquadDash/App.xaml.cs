@@ -67,6 +67,7 @@ namespace SquadDash {
             services.AddSingleton<IEnvironmentProvider, SystemEnvironmentProvider>();
             services.AddSingleton<ISquadCliResolutionService, SquadCliResolutionService>();
             services.AddSingleton<ISquadCliSelectionStore, SquadCliSelectionStore>();
+            services.AddSingleton<ICliModelCatalogService>(provider => new CliModelCatalogService(workspacePaths));
             services.AddSingleton(provider => new SquadCliAdapter(
                 workspacePaths,
                 provider.GetRequiredService<ISquadCliResolutionService>()));

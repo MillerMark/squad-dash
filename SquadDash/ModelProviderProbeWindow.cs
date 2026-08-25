@@ -201,6 +201,10 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
             _modelsGrid.Columns.Add(MakeTextColumn("Base", nameof(ModelProviderProbeResult.ParentModel), 190));
         if (ShouldShowOwnerColumn(_models))
             _modelsGrid.Columns.Add(MakeTextColumn("Owner", nameof(ModelProviderProbeResult.Owner), 110));
+        _modelsGrid.Columns.Add(MakeTextColumn("Category", nameof(ModelProviderProbeResult.CategoryDisplay), 120));
+        _modelsGrid.Columns.Add(MakeTextColumn("Input $/1M", nameof(ModelProviderProbeResult.InputPriceDisplay), 96));
+        _modelsGrid.Columns.Add(MakeTextColumn("Output $/1M", nameof(ModelProviderProbeResult.OutputPriceDisplay), 96));
+        _modelsGrid.Columns.Add(MakeTextColumn("Release", nameof(ModelProviderProbeResult.ReleaseStatusDisplay), 110));
         if (ShouldShowCatalogToolsColumn(_models))
             _modelsGrid.Columns.Add(MakeTextColumn("Catalog Tools", nameof(ModelProviderProbeResult.CatalogToolCallingText), 120));
         _modelsGrid.Columns.Add(MakeStatusColumn("Chat", nameof(ModelProviderProbeResult.ChatStatus), nameof(ModelProviderProbeResult.ChatStatusDisplay), 100));
@@ -1153,6 +1157,10 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
             $"Model: {result.ModelId}",
             $"Parent: {result.ParentModel ?? "(unknown)"}",
             $"Owner: {result.Owner ?? "(unknown)"}",
+            $"Category: {result.CategoryDisplay}",
+            $"Input price per 1M tokens: {result.InputPriceDisplay}",
+            $"Output price per 1M tokens: {result.OutputPriceDisplay}",
+            $"Release status: {result.ReleaseStatusDisplay}",
             $"Catalog tool calling: {result.CatalogToolCallingText}",
             $"Catalog notes: {result.CatalogNotes ?? "(none)"}",
             $"Chat probe: {result.ChatStatusText}",

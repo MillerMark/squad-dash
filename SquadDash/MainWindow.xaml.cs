@@ -205,6 +205,7 @@ public partial class MainWindow : Window
     private readonly SquadInstallerService _installerService;
     private readonly ISquadCliResolutionService _cliResolutionService;
     private readonly ISquadCliSelectionStore _cliSelectionStore;
+    private readonly ICliModelCatalogService _cliModelCatalogService;
     private readonly RunningInstanceRegistry _instanceRegistry;
     private readonly RestartCoordinatorStateStore _restartCoordinatorStateStore;
     private readonly WorkspaceOpenCoordinator _workspaceOpenCoordinator;
@@ -877,6 +878,8 @@ public partial class MainWindow : Window
                                     new SystemEnvironmentProvider());
         _cliSelectionStore = serviceProvider?.GetService<ISquadCliSelectionStore>() ??
                              new SquadCliSelectionStore(_settingsStore);
+        _cliModelCatalogService = serviceProvider?.GetService<ICliModelCatalogService>() ??
+                                  new CliModelCatalogService(workspacePaths ?? WorkspacePathsProvider.Discover());
         _squadOrchestrationService = serviceProvider?.GetService<SquadOrchestrationService>() ?? new SquadOrchestrationService();
         _squadWatchHealthService = serviceProvider?.GetService<SquadWatchHealthService>() ?? new SquadWatchHealthService();
         _instanceRegistry = serviceProvider?.GetRequiredService<RunningInstanceRegistry>() ?? new RunningInstanceRegistry();
@@ -32033,6 +32036,7 @@ public partial class MainWindow : Window
                 _pushNotificationService,
                 _cliResolutionService,
                 _cliSelectionStore,
+                _cliModelCatalogService,
                 _currentWorkspace?.FolderPath ?? _workspacePaths.ApplicationRoot,
                 _workspacePaths,
                 showDevOptions,
