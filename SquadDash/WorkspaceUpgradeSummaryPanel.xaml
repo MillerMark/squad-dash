@@ -1,0 +1,201 @@
+<UserControl x:Class="SquadDash.WorkspaceUpgradeSummaryPanel"
+             x:ClassModifier="internal"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Loaded="WorkspaceUpgradeSummaryPanel_Loaded"
+             KeyboardNavigation.TabNavigation="Continue">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <Style x:Key="SectionBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="CornerRadius" Value="4" />
+        </Style>
+    </UserControl.Resources>
+
+    <Border Background="{DynamicResource PanelSurface}"
+            BorderBrush="{DynamicResource InputBorder}"
+            BorderThickness="1"
+            Padding="12"
+            CornerRadius="4">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Workspace Upgrade Dry-Run Summary"
+                       Foreground="{DynamicResource ImportantText}"
+                       FontSize="{DynamicResource FontSizeSubtitle}"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,8" />
+
+            <Border Grid.Row="1"
+                    Background="{DynamicResource InputSurface}"
+                    BorderBrush="{DynamicResource InputBorder}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="10"
+                    Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="{Binding StateMessage}"
+                               Foreground="{DynamicResource LabelText}"
+                               FontSize="{DynamicResource FontSizeBody}" />
+                    <ProgressBar IsIndeterminate="True"
+                                 Height="6"
+                                 Margin="0,8,0,0"
+                                 Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibilityConverter}}" />
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{DynamicResource AlertBodyText}"
+                               FontSize="{DynamicResource FontSizeBody}"
+                               Margin="0,8,0,0"
+                               TextWrapping="Wrap"
+                               Visibility="{Binding IsFailed, Converter={StaticResource BoolToVisibilityConverter}}" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Row="2"
+                       Text="Note: Only file names are available at this stage — no pre-application content diff is shown. Review Changes shows files at risk, not a full before/after diff."
+                       Foreground="{DynamicResource BodyText}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,10" />
+
+            <ScrollViewer Grid.Row="3"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+                    <Border Style="{StaticResource SectionBorderStyle}"
+                            AutomationProperties.AutomationId="WorkspaceUpgradeSafeFilesSection"
+                            AutomationProperties.Name="Safe additions and refreshes section">
+                        <StackPanel>
+                            <TextBlock Text="Safe additions/refreshes (non-destructive files)"
+                                       Foreground="{DynamicResource LabelText}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding SafeAdditionsOrRefreshes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="{DynamicResource BodyText}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,4" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="(none)"
+                                       Foreground="{DynamicResource SubtleText}"
+                                       Visibility="{Binding IsSafeAdditionsEmpty, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource SectionBorderStyle}"
+                            AutomationProperties.AutomationId="WorkspaceUpgradeTrackedChangesSection"
+                            AutomationProperties.Name="Tracked local changes at risk section">
+                        <StackPanel>
+                            <TextBlock Text="Tracked-local-changes at risk (would be overwritten)"
+                                       Foreground="{DynamicResource LabelText}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding TrackedLocalChangesAtRisk}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="{DynamicResource BodyText}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,4" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="(none)"
+                                       Foreground="{DynamicResource SubtleText}"
+                                       Visibility="{Binding IsTrackedChangesEmpty, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource SectionBorderStyle}"
+                            AutomationProperties.AutomationId="WorkspaceUpgradeGeneratedFilesSection"
+                            AutomationProperties.Name="Generated files at risk section">
+                        <StackPanel>
+                            <TextBlock Text="Generated-files at risk"
+                                       Foreground="{DynamicResource LabelText}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding GeneratedFilesAtRisk}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="{DynamicResource BodyText}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,4" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="(none)"
+                                       Foreground="{DynamicResource SubtleText}"
+                                       Visibility="{Binding IsGeneratedFilesEmpty, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource SectionBorderStyle}"
+                            Visibility="{Binding IsPartiallyApplied, Converter={StaticResource BoolToVisibilityConverter}}"
+                            AutomationProperties.AutomationId="WorkspaceUpgradePartialFilesSection"
+                            AutomationProperties.Name="Partially applied files section">
+                        <StackPanel>
+                            <TextBlock Text="Partially applied files"
+                                       Foreground="{DynamicResource LabelText}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding PartiallyAppliedFiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}"
+                                                   Foreground="{DynamicResource BodyText}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,4" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="(none)"
+                                       Foreground="{DynamicResource SubtleText}"
+                                       Visibility="{Binding IsPartiallyAppliedFilesEmpty, Converter={StaticResource BoolToVisibilityConverter}}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="4"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,12,0,0">
+                <Button x:Name="ReviewChangesButton"
+                        Content="Review Changes"
+                        Style="{StaticResource ThemedButtonStyle}"
+                        Margin="0,0,8,0"
+                        TabIndex="0"
+                        AutomationProperties.AutomationId="WorkspaceUpgradeReviewChangesButton"
+                        AutomationProperties.Name="Review Changes"
+                        Click="ReviewChangesButton_Click" />
+                <Button Content="Apply Workspace Update"
+                        Style="{StaticResource ThemedButtonStyle}"
+                        Margin="0,0,8,0"
+                        TabIndex="1"
+                        AutomationProperties.AutomationId="WorkspaceUpgradeApplyButton"
+                        AutomationProperties.Name="Apply Workspace Update"
+                        Click="ApplyWorkspaceUpdateButton_Click" />
+                <Button Content="Later"
+                        Style="{StaticResource ThemedButtonStyle}"
+                        TabIndex="2"
+                        AutomationProperties.AutomationId="WorkspaceUpgradeLaterButton"
+                        AutomationProperties.Name="Later"
+                        Click="LaterButton_Click" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

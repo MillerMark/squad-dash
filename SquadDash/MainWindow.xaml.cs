@@ -30342,6 +30342,18 @@ public partial class MainWindow : Window
         catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePlanResponseCard_Click), ex); }
     }
 
+    private void SimulateWorkspaceUpgradePanel_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _ = new WorkspaceUpgradeSimulationWindow(this).ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateWorkspaceUpgradePanel_Click), ex);
+        }
+    }
+
     private void SimulateHumanReviewChangeDialog_Click(object sender, RoutedEventArgs e)
     {
         try
