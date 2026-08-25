@@ -18,6 +18,16 @@ internal sealed record WorkspaceUpgradeDryRunResult(
         [],
         [],
         []);
+
+    public bool Success { get; init; } = true;
+
+    public string? ErrorMessage { get; init; }
+
+    public static WorkspaceUpgradeDryRunResult Failed(string? errorMessage) =>
+        new([], [], []) {
+            Success = false,
+            ErrorMessage = errorMessage?.Trim()
+        };
 }
 
 internal sealed record WorkspaceUpgradeResult(

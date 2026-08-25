@@ -57,6 +57,10 @@ namespace SquadDash {
             services.AddSingleton<SquadInstallerService>();
             services.AddSingleton<SquadOrchestrationService>();
             services.AddSingleton<SquadWatchHealthService>();
+            services.AddSingleton<IWorkspaceUpgradeService>(provider => new WorkspaceUpgradeService(
+                new SquadInstallerServiceProcessRunner(),
+                provider.GetRequiredService<SquadInstallerService>(),
+                provider.GetRequiredService<ISquadCliResolutionService>()));
             services.AddSingleton<IProcessRunner, SystemProcessRunner>();
             services.AddSingleton<IEnvironmentProvider, SystemEnvironmentProvider>();
             services.AddSingleton<ISquadCliResolutionService, SquadCliResolutionService>();

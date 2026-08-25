@@ -44,6 +44,17 @@ internal static class SquadCliCommands {
     public static SquadCliCommandDefinition DiscoverSquads { get; } =
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
 
+    // Verified from installed CLI help output:
+    // `npx @bradygaster/squad-cli@insider upgrade --help` (v0.12.0) exposes
+    // workspace-file dry-run as `upgrade --dry-run`.
+    public const string WorkspaceUpgradeDryRunFlag = "--dry-run";
+
+    public static IReadOnlyList<string> WorkspaceUpgradeDryRunArguments { get; } =
+        ["upgrade", WorkspaceUpgradeDryRunFlag];
+
+    public static IReadOnlyList<string> WorkspaceUpgradeApplyArguments { get; } =
+        ["upgrade"];
+
     internal static ProcessStartInfo BuildCommandStartInfo(
         ResolvedCliCandidate candidate,
         string workingDirectory,
